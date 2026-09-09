@@ -1,17 +1,6 @@
 # NotasFlow — Passo a passo (do zero até importar notas)
 
-Repositório: https://github.com/montx2/Cajuru28  
-Branch com tudo pronto: **`arena/01a086ba-cajuru28`**
-
----
-
-## O que você precisa ter instalado
-
-1. **Git** — https://git-scm.com/downloads  
-2. **Docker Desktop** — https://www.docker.com/products/docker-desktop/  
-   - No Windows: instale, reinicie o PC se pedir, e deixe o Docker Desktop **aberto** (ícone de baleia na bandeja).  
-3. **Python 3** (só para gerar as chaves no setup) — https://www.python.org/downloads/  
-   - Na instalação do Windows, marque **"Add Python to PATH"**.
+Repositório: https://github.com/montx2/Cajuru28
 
 ---
 
@@ -23,81 +12,66 @@ Abra o **Prompt de Comando** ou **PowerShell** e rode:
 cd %USERPROFILE%\Desktop
 git clone https://github.com/montx2/Cajuru28.git
 cd Cajuru28
-git checkout arena/01a086ba-cajuru28
 ```
 
 Se preferir baixar ZIP pelo GitHub:
 
-1. Abra https://github.com/montx2/Cajuru28  
-2. Botão verde **Code** → mude a branch para `arena/01a086ba-cajuru28` → **Download ZIP**  
+1. Abra https://github.com/montx2/Cajuru28
+2. Botão verde **Code** → **Download ZIP**
 3. Extraia numa pasta (ex.: `Desktop\Cajuru28`)
 
----
-
-## Passo 2 — Gerar as chaves e o login
-
-**Windows:** dê dois cliques em `SETUP.bat`
-
-**Ou no terminal:**
-
-```bat
-python scripts\gerar_env.py
-```
-
-Isso cria:
-
-- `backend\.env` — chaves do sistema  
-- `frontend\.env.local` — URL da API  
-- `CREDENCIAIS.txt` — **seu email e senha de login**
-
-Abra o arquivo **`CREDENCIAIS.txt`** e anote:
-
-```
-Email:  admin@notasflow.local
-Senha:  (a que o script gerou)
-```
-
-> As chaves secretas **não** ficam no Git de propósito (segurança).  
-> Por isso cada máquina gera as próprias no setup.
+> Não tem Git? Sem problema — baixe o ZIP, extraia, e siga o Passo 2:
+> o `INSTALAR_TUDO.bat` instala o Git (e todo o resto) sozinho.
 
 ---
 
-## Passo 3 — Subir o sistema
+## Passo 2 — Instalar tudo e subir o sistema (1 clique)
 
-1. Abra o **Docker Desktop** e espere ficar “Running”.  
-2. Dê dois cliques em **`INICIAR.bat`**
+**Windows:** dê dois cliques em **`INSTALAR_TUDO.bat`**
 
-Na primeira vez demora vários minutos (baixa imagens e compila o frontend).  
-Quando terminar, o navegador abre em http://localhost:3000
+Ele faz **tudo** sozinho, num PC que não tem nada:
 
-**Pelo terminal (alternativa):**
+1. Instala o **Git** (se não tiver)
+2. Instala o **Python 3** (se não tiver)
+3. Instala o **Docker Desktop** + **WSL2** (se não tiver)
+4. Gera suas **chaves de segurança** e o **login** (`CREDENCIAIS.txt`)
+5. Sobe o sistema (containers) e **abre o painel no navegador**
 
-```bat
-docker compose up --build
+Pontos importantes:
+
+- Se pedir **permissão de Administrador**, clique **Sim**.
+- Se o Windows pedir **reiniciar** (para habilitar o WSL2), reinicie e
+  dê dois cliques em `INSTALAR_TUDO.bat` de novo — ele continua de onde parou.
+- Pode rodar quantas vezes quiser: o que já está instalado é pulado.
+- A primeira vez demora vários minutos (baixa imagens e compila o frontend).
+
+**Linux / macOS:**
+
+```bash
+./INSTALAR_TUDO.sh                  # instala tudo e sobe
+./INSTALAR_TUDO.sh --so-verificar   # só checa o que falta
 ```
 
-Deixe essa janela aberta enquanto usar o sistema.
+Pronto — quando terminar, o navegador abre em http://localhost:3000
 
 | O que | Endereço |
 |-------|----------|
 | Painel | http://localhost:3000 |
 | API / Swagger | http://localhost:8000/docs |
 
-Para parar: `PARAR.bat` ou `Ctrl+C` no terminal + `docker compose down`.
-
 ---
 
-## Passo 4 — Entrar no painel
+## Passo 3 — Entrar no painel
 
-1. Abra http://localhost:3000  
-2. Email e senha do **`CREDENCIAIS.txt`**  
+1. Abra http://localhost:3000
+2. Email e senha do **`CREDENCIAIS.txt`** (gerado na instalação)
 3. Clique em **Entrar**
 
 O usuário admin é criado **sozinho** na primeira subida da API (não precisa de script extra).
 
 ---
 
-## Passo 5 — Cadastrar uma empresa
+## Passo 4 — Cadastrar uma empresa
 
 1. Menu **Empresas** → **Nova empresa**  
 2. Preencha:
@@ -108,7 +82,7 @@ O usuário admin é criado **sozinho** na primeira subida da API (não precisa d
 
 ---
 
-## Passo 6 — Enviar o certificado A1
+## Passo 5 — Enviar o certificado A1
 
 Na tela da empresa:
 
@@ -122,7 +96,7 @@ Repita para as outras empresas (pode cadastrar ~30).
 
 ---
 
-## Passo 7 — Importar as notas
+## Passo 6 — Importar as notas
 
 ### Uma empresa
 
@@ -147,7 +121,7 @@ Menu **Documentos** → filtre por empresa/tipo → botão **XML**.
 
 ---
 
-## Passo 8 — (Recomendado) primeira rodada com poucas empresas
+## Passo 7 — (Recomendado) primeira rodada com poucas empresas
 
 1. Cadastre **1 ou 2** empresas com certificado válido  
 2. Importe só **NFS-e** primeiro  
@@ -189,22 +163,23 @@ Depois volte para `producao` quando validar.
 
 | Sintoma | O que fazer |
 |---------|-------------|
-| `docker` não é reconhecido | Instale/abra o Docker Desktop e reinicie o terminal |
+| `docker` não é reconhecido | Rode `INSTALAR_TUDO.bat` — ele instala o Docker sozinho |
+| Docker instalado mas "não ligou" | Abra o Docker Desktop e espere a baleia parar de animar; ou rode `INICIAR.bat` (ele liga sozinho) |
+| Pediu reinício do Windows | Normal ao habilitar WSL2 — reinicie e rode `INSTALAR_TUDO.bat` de novo |
 | Painel abre mas login falha | Espere ~30s a API subir; confira `docker compose logs api` |
 | “Sem certificado ativo” | Envie o `.pfx` na tela da empresa |
 | Erro 429 / cStat 656 | Cooldown de 1h do governo — aguarde, não force em loop |
 | Porta 3000 ou 8000 em uso | Feche o outro programa ou mude as portas no `docker-compose.yml` |
 | Esqueci a senha do painel | Rode de novo `python scripts\gerar_env.py --forcar` e `docker compose down -v` (apaga o banco local) + `INICIAR.bat` |
+| Quero a versão mais recente | Rode `ATUALIZAR.bat` (baixa o código novo e reconstrói) |
 
 ---
 
 ## Checklist rápido
 
-- [ ] Git + Docker Desktop + Python instalados  
-- [ ] `git clone` + `git checkout arena/01a086ba-cajuru28`  
-- [ ] `SETUP.bat` (gerou `CREDENCIAIS.txt`)  
-- [ ] Docker Desktop aberto  
-- [ ] `INICIAR.bat`  
+- [ ] Baixou o projeto (`git clone` ou ZIP)  
+- [ ] `INSTALAR_TUDO.bat` (instalou tudo e gerou `CREDENCIAIS.txt`)  
+- [ ] Painel abrindo em http://localhost:3000  
 - [ ] Login no painel  
 - [ ] Empresa + certificado A1  
 - [ ] Importar NFS-e  
