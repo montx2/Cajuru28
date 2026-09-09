@@ -403,6 +403,8 @@ DATABASE_URL=postgresql://notasflow:notasflow@db:5432/notasflow
 REDIS_URL=redis://redis:6379/0
 SECRET_KEY=$($dados.SECRET_KEY)
 VAULT_MASTER_KEY=$($dados.VAULT_MASTER_KEY)
+# Use apenas durante uma rotação temporária; separe chaves antigas por vírgula.
+VAULT_PREVIOUS_MASTER_KEYS=
 DADOS_DIR=/data
 ACCESS_TOKEN_EXPIRE_MINUTES=480
 CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,*

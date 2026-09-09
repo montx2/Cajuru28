@@ -10,38 +10,63 @@ from cryptography.fernet import Fernet, InvalidToken
 
 from app.core.config import settings
 
-_fernet: Fernet | None = None
+
+class SegredoIndecifravelError(ValueError):
+    """A senha cifrada não pode ser aberta com nenhuma chave configurada."""
 
 
-def _obter_fernet() -> Fernet:
-    global _fernet
-    if _fernet is not None:
-        return _fernet
-    chave = (settings.vault_master_key or "").strip()
-    if not chave:
+_MENSAGEM_SEGREDO_INDECIFRAVEL = (
+    "Certificado inacessível; restaure a chave do cofre anterior ou envie o .pfx novamente."
+)
+
+
+def _obter_fernets() -> list[Fernet]:
+    """
+    Retorna a chave atual e, opcionalmente, as chaves anteriores.
+
+    `VAULT_PREVIOUS_MASTER_KEYS` permite uma rotação segura: a chave nova é
+    usada para novas gravações e as antigas são aceitas apenas para leitura
+    enquanto os certificados existentes são reenviados. As chaves são
+    separadas por vírgula e, assim como a chave principal, jamais vão ao banco.
+    """
+    chave_atual = (settings.vault_master_key or "").strip()
+    if not chave_atual:
         raise RuntimeError(
             "VAULT_MASTER_KEY não configurada. Gere com: "
             "python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
         )
-    _fernet = Fernet(chave.encode())
-    return _fernet
+
+    chaves = [chave_atual]
+    chaves.extend(
+        chave.strip()
+        for chave in (settings.vault_previous_master_keys or "").split(",")
+        if chave.strip() and chave.strip() != chave_atual
+    )
+
+    try:
+        return [Fernet(chave.encode()) for chave in chaves]
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(
+            "VAULT_MASTER_KEY ou VAULT_PREVIOUS_MASTER_KEYS não contém uma chave Fernet válida."
+        ) from exc
 
 
 def cifrar_segredo(texto_puro: str) -> str:
     """Cifra a senha do certificado antes de gravar no banco."""
-    return _obter_fernet().encrypt(texto_puro.encode()).decode()
+    return _obter_fernets()[0].encrypt(texto_puro.encode()).decode()
 
 
 def decifrar_segredo(texto_cifrado: str) -> str:
     """
-    Decifra a senha do certificado. Só deve ser chamado no exato momento de
-    abrir o .pfx para autenticação mTLS — nunca para exibir em tela, log ou
-    resposta de API.
+    Decifra a senha do certificado no momento de abrir o .pfx para mTLS.
+    Nunca use o retorno para exibir, registrar em log ou responder pela API.
     """
-    try:
-        return _obter_fernet().decrypt(texto_cifrado.encode()).decode()
-    except InvalidToken as exc:
-        raise ValueError(
-            "Não foi possível decifrar o segredo — chave mestra incorreta "
-            "ou dado corrompido."
-        ) from exc
+    for fernet in _obter_fernets():
+        try:
+            return fernet.decrypt(texto_cifrado.encode()).decode()
+        except InvalidToken:
+            # É normal uma cifra antiga não abrir com a chave atual durante
+            # uma rotação; tenta as chaves anteriores antes de falhar.
+            continue
+
+    raise SegredoIndecifravelError(_MENSAGEM_SEGREDO_INDECIFRAVEL)

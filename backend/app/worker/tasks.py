@@ -2,7 +2,8 @@ import os
 from datetime import datetime, timezone
 
 from dateutil import parser as date_parser
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from app.core.config import settings
 from app.core.vault import decifrar_segredo
@@ -99,8 +100,10 @@ def importar_documentos(self, empresa_id: int, tipo: str, execucao_id: int) -> N
                 )
 
                 for doc in lote.documentos:
-                    _gravar_documento(db, empresa_id, tipo_doc, doc)
-                    total_importado += 1
+                    # A fonte pode reenviar documentos de um NSU já visitado.
+                    # A contagem representa apenas o que entrou agora no banco.
+                    if _gravar_documento(db, empresa_id, tipo_doc, doc):
+                        total_importado += 1
 
                 ultimo_nsu = lote.proximo_nsu
                 execucao.ultimo_nsu = ultimo_nsu
@@ -164,69 +167,75 @@ def _normalizar_chave(chave: str | None) -> str:
     return str(chave).strip()[:60]
 
 
-def _ja_na_sessao(db, empresa_id: int, chave: str) -> bool:
-    """Detecta duplicata ainda não commitada (mesmo lote / mesmo flush)."""
-    for obj in list(db.new) + list(db.dirty) + list(db.identity_map.values()):
-        if (
-            isinstance(obj, DocumentoFiscal)
-            and obj.empresa_id == empresa_id
-            and obj.chave_acesso == chave
-        ):
-            return True
-    return False
+def _inserir_documento_sem_duplicar(db, valores: dict) -> bool:
+    """
+    Insere um documento de forma atômica e retorna se uma linha foi criada.
+
+    Consultar antes de inserir não é suficiente: dois workers podem consultar
+    ao mesmo tempo, ambos concluírem que a chave não existe e um deles receber
+    `psycopg2.errors.UniqueViolation`. O `ON CONFLICT DO NOTHING` deixa o
+    próprio PostgreSQL arbitrar essa corrida sem abortar a importação.
+
+    SQLite usa a mesma sintaxe para manter os testes locais fiéis ao banco de
+    produção. A aplicação é suportada em PostgreSQL; outro dialeto recebe um
+    erro explícito, em vez de voltar ao padrão inseguro de consulta + insert.
+    """
+    dialeto = db.get_bind().dialect.name
+    tabela = DocumentoFiscal.__table__
+
+    if dialeto == "postgresql":
+        comando = postgresql_insert(tabela).values(**valores).on_conflict_do_nothing(
+            constraint="uq_documento_por_empresa"
+        )
+    elif dialeto == "sqlite":
+        comando = sqlite_insert(tabela).values(**valores).on_conflict_do_nothing(
+            index_elements=("empresa_id", "chave_acesso")
+        )
+    else:
+        raise RuntimeError(
+            f"Banco não suportado para importação idempotente: {dialeto}. Use PostgreSQL."
+        )
+
+    resultado = db.execute(comando)
+    return resultado.rowcount == 1
 
 
 def _gravar_documento(db, empresa_id: int, tipo: TipoDocumentoFiscal, doc) -> bool:
     """
-    Persiste um documento. Idempotente: chave já existente (no banco ou no
-    lote atual) é ignorada — nunca estoura uq_documento_por_empresa.
-    Retorna True se gravou um documento novo.
+    Persiste um documento de forma idempotente.
+
+    A mesma nota pode voltar em uma consulta posterior ou chegar a workers em
+    paralelo. A restrição `uq_documento_por_empresa` continua sendo a regra
+    final, mas o insert atômico absorve o conflito e a task segue normalmente.
+    Retorna True somente quando uma nota nova foi gravada.
     """
     chave = _normalizar_chave(getattr(doc, "chave_acesso", None))
     if not chave:
         return False
 
-    if _ja_na_sessao(db, empresa_id, chave):
-        return False
-
-    ja_existe = (
-        db.query(DocumentoFiscal)
-        .filter(
-            DocumentoFiscal.empresa_id == empresa_id,
-            DocumentoFiscal.chave_acesso == chave,
-        )
-        .first()
-    )
-    if ja_existe:
-        return False
-
     pasta = os.path.join(settings.dados_dir, "xml", str(empresa_id), tipo.value)
-    os.makedirs(pasta, exist_ok=True)
     nome_seguro = "".join(c for c in chave if c.isalnum() or c in "-_") or f"nsu_{doc.nsu}"
     xml_path = os.path.join(pasta, f"{nome_seguro}.xml")
-    with open(xml_path, "wb") as f:
-        f.write(doc.xml)
-
     direcao = doc.direcao if doc.direcao in ("tomada", "prestada") else "tomada"
 
-    novo = DocumentoFiscal(
-        empresa_id=empresa_id,
-        tipo=tipo,
-        direcao=DirecaoDocumento(direcao),
-        chave_acesso=chave,
-        nsu=str(doc.nsu),
-        data_emissao=_parse_data_emissao(doc.data_emissao),
-        valor_total=float(doc.valor_total or 0),
-        xml_path=xml_path,
-    )
-
-    # SAVEPOINT: UniqueViolation no flush não aborta o lote inteiro.
-    try:
-        with db.begin_nested():
-            db.add(novo)
-            db.flush()
-    except IntegrityError:
+    valores = {
+        "empresa_id": empresa_id,
+        "tipo": tipo,
+        "direcao": DirecaoDocumento(direcao),
+        "chave_acesso": chave,
+        "nsu": str(doc.nsu),
+        "data_emissao": _parse_data_emissao(doc.data_emissao),
+        "valor_total": float(doc.valor_total or 0),
+        "xml_path": xml_path,
+    }
+    if not _inserir_documento_sem_duplicar(db, valores):
         return False
+
+    # Só grava o XML depois de vencer a disputa no banco. Assim uma
+    # reimportação não sobrescreve o arquivo já associado à nota existente.
+    os.makedirs(pasta, exist_ok=True)
+    with open(xml_path, "wb") as f:
+        f.write(doc.xml)
     return True
 
 

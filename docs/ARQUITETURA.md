@@ -32,6 +32,14 @@ com uma chave mestra que **vive só no `.env` do servidor**, nunca no banco,
 nunca no repositório. Isso já elimina o problema real de hoje (senha em
 planilha de Excel visível a qualquer um com acesso ao Dropbox).
 
+A chave `VAULT_MASTER_KEY` precisa permanecer estável enquanto existirem
+certificados gravados. Em uma rotação planejada, a chave nova fica em
+`VAULT_MASTER_KEY` e a antiga entra temporariamente em
+`VAULT_PREVIOUS_MASTER_KEYS` (separada por vírgula). O cofre grava somente
+com a nova, mas consegue abrir as senhas antigas até cada certificado ser
+reenviado. Se a chave anterior foi perdida, a criptografia não pode — e não
+deve — ser quebrada: reenvie o `.pfx` e a senha para criar um registro novo.
+
 Quando o projeto crescer para multiempresa de verdade, essa camada troca de
 lugar (por HashiCorp Vault, AWS KMS, etc.) sem mudar a interface que o resto
 do sistema usa (`vault.cifrar()` / `vault.decifrar()`) — só a implementação
