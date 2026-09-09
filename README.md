@@ -56,12 +56,35 @@ Fases em [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 **Guia completo:** [`PASSO_A_PASSO.md`](PASSO_A_PASSO.md)
 
-### Resumo (Windows)
+### Instalação automática — PC zerado (recomendado)
+
+**Windows:** dê dois cliques em **`INSTALAR_TUDO.bat`**
+
+Ele instala sozinho tudo o que faltar (Git, Python 3, Docker Desktop com
+WSL2), gera as chaves de segurança, cria o login, sobe o sistema e abre o
+painel no navegador. Pode rodar quantas vezes quiser — o que já está
+instalado é detectado e pulado. Se pedir permissão de Administrador, clique **Sim**.
+
+**Linux / macOS:**
+
+```bash
+./INSTALAR_TUDO.sh          # instala tudo e sobe o sistema
+./INSTALAR_TUDO.sh --so-verificar   # só mostra o que falta, sem instalar
+```
+
+| Script | O que faz |
+| ------ | --------- |
+| `INSTALAR_TUDO.bat` / `.sh` | Instala TUDO num PC zerado e sobe o sistema |
+| `INICIAR.bat` | Liga o sistema (liga o Docker sozinho; oferece instalar se faltar) |
+| `PARAR.bat` | Para o sistema (`docker compose down`) |
+| `ATUALIZAR.bat` / `.sh` | Atualiza o código (`git pull`) e reconstrói |
+| `SETUP.bat` | Só gera as chaves e o `CREDENCIAIS.txt` |
+
+### Resumo manual (alternativa)
 
 ```bat
 git clone https://github.com/montx2/Cajuru28.git
 cd Cajuru28
-git checkout arena/01a086ba-cajuru28
 SETUP.bat          :: gera chaves + CREDENCIAIS.txt
 INICIAR.bat        :: sobe Docker e abre o painel
 ```
