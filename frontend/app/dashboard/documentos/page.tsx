@@ -23,7 +23,10 @@ function TabelaNotas({ documentos }: { documentos: DocumentoFiscal[] }) {
     );
   }
 
-  const total = documentos.reduce((soma, doc) => soma + doc.valor_total, 0);
+  const total = documentos
+    .filter((doc) => doc.status !== "cancelada")
+    .reduce((soma, doc) => soma + doc.valor_total, 0);
+  const canceladas = documentos.filter((doc) => doc.status === "cancelada").length;
 
   return (
     <>
@@ -33,19 +36,38 @@ function TabelaNotas({ documentos }: { documentos: DocumentoFiscal[] }) {
             <th className="py-2 font-normal">Chave de acesso</th>
             <th className="py-2 font-normal">Tipo</th>
             <th className="py-2 font-normal">Emissão</th>
+            <th className="py-2 font-normal">Situação</th>
             <th className="py-2 text-right font-normal">Valor</th>
             <th className="py-2 text-right font-normal">Arquivo</th>
           </tr>
         </thead>
         <tbody>
           {documentos.map((doc) => (
-            <tr key={doc.id} className="border-b border-line last:border-0">
+            <tr
+              key={doc.id}
+              className={`border-b border-line last:border-0 ${
+                doc.status === "cancelada" ? "bg-danger-soft/40" : ""
+              }`}
+            >
               <td className="py-3 font-mono text-ink" title={doc.chave_acesso}>
                 {truncarChave(doc.chave_acesso)}
               </td>
               <td className="py-3 uppercase text-ink-muted">{doc.tipo}</td>
               <td className="py-3 text-ink-muted">{formatarData(doc.data_emissao)}</td>
-              <td className="py-3 text-right font-mono text-ink">
+              <td className="py-3">
+                {doc.status === "cancelada" ? (
+                  <span
+                    className="text-xs font-medium text-danger"
+                    title={doc.motivo_cancelamento ?? ""}
+                  >
+                    CANCELADA
+                    {doc.cancelado_em ? ` em ${formatarData(doc.cancelado_em)}` : ""}
+                  </span>
+                ) : (
+                  <span className="text-xs text-ink-muted">Normal</span>
+                )}
+              </td>
+              <td className={`py-3 text-right font-mono ${doc.status === "cancelada" ? "text-ink-muted line-through" : "text-ink"}`}>
                 {FORMATADOR_MOEDA.format(doc.valor_total)}
               </td>
               <td className="py-3 text-right">
@@ -64,7 +86,7 @@ function TabelaNotas({ documentos }: { documentos: DocumentoFiscal[] }) {
         </tbody>
       </table>
       <p className="mt-3 text-right text-sm text-ink-muted">
-        {documentos.length} notas — total{" "}
+        {documentos.length} notas{canceladas > 0 ? ` (${canceladas} canceladas)` : ""} — total{" "}
         <span className="font-mono text-ink">{FORMATADOR_MOEDA.format(total)}</span>
       </p>
     </>
@@ -75,7 +97,7 @@ export default function DocumentosPage() {
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
   const [empresaId, setEmpresaId] = useState<number | null>(null);
   const [tipo, setTipo] = useState<TipoDocumentoFiscal | "">("");
-  const [aba, setAba] = useState<DirecaoDocumento | "todas">("todas");
+  const [aba, setAba] = useState<DirecaoDocumento | "todas" | "cancelada">("todas");
   const [documentos, setDocumentos] = useState<DocumentoFiscal[]>([]);
   const [carregando, setCarregando] = useState(false);
 
@@ -97,6 +119,7 @@ export default function DocumentosPage() {
 
   const tomadas = documentos.filter((d) => d.direcao === "tomada");
   const prestadas = documentos.filter((d) => d.direcao === "prestada");
+  const canceladas = documentos.filter((d) => d.status === "cancelada");
 
   return (
     <div>
@@ -127,12 +150,13 @@ export default function DocumentosPage() {
         </select>
       </div>
 
-      <div className="mb-6 flex gap-2">
+      <div className="mb-6 flex flex-wrap gap-2">
         {(
           [
             ["todas", "Todas"],
             ["tomada", `Tomadas (${tomadas.length})`],
             ["prestada", `Prestadas (${prestadas.length})`],
+            ["cancelada", `Canceladas (${canceladas.length})`],
           ] as const
         ).map(([id, rotulo]) => (
           <button
@@ -172,9 +196,20 @@ export default function DocumentosPage() {
             </p>
             <TabelaNotas documentos={prestadas} />
           </section>
+          <section>
+            <p className="mb-3 text-base font-medium text-ink">Canceladas</p>
+            <p className="mb-3 text-xs text-ink-muted">
+              Notas canceladas identificadas pelos eventos da distribuição.
+            </p>
+            <TabelaNotas documentos={canceladas} />
+          </section>
         </div>
       ) : (
-        <TabelaNotas documentos={aba === "tomada" ? tomadas : prestadas} />
+        <TabelaNotas
+          documentos={
+            aba === "tomada" ? tomadas : aba === "prestada" ? prestadas : canceladas
+          }
+        />
       )}
     </div>
   );

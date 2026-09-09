@@ -3,7 +3,12 @@ import re
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
-from app.models import DirecaoDocumento, StatusExecucao, TipoDocumentoFiscal
+from app.models import (
+    DirecaoDocumento,
+    StatusDocumentoFiscal,
+    StatusExecucao,
+    TipoDocumentoFiscal,
+)
 
 _UFS_VALIDAS = {
     "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS",
@@ -67,6 +72,29 @@ class EmpresaResposta(BaseModel):
     criado_em: datetime
 
 
+class ItemLoteEmpresas(BaseModel):
+    """Resultado de UMA entrada (arquivo .pfx ou linha do CSV) do lote."""
+
+    origem: str  # nome do arquivo ou "CSV linha N"
+    cnpj_cpf: str = ""
+    razao_social: str = ""
+    uf: str = ""
+    status: str  # criada | certificado_atualizado | ja_existia | erro
+    mensagem: str = ""
+    empresa_id: int | None = None
+    certificado_id: int | None = None
+    validade: datetime | None = None
+
+
+class LoteEmpresasResposta(BaseModel):
+    total: int
+    criadas: int
+    certificados: int
+    ja_existiam: int
+    erros: int
+    itens: list[ItemLoteEmpresas]
+
+
 # ---------- Certificado ----------
 # A senha entra em texto puro só nesta requisição (via HTTPS) e é cifrada
 # imediatamente no endpoint antes de tocar o banco — nunca é devolvida.
@@ -99,6 +127,16 @@ class DocumentoFiscalResposta(BaseModel):
     chave_acesso: str
     data_emissao: datetime
     valor_total: float
+    status: StatusDocumentoFiscal
+    motivo_cancelamento: str | None = None
+    cancelado_em: datetime | None = None
+
+
+class ResumoDocumentos(BaseModel):
+    total: int
+    normais: int
+    canceladas: int
+    por_tipo: dict[str, int]
 
 
 # ---------- Importação ----------
@@ -125,8 +163,11 @@ class ExecucaoImportacaoResposta(BaseModel):
     tipo: TipoDocumentoFiscal
     status: StatusExecucao
     documentos_importados: int
+    documentos_cancelados: int
+    eventos_nao_reconhecidos: int
     iniciado_em: datetime
     finalizado_em: datetime | None
     mensagem_erro: str | None = None
+    aviso: str | None = None
     ultimo_nsu: str | None = None
     empresa_razao_social: str | None = None

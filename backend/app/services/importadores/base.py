@@ -9,7 +9,9 @@ NFe (Fase 2) e CT-e (Fase 3) sem tocar no que já funciona para NFS-e.
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from app.services.importadores.eventos import EventoFiscal
 
 
 @dataclass
@@ -27,6 +29,13 @@ class LoteImportado:
     documentos: list[DocumentoBaixado]
     proximo_nsu: str
     ha_mais_documentos: bool
+    # Eventos recebidos neste lote (cancelamento etc.) — nunca descartados.
+    eventos: list[EventoFiscal] = field(default_factory=list)
+    # Itens que pareciam ser eventos mas não puderam ser aplicados nem
+    # classificados como documento (contabilizados no painel).
+    eventos_nao_reconhecidos: int = 0
+    # Itens que falharam na conversão/decodificação (descritos em `erros`).
+    erros: list[str] = field(default_factory=list)
 
 
 class ImportadorFiscal(ABC):

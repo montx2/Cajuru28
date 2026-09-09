@@ -13,10 +13,13 @@ from app.models import (
     DirecaoDocumento,
     DocumentoFiscal,
     Empresa,
+    EventoFiscalPendente,
     ExecucaoImportacao,
+    StatusDocumentoFiscal,
     StatusExecucao,
     TipoDocumentoFiscal,
 )
+from app.services.importadores.eventos import EventoFiscal
 from app.services.importadores import obter_importador
 from app.services.mtls import sessao_mtls
 from app.worker.celery_app import celery_app
@@ -88,6 +91,8 @@ def importar_documentos(self, empresa_id: int, tipo: str, execucao_id: int) -> N
 
         importador = obter_importador(tipo_doc)
         total_importado = execucao.documentos_importados or 0
+        total_cancelados = execucao.documentos_cancelados or 0
+        total_nao_reconhecidos = execucao.eventos_nao_reconhecidos or 0
 
         with sessao_mtls(pfx_bytes, senha) as (cert_path, key_path):
             for _ in range(TAMANHO_MAXIMO_LOTE_POR_EXECUCAO):
@@ -104,10 +109,23 @@ def importar_documentos(self, empresa_id: int, tipo: str, execucao_id: int) -> N
                     # A contagem representa apenas o que entrou agora no banco.
                     if _gravar_documento(db, empresa_id, tipo_doc, doc):
                         total_importado += 1
+                        if _aplicar_eventos_pendentes(db, empresa_id, tipo_doc, doc.chave_acesso):
+                            total_cancelados += 1
+
+                for evento in lote.eventos:
+                    resultado = _processar_evento(db, empresa_id, tipo_doc, evento)
+                    if resultado == "aplicado":
+                        total_cancelados += 1
+
+                total_nao_reconhecidos += lote.eventos_nao_reconhecidos
 
                 ultimo_nsu = lote.proximo_nsu
                 execucao.ultimo_nsu = ultimo_nsu
                 execucao.documentos_importados = total_importado
+                execucao.documentos_cancelados = total_cancelados
+                execucao.eventos_nao_reconhecidos = total_nao_reconhecidos
+                if lote.erros:
+                    execucao.aviso = _resumir_avisos(execucao.aviso, lote.erros)
                 db.commit()  # checkpoint a cada lote — nada se perde numa queda
 
                 if not lote.ha_mais_documentos:
@@ -227,6 +245,7 @@ def _gravar_documento(db, empresa_id: int, tipo: TipoDocumentoFiscal, doc) -> bo
         "data_emissao": _parse_data_emissao(doc.data_emissao),
         "valor_total": float(doc.valor_total or 0),
         "xml_path": xml_path,
+        "status": StatusDocumentoFiscal.NORMAL,
     }
     if not _inserir_documento_sem_duplicar(db, valores):
         return False
@@ -237,6 +256,144 @@ def _gravar_documento(db, empresa_id: int, tipo: TipoDocumentoFiscal, doc) -> bo
     with open(xml_path, "wb") as f:
         f.write(doc.xml)
     return True
+
+
+def _processar_evento(
+    db, empresa_id: int, tipo: TipoDocumentoFiscal, evento: EventoFiscal
+) -> str:
+    """
+    Aplica um evento recebido na distribuição.
+
+    Retorno:
+    - "aplicado": cancelamento aplicado numa nota já gravada;
+    - "pendente": cancelamento guardado (a nota ainda não chegou);
+    - "duplicado": evento repetido, já tratado antes;
+    - "ignorado": não é cancelamento (CC-e etc.) — apenas contabilizado.
+    """
+    if not evento.eh_cancelamento:
+        return "ignorado"
+
+    chave = _normalizar_chave(evento.chave_acesso)
+    if not chave:
+        # Cancelamento sem chave: não dá pra aplicar, mas não pode sumir.
+        return "ignorado"
+
+    documento = (
+        db.query(DocumentoFiscal)
+        .filter(
+            DocumentoFiscal.empresa_id == empresa_id,
+            DocumentoFiscal.tipo == tipo,
+            DocumentoFiscal.chave_acesso == chave,
+        )
+        .first()
+    )
+
+    if documento is not None:
+        if documento.status != StatusDocumentoFiscal.CANCELADA:
+            documento.status = StatusDocumentoFiscal.CANCELADA
+            documento.motivo_cancelamento = (evento.motivo or "Cancelamento")[:2000]
+            documento.cancelado_em = _parse_data_evento(evento.data_evento)
+            return "aplicado"
+        return "duplicado"
+
+    # A nota ainda não chegou (ordem de NSU não é garantida): guarda o
+    # evento para aplicar automaticamente quando o documento for gravado.
+    existente = (
+        db.query(EventoFiscalPendente)
+        .filter(
+            EventoFiscalPendente.empresa_id == empresa_id,
+            EventoFiscalPendente.tipo == tipo,
+            EventoFiscalPendente.chave_acesso == chave,
+            EventoFiscalPendente.tipo_evento == evento.tipo_evento,
+        )
+        .first()
+    )
+    if existente is not None:
+        return "duplicado"
+
+    db.add(
+        EventoFiscalPendente(
+            empresa_id=empresa_id,
+            tipo=tipo,
+            chave_acesso=chave,
+            tipo_evento=evento.tipo_evento,
+            nsu=str(evento.nsu or "0"),
+            motivo=(evento.motivo or "Cancelamento")[:2000],
+            data_evento=_parse_data_evento(evento.data_evento),
+        )
+    )
+    return "pendente"
+
+
+def _aplicar_eventos_pendentes(
+    db, empresa_id: int, tipo: TipoDocumentoFiscal, chave: str
+) -> bool:
+    """
+    Quando a nota chega, aplica os cancelamentos que ficaram pendentes.
+    Retorna True se algum cancelamento foi aplicado agora.
+    """
+    chave = _normalizar_chave(chave)
+    pendentes = (
+        db.query(EventoFiscalPendente)
+        .filter(
+            EventoFiscalPendente.empresa_id == empresa_id,
+            EventoFiscalPendente.tipo == tipo,
+            EventoFiscalPendente.chave_acesso == chave,
+            EventoFiscalPendente.tipo_evento == "cancelamento",
+            EventoFiscalPendente.processado.is_(False),
+        )
+        .all()
+    )
+    if not pendentes:
+        return False
+
+    documento = (
+        db.query(DocumentoFiscal)
+        .filter(
+            DocumentoFiscal.empresa_id == empresa_id,
+            DocumentoFiscal.tipo == tipo,
+            DocumentoFiscal.chave_acesso == chave,
+        )
+        .first()
+    )
+    if documento is None:
+        return False
+
+    aplicou = False
+    for pendente in pendentes:
+        pendente.processado = True
+        pendente.documento_id = documento.id
+        if documento.status != StatusDocumentoFiscal.CANCELADA:
+            documento.status = StatusDocumentoFiscal.CANCELADA
+            documento.motivo_cancelamento = pendente.motivo or "Cancelamento"
+            documento.cancelado_em = pendente.data_evento or datetime.now(timezone.utc)
+            aplicou = True
+    return aplicou
+
+
+def _parse_data_evento(valor: str | None) -> datetime | None:
+    if not valor or not str(valor).strip():
+        return datetime.now(timezone.utc)
+    try:
+        dt = date_parser.isoparse(str(valor).strip())
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except (ValueError, TypeError, OverflowError):
+        return datetime.now(timezone.utc)
+
+
+def _resumir_avisos(aviso_atual: str | None, novos: list[str], limite: int = 20) -> str:
+    """Anexa itens ignorados ao aviso da execução, sem crescer sem limite."""
+    itens = [a for a in (aviso_atual or "").split("\n") if a and not a.startswith("…")]
+    for novo in novos:
+        if novo not in itens:
+            itens.append(novo)
+    if len(itens) > limite:
+        resto = len(itens) - limite
+        itens = itens[:limite]
+        itens.append(f"… e mais {resto} item(ns) ignorado(s) no total")
+    return "\n".join(itens)
 
 
 def _marcar_erro(db, execucao: ExecucaoImportacao | None, mensagem: str) -> None:

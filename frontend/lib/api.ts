@@ -6,6 +6,9 @@ import type {
   Empresa,
   ExecucaoImportacao,
   ItemImportacaoLote,
+  LoteEmpresasResposta,
+  ResumoDocumentos,
+  StatusDocumentoFiscal,
   TipoDocumentoFiscal,
 } from "./types";
 
@@ -64,6 +67,20 @@ export const api = {
   criarEmpresa: (razao_social: string, cnpj_cpf: string, uf: string) =>
     chamar<Empresa>("/empresas", { method: "POST", body: JSON.stringify({ razao_social, cnpj_cpf, uf }) }),
 
+  importarEmpresasEmMassa: (
+    arquivos: File[],
+    csv: File | null,
+    senha: string,
+    ufPadrao: string
+  ) => {
+    const form = new FormData();
+    form.append("senha", senha);
+    form.append("uf_padrao", ufPadrao);
+    for (const arquivo of arquivos) form.append("arquivos", arquivo);
+    if (csv) form.append("csv_arquivo", csv);
+    return chamar<LoteEmpresasResposta>("/empresas/lote", { method: "POST", body: form });
+  },
+
   obterEmpresa: (id: number) => chamar<Empresa>(`/empresas/${id}`),
 
   listarCertificados: (empresaId: number) =>
@@ -79,14 +96,23 @@ export const api = {
 
   listarDocumentos: (
     empresaId: number,
-    filtros?: { tipo?: TipoDocumentoFiscal; data_inicio?: string; data_fim?: string }
+    filtros?: {
+      tipo?: TipoDocumentoFiscal;
+      status?: StatusDocumentoFiscal;
+      data_inicio?: string;
+      data_fim?: string;
+    }
   ) => {
     const params = new URLSearchParams({ empresa_id: String(empresaId) });
     if (filtros?.tipo) params.set("tipo", filtros.tipo);
+    if (filtros?.status) params.set("status", filtros.status);
     if (filtros?.data_inicio) params.set("data_inicio", filtros.data_inicio);
     if (filtros?.data_fim) params.set("data_fim", filtros.data_fim);
     return chamar<DocumentoFiscal[]>(`/documentos?${params.toString()}`);
   },
+
+  resumoDocumentos: (empresaId: number) =>
+    chamar<ResumoDocumentos>(`/documentos/resumo?empresa_id=${empresaId}`),
 
   urlXmlDocumento: (documentoId: number) => {
     const token = obterToken();

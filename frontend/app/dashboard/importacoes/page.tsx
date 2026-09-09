@@ -58,6 +58,7 @@ export default function ImportacoesPage() {
               <th className="py-2 font-normal">Tipo</th>
               <th className="py-2 font-normal">Status</th>
               <th className="py-2 text-right font-normal">Notas</th>
+              <th className="py-2 text-right font-normal">Canceladas</th>
               <th className="py-2 text-right font-normal">Início</th>
             </tr>
           </thead>
@@ -80,8 +81,20 @@ export default function ImportacoesPage() {
                         : execucao.mensagem_erro}
                     </p>
                   )}
+                  {execucao.aviso && (
+                    <p className="mt-1 max-w-md text-xs text-ink-muted" title={execucao.aviso}>
+                      ⚠ {execucao.aviso.split("\n")[0]}
+                    </p>
+                  )}
                 </td>
                 <td className="py-3 text-right font-mono text-ink">{execucao.documentos_importados}</td>
+                <td className="py-3 text-right font-mono text-ink">
+                  {execucao.documentos_cancelados > 0 ? (
+                    <span className="text-danger">{execucao.documentos_cancelados}</span>
+                  ) : (
+                    <span className="text-ink-muted">–</span>
+                  )}
+                </td>
                 <td className="py-3 text-right text-ink-muted">{formatarHora(execucao.iniciado_em)}</td>
               </tr>
             ))}

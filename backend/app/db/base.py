@@ -23,3 +23,8 @@ def criar_tabelas() -> None:
     from app import models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
+    # Colunas novas em tabelas que já existiam não aparecem no create_all;
+    # o ALTER TABLE idempotente abaixo cobre bancos já populados.
+    from app.db.migracoes import aplicar_migracoes
+
+    aplicar_migracoes()
