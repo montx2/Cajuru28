@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import type { DocumentoFiscal, Empresa, TipoDocumentoFiscal } from "@/lib/types";
+import type { DirecaoDocumento, DocumentoFiscal, Empresa, TipoDocumentoFiscal } from "@/lib/types";
 
 const FORMATADOR_MOEDA = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -14,10 +14,68 @@ function truncarChave(chave: string): string {
   return `${chave.slice(0, 8)}…${chave.slice(-6)}`;
 }
 
+function TabelaNotas({ documentos }: { documentos: DocumentoFiscal[] }) {
+  if (documentos.length === 0) {
+    return (
+      <div className="border border-line bg-surface p-6 text-center">
+        <p className="text-sm text-ink-muted">Nenhuma nota neste grupo.</p>
+      </div>
+    );
+  }
+
+  const total = documentos.reduce((soma, doc) => soma + doc.valor_total, 0);
+
+  return (
+    <>
+      <table className="w-full border-t border-line text-sm">
+        <thead>
+          <tr className="border-b border-line text-left text-ink-muted">
+            <th className="py-2 font-normal">Chave de acesso</th>
+            <th className="py-2 font-normal">Tipo</th>
+            <th className="py-2 font-normal">Emissão</th>
+            <th className="py-2 text-right font-normal">Valor</th>
+            <th className="py-2 text-right font-normal">Arquivo</th>
+          </tr>
+        </thead>
+        <tbody>
+          {documentos.map((doc) => (
+            <tr key={doc.id} className="border-b border-line last:border-0">
+              <td className="py-3 font-mono text-ink" title={doc.chave_acesso}>
+                {truncarChave(doc.chave_acesso)}
+              </td>
+              <td className="py-3 uppercase text-ink-muted">{doc.tipo}</td>
+              <td className="py-3 text-ink-muted">{formatarData(doc.data_emissao)}</td>
+              <td className="py-3 text-right font-mono text-ink">
+                {FORMATADOR_MOEDA.format(doc.valor_total)}
+              </td>
+              <td className="py-3 text-right">
+                <button
+                  type="button"
+                  onClick={() =>
+                    api.baixarXmlDocumento(doc.id, `${doc.chave_acesso}.xml`).catch(() => {})
+                  }
+                  className="text-accent hover:underline"
+                >
+                  XML
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="mt-3 text-right text-sm text-ink-muted">
+        {documentos.length} notas — total{" "}
+        <span className="font-mono text-ink">{FORMATADOR_MOEDA.format(total)}</span>
+      </p>
+    </>
+  );
+}
+
 export default function DocumentosPage() {
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
   const [empresaId, setEmpresaId] = useState<number | null>(null);
   const [tipo, setTipo] = useState<TipoDocumentoFiscal | "">("");
+  const [aba, setAba] = useState<DirecaoDocumento | "todas">("todas");
   const [documentos, setDocumentos] = useState<DocumentoFiscal[]>([]);
   const [carregando, setCarregando] = useState(false);
 
@@ -37,13 +95,14 @@ export default function DocumentosPage() {
       .finally(() => setCarregando(false));
   }, [empresaId, tipo]);
 
-  const total = documentos.reduce((soma, doc) => soma + doc.valor_total, 0);
+  const tomadas = documentos.filter((d) => d.direcao === "tomada");
+  const prestadas = documentos.filter((d) => d.direcao === "prestada");
 
   return (
     <div>
       <p className="mb-6 font-serif text-2xl text-ink">Documentos</p>
 
-      <div className="mb-5 flex gap-3">
+      <div className="mb-5 flex flex-wrap gap-3">
         <select
           value={empresaId ?? ""}
           onChange={(e) => setEmpresaId(Number(e.target.value))}
@@ -68,59 +127,54 @@ export default function DocumentosPage() {
         </select>
       </div>
 
+      <div className="mb-6 flex gap-2">
+        {(
+          [
+            ["todas", "Todas"],
+            ["tomada", `Tomadas (${tomadas.length})`],
+            ["prestada", `Prestadas (${prestadas.length})`],
+          ] as const
+        ).map(([id, rotulo]) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setAba(id)}
+            className={
+              aba === id
+                ? "bg-accent px-3 py-1.5 text-sm text-white"
+                : "border border-line px-3 py-1.5 text-sm text-ink-muted hover:border-accent"
+            }
+          >
+            {rotulo}
+          </button>
+        ))}
+      </div>
+
       {carregando ? (
         <p className="text-sm text-ink-muted">Carregando…</p>
       ) : documentos.length === 0 ? (
         <div className="border border-line bg-surface p-8 text-center">
           <p className="text-sm text-ink-muted">Nenhum documento importado ainda para este filtro.</p>
         </div>
+      ) : aba === "todas" ? (
+        <div className="space-y-10">
+          <section>
+            <p className="mb-3 text-base font-medium text-ink">Tomadas</p>
+            <p className="mb-3 text-xs text-ink-muted">
+              Notas que a empresa recebeu (tomadora / destinatária).
+            </p>
+            <TabelaNotas documentos={tomadas} />
+          </section>
+          <section>
+            <p className="mb-3 text-base font-medium text-ink">Prestadas</p>
+            <p className="mb-3 text-xs text-ink-muted">
+              Notas que a empresa emitiu (prestadora / emitente).
+            </p>
+            <TabelaNotas documentos={prestadas} />
+          </section>
+        </div>
       ) : (
-        <>
-          <table className="w-full border-t border-line text-sm">
-            <thead>
-              <tr className="border-b border-line text-left text-ink-muted">
-                <th className="py-2 font-normal">Chave de acesso</th>
-                <th className="py-2 font-normal">Tipo</th>
-                <th className="py-2 font-normal">Direção</th>
-                <th className="py-2 font-normal">Emissão</th>
-                <th className="py-2 text-right font-normal">Valor</th>
-                <th className="py-2 text-right font-normal">Arquivo</th>
-              </tr>
-            </thead>
-            <tbody>
-              {documentos.map((doc) => (
-                <tr key={doc.id} className="border-b border-line last:border-0">
-                  <td className="py-3 font-mono text-ink" title={doc.chave_acesso}>
-                    {truncarChave(doc.chave_acesso)}
-                  </td>
-                  <td className="py-3 uppercase text-ink-muted">{doc.tipo}</td>
-                  <td className="py-3 text-ink-muted">
-                    {doc.direcao === "tomada" ? "Tomada" : "Prestada"}
-                  </td>
-                  <td className="py-3 text-ink-muted">{formatarData(doc.data_emissao)}</td>
-                  <td className="py-3 text-right font-mono text-ink">
-                    {FORMATADOR_MOEDA.format(doc.valor_total)}
-                  </td>
-                  <td className="py-3 text-right">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        api.baixarXmlDocumento(doc.id, `${doc.chave_acesso}.xml`).catch(() => {})
-                      }
-                      className="text-accent hover:underline"
-                    >
-                      XML
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p className="mt-3 text-right text-sm text-ink-muted">
-            {documentos.length} documentos — total{" "}
-            <span className="font-mono text-ink">{FORMATADOR_MOEDA.format(total)}</span>
-          </p>
-        </>
+        <TabelaNotas documentos={aba === "tomada" ? tomadas : prestadas} />
       )}
     </div>
   );

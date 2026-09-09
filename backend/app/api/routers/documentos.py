@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import escritorio_id_atual
 from app.db.session import get_db
-from app.models import DocumentoFiscal, Empresa, TipoDocumentoFiscal
+from app.models import DirecaoDocumento, DocumentoFiscal, Empresa, TipoDocumentoFiscal
 from app.schemas import DocumentoFiscalResposta
 
 router = APIRouter(prefix="/documentos", tags=["documentos fiscais"])
@@ -16,6 +16,7 @@ router = APIRouter(prefix="/documentos", tags=["documentos fiscais"])
 def listar_documentos(
     empresa_id: int,
     tipo: TipoDocumentoFiscal | None = None,
+    direcao: DirecaoDocumento | None = None,
     data_inicio: datetime | None = Query(default=None),
     data_fim: datetime | None = Query(default=None),
     limit: int = Query(default=500, le=2000),
@@ -33,6 +34,8 @@ def listar_documentos(
     consulta = db.query(DocumentoFiscal).filter(DocumentoFiscal.empresa_id == empresa_id)
     if tipo is not None:
         consulta = consulta.filter(DocumentoFiscal.tipo == tipo)
+    if direcao is not None:
+        consulta = consulta.filter(DocumentoFiscal.direcao == direcao)
     if data_inicio is not None:
         consulta = consulta.filter(DocumentoFiscal.data_emissao >= data_inicio)
     if data_fim is not None:

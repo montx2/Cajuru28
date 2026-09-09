@@ -1,6 +1,7 @@
 import { limparToken, obterToken } from "./auth";
 import type {
   Certificado,
+  DirecaoDocumento,
   DocumentoFiscal,
   Empresa,
   ExecucaoImportacao,
