@@ -98,11 +98,56 @@ Login: abra `CREDENCIAIS.txt` (email + senha gerados no seu PC).
 
 ### Uso no painel
 
-1. **Empresas** → razão social, CNPJ e UF  
+1. **Empresas** → razão social, CNPJ e UF (ou **Importar em massa**, abaixo)  
 2. Abrir empresa → enviar `.pfx` + senha do certificado A1  
 3. **Visão geral** → importar NFS-e / NFe / CT-e de todas  
 4. **Importações** → acompanhar (atualiza sozinho)  
-5. **Documentos** → consultar e baixar XML
+5. **Documentos** → consultar e baixar XML  
+
+### Importar empresas em massa (estilo JetTax360)
+
+Em **Empresas → Importar em massa** você seleciona vários `.pfx`/`.p12` de uma
+vez, informa a senha (comum a todos ou por empresa no CSV) e o sistema:
+
+- lê o **CNPJ** e a **razão social** de dentro de cada certificado A1
+  (campo ICP-Brasil do X.509, com fallback pelo nome do arquivo);
+- cria a empresa automaticamente, grava o `.pfx` e cifra a senha no cofre;
+- se o CNPJ já existe, apenas vincula/atualiza o certificado;
+- mostra um relatório linha a linha: criada, certificado vinculado, já
+  existia ou erro (senha incorreta, arquivo inválido…) — um arquivo com
+  problema **não** impede os demais.
+
+O CSV é opcional: `razao_social;cnpj_cpf;uf[;senha]` (UTF-8, `;` como
+separador). Serve para cadastrar empresas sem certificado e/ou informar senha
+individual por CNPJ.
+
+> Importante: o sistema usa **somente a senha que você informa**. Não há
+> tentativa automática de senhas "comuns" — se a senha de um arquivo não
+> bater, ele aparece como erro no relatório e você reenvia com a senha certa.
+
+### Notas canceladas
+
+Os importadores agora reconhecem os **eventos de cancelamento** misturados na
+distribuição (ADN e SEFAZ) e:
+
+- marcam a nota como **CANCELADA** (com motivo e data) em **Documentos**;
+- se o cancelamento chegar **antes** da nota, ele fica guardado e é aplicado
+  automaticamente quando a nota chegar — nada se perde;
+- a coluna **Canceladas** em **Importações** mostra quantas foram detectadas
+  em cada execução;
+- itens que não são nota nem cancelamento (ex.: CC-e) são contabilizados em
+  **não reconhecidos** e exibidos como aviso — nunca somem sem rastro;
+- `GET /documentos/resumo?empresa_id=N` devolve total / normais / canceladas.
+
+### Migração automática de banco
+
+Colunas novas (status de cancelamento, contadores, avisos) são adicionadas
+**sozinhas** no startup — quem já tem banco criado não precisa rodar SQL
+manual. Também dá para rodar antes:
+
+```bash
+docker compose exec api python scripts/migrar.py
+```
 
 ### 30 empresas de uma vez
 

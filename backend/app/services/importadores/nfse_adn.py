@@ -35,6 +35,7 @@ from typing import Any
 import httpx
 
 from app.services.importadores.base import DocumentoBaixado, ImportadorFiscal, LoteImportado
+from app.services.importadores.eventos import EventoFiscal, classificar_evento_xml
 
 ADN_URL_PRODUCAO = "https://adn.nfse.gov.br/contribuintes/DFe/{nsu}"
 ADN_URL_HOMOLOGACAO = "https://adn.producaorestrita.nfse.gov.br/contribuintes/DFe/{nsu}"
@@ -135,29 +136,79 @@ class ImportadorNFSeADN(ImportadorFiscal):
             brutos = [brutos]
 
         documentos: list[DocumentoBaixado] = []
+        eventos: list[EventoFiscal] = []
+        erros: list[str] = []
+        eventos_nao_reconhecidos = 0
+        nsus_brutos: list[int] = []
+
         for item in brutos:
             if not isinstance(item, dict):
+                eventos_nao_reconhecidos += 1
                 continue
+
+            nsu_item = str(_campo(item, "NSU", "nsu") or "0")
             try:
-                documentos.append(self._converter_documento(item, cnpj))
-            except Exception:
-                # Um documento corrompido não pode derrubar o lote inteiro
-                # (mesmo princípio do Importarnotas original).
+                nsus_brutos.append(int(nsu_item))
+            except (TypeError, ValueError):
+                pass
+
+            tipo_item = str(
+                _campo(item, "TipoDocumento", "tipoDocumento", "tipoDoc", "Tipo") or ""
+            )
+            try:
+                xml_bytes = decodificar_xml_adn(
+                    _campo(item, "ArquivoXml", "arquivoXml", "XML", "xml", "ConteudoXml")
+                    or ""
+                )
+            except Exception as exc:  # noqa: BLE001 — item corrompido não derruba o lote
+                erros.append(f"NSU {nsu_item}: não foi possível decodificar o XML ({exc})")
                 continue
+
+            # Eventos (cancelamento, CC-e…) não viram documento fiscal, mas
+            # NUNCA podem sumir: são devolvidos no lote para o worker aplicar.
+            chave_item = str(
+                _campo(item, "ChaveAcesso", "chaveAcesso", "Chave", "chave") or ""
+            )
+            evento = classificar_evento_xml(
+                xml_bytes,
+                tipo_hint=tipo_item,
+                nsu=nsu_item,
+                schema=tipo_item,
+                chave_hint=chave_item,
+            )
+            if evento is not None:
+                eventos.append(evento)
+                if not evento.eh_cancelamento:
+                    eventos_nao_reconhecidos += 1
+                continue
+
+            try:
+                documento = self._converter_documento(item, cnpj, xml_bytes)
+            except Exception as exc:  # noqa: BLE001
+                erros.append(f"NSU {nsu_item}: {exc}")
+                continue
+            if not documento.chave_acesso:
+                erros.append(
+                    f"NSU {nsu_item}: documento sem chave de acesso — não pode ser gravado"
+                )
+                continue
+            documentos.append(documento)
 
         max_nsu_raw = _campo(payload, "MaxNSU", "maxNSU", "maxNsu")
         ult_nsu_raw = _campo(payload, "UltNSU", "ultNSU", "ultimoNSU")
 
-        if documentos:
-            proximo = max(int(d.nsu) for d in documentos)
-        else:
-            proximo = nsu_consulta
-
+        # O cursor NUNCA regride nem fica atrás de um item já recebido —
+        # inclusive eventos. Antes calculava-se só sobre documentos válidos,
+        # o que podia fazer a importação repetir (ou pior, parar) ao encontrar
+        # um cancelamento no meio do lote.
         if ult_nsu_raw is not None:
             try:
                 proximo = int(ult_nsu_raw)
             except (TypeError, ValueError):
-                pass
+                proximo = max(nsus_brutos, default=nsu_consulta)
+        else:
+            proximo = max(nsus_brutos, default=nsu_consulta)
+        proximo = max(proximo, nsu_consulta)
 
         max_nsu: int | None = None
         if max_nsu_raw is not None:
@@ -166,16 +217,17 @@ class ImportadorNFSeADN(ImportadorFiscal):
             except (TypeError, ValueError):
                 max_nsu = None
 
-        # Fim da distribuição: lote incompleto, maxNSU atingido, ou NSU não avançou
-        if not documentos:
-            ha_mais = False
-        elif len(documentos) < _TAMANHO_LOTE:
+        # Página cheia: o lote do ADN traz no máximo 50 itens. A checagem tem
+        # que usar o tamanho do lote BRUTO (eventos incluídos), nunca só os
+        # documentos convertidos — senão a importação "acha" que acabou no
+        # meio de um lote cheio e deixa notas para trás.
+        lote_cheio = len(brutos) >= _TAMANHO_LOTE
+        if not lote_cheio:
             ha_mais = False
         elif max_nsu is not None and proximo >= max_nsu:
             ha_mais = False
-        elif proximo <= nsu_consulta and documentos:
-            # ADN devolveu docs mas não avançou o cursor — evita loop infinito.
-            # Ainda assim entregamos os docs (idempotência por chave no worker).
+        elif proximo <= nsu_consulta:
+            # Devolveu itens mas não avançou o cursor — evita loop infinito.
             ha_mais = False
         else:
             ha_mais = True
@@ -184,6 +236,9 @@ class ImportadorNFSeADN(ImportadorFiscal):
             documentos=documentos,
             proximo_nsu=str(proximo),
             ha_mais_documentos=ha_mais,
+            eventos=eventos,
+            eventos_nao_reconhecidos=eventos_nao_reconhecidos,
+            erros=erros,
         )
 
     def _chamar_com_retentativa(
@@ -246,14 +301,17 @@ class ImportadorNFSeADN(ImportadorFiscal):
             f"ADN indisponível após {_MAX_TENTATIVAS} tentativas: {ultimo_erro}"
         ) from ultimo_erro
 
-    def _converter_documento(self, item: dict, cnpj_consultado: str) -> DocumentoBaixado:
-        conteudo = _campo(item, "ArquivoXml", "arquivoXml", "XML", "xml", "ConteudoXml")
-        if not conteudo:
-            raise ValueError("Item do lote sem ArquivoXml")
-
-        xml_bytes = decodificar_xml_adn(conteudo)
+    def _converter_documento(
+        self, item: dict, cnpj_consultado: str, xml_bytes: bytes | None = None
+    ) -> DocumentoBaixado:
         chave = str(_campo(item, "ChaveAcesso", "chaveAcesso", "Chave", "chave") or "")
         nsu_item = str(_campo(item, "NSU", "nsu") or "0")
+
+        if xml_bytes is None:
+            conteudo = _campo(item, "ArquivoXml", "arquivoXml", "XML", "xml", "ConteudoXml")
+            if not conteudo:
+                raise ValueError("Item do lote sem ArquivoXml")
+            xml_bytes = decodificar_xml_adn(conteudo)
 
         data_emissao, valor_total, direcao, chave_xml = self._extrair_dados_xml(
             xml_bytes, cnpj_consultado

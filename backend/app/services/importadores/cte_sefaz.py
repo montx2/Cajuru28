@@ -32,6 +32,7 @@ from app.services.importadores._distribuicao_dfe import (
     montar_envelope_cte,
 )
 from app.services.importadores.base import DocumentoBaixado, ImportadorFiscal, LoteImportado
+from app.services.importadores.eventos import EventoFiscal, classificar_evento_xml
 
 CSTAT_SEM_DOCUMENTOS = {"137"}
 CSTAT_CONSUMO_INDEVIDO = {"656"}
@@ -104,38 +105,53 @@ class ImportadorCTeSEFAZ(ImportadorFiscal):
         )
 
         documentos: list[DocumentoBaixado] = []
+        eventos: list[EventoFiscal] = []
+        eventos_nao_reconhecidos = 0
+        erros: list[str] = []
         for doc_zip in buscar_todos(ret, "docZip"):
-            documento = self._converter_doc_zip(doc_zip, cnpj)
-            if documento is not None:
-                documentos.append(documento)
+            nsu = doc_zip.get("NSU", "")
+            schema = (doc_zip.get("schema", "") or "").lower()
+            if not doc_zip.text:
+                continue
+            try:
+                xml_bytes = gzip.decompress(base64.b64decode(doc_zip.text))
+            except Exception as exc:  # noqa: BLE001 — item corrompido não derruba o lote
+                erros.append(f"NSU {nsu}: docZip ilegível ({exc})")
+                continue
+
+            # Eventos (cancelamento, CC-e…) não viram documento fiscal, mas
+            # NUNCA podem sumir: são devolvidos no lote para o worker aplicar.
+            evento = classificar_evento_xml(xml_bytes, schema=schema, nsu=nsu.lstrip("0") or "0")
+            if evento is not None:
+                eventos.append(evento)
+                if not evento.eh_cancelamento:
+                    eventos_nao_reconhecidos += 1
+                continue
+
+            documento = self._converter_doc_zip(doc_zip, cnpj, xml_bytes)
+            if documento is None:
+                erros.append(f"NSU {nsu}: documento sem chave de acesso — não pode ser gravado")
+                continue
+            documentos.append(documento)
 
         try:
             ha_mais = int(ult_nsu_resp) < int(max_nsu)
         except ValueError:
-            ha_mais = len(documentos) >= 50
-
-        proximo = ult_nsu_resp.lstrip("0") or "0"
-        if ult_nsu_resp.strip("0") and not proximo.startswith("0"):
-            # preserva padding se o SEFAZ mandou zeros à esquerda significativos via int
-            proximo = str(int(ult_nsu_resp)) if ult_nsu_resp.isdigit() else ult_nsu_resp
+            ha_mais = False  # sem maxNSU confiável, a página decide
 
         return LoteImportado(
             documentos=documentos,
             proximo_nsu=str(int(ult_nsu_resp)) if ult_nsu_resp.isdigit() else ult_nsu_resp,
             ha_mais_documentos=ha_mais,
+            eventos=eventos,
+            eventos_nao_reconhecidos=eventos_nao_reconhecidos,
+            erros=erros,
         )
 
-    def _converter_doc_zip(self, doc_zip_elemento, cnpj_consultado: str) -> DocumentoBaixado | None:
+    def _converter_doc_zip(
+        self, doc_zip_elemento, cnpj_consultado: str, xml_bytes: bytes
+    ) -> DocumentoBaixado | None:
         nsu = doc_zip_elemento.get("NSU", "")
-        schema = (doc_zip_elemento.get("schema", "") or "").lower()
-        if not doc_zip_elemento.text:
-            return None
-
-        xml_bytes = gzip.decompress(base64.b64decode(doc_zip_elemento.text))
-
-        if "evento" in schema:
-            return None
-
         raiz_doc = ET.fromstring(xml_bytes)
 
         # Chave: chCTe no resumo, ou Id de infCte ("CTe" + 44 dígitos) no completo

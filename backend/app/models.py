@@ -8,6 +8,7 @@ multiempresa depois é ligar uma trava de acesso, não migrar dado.
 
 import enum
 from datetime import datetime
+from typing import Optional
 
 from sqlalchemy import (
     Boolean,
@@ -104,8 +105,18 @@ class DirecaoDocumento(str, enum.Enum):
     PRESTADA = "prestada"  # nota emitida (a empresa é prestadora/emitente)
 
 
+class StatusDocumentoFiscal(str, enum.Enum):
+    NORMAL = "normal"
+    CANCELADA = "cancelada"
+
+
 class DocumentoFiscal(Base):
-    """Uma nota importada — NFS-e, NFe ou CT-e."""
+    """Uma nota importada — NFS-e, NFe ou CT-e.
+
+    A nota continua existindo mesmo quando cancelada: o status é aplicado
+    pelo evento de cancelamento (que pode chegar antes ou depois da nota),
+    e o painel continua exibindo o documento com a marcação.
+    """
 
     __tablename__ = "documentos_fiscais"
     __table_args__ = (UniqueConstraint("empresa_id", "chave_acesso", name="uq_documento_por_empresa"),)
@@ -119,6 +130,11 @@ class DocumentoFiscal(Base):
     data_emissao: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     valor_total: Mapped[float] = mapped_column()
     xml_path: Mapped[str] = mapped_column(String(500))
+    status: Mapped[StatusDocumentoFiscal] = mapped_column(
+        Enum(StatusDocumentoFiscal), default=StatusDocumentoFiscal.NORMAL
+    )
+    motivo_cancelamento: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cancelado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     importado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     empresa: Mapped["Empresa"] = relationship(back_populates="documentos")
@@ -140,9 +156,47 @@ class ExecucaoImportacao(Base):
     tipo: Mapped[TipoDocumentoFiscal] = mapped_column(Enum(TipoDocumentoFiscal))
     status: Mapped[StatusExecucao] = mapped_column(Enum(StatusExecucao), default=StatusExecucao.EM_ANDAMENTO)
     documentos_importados: Mapped[int] = mapped_column(Integer, default=0)
+    documentos_cancelados: Mapped[int] = mapped_column(Integer, default=0)
+    eventos_nao_reconhecidos: Mapped[int] = mapped_column(Integer, default=0)
     ultimo_nsu: Mapped[str | None] = mapped_column(String(20), nullable=True)
     mensagem_erro: Mapped[str | None] = mapped_column(Text, nullable=True)
+    aviso: Mapped[str | None] = mapped_column(Text, nullable=True)
     iniciado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     finalizado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     empresa: Mapped["Empresa"] = relationship()
+
+
+class EventoFiscalPendente(Base):
+    """
+    Evento fiscal (ex.: cancelamento) que chegou ANTES da nota a que se
+    refere. A ordem de NSU não garante que a nota original venha primeiro,
+    então o evento fica guardado aqui até o documento ser gravado — nesse
+    momento é aplicado automaticamente e a linha é marcada como processada.
+    """
+
+    __tablename__ = "eventos_fiscais_pendentes"
+    __table_args__ = (
+        UniqueConstraint(
+            "empresa_id",
+            "tipo",
+            "chave_acesso",
+            "tipo_evento",
+            name="uq_evento_pendente_por_documento",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id"))
+    tipo: Mapped[TipoDocumentoFiscal] = mapped_column(Enum(TipoDocumentoFiscal))
+    chave_acesso: Mapped[str] = mapped_column(String(60), index=True)
+    tipo_evento: Mapped[str] = mapped_column(String(30))  # "cancelamento"
+    nsu: Mapped[str] = mapped_column(String(20), index=True)
+    motivo: Mapped[str | None] = mapped_column(Text, nullable=True)
+    data_evento: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    processado: Mapped[bool] = mapped_column(Boolean, default=False)
+    documento_id: Mapped[int | None] = mapped_column(ForeignKey("documentos_fiscais.id"), nullable=True)
+    recebido_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    empresa: Mapped["Empresa"] = relationship()
+    documento: Mapped[Optional["DocumentoFiscal"]] = relationship()

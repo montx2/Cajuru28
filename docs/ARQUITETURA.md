@@ -55,14 +55,58 @@ continuar. Por isso existe uma interface comum
 que permite adicionar NFe e CT-e na Fase 2/3 sem tocar no que já funciona
 para NFS-e.
 
+## Eventos de cancelamento (importação "completa", sem perder nota)
+
+A distribuição (ADN e SEFAZ) mistura notas e **eventos** no mesmo lote.
+Antes, eventos eram descartados: além de o usuário não saber que uma nota
+tinha sido cancelada, o descarte fazia o lote parecer menor — e a paginação
+por "tamanho do lote" concluía errado que não havia mais nada (o bug do
+"não importa tudo").
+
+Hoje o fluxo é:
+
+1. `app/services/importadores/eventos.py` interpreta cada item: nota normal,
+   **cancelamento** (`tpEvento` 110111/110112, `cStat` 135, `descEvento`, ou
+   `TipoDocumento` do ADN) ou **evento não reconhecido** (CC-e, resumo, etc.).
+2. O lote devolve `documentos`, `eventos` e contadores — nada é descartado
+   sem rastro.
+3. O worker aplica o cancelamento na nota (se já existe) ou guarda em
+   `eventos_fiscais_pendentes` (se a nota ainda não chegou; ordem de NSU não
+   é garantida) e aplica automaticamente quando a nota for gravada.
+4. `DocumentoFiscal.status` (`normal`/`cancelada`), `motivo_cancelamento` e
+   `cancelado_em` ficam visíveis em `GET /documentos` e
+   `GET /documentos/resumo`; a execução registra `documentos_cancelados`,
+   `eventos_nao_reconhecidos` e um `aviso` com os itens ignorados.
+
+A paginação do ADN passou a usar o **tamanho do lote bruto** (eventos
+incluídos) e o cursor é calculado por `UltNSU`/NSU bruto — nunca por contagem
+de notas convertidas.
+
+## Cadastro em massa de empresas
+
+`POST /empresas/lote` recebe vários `.pfx` + senha (compartilhada ou por
+linha do CSV) e extrai CNPJ/razão social do X.509 (ICP-Brasil:
+`SubjectAltName` OID 2.16.76.1.3.3, com fallback para `serialNumber` do
+Subject e para o nome do arquivo). Cria a empresa, salva o `.pfx` com
+permissão 0600, cifra a senha no cofre e devolve um relatório item a item
+(criada / certificado vinculado / já existia / erro). A senha é sempre
+**explícita**: não existe loop de tentativa de senhas candidatas.
+
+## Migração de schema sem Alembic (por enquanto)
+
+Como o schema ainda é criado com `create_all`, colunas novas em tabelas já
+existentes não aparecem sozinhas. `app/db/migracoes.py` resolve isso com
+`ALTER TABLE ... ADD COLUMN` idempotente (PostgreSQL usa `IF NOT EXISTS`;
+SQLite checa `PRAGMA table_info`), chamado no startup por `criar_tabelas()`.
+Script manual: `docker compose exec api python scripts/migrar.py`.
+
 ## O que fica para depois de propósito
 
-- **Alembic (migrations versionadas)**: hoje o banco sobe via
-  `Base.metadata.create_all` no start da API. Funciona bem para uso interno.
-  Antes de ter mais de uma pessoa mexendo no schema ao mesmo tempo, ou antes
-  de ir para produção com dado de cliente real, trocar para Alembic é o
-  próximo passo natural — deixei o ponto de troca já isolado em
-  `app/db/base.py`.
+- **Alembic (migrations versionadas)**: a camada de migração leve acima
+  cobre os casos atuais, mas antes de ter mais de uma pessoa mexendo no
+  schema ao mesmo tempo, ou antes de ir para produção com dado de cliente
+  real, trocar para Alembic é o próximo passo natural — o ponto de troca
+  continua isolado em `app/db/base.py`.
 - **Vault externo (HashiCorp/KMS)**: ver seção acima.
 - **Frontend**: a API já está pronta para qualquer frontend (Swagger em
   `/docs` funciona como painel de teste enquanto isso). Recomendo Next.js

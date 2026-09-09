@@ -22,6 +22,7 @@ node_modules/
 frontend/.next/
 frontend/out/
 frontend/dist/
+*.tsbuildinfo
 npm-debug.log*
 
 # Data / runtime
