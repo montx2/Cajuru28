@@ -54,64 +54,32 @@ Fases em [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Rodando localmente
 
-### Pré-requisitos
+**Guia completo:** [`PASSO_A_PASSO.md`](PASSO_A_PASSO.md)
 
-- Docker Desktop (Windows/Mac) ou Docker Engine + Compose (Linux)
-- ~2 GB de RAM livres
+### Resumo (Windows)
 
-### 1. Configure o ambiente (já vem pronto no repositório local)
-
-O arquivo `backend/.env` já contém as chaves geradas e o usuário admin.
-As credenciais completas estão em **`CREDENCIAIS.txt`** (não vai para o Git).
-
-Se estiver clonando do zero sem o `.env`:
-
-```bash
-cp backend/.env.example backend/.env
-cp frontend/.env.example frontend/.env.local
-# edite SECRET_KEY, VAULT_MASTER_KEY e BOOTSTRAP_* no backend/.env
+```bat
+git clone https://github.com/montx2/Cajuru28.git
+cd Cajuru28
+git checkout arena/01a086ba-cajuru28
+SETUP.bat          :: gera chaves + CREDENCIAIS.txt
+INICIAR.bat        :: sobe Docker e abre o painel
 ```
 
-### 2. Suba tudo
-
-**Windows:** dê dois cliques em `INICIAR.bat`
-
-**Ou no terminal:**
-
-```bash
-docker compose up --build
-```
-
-Na primeira vez demora (baixa imagens + build do frontend). Quando estabilizar:
+Login: abra `CREDENCIAIS.txt` (email + senha gerados no seu PC).
 
 | Serviço | URL |
 | ------- | --- |
 | Painel web | http://localhost:3000 |
 | API + Swagger | http://localhost:8000/docs |
-| Saúde da API | http://localhost:8000/saude |
 
-### 3. Login (usuário criado sozinho no primeiro start)
+### Uso no painel
 
-```
-Email: admin@notasflow.local
-Senha: (veja CREDENCIAIS.txt)
-```
-
-Não precisa rodar script de usuário se o `BOOTSTRAP_*` estiver no `.env`.
-Para criar outro usuário manualmente:
-
-```bash
-docker compose exec api python scripts/criar_usuario_inicial.py
-```
-
-### 4. Use o painel
-
-1. Abra http://localhost:3000 e faça login
-2. **Empresas** → cadastre a razão social, CNPJ e UF
-3. Abra a empresa → envie o `.pfx` + senha do certificado A1
-4. **Visão geral** → "Importar NFS-e de todas" (ou NFe / CT-e)
-5. Acompanhe em **Importações** (atualiza sozinho a cada 4s)
-6. Consulte e baixe XML em **Documentos**
+1. **Empresas** → razão social, CNPJ e UF  
+2. Abrir empresa → enviar `.pfx` + senha do certificado A1  
+3. **Visão geral** → importar NFS-e / NFe / CT-e de todas  
+4. **Importações** → acompanhar (atualiza sozinho)  
+5. **Documentos** → consultar e baixar XML
 
 ### 30 empresas de uma vez
 

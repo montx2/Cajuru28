@@ -18,10 +18,13 @@ if errorlevel 1 (
 )
 
 if not exist "backend\.env" (
-  echo [ERRO] backend\.env nao encontrado.
-  echo Copie backend\.env.example para backend\.env e preencha as chaves.
-  pause
-  exit /b 1
+  echo backend\.env nao encontrado. Rodando setup automatico...
+  call SETUP.bat
+  if not exist "backend\.env" (
+    echo [ERRO] Falha no setup. Rode SETUP.bat manualmente.
+    pause
+    exit /b 1
+  )
 )
 
 if not exist "frontend\.env.local" (
