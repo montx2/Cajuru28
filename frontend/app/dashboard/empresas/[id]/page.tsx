@@ -65,6 +65,29 @@ export default function DetalheEmpresaPage() {
     }
   }
 
+  async function importarTodas() {
+    setDisparandoImportacao(true);
+    setMensagemImportacao(null);
+    const tipos: TipoDocumentoFiscal[] = ["nfse", "nfe", "cte"];
+    const ok: string[] = [];
+    const falhas: string[] = [];
+    for (const tipo of tipos) {
+      try {
+        const execucao = await api.solicitarImportacao(empresaId, tipo);
+        ok.push(`${tipo.toUpperCase()} (#${execucao.id})`);
+      } catch (e) {
+        falhas.push(
+          `${tipo.toUpperCase()}: ${e instanceof ApiError ? e.message : "falhou"}`
+        );
+      }
+    }
+    const partes: string[] = [];
+    if (ok.length) partes.push(`Enfileiradas: ${ok.join(", ")}.`);
+    if (falhas.length) partes.push(`Não iniciadas: ${falhas.join(" | ")}`);
+    setMensagemImportacao(partes.join(" ") || "Nada foi enfileirado.");
+    setDisparandoImportacao(false);
+  }
+
   if (!empresa) return <p className="text-sm text-ink-muted">Carregando…</p>;
 
   return (
@@ -123,16 +146,30 @@ export default function DetalheEmpresaPage() {
       </section>
 
       <section className="border border-line bg-surface p-6">
-        <p className="mb-4 text-base font-medium text-ink">Importar notas desta empresa</p>
+        <p className="mb-2 text-base font-medium text-ink">Importar notas desta empresa</p>
+        <p className="mb-4 text-sm text-ink-muted">
+          As notas já entram classificadas em <strong>tomadas</strong> (empresa recebeu) ou{" "}
+          <strong>prestadas</strong> (empresa emitiu). Use “Importar todas” para NFS-e, NFe e
+          CT-e de uma vez.
+        </p>
         <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => importarTodas()}
+            disabled={disparandoImportacao || !certificadoAtivo}
+            className="bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Importar todas
+          </button>
           {(["nfse", "nfe", "cte"] as TipoDocumentoFiscal[]).map((tipo) => (
             <button
               key={tipo}
+              type="button"
               onClick={() => importar(tipo)}
               disabled={disparandoImportacao || !certificadoAtivo}
               className="border border-accent px-4 py-2 text-sm font-medium text-accent hover:bg-accent-soft disabled:cursor-not-allowed disabled:border-line disabled:text-ink-muted"
             >
-              {tipo.toUpperCase()}
+              Só {tipo.toUpperCase()}
             </button>
           ))}
         </div>
