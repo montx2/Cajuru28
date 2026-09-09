@@ -20,12 +20,19 @@ class Settings(BaseSettings):
 
     dados_dir: str = "/data"
 
-    # Origens permitidas no CORS (separadas por vírgula). Em Docker local o
-    # painel sobe em :3000; em preview remoto acrescente a URL do front.
+    # Origens permitidas no CORS (separadas por vírgula).
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
     # Ambiente fiscal dos importadores: "producao" | "homologacao"
     ambiente_fiscal: str = "producao"
+
+    # Bootstrap do primeiro usuário (opcional). Se BOOTSTRAP_EMAIL e
+    # BOOTSTRAP_SENHA estiverem preenchidos e não existir nenhum usuário,
+    # a API cria o escritório + admin no startup.
+    bootstrap_escritorio: str = "Escritorio Cajuru"
+    bootstrap_nome: str = "Administrador"
+    bootstrap_email: str = ""
+    bootstrap_senha: str = ""
 
 
 settings = Settings()

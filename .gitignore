@@ -3,6 +3,9 @@
 .env.local
 backend/.env
 frontend/.env.local
+CREDENCIAIS.txt
+CREDENCIAIS.local.txt
+*.local.md
 
 # Python
 __pycache__/

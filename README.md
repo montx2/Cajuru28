@@ -59,30 +59,24 @@ Fases em [`docs/ROADMAP.md`](docs/ROADMAP.md).
 - Docker Desktop (Windows/Mac) ou Docker Engine + Compose (Linux)
 - ~2 GB de RAM livres
 
-### 1. Configure o ambiente
+### 1. Configure o ambiente (já vem pronto no repositório local)
+
+O arquivo `backend/.env` já contém as chaves geradas e o usuário admin.
+As credenciais completas estão em **`CREDENCIAIS.txt`** (não vai para o Git).
+
+Se estiver clonando do zero sem o `.env`:
 
 ```bash
 cp backend/.env.example backend/.env
-```
-
-Edite `backend/.env` e gere as duas chaves:
-
-```bash
-# SECRET_KEY
-python3 -c "import secrets; print(secrets.token_urlsafe(48))"
-
-# VAULT_MASTER_KEY (precisa do pacote cryptography)
-python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-```
-
-Cole os valores em `SECRET_KEY=` e `VAULT_MASTER_KEY=` no `.env`.
-
-```bash
 cp frontend/.env.example frontend/.env.local
-# NEXT_PUBLIC_API_URL=http://localhost:8000  (já é o padrão)
+# edite SECRET_KEY, VAULT_MASTER_KEY e BOOTSTRAP_* no backend/.env
 ```
 
 ### 2. Suba tudo
+
+**Windows:** dê dois cliques em `INICIAR.bat`
+
+**Ou no terminal:**
 
 ```bash
 docker compose up --build
@@ -96,17 +90,19 @@ Na primeira vez demora (baixa imagens + build do frontend). Quando estabilizar:
 | API + Swagger | http://localhost:8000/docs |
 | Saúde da API | http://localhost:8000/saude |
 
-### 3. Crie o primeiro usuário
+### 3. Login (usuário criado sozinho no primeiro start)
 
-```bash
-docker compose exec api python scripts/criar_usuario_inicial.py \
-  --escritorio "Meu Escritório" \
-  --nome "Admin" \
-  --email admin@empresa.com \
-  --senha "troque-esta-senha"
+```
+Email: admin@notasflow.local
+Senha: (veja CREDENCIAIS.txt)
 ```
 
-(ou rode sem flags para modo interativo)
+Não precisa rodar script de usuário se o `BOOTSTRAP_*` estiver no `.env`.
+Para criar outro usuário manualmente:
+
+```bash
+docker compose exec api python scripts/criar_usuario_inicial.py
+```
 
 ### 4. Use o painel
 
