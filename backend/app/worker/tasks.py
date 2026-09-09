@@ -2,6 +2,7 @@ import os
 from datetime import datetime, timezone
 
 from dateutil import parser as date_parser
+from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
 from app.core.vault import decifrar_segredo
@@ -156,43 +157,77 @@ def _resolver_nsu_inicial(
     return "0"
 
 
-def _gravar_documento(db, empresa_id: int, tipo: TipoDocumentoFiscal, doc) -> None:
-    if not doc.chave_acesso:
-        return
+def _normalizar_chave(chave: str | None) -> str:
+    """A coluna tem 60 chars; chaves iguais após o corte colidem no unique."""
+    if not chave:
+        return ""
+    return str(chave).strip()[:60]
+
+
+def _ja_na_sessao(db, empresa_id: int, chave: str) -> bool:
+    """Detecta duplicata ainda não commitada (mesmo lote / mesmo flush)."""
+    for obj in list(db.new) + list(db.dirty) + list(db.identity_map.values()):
+        if (
+            isinstance(obj, DocumentoFiscal)
+            and obj.empresa_id == empresa_id
+            and obj.chave_acesso == chave
+        ):
+            return True
+    return False
+
+
+def _gravar_documento(db, empresa_id: int, tipo: TipoDocumentoFiscal, doc) -> bool:
+    """
+    Persiste um documento. Idempotente: chave já existente (no banco ou no
+    lote atual) é ignorada — nunca estoura uq_documento_por_empresa.
+    Retorna True se gravou um documento novo.
+    """
+    chave = _normalizar_chave(getattr(doc, "chave_acesso", None))
+    if not chave:
+        return False
+
+    if _ja_na_sessao(db, empresa_id, chave):
+        return False
 
     ja_existe = (
         db.query(DocumentoFiscal)
         .filter(
             DocumentoFiscal.empresa_id == empresa_id,
-            DocumentoFiscal.chave_acesso == doc.chave_acesso,
+            DocumentoFiscal.chave_acesso == chave,
         )
         .first()
     )
     if ja_existe:
-        return  # idempotente: reprocessar o mesmo NSU não duplica documento
+        return False
 
     pasta = os.path.join(settings.dados_dir, "xml", str(empresa_id), tipo.value)
     os.makedirs(pasta, exist_ok=True)
-    # Chave pode ter caracteres estranhos em edge cases — sanitiza o nome do arquivo
-    nome_seguro = "".join(c for c in doc.chave_acesso if c.isalnum() or c in "-_") or f"nsu_{doc.nsu}"
+    nome_seguro = "".join(c for c in chave if c.isalnum() or c in "-_") or f"nsu_{doc.nsu}"
     xml_path = os.path.join(pasta, f"{nome_seguro}.xml")
     with open(xml_path, "wb") as f:
         f.write(doc.xml)
 
     direcao = doc.direcao if doc.direcao in ("tomada", "prestada") else "tomada"
 
-    db.add(
-        DocumentoFiscal(
-            empresa_id=empresa_id,
-            tipo=tipo,
-            direcao=DirecaoDocumento(direcao),
-            chave_acesso=doc.chave_acesso,
-            nsu=str(doc.nsu),
-            data_emissao=_parse_data_emissao(doc.data_emissao),
-            valor_total=float(doc.valor_total or 0),
-            xml_path=xml_path,
-        )
+    novo = DocumentoFiscal(
+        empresa_id=empresa_id,
+        tipo=tipo,
+        direcao=DirecaoDocumento(direcao),
+        chave_acesso=chave,
+        nsu=str(doc.nsu),
+        data_emissao=_parse_data_emissao(doc.data_emissao),
+        valor_total=float(doc.valor_total or 0),
+        xml_path=xml_path,
     )
+
+    # SAVEPOINT: UniqueViolation no flush não aborta o lote inteiro.
+    try:
+        with db.begin_nested():
+            db.add(novo)
+            db.flush()
+    except IntegrityError:
+        return False
+    return True
 
 
 def _marcar_erro(db, execucao: ExecucaoImportacao | None, mensagem: str) -> None:
