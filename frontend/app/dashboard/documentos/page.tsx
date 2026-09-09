@@ -84,6 +84,7 @@ export default function DocumentosPage() {
                 <th className="py-2 font-normal">Direção</th>
                 <th className="py-2 font-normal">Emissão</th>
                 <th className="py-2 text-right font-normal">Valor</th>
+                <th className="py-2 text-right font-normal">Arquivo</th>
               </tr>
             </thead>
             <tbody>
@@ -99,6 +100,17 @@ export default function DocumentosPage() {
                   <td className="py-3 text-ink-muted">{formatarData(doc.data_emissao)}</td>
                   <td className="py-3 text-right font-mono text-ink">
                     {FORMATADOR_MOEDA.format(doc.valor_total)}
+                  </td>
+                  <td className="py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        api.baixarXmlDocumento(doc.id, `${doc.chave_acesso}.xml`).catch(() => {})
+                      }
+                      className="text-accent hover:underline"
+                    >
+                      XML
+                    </button>
                   </td>
                 </tr>
               ))}

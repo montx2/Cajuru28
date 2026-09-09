@@ -37,7 +37,14 @@ async function chamar<T>(caminho: string, opcoes: RequestInit = {}): Promise<T> 
 
   if (!resposta.ok) {
     const corpo = await resposta.json().catch(() => ({}));
-    throw new ApiError(resposta.status, corpo.detail ?? "Erro inesperado na API");
+    let detalhe = corpo.detail ?? "Erro inesperado na API";
+    // FastAPI devolve lista de erros de validação Pydantic
+    if (Array.isArray(detalhe)) {
+      detalhe = detalhe
+        .map((e: { msg?: string; loc?: unknown[] }) => e.msg ?? JSON.stringify(e))
+        .join("; ");
+    }
+    throw new ApiError(resposta.status, typeof detalhe === "string" ? detalhe : "Erro na API");
   }
 
   if (resposta.status === 204) return undefined as T;
@@ -78,6 +85,28 @@ export const api = {
     if (filtros?.data_inicio) params.set("data_inicio", filtros.data_inicio);
     if (filtros?.data_fim) params.set("data_fim", filtros.data_fim);
     return chamar<DocumentoFiscal[]>(`/documentos?${params.toString()}`);
+  },
+
+  urlXmlDocumento: (documentoId: number) => {
+    const token = obterToken();
+    // O browser precisa do token no header — para download simples abrimos
+    // via fetch + blob no caller. Esta helper só monta a URL.
+    return `${BASE_URL}/documentos/${documentoId}/xml`;
+  },
+
+  baixarXmlDocumento: async (documentoId: number, nomeArquivo: string) => {
+    const token = obterToken();
+    const resposta = await fetch(`${BASE_URL}/documentos/${documentoId}/xml`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!resposta.ok) throw new ApiError(resposta.status, "Falha ao baixar XML");
+    const blob = await resposta.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = nomeArquivo;
+    a.click();
+    URL.revokeObjectURL(url);
   },
 
   solicitarImportacao: (empresaId: number, tipo: TipoDocumentoFiscal, forcar = false) =>

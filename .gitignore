@@ -1,0 +1,41 @@
+# Secrets
+.env
+.env.local
+backend/.env
+frontend/.env.local
+CREDENCIAIS.txt
+CREDENCIAIS.local.txt
+*.local.md
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+
+# Node / Next
+node_modules/
+frontend/.next/
+frontend/out/
+frontend/dist/
+npm-debug.log*
+
+# Data / runtime
+/data/
+*.pfx
+*.p12
+*.pem
+*.key
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Docker
+*.log

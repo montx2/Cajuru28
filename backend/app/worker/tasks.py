@@ -1,6 +1,8 @@
 import os
 from datetime import datetime, timezone
 
+from dateutil import parser as date_parser
+
 from app.core.config import settings
 from app.core.vault import decifrar_segredo
 from app.db.session import SessionLocal
@@ -20,8 +22,35 @@ from app.worker.celery_app import celery_app
 TAMANHO_MAXIMO_LOTE_POR_EXECUCAO = 50  # trava de segurança: no máx. 50 lotes por chamada de task
 
 
-@celery_app.task(name="importar_documentos")
-def importar_documentos(empresa_id: int, tipo: str, execucao_id: int) -> None:
+def _parse_data_emissao(valor: str | datetime | None) -> datetime:
+    """
+    Converte a data de emissão (string ISO do XML fiscal, datetime, ou vazio)
+    para datetime timezone-aware. Fallback: agora em UTC — nunca deixa a
+    gravação quebrar por um campo opcional malformado.
+    """
+    if isinstance(valor, datetime):
+        if valor.tzinfo is None:
+            return valor.replace(tzinfo=timezone.utc)
+        return valor
+    if not valor or not str(valor).strip():
+        return datetime.now(timezone.utc)
+    try:
+        dt = date_parser.isoparse(str(valor).strip())
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except (ValueError, TypeError, OverflowError):
+        try:
+            dt = date_parser.parse(str(valor).strip())
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
+        except (ValueError, TypeError, OverflowError):
+            return datetime.now(timezone.utc)
+
+
+@celery_app.task(name="importar_documentos", bind=True, max_retries=0)
+def importar_documentos(self, empresa_id: int, tipo: str, execucao_id: int) -> None:
     """
     Executa a importação completa de uma empresa até não haver mais
     documento novo, gravando o progresso a cada lote — se o worker cair no
@@ -34,6 +63,9 @@ def importar_documentos(empresa_id: int, tipo: str, execucao_id: int) -> None:
     try:
         execucao = db.get(ExecucaoImportacao, execucao_id)
         empresa = db.get(Empresa, empresa_id)
+        if execucao is None or empresa is None:
+            return
+
         certificado = (
             db.query(Certificado)
             .filter(Certificado.empresa_id == empresa_id, Certificado.ativo.is_(True))
@@ -44,13 +76,16 @@ def importar_documentos(empresa_id: int, tipo: str, execucao_id: int) -> None:
             _marcar_erro(db, execucao, "Nenhum certificado ativo para esta empresa")
             return
 
+        # Checkpoint: retoma do maior NSU já conhecido para esta empresa+tipo
+        # (última execução, ou o NSU desta execução se já avançou em reentrada).
+        ultimo_nsu = _resolver_nsu_inicial(db, empresa_id, tipo_doc, execucao)
+
         senha = decifrar_segredo(certificado.senha_cifrada)
         with open(certificado.arquivo_path, "rb") as f:
             pfx_bytes = f.read()
 
         importador = obter_importador(tipo_doc)
-        ultimo_nsu = execucao.ultimo_nsu or "0"
-        total_importado = 0
+        total_importado = execucao.documentos_importados or 0
 
         with sessao_mtls(pfx_bytes, senha) as (cert_path, key_path):
             for _ in range(TAMANHO_MAXIMO_LOTE_POR_EXECUCAO):
@@ -74,13 +109,8 @@ def importar_documentos(empresa_id: int, tipo: str, execucao_id: int) -> None:
                 if not lote.ha_mais_documentos:
                     break
             else:
-                # O loop esgotou as 50 iterações sem o ADN dizer "acabou" —
-                # ainda há mais para importar (comum na primeira importação
-                # de uma empresa com muito histórico). Reenfileira a MESMA
-                # execução para continuar do checkpoint salvo, em vez de
-                # mentir que terminou. Isso também devolve o worker para a
-                # fila entre uma leva e outra, então uma empresa com
-                # histórico gigante não segura as outras 29 esperando.
+                # Esgotou as 50 iterações sem "acabou" — reenfileira a MESMA
+                # execução para continuar do checkpoint, sem mentir "concluída".
                 importar_documentos.delay(
                     empresa_id=empresa_id, tipo=tipo, execucao_id=execucao_id
                 )
@@ -98,7 +128,38 @@ def importar_documentos(empresa_id: int, tipo: str, execucao_id: int) -> None:
         db.close()
 
 
+def _resolver_nsu_inicial(
+    db, empresa_id: int, tipo: TipoDocumentoFiscal, execucao: ExecucaoImportacao
+) -> str:
+    """
+    Ponto de retomada: se esta execução já tem NSU (reentrada após cap de 50
+    lotes), usa ele; senão, pega o maior NSU de qualquer execução anterior
+    concluída/em andamento do mesmo empresa+tipo — evita rebaixar do zero a
+    cada clique em "Importar".
+    """
+    if execucao.ultimo_nsu:
+        return execucao.ultimo_nsu
+
+    anterior = (
+        db.query(ExecucaoImportacao)
+        .filter(
+            ExecucaoImportacao.empresa_id == empresa_id,
+            ExecucaoImportacao.tipo == tipo,
+            ExecucaoImportacao.id != execucao.id,
+            ExecucaoImportacao.ultimo_nsu.isnot(None),
+        )
+        .order_by(ExecucaoImportacao.id.desc())
+        .first()
+    )
+    if anterior and anterior.ultimo_nsu:
+        return anterior.ultimo_nsu
+    return "0"
+
+
 def _gravar_documento(db, empresa_id: int, tipo: TipoDocumentoFiscal, doc) -> None:
+    if not doc.chave_acesso:
+        return
+
     ja_existe = (
         db.query(DocumentoFiscal)
         .filter(
@@ -112,19 +173,23 @@ def _gravar_documento(db, empresa_id: int, tipo: TipoDocumentoFiscal, doc) -> No
 
     pasta = os.path.join(settings.dados_dir, "xml", str(empresa_id), tipo.value)
     os.makedirs(pasta, exist_ok=True)
-    xml_path = os.path.join(pasta, f"{doc.chave_acesso}.xml")
+    # Chave pode ter caracteres estranhos em edge cases — sanitiza o nome do arquivo
+    nome_seguro = "".join(c for c in doc.chave_acesso if c.isalnum() or c in "-_") or f"nsu_{doc.nsu}"
+    xml_path = os.path.join(pasta, f"{nome_seguro}.xml")
     with open(xml_path, "wb") as f:
         f.write(doc.xml)
+
+    direcao = doc.direcao if doc.direcao in ("tomada", "prestada") else "tomada"
 
     db.add(
         DocumentoFiscal(
             empresa_id=empresa_id,
             tipo=tipo,
-            direcao=DirecaoDocumento(doc.direcao),
+            direcao=DirecaoDocumento(direcao),
             chave_acesso=doc.chave_acesso,
-            nsu=doc.nsu,
-            data_emissao=doc.data_emissao,
-            valor_total=doc.valor_total,
+            nsu=str(doc.nsu),
+            data_emissao=_parse_data_emissao(doc.data_emissao),
+            valor_total=float(doc.valor_total or 0),
             xml_path=xml_path,
         )
     )
@@ -134,6 +199,6 @@ def _marcar_erro(db, execucao: ExecucaoImportacao | None, mensagem: str) -> None
     if execucao is None:
         return
     execucao.status = StatusExecucao.ERRO
-    execucao.mensagem_erro = mensagem
+    execucao.mensagem_erro = mensagem[:4000] if mensagem else "Erro desconhecido"
     execucao.finalizado_em = datetime.now(timezone.utc)
     db.commit()

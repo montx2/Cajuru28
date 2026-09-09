@@ -1,8 +1,15 @@
 from datetime import datetime
+import re
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from app.models import DirecaoDocumento, StatusExecucao, TipoDocumentoFiscal
+
+_UFS_VALIDAS = {
+    "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS",
+    "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC",
+    "SP", "SE", "TO",
+}
 
 
 # ---------- Auth ----------
@@ -23,6 +30,30 @@ class EmpresaCriar(BaseModel):
     razao_social: str
     cnpj_cpf: str
     uf: str
+
+    @field_validator("cnpj_cpf")
+    @classmethod
+    def normalizar_documento(cls, v: str) -> str:
+        digitos = re.sub(r"\D", "", v or "")
+        if len(digitos) not in (11, 14):
+            raise ValueError("CNPJ deve ter 14 dígitos ou CPF 11 dígitos")
+        return digitos
+
+    @field_validator("uf")
+    @classmethod
+    def validar_uf(cls, v: str) -> str:
+        uf = (v or "").strip().upper()
+        if uf not in _UFS_VALIDAS:
+            raise ValueError(f"UF inválida: {v!r}")
+        return uf
+
+    @field_validator("razao_social")
+    @classmethod
+    def razao_nao_vazia(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("Razão social é obrigatória")
+        return v
 
 
 class EmpresaResposta(BaseModel):
@@ -96,4 +127,6 @@ class ExecucaoImportacaoResposta(BaseModel):
     documentos_importados: int
     iniciado_em: datetime
     finalizado_em: datetime | None
+    mensagem_erro: str | None = None
+    ultimo_nsu: str | None = None
     empresa_razao_social: str | None = None
