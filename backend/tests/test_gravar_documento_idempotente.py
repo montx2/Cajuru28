@@ -34,11 +34,11 @@ def db(tmp_path, monkeypatch):
     sessao.close()
 
 
-def _doc(chave: str, nsu: str = "1") -> SimpleNamespace:
+def _doc(chave: str, nsu: str = "1", xml: bytes = b"<xml/>") -> SimpleNamespace:
     return SimpleNamespace(
         chave_acesso=chave,
         nsu=nsu,
-        xml=b"<xml/>",
+        xml=xml,
         data_emissao="2026-09-09T14:00:00Z",
         valor_total=10.0,
         direcao="tomada",
@@ -55,11 +55,22 @@ def test_mesmo_lote_com_chave_duplicada_nao_quebra(db):
     assert qtd == 1
 
 
-def test_reimportar_apos_commit_e_idempotente(db):
+def test_reimportar_apos_commit_e_idempotente_sem_sobrescrever_xml(db):
     sessao, empresa_id = db
     chave = "35260112345678000199550010000001231234567891"
-    assert _gravar_documento(sessao, empresa_id, TipoDocumentoFiscal.NFE, _doc(chave))
+    xml_original = b"<xml>original</xml>"
+    xml_duplicado = b"<xml>duplicado</xml>"
+
+    assert _gravar_documento(
+        sessao, empresa_id, TipoDocumentoFiscal.NFE, _doc(chave, xml=xml_original)
+    )
     sessao.commit()
-    assert not _gravar_documento(sessao, empresa_id, TipoDocumentoFiscal.NFE, _doc(chave, "99"))
+    documento = sessao.query(DocumentoFiscal).one()
+
+    assert not _gravar_documento(
+        sessao, empresa_id, TipoDocumentoFiscal.NFE, _doc(chave, "99", xml_duplicado)
+    )
     sessao.commit()
+
     assert sessao.query(DocumentoFiscal).count() == 1
+    assert open(documento.xml_path, "rb").read() == xml_original

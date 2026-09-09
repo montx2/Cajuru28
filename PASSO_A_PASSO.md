@@ -168,6 +168,8 @@ Depois volte para `producao` quando validar.
 | Pediu reinício do Windows | Normal ao habilitar WSL2 — reinicie e rode `INSTALAR_TUDO.bat` de novo |
 | Painel abre mas login falha | Espere ~30s a API subir; confira `docker compose logs api` |
 | “Sem certificado ativo” | Envie o `.pfx` na tela da empresa |
+| “Certificado inacessível; restaure a chave…” | A `VAULT_MASTER_KEY` foi alterada ou a senha cifrada corrompeu. Restaure no `backend/.env` a chave usada quando o certificado foi enviado e reinicie `api` e `worker`; se não a tiver, envie novamente o `.pfx` com a senha. |
+| `duplicate key` / `uq_documento_por_empresa` | Atualize pelo `ATUALIZAR.bat` e importe outra vez. A versão atual ignora a mesma nota de forma atômica; não apague documentos do banco. |
 | Erro 429 / cStat 656 | Cooldown de 1h do governo — aguarde, não force em loop |
 | Porta 3000 ou 8000 em uso | Feche o outro programa ou mude as portas no `docker-compose.yml` |
 | Esqueci a senha do painel | Rode de novo `python scripts\gerar_env.py --forcar` e `docker compose down -v` (apaga o banco local) + `INICIAR.bat` |
@@ -192,7 +194,7 @@ Troque depois no `backend\.env` e no painel:
 
 - Senha do admin (`BOOTSTRAP_SENHA` só vale na **primeira** criação; depois altere no banco ou recrie o volume)  
 - `SECRET_KEY`  
-- `VAULT_MASTER_KEY` (só se ainda não houver certificados salvos)  
+- `VAULT_MASTER_KEY` — **não a troque** enquanto houver certificados salvos. O `gerar_env.py --forcar` a preserva automaticamente. Para uma rotação planejada, configure temporariamente a chave anterior em `VAULT_PREVIOUS_MASTER_KEYS`, reenvie os certificados e só então remova a chave antiga.
 - Senha do PostgreSQL no `docker-compose.yml`  
 
 Nunca envie o arquivo `CREDENCIAIS.txt` ou o `backend\.env` para o Git ou para terceiros.

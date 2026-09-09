@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     algorithm: str = "HS256"
 
     vault_master_key: str = ""
+    # Chaves usadas antes de uma rotação, separadas por vírgula. São aceitas
+    # somente para decifrar certificados já gravados; novas senhas sempre
+    # usam `vault_master_key`.
+    vault_previous_master_keys: str = ""
 
     dados_dir: str = "/data"
 

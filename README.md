@@ -138,6 +138,20 @@ pip install -r requirements-dev.txt
 pytest -q
 ```
 
+## Recuperação de certificado e rotação da chave do cofre
+
+A `VAULT_MASTER_KEY` do `backend/.env` não deve mudar depois que certificados
+forem enviados. Se uma importação informar **“Certificado inacessível”**,
+restaure a chave que estava no `.env` quando o certificado foi cadastrado e
+reinicie `api` e `worker`. Se essa chave não existir mais, por segurança a
+senha não é recuperável: envie o `.pfx` e a senha novamente pela tela da
+empresa.
+
+Para trocar a chave de propósito, configure a antiga temporariamente em
+`VAULT_PREVIOUS_MASTER_KEYS`, reenvie os certificados e depois remova a chave
+antiga. O comando `python scripts/gerar_env.py --forcar` preserva a chave do
+cofre por padrão.
+
 ## Homologação com certificado real
 
 No `.env`:
