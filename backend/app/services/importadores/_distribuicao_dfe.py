@@ -1,8 +1,14 @@
 """
-Constantes compartilhadas por NFe e CT-e — ambos usam o mesmo webservice
-nacional de Distribuição DFe (NFeDistribuicaoDFe), só muda o schema do
-documento de dentro do docZip.
+Constantes e helpers compartilhados por NFe e CT-e — ambos usam o webservice
+nacional de Distribuição DFe (mesmo padrão SOAP 1.2 + mTLS + docZip gzip).
+
+Fontes:
+- Nota Técnica 2014.002 (NFe) — NFeDistribuicaoDFe / nfeDistDFeInteresse
+- NT 2015.002 / Manual CT-e — CTeDistribuicaoDFe / cteDistDFeInteresse
+- nfephp-org/sped-nfe, nfephp-org/sped-cte, TadaSoftware/PyNFe
 """
+
+from __future__ import annotations
 
 import time
 
@@ -11,8 +17,6 @@ import httpx
 _MAX_TENTATIVAS = 3
 _ESPERA_BASE_SEGUNDOS = 5
 
-# Código IBGE de cada UF — usado no campo cUFAutor da consulta. Dado público
-# e estável (não muda), por isso não é um problema hardcodear.
 CODIGO_IBGE_POR_UF = {
     "RO": "11", "AC": "12", "AM": "13", "RR": "14", "PA": "15", "AP": "16",
     "TO": "17", "MA": "21", "PI": "22", "CE": "23", "RN": "24", "PB": "25",
@@ -21,50 +25,105 @@ CODIGO_IBGE_POR_UF = {
     "MT": "51", "GO": "52", "DF": "53",
 }
 
-# Endpoints do webservice nacional de Distribuição DFe (SOAP 1.2). É
-# centralizado — ao contrário dos serviços de autorização/emissão, não há
-# um endpoint por UF para este serviço específico.
-DISTRIBUICAO_DFE_URL_PRODUCAO = "https://www1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx"
-DISTRIBUICAO_DFE_URL_HOMOLOGACAO = "https://hom.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx"
+# --- NFe (Ambiente Nacional) ---
+NFE_DISTRIBUICAO_URL_PRODUCAO = (
+    "https://www1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx"
+)
+NFE_DISTRIBUICAO_URL_HOMOLOGACAO = (
+    "https://hom.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx"
+)
+NFE_SOAP_ACTION = (
+    "http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe/nfeDistDFeInteresse"
+)
+NFE_NS_WSDL = "http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe"
+NFE_NS_PORTAL = "http://www.portalfiscal.inf.br/nfe"
+NFE_OPERACAO = "nfeDistDFeInteresse"
+NFE_DADOS_MSG = "nfeDadosMsg"
+NFE_VERSAO_DIST = "1.01"
 
-SOAP_ACTION = "http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe/nfeDistDFeInteresse"
+# --- CT-e (Ambiente Nacional) ---
+# Fontes: sped-cte storage/wscte_4.00_mod57.xml + PyNFe webservices.py
+CTE_DISTRIBUICAO_URL_PRODUCAO = (
+    "https://www1.cte.fazenda.gov.br/CTeDistribuicaoDFe/CTeDistribuicaoDFe.asmx"
+)
+CTE_DISTRIBUICAO_URL_HOMOLOGACAO = (
+    "https://hom1.cte.fazenda.gov.br/CTeDistribuicaoDFe/CTeDistribuicaoDFe.asmx"
+)
+CTE_SOAP_ACTION = (
+    "http://www.portalfiscal.inf.br/cte/wsdl/CTeDistribuicaoDFe/cteDistDFeInteresse"
+)
+CTE_NS_WSDL = "http://www.portalfiscal.inf.br/cte/wsdl/CTeDistribuicaoDFe"
+CTE_NS_PORTAL = "http://www.portalfiscal.inf.br/cte"
+CTE_OPERACAO = "cteDistDFeInteresse"
+CTE_DADOS_MSG = "cteDadosMsg"
+CTE_VERSAO_DIST = "1.00"
+
+# Aliases legados (nfe_sefaz.py antigo)
+DISTRIBUICAO_DFE_URL_PRODUCAO = NFE_DISTRIBUICAO_URL_PRODUCAO
+DISTRIBUICAO_DFE_URL_HOMOLOGACAO = NFE_DISTRIBUICAO_URL_HOMOLOGACAO
+SOAP_ACTION = NFE_SOAP_ACTION
 
 
-def montar_envelope(cnpj: str, cuf_autor: str, tp_amb: str, ultimo_nsu: str) -> bytes:
+def montar_envelope(
+    cnpj: str,
+    cuf_autor: str,
+    tp_amb: str,
+    ultimo_nsu: str,
+    *,
+    ns_wsdl: str = NFE_NS_WSDL,
+    ns_portal: str = NFE_NS_PORTAL,
+    operacao: str = NFE_OPERACAO,
+    dados_msg: str = NFE_DADOS_MSG,
+    versao: str = NFE_VERSAO_DIST,
+) -> bytes:
     """
-    Monta o envelope SOAP 1.2 de consulta por NSU (distNSU/ultNSU) —
-    estrutura confirmada contra exemplos reais de produção (ver
-    nfe_sefaz.py para as fontes). Sem assinatura XML: a autenticação é só
-    pelo certificado A1 usado no TLS da chamada (mTLS), não uma assinatura
-    dentro do XML — diferente dos serviços de emissão/autorização de NFe.
+    Monta o envelope SOAP 1.2 de consulta por NSU (distNSU/ultNSU).
+    Sem assinatura XML: autenticação é só mTLS do certificado A1.
     """
-    ultimo_nsu_preenchido = ultimo_nsu.zfill(15)
+    digitos = "".join(c for c in cnpj if c.isdigit())
+    tag_pessoa = f"<CNPJ>{digitos}</CNPJ>" if len(digitos) == 14 else f"<CPF>{digitos}</CPF>"
+    ultimo_nsu_preenchido = str(ultimo_nsu or "0").zfill(15)
+
     xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <soap12:Envelope xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">
   <soap12:Body>
-    <nfeDistDFeInteresse xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeDistribuicaoDFe">
-      <nfeDadosMsg>
-        <distDFeInt xmlns="http://www.portalfiscal.inf.br/nfe" versao="1.01">
+    <{operacao} xmlns="{ns_wsdl}">
+      <{dados_msg}>
+        <distDFeInt xmlns="{ns_portal}" versao="{versao}">
           <tpAmb>{tp_amb}</tpAmb>
           <cUFAutor>{cuf_autor}</cUFAutor>
-          <CNPJ>{cnpj}</CNPJ>
+          {tag_pessoa}
           <distNSU>
             <ultNSU>{ultimo_nsu_preenchido}</ultNSU>
           </distNSU>
         </distDFeInt>
-      </nfeDadosMsg>
-    </nfeDistDFeInteresse>
+      </{dados_msg}>
+    </{operacao}>
   </soap12:Body>
 </soap12:Envelope>"""
     return xml.encode("utf-8")
 
 
+def montar_envelope_nfe(cnpj: str, cuf_autor: str, tp_amb: str, ultimo_nsu: str) -> bytes:
+    return montar_envelope(cnpj, cuf_autor, tp_amb, ultimo_nsu)
+
+
+def montar_envelope_cte(cnpj: str, cuf_autor: str, tp_amb: str, ultimo_nsu: str) -> bytes:
+    return montar_envelope(
+        cnpj,
+        cuf_autor,
+        tp_amb,
+        ultimo_nsu,
+        ns_wsdl=CTE_NS_WSDL,
+        ns_portal=CTE_NS_PORTAL,
+        operacao=CTE_OPERACAO,
+        dados_msg=CTE_DADOS_MSG,
+        versao=CTE_VERSAO_DIST,
+    )
+
+
 def buscar(elemento, nome_local: str):
-    """
-    Procura o primeiro descendente cujo nome local (sem o namespace, que
-    varia entre soap12/wsdl/portalfiscal) bate com `nome_local`. Menos
-    frágil que casar o namespace exato em cada nível do envelope.
-    """
+    """Primeiro descendente cujo nome local (sem namespace) bate com `nome_local`."""
     for e in elemento.iter():
         if e.tag.split("}")[-1] == nome_local:
             return e
@@ -75,13 +134,17 @@ def buscar_todos(elemento, nome_local: str):
     return [e for e in elemento.iter() if e.tag.split("}")[-1] == nome_local]
 
 
-def chamar_com_retentativa(envelope: bytes, url: str, cert_path: str, key_path: str) -> bytes:
+def chamar_com_retentativa(
+    envelope: bytes,
+    url: str,
+    cert_path: str,
+    key_path: str,
+    soap_action: str = NFE_SOAP_ACTION,
+) -> bytes:
     """
-    Mesmo padrão de retentativa do importador de NFS-e (nfse_adn.py): até 3
-    tentativas com espera crescente para erro 5xx/transporte. O SEFAZ não
-    costuma usar HTTP 429 como o ADN — limite de consumo aqui normalmente
-    vem como um cStat de negócio dentro de uma resposta 200 OK, que quem
-    chama esta função trata separadamente (ver nfe_sefaz.py).
+    Até 3 tentativas com espera crescente para erro 5xx/transporte.
+    Limite de consumo do SEFAZ costuma vir como cStat dentro de HTTP 200
+    (ex.: 656 Consumo Indevido) — quem chama trata isso.
     """
     ultimo_erro: Exception | None = None
     for tentativa in range(1, _MAX_TENTATIVAS + 1):
@@ -91,7 +154,9 @@ def chamar_com_retentativa(envelope: bytes, url: str, cert_path: str, key_path: 
                     url,
                     content=envelope,
                     headers={
-                        "Content-Type": f'application/soap+xml; charset=utf-8; action="{SOAP_ACTION}"',
+                        "Content-Type": (
+                            f'application/soap+xml; charset=utf-8; action="{soap_action}"'
+                        ),
                     },
                 )
                 resposta.raise_for_status()
@@ -104,4 +169,6 @@ def chamar_com_retentativa(envelope: bytes, url: str, cert_path: str, key_path: 
             if tentativa < _MAX_TENTATIVAS:
                 time.sleep(_ESPERA_BASE_SEGUNDOS * (2 ** (tentativa - 1)))
 
-    raise ConnectionError(f"SEFAZ indisponível após {_MAX_TENTATIVAS} tentativas: {ultimo_erro}") from ultimo_erro
+    raise ConnectionError(
+        f"SEFAZ indisponível após {_MAX_TENTATIVAS} tentativas: {ultimo_erro}"
+    ) from ultimo_erro

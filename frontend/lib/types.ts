@@ -37,6 +37,8 @@ export interface ExecucaoImportacao {
   documentos_importados: number;
   iniciado_em: string;
   finalizado_em: string | null;
+  mensagem_erro?: string | null;
+  ultimo_nsu?: string | null;
   empresa_razao_social: string | null;
 }
 

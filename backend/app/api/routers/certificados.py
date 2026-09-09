@@ -49,11 +49,17 @@ async def enviar_certificado(
         f.write(pfx_bytes)
     os.chmod(caminho_arquivo, 0o600)
 
+    # Desativa certificados anteriores desta empresa — só um ativo por vez
+    db.query(Certificado).filter(
+        Certificado.empresa_id == empresa_id, Certificado.ativo.is_(True)
+    ).update({"ativo": False})
+
     certificado = Certificado(
         empresa_id=empresa_id,
         arquivo_path=caminho_arquivo,
         senha_cifrada=cifrar_segredo(senha),
         validade=validade,
+        ativo=True,
     )
     db.add(certificado)
     db.commit()

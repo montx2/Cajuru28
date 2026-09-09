@@ -10,48 +10,65 @@ services:
       - db_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U notasflow -d notasflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   redis:
     image: redis:7-alpine
     restart: unless-stopped
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   api:
     build: ./backend
     restart: unless-stopped
     env_file: ./backend/.env
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     ports:
       - "8000:8000"
     volumes:
       - ./backend:/app
       - certificados:/data/certificados
       - xml_saida:/data/xml
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   worker:
     build: ./backend
     restart: unless-stopped
     # concurrency=4: processa até 4 empresas em paralelo por container.
-    # Para mais de ~30 empresas rodando junto, suba mais réplicas em vez de
-    # só aumentar esse número: `docker compose up --scale worker=3`.
+    # Para mais de ~30 empresas: `docker compose up --scale worker=3`.
     command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=4
     env_file: ./backend/.env
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
       - ./backend:/app
       - certificados:/data/certificados
       - xml_saida:/data/xml
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     restart: unless-stopped
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     depends_on:
       - api
     ports:

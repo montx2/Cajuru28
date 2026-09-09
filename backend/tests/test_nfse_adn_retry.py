@@ -1,3 +1,6 @@
+import base64
+import gzip
+
 import httpx
 import pytest
 import respx
@@ -45,12 +48,41 @@ def _cert_key_falsos(tmp_path):
     return str(cert_path), str(key_path)
 
 
+def _xml_nfse_fake(cnpj_prestador: str = "99999999000188", valor: str = "100.50") -> str:
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<NFSe xmlns="http://www.sped.fazenda.gov.br/nfse">
+  <infNFSe Id="NFS35260112345678000199550010000000011234567890">
+    <DPS>
+      <infDPS>
+        <dhEmi>2026-01-05T09:00:00-03:00</dhEmi>
+        <prest><CNPJ>{cnpj_prestador}</CNPJ></prest>
+        <valores><vLiq>{valor}</vLiq></valores>
+      </infDPS>
+    </DPS>
+  </infNFSe>
+</NFSe>"""
+
+
+def _item_lote(nsu: int, chave: str, xml: str) -> dict:
+    compactado = base64.b64encode(gzip.compress(xml.encode("utf-8"))).decode()
+    return {
+        "NSU": nsu,
+        "ChaveAcesso": chave,
+        "ArquivoXml": compactado,
+        "TipoDocumento": "NFSE",
+    }
+
+
+# URL oficial: DFe com D e F maiúsculos (manual ADN + fórum ACBr)
+URL_PADRAO = "https://adn.nfse.gov.br/contribuintes/DFe/0"
+
+
 @respx.mock
 def test_retenta_em_429_e_depois_funciona(monkeypatch, tmp_path):
     monkeypatch.setattr("app.services.importadores.nfse_adn.time.sleep", lambda _: None)
     cert_path, key_path = _cert_key_falsos(tmp_path)
 
-    rota = respx.get(url__regex=r".*/contribuintes/dfe/0.*").mock(
+    rota = respx.get(url__regex=r".*/contribuintes/DFe/0.*").mock(
         side_effect=[
             httpx.Response(429),
             httpx.Response(200, json={"LoteDFe": []}),
@@ -72,7 +104,7 @@ def test_erro_401_nao_retenta(monkeypatch, tmp_path):
     monkeypatch.setattr("app.services.importadores.nfse_adn.time.sleep", lambda _: None)
     cert_path, key_path = _cert_key_falsos(tmp_path)
 
-    rota = respx.get(url__regex=r".*/contribuintes/dfe/0.*").mock(
+    rota = respx.get(url__regex=r".*/contribuintes/DFe/0.*").mock(
         return_value=httpx.Response(401)
     )
 
@@ -82,4 +114,63 @@ def test_erro_401_nao_retenta(monkeypatch, tmp_path):
             cnpj="12345678000199", cert_path=cert_path, key_path=key_path, ultimo_nsu="0"
         )
 
-    assert rota.call_count == 1  # 401 não é transitório — não vale insistir
+    assert rota.call_count == 1
+
+
+@respx.mock
+def test_404_nenhum_documento_nao_e_erro(tmp_path):
+    cert_path, key_path = _cert_key_falsos(tmp_path)
+    respx.get(url__regex=r".*/contribuintes/DFe/0.*").mock(
+        return_value=httpx.Response(
+            404, json={"StatusProcessamento": "NENHUM_DOCUMENTO_LOCALIZADO"}
+        )
+    )
+
+    importador = ImportadorNFSeADN()
+    lote = importador.buscar_lote(
+        cnpj="12345678000199", cert_path=cert_path, key_path=key_path, ultimo_nsu="0"
+    )
+    assert lote.documentos == []
+    assert lote.ha_mais_documentos is False
+
+
+@respx.mock
+def test_converte_documento_e_direcao(tmp_path):
+    cert_path, key_path = _cert_key_falsos(tmp_path)
+    cnpj = "12345678000199"
+    xml = _xml_nfse_fake(cnpj_prestador="99999999000188", valor="250.00")
+    item = _item_lote(42, "35260112345678000199550010000000011234567890", xml)
+
+    respx.get(url__regex=r".*/contribuintes/DFe/0.*").mock(
+        return_value=httpx.Response(
+            200, json={"LoteDFe": [item], "UltNSU": 42, "MaxNSU": 42}
+        )
+    )
+
+    importador = ImportadorNFSeADN()
+    lote = importador.buscar_lote(
+        cnpj=cnpj, cert_path=cert_path, key_path=key_path, ultimo_nsu="0"
+    )
+
+    assert len(lote.documentos) == 1
+    doc = lote.documentos[0]
+    assert doc.nsu == "42"
+    assert doc.valor_total == 250.0
+    assert doc.direcao == "tomada"  # prestador ≠ cnpj consultado
+    assert lote.ha_mais_documentos is False
+
+
+@respx.mock
+def test_url_usa_DFe_maiusculo(tmp_path):
+    cert_path, key_path = _cert_key_falsos(tmp_path)
+    rota = respx.get(URL_PADRAO).mock(return_value=httpx.Response(200, json={"LoteDFe": []}))
+
+    importador = ImportadorNFSeADN()
+    importador.buscar_lote(
+        cnpj="12345678000199", cert_path=cert_path, key_path=key_path, ultimo_nsu="0"
+    )
+    assert rota.called
+    # confere query params oficiais
+    request = rota.calls.last.request
+    assert "cnpjConsulta=12345678000199" in str(request.url)
+    assert "lote=true" in str(request.url)

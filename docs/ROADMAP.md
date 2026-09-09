@@ -1,51 +1,52 @@
 # Roadmap
 
-## Fase 0 — Fundação (pronta neste scaffold)
+## Fase 0 — Fundação (pronta)
 Banco multiempresa, autenticação JWT, cofre de segredos, CRUD de
 escritórios/empresas/certificados, estrutura de fila (Celery) e worker.
 
-## Fase 1 — Importador de NFS-e (pronta neste scaffold)
-Porta a lógica validada do `Importarnotas`: mTLS com o `.pfx`, consulta ao
-ADN por NSU, checkpoint por lote de 50, gravação de XML.
+## Fase 1 — Importador de NFS-e (pronta e corrigida)
+Porta a lógica validada do `Importarnotas` + Manual oficial do ADN:
 
-## Fase 2 — Importador de NFe (SEFAZ)
+- Endpoint correto: `GET /contribuintes/DFe/{NSU}` (DFe maiúsculo)
+- Params: `cnpjConsulta` / `cpfConsulta` + `lote=true`
+- 404 `NENHUM_DOCUMENTO_LOCALIZADO` tratado como "nada novo" (não é erro)
+- Retry em 429/5xx, cooldown de 1h, checkpoint por NSU entre execuções
+- Parser de XML namespace-agnóstico (leiaute nacional)
 
-**Status: implementado, não testado contra o SEFAZ de verdade.**
+## Fase 2 — Importador de NFe (pronta)
+`NFeDistribuicaoDFe` / `nfeDistDFeInteresse` (SOAP 1.2 + mTLS):
 
-`app/services/importadores/nfe_sefaz.py` foi construído sobre a Nota
-Técnica 2014.002, os XSDs oficiais (`distDFeInt_v1.01.xsd`,
-`retDistDFeInt_v1.00.xsd`) e exemplos reais de request/response de
-produção replicados por bibliotecas open-source consolidadas (sped-nfe,
-DFe.NET, Java_NFe, xml-nfe.io) — mas eu não tenho, neste ambiente, acesso
-de rede a `nfe.fazenda.gov.br` nem um certificado A1 real para testar de
-ponta a ponta. Antes de rodar em produção:
+- cStat 137 (nada novo) / 138 (docs) / 656 (consumo indevido)
+- docZip gzip+base64 → resNFe / procNFe (eventos ignorados)
+- Campo UF obrigatório na empresa (`cUFAutor`)
 
-1. Rode em homologação (`ImportadorNFeSEFAZ(ambiente="homologacao")`)
-   contra um certificado real primeiro.
-2. Confirme que o schema do `docZip` que chega bate com `resNFe`/`procNFe`
-   como documentado — se a empresa nunca fez "manifestação do
-   destinatário", é bem provável que só chegue o resumo (`resNFe`), não a
-   NFe completa (`procNFe`). Ver TODO no topo do arquivo.
-3. Implemente o endpoint de manifestação do destinatário
-   (`RecepcaoEvento`) se precisar do XML completo, não só do resumo.
+**Antes de produção com certificado real:** rode primeiro em
+`AMBIENTE_FISCAL=homologacao`. Sem manifestação do destinatário, o que chega
+geralmente é o **resumo** (`resNFe`), não a NFe completa.
 
-## Fase 3 — Importador de CT-e (SEFAZ)
-- Mesmo serviço de Distribuição DFe da NFe, schema XML diferente
-  (`CTeDistribuicaoDFe` conceito equivalente).
-- Depois da Fase 2, isso tende a ser mais rápido — a maior parte da
-  integração SOAP/SEFAZ já vai estar resolvida.
+## Fase 3 — Importador de CT-e (pronta)
+`CTeDistribuicaoDFe` / `cteDistDFeInteresse`:
 
-## Fase 4 — Frontend web
-- Next.js + Tailwind consumindo a API já pronta.
-- Telas: empresas/certificados, painel de importação por período, execuções
-  em andamento, exportação (Excel/CSV/ZIP) — o equivalente ao painel
-  Streamlit atual, mas multiusuário e sem travar ao fechar o navegador.
+- URLs AN: `www1.cte.fazenda.gov.br` (prod) / `hom1.cte.fazenda.gov.br` (hom)
+- Mesmo módulo compartilhado `_distribuicao_dfe.py` da NFe
+- Parser de resCTe/procCTe (`chCTe`, `vTPrest`)
 
-## Fase 5 — Multiempresa self-service (se decidir virar produto)
-- Onboarding de novo escritório sem intervenção manual.
-- Cobrança/planos.
-- Isolamento de fila por escritório (evitar um escritório grande atrasar os
-  outros).
+Fontes: portal CT-e, nfephp-org/sped-cte, TadaSoftware/PyNFe.
 
-Cada fase é independente o suficiente para ser um projeto de algumas
-semanas — não precisa (nem deveria) tentar entregar tudo de uma vez.
+## Fase 4 — Frontend web (pronta)
+Next.js + Tailwind: login, visão geral (lote), empresas/certificado,
+importações com polling, documentos com download de XML.
+
+## Fase 5 — Multiempresa self-service (futuro)
+- Onboarding de novo escritório sem intervenção manual
+- Cobrança/planos
+- Isolamento de fila por escritório
+
+## Pendências técnicas conhecidas (não bloqueiam o uso interno)
+
+1. **Manifestação do destinatário (NFe)** — `RecepcaoEvento` para receber
+   `procNFe` completo em vez de só `resNFe`.
+2. **Alembic** — trocar `create_all` por migrations versionadas antes de
+   produção com dado real de cliente.
+3. **Validação ponta-a-ponta com certificado A1 real** — só possível na
+   máquina do escritório (este ambiente não tem cert nem rede SEFAZ).

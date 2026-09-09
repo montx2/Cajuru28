@@ -8,15 +8,23 @@ from app.core.config import settings
 # Isto é sobre a senha de LOGIN do usuário do sistema (contador, staff do
 # escritório) — não confundir com a senha do certificado A1, que é tratada
 # no cofre de segredos (app/core/vault.py). São dois problemas diferentes.
-_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+#
+# bcrypt trunca em 72 bytes; passlib + bcrypt>=4.1 tem incompatibilidade
+# conhecida em alguns ambientes — truncate_error=False evita crash em
+# senhas longas demais.
+_pwd_context = CryptContext(
+    schemes=["bcrypt"],
+    deprecated="auto",
+    bcrypt__truncate_error=False,
+)
 
 
 def gerar_hash_senha(senha_texto_puro: str) -> str:
-    return _pwd_context.hash(senha_texto_puro)
+    return _pwd_context.hash(senha_texto_puro[:72])
 
 
 def verificar_senha(senha_texto_puro: str, senha_hash: str) -> bool:
-    return _pwd_context.verify(senha_texto_puro, senha_hash)
+    return _pwd_context.verify(senha_texto_puro[:72], senha_hash)
 
 
 def criar_token_acesso(subject: str, escritorio_id: int) -> str:

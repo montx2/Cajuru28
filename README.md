@@ -1,13 +1,13 @@
 # NotasFlow
 
 Importação automática de documentos fiscais (NFS-e, NFe, CT-e) direto das
-fontes oficiais — **ADN nacional** (NFS-e) e **SEFAZ estadual** (NFe/CT-e) —
+fontes oficiais — **ADN nacional** (NFS-e) e **SEFAZ estadual/AN** (NFe/CT-e) —
 usando o certificado A1 de cada empresa, sem portal, sem clique, sem robô de
 navegador.
 
-Este projeto é a evolução do `Importarnotas`: mesma ideia (API oficial +
-mTLS), agora em arquitetura de sistema — pronta para crescer de "uso interno
-do escritório" para "produto multiempresa" sem reescrever nada.
+Evolução do `Importarnotas`: mesma ideia (API oficial + mTLS), agora em
+arquitetura de sistema — pronta para crescer de uso interno do escritório
+para produto multiempresa sem reescrever nada.
 
 ## Por que não usar scraping de portal
 
@@ -19,97 +19,152 @@ próprio certificado digital A1 da empresa via mTLS. Ir direto na API:
 - não tem CAPTCHA, sessão de navegador ou rate limit de humano;
 - é o único método realmente suportado pelo governo para grandes volumes.
 
-O `Importarnotas` (repositório original) já fazia isso para NFS-e via ADN.
-Este projeto generaliza esse padrão para NFe e CT-e via SEFAZ, e troca a
-base "script local + Streamlit" por um sistema de verdade.
-
-## Arquitetura (visão geral)
+## Arquitetura
 
 ```
-Frontend web
+Frontend web (Next.js)
      │
      ▼
 API (FastAPI) ──────┬──────────────┬───────────────┐
                      ▼              ▼               ▼
-              Banco de dados   Cofre de        Fila de
-              (PostgreSQL)     segredos        importação
-                               (senhas          (Redis + Celery)
-                                cifradas)              │
-                                                        ▼
-                                                    Workers
-                                                   ┌────┴────┐
-                                                   ▼         ▼
-                                            ADN nacional  SEFAZ
-                                            (NFS-e)       (NFe / CT-e)
+              PostgreSQL      Cofre Fernet     Redis + Celery
+                                                   │
+                                                   ▼
+                                              Workers
+                                         ┌─────┴─────┐
+                                         ▼           ▼
+                                   ADN (NFS-e)   SEFAZ AN
+                                                 (NFe / CT-e)
 ```
 
-Detalhes de cada decisão em [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md).
-Fases de construção em [`docs/ROADMAP.md`](docs/ROADMAP.md).
+Detalhes em [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md).
+Fases em [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Stack
 
-| Camada          | Escolha                        | Por quê |
-| --------------- | ------------------------------- | ------- |
-| Backend          | Python 3.11 + FastAPI           | Mesma linguagem da base atual; ecossistema forte para X.509/mTLS/XML fiscal |
-| Banco            | PostgreSQL                      | Concorrência real, pronto para multiempresa desde o início (SQLite não escala para SaaS) |
-| Fila             | Redis + Celery                  | Importação roda em background, com retry automático e não trava a interface |
-| Cofre de senhas  | Criptografia simétrica (Fernet) | Senha de certificado nunca em texto puro, nunca em planilha |
-| Autenticação     | JWT                             | Multiusuário, pronto para multiempresa (`escritorio_id` em cada tabela) |
-| Deploy           | Docker Compose                  | Sobe em qualquer VPS ou Windows com Docker Desktop — nada de `.bat` |
+| Camada         | Escolha              | Por quê |
+| -------------- | -------------------- | ------- |
+| Backend        | Python 3.11 + FastAPI | X.509/mTLS/XML fiscal |
+| Banco          | PostgreSQL           | Multiempresa, concorrência |
+| Fila           | Redis + Celery       | Importação em background com retry |
+| Cofre          | Fernet (AES)         | Senha de certificado nunca em texto puro |
+| Auth           | JWT                  | Multiusuário + `escritorio_id` |
+| Frontend       | Next.js 16 + Tailwind | Painel operacional clean |
+| Deploy         | Docker Compose       | Sobe em qualquer máquina com Docker |
 
 ## Rodando localmente
 
+### Pré-requisitos
+
+- Docker Desktop (Windows/Mac) ou Docker Engine + Compose (Linux)
+- ~2 GB de RAM livres
+
+### 1. Configure o ambiente
+
 ```bash
 cp backend/.env.example backend/.env
-# edite backend/.env com a SECRET_KEY e a VAULT_MASTER_KEY (veja o arquivo)
+```
+
+Edite `backend/.env` e gere as duas chaves:
+
+```bash
+# SECRET_KEY
+python3 -c "import secrets; print(secrets.token_urlsafe(48))"
+
+# VAULT_MASTER_KEY (precisa do pacote cryptography)
+python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+Cole os valores em `SECRET_KEY=` e `VAULT_MASTER_KEY=` no `.env`.
+
+```bash
 cp frontend/.env.example frontend/.env.local
+# NEXT_PUBLIC_API_URL=http://localhost:8000  (já é o padrão)
+```
+
+### 2. Suba tudo
+
+```bash
 docker compose up --build
 ```
 
-- API + Swagger: `http://localhost:8000/docs`
-- Painel web: `http://localhost:3000`
+Na primeira vez demora (baixa imagens + build do frontend). Quando estabilizar:
 
-Crie o primeiro escritório e usuário antes de logar no painel:
+| Serviço | URL |
+| ------- | --- |
+| Painel web | http://localhost:3000 |
+| API + Swagger | http://localhost:8000/docs |
+| Saúde da API | http://localhost:8000/saude |
+
+### 3. Crie o primeiro usuário
+
 ```bash
-docker compose exec api python scripts/criar_usuario_inicial.py
+docker compose exec api python scripts/criar_usuario_inicial.py \
+  --escritorio "Meu Escritório" \
+  --nome "Admin" \
+  --email admin@empresa.com \
+  --senha "troque-esta-senha"
 ```
 
-## O painel web
+(ou rode sem flags para modo interativo)
 
-Next.js + Tailwind, direção visual de "caderno de protocolo oficial" — fundo
-papel-frio, um único acento (verde institucional, evocando certificado
-validado), números e códigos (CNPJ, chave de acesso, NSU, valores) sempre em
-monoespaçada e alinhados à direita, tabelas com regra fina em vez de card
-genérico de SaaS. Sem bibliotecas de UI pesadas — só o que a tela precisa.
+### 4. Use o painel
 
-Telas: **Visão geral** (dispara importação para todas as empresas de uma
-vez), **Empresas** (cadastro + upload de certificado A1), **Importações**
-(histórico com atualização automática) e **Documentos** (consulta com filtro
-por empresa/tipo).
+1. Abra http://localhost:3000 e faça login
+2. **Empresas** → cadastre a razão social, CNPJ e UF
+3. Abra a empresa → envie o `.pfx` + senha do certificado A1
+4. **Visão geral** → "Importar NFS-e de todas" (ou NFe / CT-e)
+5. Acompanhe em **Importações** (atualiza sozinho a cada 4s)
+6. Consulte e baixe XML em **Documentos**
 
+### 30 empresas de uma vez
 
-## Importando várias empresas de uma vez
+`POST /importacoes/lote?tipo=nfse` (ou o botão da Visão geral) dispara uma
+task por empresa. Uma travar não puxa as outras. Para mais paralelismo:
 
-`POST /importacoes/lote?tipo=nfse` dispara a importação de todas as
-empresas ativas do escritório em uma chamada só — cada uma vira uma task
-independente na fila, então uma travar ou dar erro não afeta as outras.
-Empresas sem certificado ativo, ou que consultaram o ADN há menos de 1h sem
-encontrar nada novo (proteção contra bloqueio de CNPJ), aparecem na
-resposta como `sem_certificado` / `em_cooldown` em vez de serem enfileiradas
-silenciosamente.
-
-Para escalar além do padrão (4 importações em paralelo por container):
 ```bash
 docker compose up --scale worker=3
 ```
 
+## Fontes oficiais usadas
+
+- [Manual dos Contribuintes — APIs do ADN](https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/documentacao-atual/manual-contribuintes-apis-adn-sistema-nacional-nfse.pdf) — `GET /DFe/{NSU}`
+- [Swagger ADN contribuintes](https://adn.nfse.gov.br/contribuintes/docs/index.html)
+- [NT 2014.002 / NFeDistribuicaoDFe](https://www.nfe.fazenda.gov.br/) + [sped-nfe DistDFe](https://github.com/nfephp-org/sped-nfe/blob/master/docs/metodos/DistDFe.md)
+- [Portal CT-e — CTeDistribuicaoDFe](http://www.cte.fazenda.gov.br/portal/webServices.aspx) + [sped-cte](https://github.com/nfephp-org/sped-cte) + [PyNFe](https://github.com/TadaSoftware/PyNFe)
+- Repositório original validado: [montx2/Importarnotas](https://github.com/montx2/Importarnotas)
+
 ## Status
 
-- [x] Fase 0 — Fundação: banco multiempresa, cofre de segredos, autenticação, API de empresas/certificados
-- [x] Fase 1 — Importador de NFS-e via ADN (portado do `Importarnotas`), com retry e cooldown de 1h
-- [x] Fase 2 — Importador de NFe via SEFAZ (Distribuição DFe) — implementado, aguardando validação em homologação com certificado real
-- [ ] Fase 3 — Importador de CT-e via SEFAZ (mesmo serviço de distribuição da NFe)
-- [x] Fase 4 — Frontend web (Next.js + Tailwind)
-- [ ] Fase 5 — Multiempresa self-service (onboarding, cobrança)
+- [x] Fase 0 — Fundação
+- [x] Fase 1 — NFS-e via ADN (corrigida contra manual oficial)
+- [x] Fase 2 — NFe via SEFAZ AN
+- [x] Fase 3 — CT-e via SEFAZ AN
+- [x] Fase 4 — Frontend web
+- [ ] Fase 5 — Multiempresa self-service
 
-Veja o `docs/ROADMAP.md` para escopo e ordem de cada fase.
+## Testes
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+pytest -q
+```
+
+## Homologação com certificado real
+
+No `.env`:
+
+```
+AMBIENTE_FISCAL=homologacao
+```
+
+Reinicie API + worker (`docker compose restart api worker`), rode a importação
+com 1–2 empresas primeiro, confira os logs do worker:
+
+```bash
+docker compose logs -f worker
+```
+
+Se aparecer cStat 656 / HTTP 429, o cooldown de 1h já protege — não force em
+loop. Só use `forcar=true` (ou o equivalente na API) com consciência.

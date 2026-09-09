@@ -58,7 +58,22 @@ def _fim_do_cooldown(
 
 
 def _enfileirar(db: Session, empresa_id: int, tipo: TipoDocumentoFiscal) -> ExecucaoImportacao:
-    execucao = ExecucaoImportacao(empresa_id=empresa_id, tipo=tipo, status=StatusExecucao.EM_ANDAMENTO)
+    # Evita enfileirar duas vezes a mesma empresa+tipo enquanto ainda roda
+    em_andamento = (
+        db.query(ExecucaoImportacao)
+        .filter(
+            ExecucaoImportacao.empresa_id == empresa_id,
+            ExecucaoImportacao.tipo == tipo,
+            ExecucaoImportacao.status == StatusExecucao.EM_ANDAMENTO,
+        )
+        .first()
+    )
+    if em_andamento is not None:
+        return em_andamento
+
+    execucao = ExecucaoImportacao(
+        empresa_id=empresa_id, tipo=tipo, status=StatusExecucao.EM_ANDAMENTO
+    )
     db.add(execucao)
     db.commit()
     db.refresh(execucao)

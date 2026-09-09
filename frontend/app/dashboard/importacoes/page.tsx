@@ -73,6 +73,13 @@ export default function ImportacoesPage() {
                 <td className="py-3 uppercase text-ink-muted">{execucao.tipo}</td>
                 <td className="py-3">
                   <StatusDot status={execucao.status} />
+                  {execucao.status === "erro" && execucao.mensagem_erro && (
+                    <p className="mt-1 max-w-md text-xs text-danger" title={execucao.mensagem_erro}>
+                      {execucao.mensagem_erro.length > 120
+                        ? `${execucao.mensagem_erro.slice(0, 120)}…`
+                        : execucao.mensagem_erro}
+                    </p>
+                  )}
                 </td>
                 <td className="py-3 text-right font-mono text-ink">{execucao.documentos_importados}</td>
                 <td className="py-3 text-right text-ink-muted">{formatarHora(execucao.iniciado_em)}</td>
