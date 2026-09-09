@@ -148,7 +148,9 @@ class ImportadorNFeSEFAZ(ImportadorFiscal):
             inf_nfe = buscar(raiz_doc, "infNFe")
             chave = inf_nfe.get("Id", "")[3:] if inf_nfe is not None else ""
 
+        # ElementTree: Element sem filhos é falsy — sempre comparar com is not None
         emit_el = buscar(raiz_doc, "emit")
+        emitente_cnpj = ""
         if emit_el is not None:
             emitente_cnpj_el = buscar(emit_el, "CNPJ")
             if emitente_cnpj_el is None:
