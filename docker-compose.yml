@@ -1,0 +1,63 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: notasflow
+      POSTGRES_PASSWORD: notasflow
+      POSTGRES_DB: notasflow
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  api:
+    build: ./backend
+    restart: unless-stopped
+    env_file: ./backend/.env
+    depends_on:
+      - db
+      - redis
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - certificados:/data/certificados
+      - xml_saida:/data/xml
+
+  worker:
+    build: ./backend
+    restart: unless-stopped
+    # concurrency=4: processa até 4 empresas em paralelo por container.
+    # Para mais de ~30 empresas rodando junto, suba mais réplicas em vez de
+    # só aumentar esse número: `docker compose up --scale worker=3`.
+    command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=4
+    env_file: ./backend/.env
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - ./backend:/app
+      - certificados:/data/certificados
+      - xml_saida:/data/xml
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    depends_on:
+      - api
+    ports:
+      - "3000:3000"
+
+volumes:
+  db_data:
+  certificados:
+  xml_saida:
