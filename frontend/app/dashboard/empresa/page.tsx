@@ -18,10 +18,8 @@ import {
 /**
  * Detalhe de uma empresa: certificado, sincronização e importação.
  *
- * Era uma rota dinâmica (`/empresas/[id]`). No build estático do modo desktop
- * rota dinâmica precisa ser declarada no build — e o id de uma empresa é dado
- * de runtime, não de compilação. Passar o id por `?id=` resolve sem nenhum
- * preço: o comportamento para quem usa é idêntico.
+ * O id é passado por `?id=`, mantendo a página simples e o comportamento
+ * idêntico para quem usa.
  *
  * O `Suspense` em volta é exigência do Next para páginas que leem a URL em
  * build estático (o resto da página é pré-renderizado, a parte que depende da

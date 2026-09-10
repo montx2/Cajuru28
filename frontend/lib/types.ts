@@ -160,58 +160,20 @@ export const ROTULO_STATUS_SELECAO: Record<string, string> = {
 };
 
 // ---------------------------------------------------------------
-// O programa instalado
+// Informações operacionais do ambiente Docker
 // ---------------------------------------------------------------
 
 export interface InfoSistema {
-  empacotado: boolean;
-  pasta_programa: string;
-  pasta_dados: string;
-  pasta_logs: string;
-  pasta_web: string;
-  painel_web_presente: boolean;
-  python: string;
-  sistema: string;
-  versao: string;
-  modo_desktop: boolean;
-  modo_servidor: boolean;
-  banco: "sqlite" | "postgresql";
-  arquivo_env: string;
-  iniciar_com_windows: boolean;
-  pode_iniciar_com_windows: boolean;
+  modo: "docker";
+  modo_desktop: false;
+  modo_servidor: true;
+  banco: "postgresql";
+  dados_dir: string;
   fila: {
-    concorrencia?: number;
-    pendentes?: number;
-    em_execucao?: Record<string, number>;
-    agenda?: Record<string, { tarefa: string; intervalo_segundos: number; proximo: string | null }>;
-    modo?: string;
+    modo: "celery";
+    agenda: Record<string, { tarefa?: string }>;
   };
-  atualizacao: {
-    versao: string;
-    manifesto: string;
-    pasta_programa: string;
-    pasta_dados: string;
-    empacotado: boolean;
-    sistema: string;
-  };
-  verificado_em: string | null;
-}
-
-export interface EstadoAtualizacao {
-  /** ocioso | verificando | disponivel | atualizado | baixando | verificando_hash | instalando | erro */
-  etapa: string;
-  mensagem: string;
-  erro: string | null;
-  baixado: number;
-  total: number;
-  verificado_em: string | null;
-  versao_atual: string;
-  disponivel: {
-    versao: string;
-    notas: string;
-    obrigatoria: boolean;
-    tamanho: number;
-  } | null;
+  hora_do_servidor: string;
 }
 
 export interface ResumoSincronizacao {

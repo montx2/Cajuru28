@@ -40,12 +40,3 @@ npm-debug.log*
 
 # Docker
 *.log
-
-# Build do programa instalado
-backend/web/
-backend/build/
-backend/dist/
-backend/versao_do_exe.txt
-installer/saida/
-dist/
-versao_do_exe.txt

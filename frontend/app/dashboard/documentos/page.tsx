@@ -32,7 +32,7 @@ function truncarChave(chave: string): string {
  * Documentos — lista, filtra e baixa os XMLs importados.
  *
  * O `Suspense` é exigência do Next para páginas que leem parâmetros da URL em
- * build estático (modo desktop): o casco da página é pré-renderizado e só a
+ * renderização do cliente: o casco da página é pré-renderizado e só a
  * parte que depende da URL entra no cliente.
  */
 export default function DocumentosPage() {

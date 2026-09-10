@@ -5,8 +5,7 @@ Dois bancos, um código:
 
 - **PostgreSQL** — implantação em servidor (Docker Compose), vários usuários
   simultâneos, um banco central para o escritório inteiro;
-- **SQLite** — modo desktop, um arquivo por computador, sem serviço para
-  instalar. É o mesmo schema e as mesmas consultas; o que muda é que o arquivo
+- **SQLite** — usado apenas nos testes automatizados. É o mesmo schema e as mesmas consultas; o que muda é que o arquivo
   precisa ser configurado para aguentar **escrita concorrente de várias
   threads** (a API responde enquanto o worker grava XML em paralelo).
 

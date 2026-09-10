@@ -5,7 +5,6 @@ import type {
   DocumentoFiscal,
   Empresa,
   EmpresaResumoDocumentos,
-  EstadoAtualizacao,
   EstimativaExportacao,
   EstadoSincronizacao,
   ExecucaoImportacao,
@@ -23,11 +22,7 @@ import type {
 /**
  * Endereço da API.
  *
- * - **programa instalado**: o painel é servido pela própria API, então a
- *   resposta certa é caminho relativo (`""`). Isso elimina CORS, elimina a
- *   pergunta "qual é o IP do servidor?" e faz o painel funcionar mesmo se a
- *   porta mudar (o programa escolhe uma porta livre ao subir).
- * - **modo Docker/servidor**: `NEXT_PUBLIC_API_URL` é definido no build
+ * No Docker, `NEXT_PUBLIC_API_URL` é definido no build
  *   apontando para a API (ex.: `http://localhost:8000`).
  */
 const BASE_URL = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
@@ -296,51 +291,8 @@ export const api = {
       body: JSON.stringify(dados),
     }),
 
-  // ---------------------------------------------------------------
-  // O programa instalado (versão, atualização, backup, encerrar)
-  // ---------------------------------------------------------------
-
-  /** Versão, pastas, modo de execução e estado da fila. */
+  // Diagnóstico do ambiente Docker.
   infoSistema: () => chamar<InfoSistema>("/sistema/info"),
-
-  /** Estado da última verificação de atualização (a tela acompanha por aqui). */
-  estadoAtualizacao: () => chamar<EstadoAtualizacao>("/sistema/atualizacao"),
-
-  /** Vai na fonte (GitHub/pasta da rede) perguntar se há versão nova. */
-  verificarAtualizacao: () =>
-    chamar<{ iniciado: boolean; mensagem: string }>("/sistema/atualizacao/verificar?forcar=true", {
-      method: "POST",
-    }),
-
-  /** Baixa, confere e instala — o programa reabre sozinho na versão nova. */
-  aplicarAtualizacao: () =>
-    chamar<{ iniciado: boolean; versao: string }>("/sistema/atualizacao/aplicar", {
-      method: "POST",
-    }),
-
-  /** Fecha o programa inteiro (não só a aba). */
-  encerrarPrograma: () =>
-    chamar<{ encerrando: boolean; mensagem: string }>("/sistema/encerrar", { method: "POST" }),
-
-  /** ZIP com banco, certificados e configuração. */
-  gerarBackup: () =>
-    chamar<{ arquivo: string; bytes: number; mensagem: string }>("/sistema/backup", {
-      method: "POST",
-    }),
-
-  abrirPastaDados: () => chamar<{ pasta: string }>("/sistema/abrir-pasta", { method: "POST" }),
-
-  /** "Abrir junto com o Windows": mantém o sincronismo vivo após reiniciar. */
-  iniciarComWindows: (ativar: boolean) =>
-    chamar<{ ativo: boolean; mensagem: string }>("/sistema/iniciar-com-windows", {
-      method: "POST",
-      body: JSON.stringify({ ativar }),
-    }),
-
-  lerLogs: (linhas = 200) =>
-    chamar<{ arquivo: string; linhas: string[]; mensagem?: string }>(
-      `/sistema/logs?linhas=${linhas}`
-    ),
 
   saudeDetalhada: () =>
     chamar<{
