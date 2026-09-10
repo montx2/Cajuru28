@@ -64,6 +64,10 @@ _COLUNAS_POR_TABELA: dict[str, list[tuple[str, str]]] = {
 _INDICES: list[tuple[str, str]] = [
     ("ix_documentos_competencia", "CREATE INDEX IF NOT EXISTS ix_documentos_competencia ON documentos_fiscais (competencia)"),
     ("ix_documentos_empresa_competencia", "CREATE INDEX IF NOT EXISTS ix_documentos_empresa_competencia ON documentos_fiscais (empresa_id, competencia)"),
+    ("ix_documentos_tipo_competencia", "CREATE INDEX IF NOT EXISTS ix_documentos_tipo_competencia ON documentos_fiscais (tipo, competencia)"),
+    ("ix_documentos_empresa_tipo", "CREATE INDEX IF NOT EXISTS ix_documentos_empresa_tipo ON documentos_fiscais (empresa_id, tipo)"),
+    ("ix_documentos_emitente", "CREATE INDEX IF NOT EXISTS ix_documentos_emitente ON documentos_fiscais (emitente_documento)"),
+    ("ix_execucoes_empresa_tipo_status", "CREATE INDEX IF NOT EXISTS ix_execucoes_empresa_tipo_status ON execucoes_importacao (empresa_id, tipo, status)"),
     ("ix_sincronizacao_empresa_tipo", "CREATE UNIQUE INDEX IF NOT EXISTS ix_sincronizacao_empresa_tipo ON sincronizacoes_dfe (empresa_id, tipo)"),
 ]
 

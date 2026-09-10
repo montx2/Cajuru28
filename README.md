@@ -1,8 +1,25 @@
 # NotasFlow
 
 Importação automática de documentos fiscais (NFS-e, NFe e CT-e) pelas fontes
-oficiais ADN/SEFAZ, usando certificados A1. A aplicação é distribuída e
-executada exclusivamente com **Docker Compose**.
+oficiais ADN/SEFAZ, usando certificados A1 — com dashboard executivo, central
+de alertas e fechamento mensal. A aplicação é distribuída e executada
+exclusivamente com **Docker Compose**.
+
+## Destaques
+
+- **Visão geral executiva:** KPIs do mês, evolução de 12 meses, quebra por tipo,
+  ranking de empresas, maiores emitentes e feed de atividades — tudo ao vivo.
+- **Central de alertas:** certificados vencidos/vencendo, bloqueios SEFAZ,
+  risco de perda na distribuição, XMLs pendentes e saúde do disco, com ação
+  direta para cada item.
+- **Fechamento mensal:** mapa empresa × tipo da competência, exportável em CSV
+  e ZIP, pronto para imprimir e enviar ao cliente.
+- **Detalhe de documento:** clique em qualquer nota para ver a ficha completa
+  (estilo DANFE), copiar a chave e inspecionar ou baixar o XML.
+- **Busca global:** `Ctrl+K` na barra superior encontra qualquer documento por
+  chave, número ou emitente.
+- **Sincronismo automático:** o Celery Beat varre as empresas sozinho,
+  respeitando a janela oficial de 1 hora por CNPJ e tipo.
 
 ## Arquitetura
 

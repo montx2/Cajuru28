@@ -1,22 +1,32 @@
 import { limparToken, obterToken } from "./auth";
 import type {
+  AlertaItem,
+  AlertasResposta,
   Certificado,
   DirecaoDocumento,
+  DocumentoDetalhe,
   DocumentoFiscal,
   Empresa,
+  EmpresaRanking,
   EmpresaResumoDocumentos,
+  EmitenteTop,
   EstimativaExportacao,
   EstadoSincronizacao,
+  EvolucaoMensal,
   ExecucaoImportacao,
+  FechamentoMensal,
   InfoSistema,
   ItemImportacaoLote,
+  KpisDashboard,
   LoteEmpresasResposta,
   ResultadoImportacaoSelecionada,
   ResumoCertificado,
   ResumoDocumentos,
   ResumoSincronizacao,
   StatusDocumentoFiscal,
+  TipoBreakdown,
   TipoDocumentoFiscal,
+  UsuarioAtual,
 } from "./types";
 
 /**
@@ -136,6 +146,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ email, senha }),
     }),
+
+  quemSouEu: () => chamar<UsuarioAtual>("/auth/me"),
 
   listarEmpresas: () => chamar<Empresa[]>("/empresas"),
 
@@ -290,6 +302,62 @@ export const api = {
       method: "POST",
       body: JSON.stringify(dados),
     }),
+
+  // ---------------------------------------------------------------
+  // Dashboard executivo
+  // ---------------------------------------------------------------
+
+  kpis: (competencia?: string) =>
+    chamar<KpisDashboard>(`/dashboard/kpis${montarParams({ competencia })}`),
+
+  evolucao: (meses = 12) => chamar<EvolucaoMensal[]>(`/dashboard/evolucao${montarParams({ meses })}`),
+
+  porTipo: (competencia?: string) =>
+    chamar<TipoBreakdown[]>(`/dashboard/por-tipo${montarParams({ competencia })}`),
+
+  topEmitentes: (competencia?: string, limite = 8) =>
+    chamar<EmitenteTop[]>(`/dashboard/top-emitentes${montarParams({ competencia, limite })}`),
+
+  rankingEmpresas: (competencia?: string, limite = 8) =>
+    chamar<EmpresaRanking[]>(`/dashboard/ranking-empresas${montarParams({ competencia, limite })}`),
+
+  atividades: (limite = 12) => chamar<ExecucaoImportacao[]>(`/dashboard/atividades${montarParams({ limite })}`),
+
+  // ---------------------------------------------------------------
+  // Alertas
+  // ---------------------------------------------------------------
+
+  alertas: () => chamar<AlertasResposta>("/alertas"),
+
+  contagemAlertas: () => chamar<{ total: number; criticos: number; atencao: number }>("/alertas/contagem"),
+
+  // ---------------------------------------------------------------
+  // Fechamento mensal
+  // ---------------------------------------------------------------
+
+  fechamento: (competencia?: string) =>
+    chamar<FechamentoMensal>(`/relatorios/fechamento${montarParams({ competencia })}`),
+
+  baixarFechamentoCsv: (competencia?: string) =>
+    baixarArquivo(
+      `/relatorios/fechamento.csv${montarParams({ competencia })}`,
+      `NotasFlow_fechamento_${competencia ?? "mes"}.csv`
+    ),
+
+  // ---------------------------------------------------------------
+  // Documento detalhado + XML como texto (visualizador)
+  // ---------------------------------------------------------------
+
+  detalheDocumento: (id: number) => chamar<DocumentoDetalhe>(`/documentos/detalhe/${id}`),
+
+  obterXmlTexto: async (id: number): Promise<string> => {
+    const token = obterToken();
+    const resposta = await fetch(`${BASE_URL}/documentos/${id}/xml`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!resposta.ok) throw new ApiError(resposta.status, "Não foi possível ler o XML.");
+    return resposta.text();
+  },
 
   // Diagnóstico do ambiente Docker.
   infoSistema: () => chamar<InfoSistema>("/sistema/info"),

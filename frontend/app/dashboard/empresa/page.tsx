@@ -203,13 +203,13 @@ function ConteudoEmpresa() {
               required
               value={senhaCertificado}
               onChange={(e) => setSenhaCertificado(e.target.value)}
-              className="border border-line bg-bg px-3 py-2 text-sm text-ink outline-none focus:border-accent"
+              className="input"
             />
           </div>
           <button
             type="submit"
             disabled={enviandoCertificado}
-            className="bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+            className="btn-primary disabled:opacity-50"
           >
             {enviandoCertificado ? "Enviando…" : "Enviar certificado"}
           </button>
@@ -232,7 +232,7 @@ function ConteudoEmpresa() {
             type="button"
             onClick={() => importarTodas()}
             disabled={disparandoImportacao || !certificadoAtivo}
-            className="bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            className="btn-primary disabled:cursor-not-allowed disabled:opacity-50"
           >
             Importar todas
           </button>
@@ -242,7 +242,7 @@ function ConteudoEmpresa() {
               type="button"
               onClick={() => importar(tipo)}
               disabled={disparandoImportacao || !certificadoAtivo}
-              className="border border-accent px-4 py-2 text-sm font-medium text-accent hover:bg-accent-soft disabled:cursor-not-allowed disabled:border-line disabled:text-ink-muted"
+              className="btn-ghost disabled:cursor-not-allowed disabled:border-line disabled:text-ink-muted"
             >
               Só {tipo.toUpperCase()}
             </button>

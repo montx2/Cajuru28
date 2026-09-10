@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Mono:wght@400;500&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
 
 @tailwind base;
 @tailwind components;
@@ -34,5 +34,154 @@ body {
   }
   50% {
     opacity: 0.35;
+  }
+}
+
+@layer components {
+  /* ---------- superfícies ---------- */
+  .card {
+    @apply rounded-card border border-line bg-surface shadow-card;
+  }
+  .card-pad {
+    @apply rounded-card border border-line bg-surface p-5 shadow-card;
+  }
+  .card-hover {
+    @apply transition-all duration-200 hover:-translate-y-0.5 hover:shadow-pop;
+  }
+
+  /* ---------- botões ---------- */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-40;
+  }
+  .btn-primary {
+    @apply btn bg-accent text-white shadow-sm hover:bg-accent-deep hover:shadow-md active:scale-[.98];
+  }
+  .btn-gold {
+    @apply btn bg-gold text-sidebar hover:brightness-105 active:scale-[.98];
+  }
+  .btn-ghost {
+    @apply btn border border-line bg-surface text-ink hover:border-accent hover:text-accent-deep;
+  }
+  .btn-soft {
+    @apply btn bg-accent-soft text-accent-deep hover:bg-accent hover:text-white;
+  }
+  .btn-danger-ghost {
+    @apply btn border border-danger/30 bg-surface text-danger hover:bg-danger-soft;
+  }
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs;
+  }
+  .btn-icon {
+    @apply inline-flex h-8 w-8 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-accent-soft hover:text-accent-deep;
+  }
+
+  /* ---------- formulários ---------- */
+  .label {
+    @apply mb-1.5 block text-xs font-semibold uppercase tracking-wide text-ink-muted;
+  }
+  .input {
+    @apply w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent/20;
+  }
+  select.input {
+    @apply w-auto;
+  }
+  .input-dark {
+    @apply w-full rounded-lg border border-sidebar-line bg-sidebar-hover px-3 py-2 text-sm text-white outline-none transition-colors placeholder:text-ink-faint focus:border-accent-bright;
+  }
+
+  /* ---------- selos e links ---------- */
+  .badge {
+    @apply inline-flex items-center gap-1 whitespace-nowrap rounded-pill px-2.5 py-0.5 text-xs font-semibold;
+  }
+  .badge-ok {
+    @apply badge bg-accent-soft text-accent-deep;
+  }
+  .badge-warn {
+    @apply badge bg-warn-soft text-warn;
+  }
+  .badge-danger {
+    @apply badge bg-danger-soft text-danger;
+  }
+  .badge-info {
+    @apply badge bg-info-soft text-info;
+  }
+  .badge-neutral {
+    @apply badge bg-bg text-ink-muted;
+  }
+  .link {
+    @apply text-accent hover:text-accent-deep hover:underline;
+  }
+
+  /* ---------- tabelas ---------- */
+  .tabela {
+    @apply w-full text-sm;
+  }
+  .tabela thead tr {
+    @apply border-b border-line text-left text-ink-muted;
+  }
+  .tabela thead th {
+    @apply py-2.5 pr-3 text-xs font-semibold uppercase tracking-wide;
+  }
+  .tabela tbody tr {
+    @apply border-b border-line/70 transition-colors last:border-0;
+  }
+  .tabela tbody tr.clicavel {
+    @apply cursor-pointer hover:bg-accent-soft/40;
+  }
+  .tabela tbody td {
+    @apply py-3 pr-3 align-middle;
+  }
+
+  /* ---------- esqueleto de carregamento ---------- */
+  .skeleton {
+    @apply rounded-lg bg-gradient-to-r from-line/60 via-bg to-line/60 bg-[length:800px_100%] animate-[shimmer_1.4s_linear_infinite];
+  }
+
+  /* ---------- navegação lateral ---------- */
+  .nav-item {
+    @apply mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-white/60 transition-all duration-150 hover:bg-sidebar-hover hover:text-white;
+  }
+  .nav-item-ativo {
+    @apply bg-accent text-white shadow-md hover:bg-accent hover:text-white;
+  }
+
+  /* ---------- XML ---------- */
+  .xml-code {
+    @apply overflow-x-auto rounded-lg border border-sidebar-line bg-sidebar p-4 font-mono text-xs leading-relaxed text-emerald-100/90;
+  }
+}
+
+/* barra de rolagem discreta */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #c3cfc9;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #1f6f54;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+/* impressão do fechamento: só o relatório */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+  }
+  .card, .card-pad {
+    box-shadow: none;
+    border: 1px solid #ddd;
+    break-inside: avoid;
   }
 }

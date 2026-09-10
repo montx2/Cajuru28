@@ -171,7 +171,7 @@ export function PainelImportacao({
             <select
               value={tipo}
               onChange={(e) => setTipo(e.target.value as TipoDocumentoFiscal | "todos")}
-              className="border border-line bg-bg px-3 py-2 text-sm text-ink outline-none focus:border-accent"
+              className="input"
             >
               <option value="todos">NFS-e + NFe + CT-e</option>
               {TIPOS.map((item) => (

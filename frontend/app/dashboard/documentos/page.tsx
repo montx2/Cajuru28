@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { api, ApiError, type FiltrosExportacao } from "@/lib/api";
 import { CompetenciaPicker } from "@/components/CompetenciaPicker";
+import { DocumentoDrawer } from "@/components/DocumentoDrawer";
 import { bytesParaTexto, paraAPI, rotulo as rotuloMes } from "@/lib/competencia";
 import {
   ROTULO_TIPO,
@@ -53,9 +54,11 @@ function ConteudoDocumentos() {
     searchParams.get("competencia") || null
   );
   const [somenteResumo, setSomenteResumo] = useState(false);
-  const [busca, setBusca] = useState("");
-  const [termoBusca, setTermoBusca] = useState("");
+  // A busca global da barra superior chega por `?busca=`.
+  const [busca, setBusca] = useState(searchParams.get("busca") || "");
+  const [termoBusca, setTermoBusca] = useState(searchParams.get("busca") || "");
   const [aba, setAba] = useState<DirecaoDocumento | "todas" | "cancelada">("todas");
+  const [docAberto, setDocAberto] = useState<number | null>(null);
 
   const [documentos, setDocumentos] = useState<DocumentoFiscal[]>([]);
   const [resumo, setResumo] = useState<ResumoDocumentos | null>(null);
@@ -206,7 +209,7 @@ function ConteudoDocumentos() {
             onChange={(e) =>
               setEmpresaId(e.target.value === "todas" ? "todas" : Number(e.target.value))
             }
-            className="border border-line bg-bg px-3 py-2 text-sm text-ink outline-none focus:border-accent"
+            className="input"
           >
             <option value="todas">Todas as empresas</option>
             {empresas.map((empresa) => (
@@ -222,7 +225,7 @@ function ConteudoDocumentos() {
           <select
             value={tipo}
             onChange={(e) => setTipo(e.target.value as TipoDocumentoFiscal | "")}
-            className="border border-line bg-bg px-3 py-2 text-sm text-ink outline-none focus:border-accent"
+            className="input"
           >
             <option value="">Todos os tipos</option>
             {(Object.keys(ROTULO_TIPO) as TipoDocumentoFiscal[]).map((chave) => (
@@ -240,15 +243,24 @@ function ConteudoDocumentos() {
 
         <div>
           <p className="mb-2 text-xs uppercase text-ink-muted">Busca</p>
-          <input
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") setTermoBusca(busca.trim());
-            }}
-            placeholder="chave, número ou emitente"
-            className="w-64 border border-line bg-bg px-3 py-2 text-sm text-ink outline-none focus:border-accent"
-          />
+          <div className="flex gap-2">
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") setTermoBusca(busca.trim());
+              }}
+              placeholder="chave, número ou emitente"
+              className="input w-64"
+            />
+            <button
+              type="button"
+              onClick={() => setTermoBusca(busca.trim())}
+              className="btn-ghost btn-sm"
+            >
+              Buscar
+            </button>
+          </div>
         </div>
 
         <label className="flex items-center gap-2 pb-2 text-sm text-ink-muted">
@@ -342,8 +354,8 @@ function ConteudoDocumentos() {
           </p>
         </div>
       ) : (
-        <table className="w-full border-t border-line text-sm">
-          <thead>
+        <table className="tabela w-full border-t border-line">
+          <thead className="sticky top-28 bg-bg sm:top-16">
             <tr className="border-b border-line text-left text-ink-muted">
               <th className="py-2 font-normal">
                 <input
@@ -366,11 +378,13 @@ function ConteudoDocumentos() {
             {visiveis.map((doc) => (
               <tr
                 key={doc.id}
-                className={`border-b border-line last:border-0 ${
+                onClick={() => setDocAberto(doc.id)}
+                title="Clique para ver o detalhe"
+                className={`clicavel border-b border-line last:border-0 ${
                   doc.status === "cancelada" ? "bg-danger-soft/40" : ""
                 }`}
               >
-                <td className="py-3">
+                <td className="py-3" onClick={(e) => e.stopPropagation()}>
                   <input
                     type="checkbox"
                     checked={selecionados.has(doc.id)}
@@ -414,7 +428,7 @@ function ConteudoDocumentos() {
                     doc.valor_total
                   )}
                 </td>
-                <td className="py-3 text-right">
+                <td className="py-3 text-right" onClick={(e) => e.stopPropagation()}>
                   <button
                     type="button"
                     onClick={() => api.baixarXmlDocumento(doc.id, `${doc.chave_acesso}.xml`).catch(() => {})}
@@ -428,6 +442,8 @@ function ConteudoDocumentos() {
           </tbody>
         </table>
       )}
+
+      <DocumentoDrawer documentoId={docAberto} aoFechar={() => setDocAberto(null)} />
 
       <div className="mt-4 flex items-center justify-between text-sm text-ink-muted">
         <span>

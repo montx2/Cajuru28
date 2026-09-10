@@ -100,7 +100,7 @@ export default function EmpresasPage() {
               setMostrarLote((v) => !v);
               setMostrarFormulario(false);
             }}
-            className="bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+            className="btn-primary"
           >
             {mostrarLote ? "Fechar" : "Importar em massa"}
           </button>
@@ -109,7 +109,7 @@ export default function EmpresasPage() {
               setMostrarFormulario((v) => !v);
               setMostrarLote(false);
             }}
-            className="border border-accent px-4 py-2 text-sm font-medium text-accent hover:bg-accent-soft"
+            className="btn-ghost"
           >
             {mostrarFormulario ? "Cancelar" : "Nova empresa"}
           </button>
@@ -125,7 +125,7 @@ export default function EmpresasPage() {
                 required
                 value={razaoSocial}
                 onChange={(e) => setRazaoSocial(e.target.value)}
-                className="w-full border border-line bg-bg px-3 py-2 text-sm text-ink outline-none focus:border-accent"
+                className="w-full input"
               />
             </div>
             <div className="w-56">
@@ -143,7 +143,7 @@ export default function EmpresasPage() {
               <select
                 value={uf}
                 onChange={(e) => setUf(e.target.value)}
-                className="w-full border border-line bg-bg px-3 py-2 text-sm text-ink outline-none focus:border-accent"
+                className="w-full input"
               >
                 {UFS.map((sigla) => (
                   <option key={sigla} value={sigla}>
@@ -157,7 +157,7 @@ export default function EmpresasPage() {
           <button
             type="submit"
             disabled={salvando}
-            className="bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+            className="btn-primary disabled:opacity-50"
           >
             {salvando ? "Salvando…" : "Cadastrar empresa"}
           </button>
@@ -204,7 +204,7 @@ export default function EmpresasPage() {
                 value={senhaLote}
                 onChange={(e) => setSenhaLote(e.target.value)}
                 placeholder="senha comum (ou no CSV)"
-                className="border border-line bg-bg px-3 py-2 text-sm text-ink outline-none focus:border-accent"
+                className="input"
               />
             </div>
             <div>
@@ -212,7 +212,7 @@ export default function EmpresasPage() {
               <select
                 value={ufLote}
                 onChange={(e) => setUfLote(e.target.value)}
-                className="border border-line bg-bg px-3 py-2 text-sm text-ink outline-none focus:border-accent"
+                className="input"
               >
                 {UFS.map((sigla) => (
                   <option key={sigla} value={sigla}>
@@ -232,7 +232,7 @@ export default function EmpresasPage() {
           <button
             type="submit"
             disabled={enviandoLote || (arquivos.length === 0 && !csv)}
-            className="bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+            className="btn-primary disabled:opacity-50"
           >
             {enviandoLote
               ? "Importando…"

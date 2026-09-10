@@ -29,6 +29,16 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
+class UsuarioAtual(BaseModel):
+    """Quem está logado — alimenta o avatar e o nome na barra superior."""
+
+    id: int
+    nome: str
+    email: str
+    escritorio_id: int
+    escritorio_nome: str
+
+
 # ---------- Empresa ----------
 
 class EmpresaCriar(BaseModel):
@@ -191,6 +201,7 @@ class DocumentoFiscalResposta(BaseModel):
     emitente_nome: str | None = None
     emitente_documento: str | None = None
     destinatario_nome: str | None = None
+    destinatario_documento: str | None = None
     nsu: str | None = None
 
 
@@ -369,3 +380,130 @@ class ResumoDocumentos(BaseModel):
     normais: int
     canceladas: int
     por_tipo: dict[str, int]
+
+
+class DocumentoDetalhe(DocumentoFiscalResposta):
+    """Tudo que o painel de detalhes precisa numa única chamada."""
+
+    empresa_razao_social: str
+    empresa_cnpj: str
+    empresa_uf: str
+    importado_em: datetime | None = None
+    xml_disponivel: bool = False
+    xml_bytes: int | None = None
+    execucao_id: int | None = None
+
+
+# ---------- Dashboard ----------
+
+class KpisDashboard(BaseModel):
+    competencia: str
+    documentos_mes: int
+    documentos_mes_anterior: int
+    variacao_pct: float | None = None
+    valor_mes: float
+    canceladas_mes: int
+    sem_xml_completo: int
+    documentos_total: int
+    empresas_total: int
+    empresas_em_dia: int
+    combinacoes_em_dia: int
+    combinacoes_total: int
+    certificados_vencidos: int
+    certificados_vencendo: int
+    empresas_sem_certificado: int
+    bloqueadas_agora: int
+    em_andamento: int
+
+
+class EvolucaoMensal(BaseModel):
+    mes: str  # AAAA-MM
+    rotulo: str  # ago/26
+    total: int
+    valor: float
+    nfse: int
+    nfe: int
+    cte: int
+
+
+class TipoBreakdown(BaseModel):
+    tipo: TipoDocumentoFiscal
+    rotulo: str
+    total: int
+    valor: float
+    percentual: float
+
+
+class EmitenteTop(BaseModel):
+    documento: str | None = None
+    nome: str | None = None
+    total: int
+    valor: float
+
+
+class EmpresaRanking(BaseModel):
+    empresa_id: int
+    razao_social: str
+    total: int
+    valor: float
+    canceladas: int
+    sem_xml: int
+
+
+# ---------- Alertas ----------
+
+class AlertaItem(BaseModel):
+    id: str
+    nivel: str  # critico | atencao | info
+    categoria: str  # certificado | cadastro | sefaz | distribuicao | sincronismo | xml | execucao | sistema
+    titulo: str
+    detalhe: str
+    empresa_id: int | None = None
+    empresa_razao_social: str | None = None
+    acao_rotulo: str | None = None
+    acao_href: str | None = None
+
+
+class AlertasResposta(BaseModel):
+    total: int
+    criticos: int
+    atencao: int
+    infos: int
+    itens: list[AlertaItem]
+
+
+# ---------- Relatórios ----------
+
+class FechamentoTipo(BaseModel):
+    qtd: int = 0
+    valor: float = 0.0
+
+
+class FechamentoEmpresa(BaseModel):
+    empresa_id: int
+    razao_social: str
+    cnpj: str
+    uf: str
+    total: int
+    valor: float
+    canceladas: int
+    sem_xml: int
+    por_tipo: dict[str, FechamentoTipo]
+
+
+class FechamentoTotais(BaseModel):
+    documentos: int
+    valor: float
+    canceladas: int
+    sem_xml: int
+    empresas_com_documento: int
+    empresas_total: int
+    por_tipo: dict[str, FechamentoTipo]
+
+
+class FechamentoMensal(BaseModel):
+    competencia: str
+    inicio: date
+    fim: date
+    totais: FechamentoTotais
+    empresas: list[FechamentoEmpresa]

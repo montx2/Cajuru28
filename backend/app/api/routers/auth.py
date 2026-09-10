@@ -1,12 +1,29 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.api.deps import usuario_atual
 from app.core.security import criar_token_acesso, verificar_senha
 from app.db.session import get_db
-from app.models import Usuario
-from app.schemas import LoginRequest, TokenResponse
+from app.models import Escritorio, Usuario
+from app.schemas import LoginRequest, TokenResponse, UsuarioAtual
 
 router = APIRouter(prefix="/auth", tags=["autenticação"])
+
+
+@router.get("/me", response_model=UsuarioAtual)
+def quem_sou_eu(
+    usuario: Usuario = Depends(usuario_atual),
+    db: Session = Depends(get_db),
+):
+    """Quem está logado — nome e escritório para a barra superior."""
+    escritorio = db.get(Escritorio, usuario.escritorio_id)
+    return UsuarioAtual(
+        id=usuario.id,
+        nome=usuario.nome,
+        email=usuario.email,
+        escritorio_id=usuario.escritorio_id,
+        escritorio_nome=escritorio.nome if escritorio else "Escritório",
+    )
 
 
 @router.post("/login", response_model=TokenResponse)

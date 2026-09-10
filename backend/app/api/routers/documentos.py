@@ -36,6 +36,7 @@ from app.models import (
     TipoDocumentoFiscal,
 )
 from app.schemas import (
+    DocumentoDetalhe,
     DocumentoFiscalResposta,
     EmpresaResumoDocumentos,
     EstimativaExportacao,
@@ -764,6 +765,44 @@ def recibo_documento(
         "execucao_id": execucao.id if execucao else None,
         "importado_em": documento.importado_em,
     }
+
+
+@router.get("/detalhe/{documento_id}", response_model=DocumentoDetalhe)
+def detalhe_documento(
+    documento_id: int,
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+):
+    """Ficha completa de um documento para o painel de detalhes."""
+    documento = _documento_do_escritorio(db, documento_id, escritorio_id)
+    empresa = db.get(Empresa, documento.empresa_id)
+    xml_disponivel = bool(documento.xml_path and os.path.isfile(documento.xml_path))
+    tamanho = None
+    if xml_disponivel:
+        try:
+            tamanho = os.path.getsize(documento.xml_path)
+        except OSError:
+            tamanho = None
+    execucao = (
+        db.query(ExecucaoImportacao)
+        .filter(
+            ExecucaoImportacao.empresa_id == documento.empresa_id,
+            ExecucaoImportacao.tipo == documento.tipo,
+            ExecucaoImportacao.ultimo_nsu.isnot(None),
+        )
+        .order_by(ExecucaoImportacao.id.desc())
+        .first()
+    )
+    return DocumentoDetalhe(
+        **DocumentoFiscalResposta.model_validate(documento).model_dump(),
+        empresa_razao_social=empresa.razao_social if empresa else "",
+        empresa_cnpj=empresa.cnpj_cpf if empresa else "",
+        empresa_uf=empresa.uf if empresa else "",
+        importado_em=documento.importado_em,
+        xml_disponivel=xml_disponivel,
+        xml_bytes=tamanho,
+        execucao_id=execucao.id if execucao else None,
+    )
 
 
 def _documento_do_escritorio(db: Session, documento_id: int, escritorio_id: int) -> DocumentoFiscal:
