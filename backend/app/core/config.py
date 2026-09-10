@@ -1,23 +1,11 @@
-import logging
 import os
 
-from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-log = logging.getLogger("notasflow.config")
-
-# O endereço do banco na implantação em servidor (docker-compose). É também o
-# valor padrão do campo abaixo, e é o que o modo desktop precisa *nunca* usar:
-# `db` é o nome do serviço dentro da rede do Docker. Fora dela, esse endereço
-# não resolve — foi exatamente o que fazia a primeira abertura de uma
-# instalação nova falhar com "could not translate host name db".
+# Endereço do PostgreSQL na rede interna do Docker Compose.
 _URL_BANCO_SERVIDOR = "postgresql://notasflow:notasflow@db:5432/notasflow"
 
-# O `.env` do modo desktop mora na pasta de dados do usuário, que só é conhecida
-# em tempo de execução — por isso o caminho é passado por variável de ambiente
-# antes de importar este módulo. Sem isso, o programa instalado leria o `.env`
-# do "diretório atual", que no Windows é imprevisível (o `C:\Windows\System32`
-# quando o atalho é criado de certas formas).
+# Permite indicar outro arquivo de ambiente em automações.
 _ARQUIVO_ENV = os.environ.get("NOTASFLOW_ENV_FILE", ".env")
 
 
@@ -27,8 +15,7 @@ class Settings(BaseSettings):
     ou versionado no código.
 
     As variáveis de ambiente do processo têm prioridade sobre o `.env`, o que
-    permite ao programa instalado apontar para a pasta de dados do usuário sem
-    reescrever o arquivo de configuração.
+    permite indicar configurações diferentes para automações e testes.
     """
 
     model_config = SettingsConfigDict(
@@ -103,81 +90,10 @@ class Settings(BaseSettings):
     bootstrap_email: str = ""
     bootstrap_senha: str = ""
 
-    # ---------------- Modo desktop (programa instalado) ----------------
-    # Com `MODO_DESKTOP=true`, a fila deixa de ser Redis+Celery e passa a ser
-    # em processo, o painel web é servido pela própria API e o programa abre
-    # uma janela. O mesmo código atende os dois modos — ver app/desktop/.
-    modo_desktop: bool = False
-    # 127.0.0.1 de propósito: o painel e os certificados são de uso local.
-    # Expor isso numa rede sem TLS entregaria senha de certificado na rede.
-    notasflow_host: str = "127.0.0.1"
-    notasflow_porta: int = 8765
-    notasflow_concorrencia: int = 4
-    notasflow_abrir_janela: bool = True
-    notasflow_bandeja: bool = True
-    # Libera o painel para outras máquinas do escritório (host 0.0.0.0).
-    # Desligado por padrão: o banco local guarda senha de certificado, e
-    # publicar isso numa rede sem TLS só se for decisão consciente.
-    # IMPORTANTE: com isso ligado, os outros computadores usam o painel NO
-    # NAVEGADOR — não instalam o programa. Duas instalações sincronizando os
-    # mesmos CNPJs fazem a SEFAZ bloquear por consumo indevido.
-    notasflow_permitir_rede: bool = False
-
-    # ---------------- Atualização automática ----------------
-    # Vazio = usa o repositório oficial abaixo. Aceita também uma pasta de rede
-    # (ex.: \\SERVIDOR\NotasFlow) ou uma URL própria com o arquivo `latest.json`.
-    notasflow_update_manifest: str = ""
-    notasflow_repo: str = "montx2/Cajuru28"
-    # Só necessário se o repositório for privado (o GitHub exige token).
-    notasflow_update_token: str = ""
-    notasflow_verificar_atualizacao_ao_abrir: bool = True
-    # De quanto em quanto tempo o programa (que fica aberto na bandeja por
-    # semanas) volta a perguntar se há versão nova. 6 horas é o meio do caminho
-    # entre "chega rápido" e "não incomoda um servidor público".
-    notasflow_verificar_atualizacao_horas: float = 6.0
-
-    @model_validator(mode="after")
-    def _nunca_usar_o_banco_do_servidor_no_desktop(self) -> "Settings":
-        """
-        Rede de segurança do programa instalado.
-
-        O caminho normal é o `.env` da pasta de dados já trazer
-        `DATABASE_URL=sqlite:///...` (criado por `ambiente.preparar_primeira_execucao`).
-        Mas existem três situações em que ele não existe: a primeiríssima
-        abertura, um usuário que apagou o arquivo sem querer e um comando de
-        suporte (`--console`, `--diagnostico`) rodado antes da configuração.
-
-        Em qualquer uma delas, o padrão do `database_url` apontaria para o
-        PostgreSQL do Docker — um serviço que não existe no computador do
-        contador — e o programa morreria no startup com um erro de rede que não
-        diz nada a quem está olhando. Aqui isso é impossível: em modo desktop,
-        o banco do servidor nunca é usado.
-
-        Só o valor **padrão exato** é substituído. Quem monta uma implantação
-        em desktop apontando de propósito para um PostgreSQL (rede do
-        escritório) continua sendo respeitado.
-        """
-        if not self.modo_desktop or self.database_url.strip() != _URL_BANCO_SERVIDOR:
-            return self
-
-        # Import local: `caminhos` não importa mais nada do projeto, então não
-        # há ciclo — e manter o import aqui deixa `config` utilizável sozinho.
-        from app.desktop import caminhos
-
-        self.database_url = f"sqlite:///{caminhos.caminho_banco().as_posix()}"
-        if not self.dados_dir or self.dados_dir == "/data":
-            self.dados_dir = str(caminhos.pasta_dados() / "dados")
-        log.info("Modo desktop sem .env: usando o banco local em %s", self.database_url)
-        return self
 
     @property
     def usando_sqlite(self) -> bool:
         return self.database_url.strip().lower().startswith("sqlite")
-
-    @property
-    def sincronismo_embutido(self) -> bool:
-        """Em modo desktop o relógio é o processo local, não o serviço `beat`."""
-        return bool(self.modo_desktop)
 
 
 settings = Settings()
