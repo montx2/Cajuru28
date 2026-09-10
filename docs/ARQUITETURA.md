@@ -156,6 +156,44 @@ existentes não aparecem sozinhas. `app/db/migracoes.py` resolve isso com
 SQLite checa `PRAGMA table_info`), chamado no startup por `criar_tabelas()`.
 Script manual: `docker compose exec api python scripts/migrar.py`.
 
+## Modo programa instalado (o `.exe`) x modo servidor
+
+O mesmo código roda nos dois modos; a diferença está isolada em três pontos, e
+nenhum deles é regra fiscal:
+
+| | Programa instalado | Servidor |
+| --- | --- | --- |
+| Banco | SQLite (`%APPDATA%\NotasFlow\notasflow.db`) com WAL + `busy_timeout` | PostgreSQL |
+| Fila | `MiniCelery` (threads em processo, mesma interface de `@app.task`/`.delay`/`beat_schedule`) | Celery + Redis + beat |
+| Painel | Export estático servido pelo FastAPI | Next.js em contêiner |
+| Disparo | `MODO_DESKTOP=true` (definido pelo `desktop_main.py`, nunca pelo usuário) | padrão |
+
+A interface da fila é o truque que evita código duplicado: `app/services/fila.py`
+e `app/worker/tasks.py` chamam `.delay()` e `.apply_async(countdown=...)` sem
+saber quem executa. A **segurança do fluxo não mora na fila** — cursor de NSU,
+janela de consumo, lease de 25 minutos e checkpoint ficam no banco. É por isso
+que trocar Redis+Celery por threads não muda nada do que a SEFAZ vê, e por isso
+uma fila que reinicia não perde nota: ela só para de disparar até voltar.
+
+Três lugares onde o modo desktop **não** pode ter surpresa, e que têm teste:
+
+1. **Primeira abertura.** O `.env` (banco, chaves, cofre) é criado antes de a
+   configuração ser carregada — e, se não existir, o modo desktop nunca cai no
+   PostgreSQL do `docker-compose` (que não existe na máquina do cliente).
+2. **Porta.** O painel sobe em `127.0.0.1:8765` (a mesma de sempre) e só muda de
+   porta se outra coisa estiver ocupando — com o primeiro vizinho livre, não com
+   uma porta sorteada.
+3. **Caminhos.** Código empacotado (`sys._MEIPASS`), programa instalado e pasta
+   de dados são coisas diferentes; quem responde às três é
+   `app/desktop/caminhos.py`, e uma atualização nunca toca na pasta de dados.
+
+Sobre a atualização automática (`app/desktop/atualizador.py`): manifesto assinado
+por SHA-256 numa Release do GitHub (ou numa pasta de rede, para escritório sem
+internet), download, conferência de hash e instalador silencioso. A decisão de
+não usar TUF/assinatura criptográfica própria está descrita em
+[`DISTRIBUICAO.md`](DISTRIBUICAO.md) — o que existe hoje é canal confiável
+(HTTPS do dono do repositório) + hash conferido + origem restrita.
+
 ## O que fica para depois de propósito
 
 - **Alembic (migrations versionadas)**: a camada de migração leve acima
@@ -168,3 +206,11 @@ Script manual: `docker compose exec api python scripts/migrar.py`.
   aqui, não store — por isso `task_acks_late`, `visibility_timeout` maior que
   qualquer countdown e checkpoint no banco. Se um dia a fila precisar de
   garantia transacional, a troca é no `celery_app`, não nas tasks.
+- **Assinatura de código (Authenticode)**: o `.exe` não é assinado, e o
+  SmartScreen avisa na primeira instalação. O custo anual do certificado não se
+  justifica enquanto a distribuição for dentro do escritório; passa a se
+  justificar no dia em que o programa for entregue a terceiros.
+- **Assinatura TUF do manifesto de atualização**: hoje a confiança vem do HTTPS
+  do GitHub + SHA-256 publicado no manifesto. TUF (`tufup`) acrescentaria
+  proteção contra rollback forçado e comprometimento da chave de publicação —
+  vale quando o público crescer.

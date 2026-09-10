@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
@@ -8,7 +9,7 @@ from app.core.config import settings
 from app.core.vault import cifrar_segredo
 from app.db.session import get_db
 from app.models import Certificado, Empresa
-from app.schemas import CertificadoResposta
+from app.schemas import CertificadoResposta, ResumoCertificado
 from app.services.mtls import obter_validade_certificado
 
 router = APIRouter(prefix="/certificados", tags=["certificados"])
@@ -65,6 +66,59 @@ async def enviar_certificado(
     db.commit()
     db.refresh(certificado)
     return certificado
+
+
+@router.get("/resumo", response_model=list[ResumoCertificado])
+def resumo_certificados(
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+):
+    """
+    Um certificado por empresa, com a data de validade e os dias restantes.
+
+    Existe porque **certificado vencido para a importação sem nenhum aviso** —
+    e o sintoma que o contador vê ("não importa mais") não tem nada a ver com a
+    causa. Com esta rota o painel consegue avisar com 30 dias de antecedência,
+    que é o prazo real de renovação de um A1.
+    """
+    empresas = (
+        db.query(Empresa.id, Empresa.razao_social)
+        .filter(Empresa.escritorio_id == escritorio_id, Empresa.ativa.is_(True))
+        .all()
+    )
+    ativos = {
+        certificado.empresa_id: certificado
+        for certificado in db.query(Certificado).filter(Certificado.ativo.is_(True)).all()
+    }
+
+    agora = datetime.now(timezone.utc)
+    saida: list[ResumoCertificado] = []
+    for empresa_id, razao_social in empresas:
+        certificado = ativos.get(empresa_id)
+        if certificado is None:
+            saida.append(
+                ResumoCertificado(
+                    empresa_id=empresa_id, razao_social=razao_social, tem_certificado=False
+                )
+            )
+            continue
+        validade = certificado.validade
+        if validade is not None and validade.tzinfo is None:
+            validade = validade.replace(tzinfo=timezone.utc)
+        dias = (validade - agora).days if validade is not None else None
+        saida.append(
+            ResumoCertificado(
+                empresa_id=empresa_id,
+                razao_social=razao_social,
+                tem_certificado=True,
+                validade=validade,
+                dias_para_vencer=dias,
+                vencido=bool(dias is not None and dias < 0),
+                vence_em_breve=bool(dias is not None and 0 <= dias <= 30),
+            )
+        )
+    saida.sort(key=lambda item: item.razao_social)
+    return saida
 
 
 @router.get("/empresa/{empresa_id}", response_model=list[CertificadoResposta])

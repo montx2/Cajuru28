@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
 import { emQuanto, horaLocal } from "@/lib/competencia";
+import { formatarDocumento } from "@/components/SeletorEmpresas";
 import {
   ROTULO_TIPO,
   TIPOS,
@@ -13,13 +15,33 @@ import {
   type TipoDocumentoFiscal,
 } from "@/lib/types";
 
+/**
+ * Detalhe de uma empresa: certificado, sincronização e importação.
+ *
+ * Era uma rota dinâmica (`/empresas/[id]`). No build estático do modo desktop
+ * rota dinâmica precisa ser declarada no build — e o id de uma empresa é dado
+ * de runtime, não de compilação. Passar o id por `?id=` resolve sem nenhum
+ * preço: o comportamento para quem usa é idêntico.
+ *
+ * O `Suspense` em volta é exigência do Next para páginas que leem a URL em
+ * build estático (o resto da página é pré-renderizado, a parte que depende da
+ * URL entra no cliente).
+ */
+export default function DetalheEmpresaPage() {
+  return (
+    <Suspense fallback={<p className="text-sm text-ink-muted">Carregando…</p>}>
+      <ConteudoEmpresa />
+    </Suspense>
+  );
+}
+
 function formatarData(iso: string): string {
   return new Date(iso).toLocaleDateString("pt-BR");
 }
 
-export default function DetalheEmpresaPage() {
-  const { id } = useParams<{ id: string }>();
-  const empresaId = Number(id);
+function ConteudoEmpresa() {
+  const parametros = useSearchParams();
+  const empresaId = Number(parametros.get("id") ?? 0);
 
   const [empresa, setEmpresa] = useState<Empresa | null>(null);
   const [certificados, setCertificados] = useState<Certificado[]>([]);
@@ -32,8 +54,12 @@ export default function DetalheEmpresaPage() {
   const [sincronizacoes, setSincronizacoes] = useState<EstadoSincronizacao[]>([]);
 
   function carregar() {
-    api.obterEmpresa(empresaId).then(setEmpresa);
-    api.listarCertificados(empresaId).then(setCertificados);
+    if (!empresaId) return;
+    api
+      .obterEmpresa(empresaId)
+      .then(setEmpresa)
+      .catch(() => setEmpresa(null));
+    api.listarCertificados(empresaId).then(setCertificados).catch(() => setCertificados([]));
     api
       .sincronizacaoDaEmpresa(empresaId)
       .then(setSincronizacoes)
@@ -121,12 +147,30 @@ export default function DetalheEmpresaPage() {
     setDisparandoImportacao(false);
   }
 
+  if (!empresaId) {
+    return (
+      <div className="max-w-3xl border border-line bg-surface p-6">
+        <p className="text-sm text-ink-muted">
+          Empresa não informada.{" "}
+          <Link href="/dashboard/empresas" className="text-accent hover:underline">
+            voltar para a lista
+          </Link>
+        </p>
+      </div>
+    );
+  }
+
   if (!empresa) return <p className="text-sm text-ink-muted">Carregando…</p>;
 
   return (
     <div className="max-w-3xl">
-      <p className="font-serif text-2xl text-ink">{empresa.razao_social}</p>
-      <p className="mb-8 font-mono text-sm text-ink-muted">{empresa.cnpj_cpf}</p>
+      <Link href="/dashboard/empresas" className="text-xs text-accent hover:underline">
+        ← empresas
+      </Link>
+      <p className="mt-2 font-serif text-2xl text-ink">{empresa.razao_social}</p>
+      <p className="mb-8 font-mono text-sm text-ink-muted">
+        {formatarDocumento(empresa.cnpj_cpf)} · {empresa.uf}
+      </p>
 
       <section className="mb-6 border border-line bg-surface p-6">
         <p className="mb-4 text-base font-medium text-ink">Certificado A1</p>

@@ -318,7 +318,7 @@ export default function EmpresasPage() {
                 <td className="py-3 font-mono text-ink-muted">{empresa.cnpj_cpf}</td>
                 <td className="py-3 font-mono text-ink-muted">{empresa.uf}</td>
                 <td className="py-3 text-right">
-                  <Link href={`/dashboard/empresas/${empresa.id}`} className="text-accent hover:underline">
+                  <Link href={`/dashboard/empresa?id=${empresa.id}`} className="text-accent hover:underline">
                     abrir
                   </Link>
                 </td>

@@ -5,18 +5,32 @@ import type {
   DocumentoFiscal,
   Empresa,
   EmpresaResumoDocumentos,
+  EstadoAtualizacao,
   EstimativaExportacao,
   EstadoSincronizacao,
   ExecucaoImportacao,
+  InfoSistema,
   ItemImportacaoLote,
   LoteEmpresasResposta,
+  ResultadoImportacaoSelecionada,
+  ResumoCertificado,
   ResumoDocumentos,
   ResumoSincronizacao,
   StatusDocumentoFiscal,
   TipoDocumentoFiscal,
 } from "./types";
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+/**
+ * Endereço da API.
+ *
+ * - **programa instalado**: o painel é servido pela própria API, então a
+ *   resposta certa é caminho relativo (`""`). Isso elimina CORS, elimina a
+ *   pergunta "qual é o IP do servidor?" e faz o painel funcionar mesmo se a
+ *   porta mudar (o programa escolhe uma porta livre ao subir).
+ * - **modo Docker/servidor**: `NEXT_PUBLIC_API_URL` é definido no build
+ *   apontando para a API (ex.: `http://localhost:8000`).
+ */
+const BASE_URL = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
 
 export class ApiError extends Error {
   status: number;
@@ -164,6 +178,9 @@ export const api = {
   listarCertificados: (empresaId: number) =>
     chamar<Certificado[]>(`/certificados/empresa/${empresaId}`),
 
+  /** Um certificado por empresa, com dias para vencer — alimenta o alerta. */
+  resumoCertificados: () => chamar<ResumoCertificado[]>("/certificados/resumo"),
+
   enviarCertificado: (empresaId: number, senha: string, arquivo: File) => {
     const form = new FormData();
     form.append("empresa_id", String(empresaId));
@@ -247,4 +264,90 @@ export const api = {
       `/documentos/completar-xmls${montarParams({ empresa_id: empresaId, limite })}`,
       { method: "POST" }
     ),
+
+  // ---------------------------------------------------------------
+  // Importar SÓ as empresas marcadas
+  // ---------------------------------------------------------------
+  // "Todas de uma vez" era o comportamento errado para o uso real: cada CNPJ
+  // consultado gasta a janela de 1 hora da SEFAZ, e varrer quem não foi pedido
+  // atrasa quem foi. A seleção é o padrão; marcar todas passa a ser a exceção.
+
+  /** O que aconteceria ao disparar — sem disparar nada (só leitura local). */
+  previaImportacaoSelecionadas: (dados: {
+    empresa_ids: number[];
+    tipos?: TipoDocumentoFiscal[];
+    competencia?: string;
+    forcar?: boolean;
+  }) =>
+    chamar<ResultadoImportacaoSelecionada>("/importacoes/selecionadas/previa", {
+      method: "POST",
+      body: JSON.stringify(dados),
+    }),
+
+  /** Dispara de verdade, apenas para as empresas marcadas. */
+  importarSelecionadas: (dados: {
+    empresa_ids: number[];
+    tipos?: TipoDocumentoFiscal[];
+    competencia?: string;
+    forcar?: boolean;
+  }) =>
+    chamar<ResultadoImportacaoSelecionada>("/importacoes/selecionadas", {
+      method: "POST",
+      body: JSON.stringify(dados),
+    }),
+
+  // ---------------------------------------------------------------
+  // O programa instalado (versão, atualização, backup, encerrar)
+  // ---------------------------------------------------------------
+
+  /** Versão, pastas, modo de execução e estado da fila. */
+  infoSistema: () => chamar<InfoSistema>("/sistema/info"),
+
+  /** Estado da última verificação de atualização (a tela acompanha por aqui). */
+  estadoAtualizacao: () => chamar<EstadoAtualizacao>("/sistema/atualizacao"),
+
+  /** Vai na fonte (GitHub/pasta da rede) perguntar se há versão nova. */
+  verificarAtualizacao: () =>
+    chamar<{ iniciado: boolean; mensagem: string }>("/sistema/atualizacao/verificar?forcar=true", {
+      method: "POST",
+    }),
+
+  /** Baixa, confere e instala — o programa reabre sozinho na versão nova. */
+  aplicarAtualizacao: () =>
+    chamar<{ iniciado: boolean; versao: string }>("/sistema/atualizacao/aplicar", {
+      method: "POST",
+    }),
+
+  /** Fecha o programa inteiro (não só a aba). */
+  encerrarPrograma: () =>
+    chamar<{ encerrando: boolean; mensagem: string }>("/sistema/encerrar", { method: "POST" }),
+
+  /** ZIP com banco, certificados e configuração. */
+  gerarBackup: () =>
+    chamar<{ arquivo: string; bytes: number; mensagem: string }>("/sistema/backup", {
+      method: "POST",
+    }),
+
+  abrirPastaDados: () => chamar<{ pasta: string }>("/sistema/abrir-pasta", { method: "POST" }),
+
+  /** "Abrir junto com o Windows": mantém o sincronismo vivo após reiniciar. */
+  iniciarComWindows: (ativar: boolean) =>
+    chamar<{ ativo: boolean; mensagem: string }>("/sistema/iniciar-com-windows", {
+      method: "POST",
+      body: JSON.stringify({ ativar }),
+    }),
+
+  lerLogs: (linhas = 200) =>
+    chamar<{ arquivo: string; linhas: string[]; mensagem?: string }>(
+      `/sistema/logs?linhas=${linhas}`
+    ),
+
+  saudeDetalhada: () =>
+    chamar<{
+      ok: boolean;
+      problemas: string[];
+      banco_ok: boolean;
+      disco_livre_bytes: number | null;
+      pasta_dados: string;
+    }>("/sistema/saude-detalhada"),
 };

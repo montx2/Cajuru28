@@ -76,6 +76,19 @@ def _em_andamento(db: Session, empresa_id: int, tipo: TipoDocumentoFiscal) -> Ex
     )
 
 
+def em_andamento(
+    db: Session, empresa_id: int, tipo: TipoDocumentoFiscal
+) -> ExecucaoImportacao | None:
+    """
+    A varredura desta empresa+tipo está rodando agora?
+
+    Público porque as rotas de prévia precisam responder isso ("vai rodar" ×
+    "já está rodando") sem enfileirar nada. Duas definições de "em andamento"
+    em lugares diferentes seriam duas telas discordando.
+    """
+    return _em_andamento(db, empresa_id, tipo)
+
+
 def verificar_empresa(
     db: Session, empresa: Empresa, tipo: TipoDocumentoFiscal
 ) -> tuple[str, str]:

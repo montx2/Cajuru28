@@ -30,8 +30,11 @@ from app.models import (
 from app.schemas import (
     EstadoSincronizacaoResposta,
     ExecucaoImportacaoResposta,
+    ImportacaoSelecionadas,
     ImportacaoSolicitar,
     ItemImportacaoLote,
+    ItemImportacaoSelecionada,
+    ResultadoImportacaoSelecionada,
     ResumoSincronizacao,
 )
 from app.services import fila, sincronizacao
@@ -172,6 +175,174 @@ def _naive_para_aware(valor: datetime | None) -> datetime | None:
     if valor is None:
         return None
     return valor if valor.tzinfo else valor.replace(tzinfo=timezone.utc)
+
+
+# ---------------------------------------------------------------------------
+# Importar SÓ as empresas marcadas na tela
+# ---------------------------------------------------------------------------
+
+
+def _empresas_selecionadas(
+    db: Session, escritorio_id: int, empresa_ids: list[int]
+) -> tuple[list[Empresa], list[int]]:
+    """
+    Separa o que é deste escritório do que não é.
+
+    Ids de outro escritório não viram erro fatal: são simplesmente ignorados,
+    como no resto do sistema. Devolver 403 aqui daria a quem tentasse uma
+    resposta útil ("esse id existe"), o que não é o comportamento desejado num
+    sistema multiempresa.
+    """
+    empresas = (
+        db.query(Empresa)
+        .filter(Empresa.id.in_(empresa_ids), Empresa.escritorio_id == escritorio_id)
+        .all()
+    )
+    encontrados = {empresa.id for empresa in empresas}
+    fora = [identificador for identificador in empresa_ids if identificador not in encontrados]
+    ordem = {identificador: indice for indice, identificador in enumerate(empresa_ids)}
+    empresas.sort(key=lambda empresa: ordem.get(empresa.id, 0))
+    return empresas, fora
+
+
+def _tipos_do_pedido(tipos: list[TipoDocumentoFiscal] | None) -> list[TipoDocumentoFiscal]:
+    if not tipos:
+        return list(TipoDocumentoFiscal)
+    vistos: list[TipoDocumentoFiscal] = []
+    for tipo in tipos:
+        if tipo not in vistos:
+            vistos.append(tipo)
+    return vistos
+
+
+def _prever(
+    db: Session, empresa: Empresa, tipo: TipoDocumentoFiscal, *, forcar: bool
+) -> tuple[str, str, datetime | None]:
+    """
+    O que aconteceria se enfileirasse agora — **sem enfileirar**.
+
+    Fonte única das quatro respostas possíveis (sem certificado, sem UF, na
+    janela da SEFAZ, pode rodar). A prévia e o disparo real usam esta função,
+    então a tela nunca promete uma coisa e faz outra.
+    """
+    status, mensagem = fila.verificar_empresa(db, empresa, tipo)
+    if status != "ok":
+        return status, mensagem, None
+    if fila.em_andamento(db, empresa.id, tipo) is not None:
+        return "ja_em_andamento", "Já existe uma varredura em andamento para esta empresa e tipo.", None
+
+    libertacao = sincronizacao.liberacao_para(db, empresa.id, tipo)
+    if not libertacao.pode and not forcar:
+        return (
+            "em_cooldown",
+            (
+                ("Bloqueado pela SEFAZ (consumo indevido). " if libertacao.bloqueado else "")
+                + f"Nova tentativa automática em {libertacao.quando:%d/%m/%Y %H:%M}."
+                + (f" ({libertacao.motivo})" if libertacao.motivo else "")
+            ),
+            libertacao.quando,
+        )
+    return "ok", "", None
+
+
+@router.post("/selecionadas/previa", response_model=ResultadoImportacaoSelecionada)
+def previa_importacao_selecionadas(
+    dados: ImportacaoSelecionadas,
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+):
+    """
+    Responde "o que vai acontecer se eu clicar" para as empresas marcadas.
+
+    Serve para o operador ver **antes de disparar** quem está na janela de 1
+    hora da SEFAZ e quem está sem certificado — em vez de descobrir depois, no
+    meio de uma lista de resultados. Não cria execução, não consulta a SEFAZ,
+    não muda nada: é só leitura de estado local.
+    """
+    empresas, _ = _empresas_selecionadas(db, escritorio_id, dados.empresa_ids)
+    tipos = _tipos_do_pedido(dados.tipos)
+
+    itens: list[ItemImportacaoSelecionada] = []
+    for empresa in empresas:
+        for tipo in tipos:
+            status, mensagem, quando = _prever(db, empresa, tipo, forcar=dados.forcar)
+            itens.append(
+                ItemImportacaoSelecionada(
+                    empresa_id=empresa.id,
+                    razao_social=empresa.razao_social,
+                    tipo=tipo,
+                    status=status,
+                    disponivel_em=quando,
+                    mensagem=mensagem,
+                    enfileirada=False,
+                )
+            )
+
+    enfileiraveis = sum(1 for item in itens if item.status == "ok")
+    return ResultadoImportacaoSelecionada(
+        total=len(itens),
+        enfileiradas=0,
+        aguardando=enfileiraveis,
+        ignoradas=len(itens) - enfileiraveis,
+        itens=itens,
+    )
+
+
+@router.post("/selecionadas", response_model=ResultadoImportacaoSelecionada, status_code=202)
+def importar_selecionadas(
+    dados: ImportacaoSelecionadas,
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+):
+    """
+    Enfileira a importação **apenas das empresas marcadas**.
+
+    É a operação que o uso real pede: "quero as notas destas 3 empresas de
+    agosto", não "varra os 30 CNPJs do escritório". Cada CNPJ consultado gasta
+    a janela de 1 hora da SEFAZ; varrer quem não foi pedido atrasa quem foi.
+
+    Uma empresa que não pode entrar agora **não impede as outras**: o resultado
+    volta item a item, com o motivo de cada uma — mesmo formato da prévia, para
+    a tela poder só trocar "vai rodar" por "está rodando".
+    """
+    periodo = _periodo(dados.competencia, dados.data_inicio, dados.data_fim)
+    empresas, _ = _empresas_selecionadas(db, escritorio_id, dados.empresa_ids)
+    tipos = _tipos_do_pedido(dados.tipos)
+
+    itens: list[ItemImportacaoSelecionada] = []
+    for empresa in empresas:
+        for tipo in tipos:
+            resultado = fila.enfileirar(
+                db,
+                empresa,
+                tipo,
+                forcar=dados.forcar,
+                periodo=periodo,
+                origem="selecao",
+            )
+            status = "ja_em_andamento" if resultado.status == "em_andamento" else resultado.status
+            itens.append(
+                ItemImportacaoSelecionada(
+                    empresa_id=empresa.id,
+                    razao_social=empresa.razao_social,
+                    tipo=tipo,
+                    status=status,
+                    execucao_id=resultado.execucao_id,
+                    disponivel_em=resultado.disponivel_em,
+                    mensagem=resultado.mensagem,
+                    enfileirada=resultado.enfileirada,
+                )
+            )
+
+    enfileiradas = sum(1 for item in itens if item.enfileirada)
+    aguardando = sum(1 for item in itens if item.status == "em_cooldown")
+    return ResultadoImportacaoSelecionada(
+        total=len(itens),
+        enfileiradas=enfileiradas,
+        aguardando=aguardando,
+        ignoradas=len(itens) - enfileiradas - aguardando,
+        itens=itens,
+    )
 
 
 def estados_do_escritorio(
