@@ -16,6 +16,25 @@ e todo mundo já está na versão nova". O que existe é um mecanismo no program
 
 ---
 
+## Antes da primeira publicação (uma vez só)
+
+O workflow do GitHub Actions está em [`docs/github-actions-release.yml`](github-actions-release.yml)
+— fora do lugar de execução — porque o app de automação que mantém o
+repositório não tem permissão de criar arquivos de workflow. Para ativar:
+
+```bash
+mkdir -p .github/workflows
+cp docs/github-actions-release.yml .github/workflows/release.yml
+git add .github/workflows/release.yml && git commit -m "CI: publicar versões" && git push
+```
+
+Ou, sem terminal, no próprio GitHub: **Actions → New workflow → set up a
+workflow yourself**, cole o conteúdo do arquivo e faça o commit. Enquanto isso
+não for feito, `python scripts/empacotar.py` numa máquina Windows continua
+publicando do mesmo jeito (o workflow só automatiza).
+
+---
+
 ## O ciclo completo, do bug à correção em todas as máquinas
 
 ```text
