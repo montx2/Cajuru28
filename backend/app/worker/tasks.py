@@ -859,3 +859,50 @@ def _sobrescrever_xml(documento: DocumentoFiscal, completo: DocumentoBaixado) ->
         documento.serie = completo.serie[:10]
     if completo.emitente_nome:
         documento.emitente_nome = completo.emitente_nome[:255]
+
+
+@celery_app.task(name="varrer_alertas_webhook", bind=True, max_retries=0)
+def varrer_alertas_webhook(self) -> dict:
+    """
+    Envia os alertas abertos ao webhook externo (Slack/Discord/n8n/gateway).
+
+    Roda no Beat a cada `ALERTA_WEBHOOK_INTERVALO_MINUTOS`. Sem URL
+    configurada, não faz nada. Cada alerta respeita o nível mínimo e o
+    cooldown de reenvio — ninguém recebe a mesma mensagem a cada 15 min.
+    """
+    from app.api.routers.alertas import computar_alertas
+    from app.models import Escritorio
+    from app.services import webhook as svc_webhook
+
+    if not (settings.alerta_webhook_url or "").strip():
+        return {"desativado": True}
+
+    db = SessionLocal()
+    resumo: dict = {"enviados": 0, "ignorados": 0, "erros": []}
+    try:
+        escritorios = [linha[0] for linha in db.query(Escritorio.id).all()]
+        for escritorio_id in escritorios:
+            for alerta in computar_alertas(db, escritorio_id):
+                if not svc_webhook.nivel_vale(alerta.nivel, settings.alerta_webhook_min_nivel):
+                    continue
+                chave = f"webhook:{escritorio_id}:{alerta.id}"
+                if svc_webhook.ja_enviado_recente(chave, settings.alerta_webhook_cooldown_minutos):
+                    resumo["ignorados"] += 1
+                    continue
+                ok, detalhe = svc_webhook.disparar(
+                    alerta.model_dump(), escritorio_id=escritorio_id
+                )
+                if ok:
+                    resumo["enviados"] += 1
+                    svc_webhook.marcar_enviado(chave, settings.alerta_webhook_cooldown_minutos)
+                else:
+                    resumo["erros"].append(detalhe[:200])
+        if resumo["enviados"]:
+            log.info("Webhook: %s", resumo)
+        return resumo
+    except Exception as exc:  # noqa: BLE001 — o tick nunca derruba o beat
+        log.exception("Varredura de webhook falhou: %s", exc)
+        resumo["erros"].append(str(exc)[:200])
+        return resumo
+    finally:
+        db.close()

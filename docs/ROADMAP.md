@@ -8,10 +8,29 @@
 - Importação NFS-e ADN, NFe e CT-e SEFAZ.
 - Controle de NSU, cooldown, retomada e exportação em massa.
 - Painel Next.js responsivo.
+- **v2.0 — Dashboard executivo** (`/dashboard/*`): KPIs, evolução mensal,
+  quebra por tipo, top emitentes, ranking de empresas e feed de atividades.
+- **v2.0 — Central de alertas** (`/alertas`): certificados, janelas SEFAZ,
+  risco de distribuição, XMLs pendentes, erros e saúde do ambiente.
+- **v2.0 — Fechamento mensal** (`/relatorios/fechamento` + CSV): mapa
+  empresa × tipo da competência, imprimível.
+- **v2.0 — Detalhe de documento** (`/documentos/detalhe/{id}`): ficha completa
+  com visualizador de XML.
+- **v2.0 — Experiência premium:** sidebar escura, busca global (`Ctrl+K`),
+  sino de alertas, toasts, onboarding guiado e layout mobile.
+- **v2.1 — Papéis de usuário** (`/usuarios`): admin, operador e leitura, com
+  travas (sem auto-rebaixamento, sem remover o último admin).
+- **v2.1 — Trilha de auditoria** (`/auditoria`): logins, cadastros,
+  certificados, disparos e downloads.
+- **v2.1 — Webhook de alertas**: task do Beat com nível mínimo + cooldown e
+  endpoint de teste; payload JSON genérico.
+- **v2.1 — Métricas Prometheus** (`GET /metricas`) autenticadas por escritório.
+- **v2.1 — Telas de Equipe e Auditoria** + botões conscientes de papel.
 
 ## Próximos passos
 
-- Observabilidade com métricas e alertas.
+- Alertas por e-mail (SMTP) além do webhook.
 - Rotação assistida das chaves do cofre.
 - Política automatizada de backup dos volumes.
+- Autenticação em dois fatores (TOTP).
 - Testes de carga e dimensionamento horizontal de workers.

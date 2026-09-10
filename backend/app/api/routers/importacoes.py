@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.api.deps import escritorio_id_atual
+from app.api.deps import escritorio_id_atual, requer_escrita
 from app.core.config import settings
 from app.db.session import get_db
 from app.models import (
@@ -26,7 +26,9 @@ from app.models import (
     ExecucaoImportacao,
     StatusExecucao,
     TipoDocumentoFiscal,
+    Usuario,
 )
+from app.services import auditoria
 from app.schemas import (
     EstadoSincronizacaoResposta,
     ExecucaoImportacaoResposta,
@@ -64,6 +66,7 @@ def solicitar_importacao(
     dados: ImportacaoSolicitar,
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
+    usuario: Usuario = Depends(requer_escrita),
 ):
     """
     Enfileira a importação de UMA empresa e retorna imediatamente — o
@@ -105,6 +108,12 @@ def solicitar_importacao(
         )
 
     execucao = db.get(ExecucaoImportacao, resultado.execucao_id)
+    auditoria.registrar(
+        db, usuario, "importacao_disparada",
+        entidade="execucao", entidade_id=resultado.execucao_id,
+        detalhe=f"{empresa.razao_social} · {dados.tipo.value}" + (" (forçada)" if dados.forcar else ""),
+    )
+    db.commit()
     resposta = ExecucaoImportacaoResposta.model_validate(execucao)
     resposta.empresa_razao_social = empresa.razao_social
     return resposta
@@ -117,6 +126,7 @@ def solicitar_importacao_em_lote(
     forcar: bool = False,
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
+    usuario: Usuario = Depends(requer_escrita),
 ):
     """
     Dispara a importação de TODAS as empresas ativas do escritório de uma vez —
@@ -167,6 +177,12 @@ def solicitar_importacao_em_lote(
             )
         )
 
+    enfileiradas = sum(1 for r in resultados if r.execucao_id)
+    auditoria.registrar(
+        db, usuario, "importacao_lote",
+        detalhe=f"{tipo.value}: {enfileiradas}/{len(resultados)} enfileiradas",
+    )
+    db.commit()
     return resultados
 
 
@@ -293,6 +309,7 @@ def importar_selecionadas(
     dados: ImportacaoSelecionadas,
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
+    usuario: Usuario = Depends(requer_escrita),
 ):
     """
     Enfileira a importação **apenas das empresas marcadas**.
@@ -336,6 +353,11 @@ def importar_selecionadas(
 
     enfileiradas = sum(1 for item in itens if item.enfileirada)
     aguardando = sum(1 for item in itens if item.status == "em_cooldown")
+    auditoria.registrar(
+        db, usuario, "importacao_selecao",
+        detalhe=f"{len(dados.empresa_ids)} empresa(s): {enfileiradas} enfileiradas, {aguardando} na janela",
+    )
+    db.commit()
     return ResultadoImportacaoSelecionada(
         total=len(itens),
         enfileiradas=enfileiradas,

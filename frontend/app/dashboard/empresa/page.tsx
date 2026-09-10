@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
+import { usePapel } from "@/lib/papel";
 import { emQuanto, horaLocal } from "@/lib/competencia";
 import { formatarDocumento } from "@/components/SeletorEmpresas";
 import {
@@ -50,6 +51,7 @@ function ConteudoEmpresa() {
   const [disparandoImportacao, setDisparandoImportacao] = useState(false);
   const [mensagemImportacao, setMensagemImportacao] = useState<string | null>(null);
   const [sincronizacoes, setSincronizacoes] = useState<EstadoSincronizacao[]>([]);
+  const { somenteLeitura } = usePapel();
 
   function carregar() {
     if (!empresaId) return;
@@ -203,13 +205,14 @@ function ConteudoEmpresa() {
               required
               value={senhaCertificado}
               onChange={(e) => setSenhaCertificado(e.target.value)}
-              className="border border-line bg-bg px-3 py-2 text-sm text-ink outline-none focus:border-accent"
+              className="input"
             />
           </div>
           <button
             type="submit"
-            disabled={enviandoCertificado}
-            className="bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+            disabled={enviandoCertificado || somenteLeitura}
+            title={somenteLeitura ? "Seu perfil é somente leitura." : undefined}
+            className="btn-primary disabled:opacity-50"
           >
             {enviandoCertificado ? "Enviando…" : "Enviar certificado"}
           </button>
@@ -231,8 +234,9 @@ function ConteudoEmpresa() {
           <button
             type="button"
             onClick={() => importarTodas()}
-            disabled={disparandoImportacao || !certificadoAtivo}
-            className="bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={disparandoImportacao || !certificadoAtivo || somenteLeitura}
+            title={somenteLeitura ? "Seu perfil é somente leitura." : undefined}
+            className="btn-primary disabled:cursor-not-allowed disabled:opacity-50"
           >
             Importar todas
           </button>
@@ -241,8 +245,9 @@ function ConteudoEmpresa() {
               key={tipo}
               type="button"
               onClick={() => importar(tipo)}
-              disabled={disparandoImportacao || !certificadoAtivo}
-              className="border border-accent px-4 py-2 text-sm font-medium text-accent hover:bg-accent-soft disabled:cursor-not-allowed disabled:border-line disabled:text-ink-muted"
+              disabled={disparandoImportacao || !certificadoAtivo || somenteLeitura}
+              title={somenteLeitura ? "Seu perfil é somente leitura." : undefined}
+              className="btn-ghost disabled:cursor-not-allowed disabled:border-line disabled:text-ink-muted"
             >
               Só {tipo.toUpperCase()}
             </button>

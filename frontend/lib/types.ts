@@ -61,6 +61,7 @@ export interface DocumentoFiscal {
   emitente_nome?: string | null;
   emitente_documento?: string | null;
   destinatario_nome?: string | null;
+  destinatario_documento?: string | null;
   nsu?: string | null;
 }
 
@@ -174,6 +175,11 @@ export interface InfoSistema {
     agenda: Record<string, { tarefa?: string }>;
   };
   hora_do_servidor: string;
+  webhook?: {
+    configurado: boolean;
+    nivel_minimo: string;
+    intervalo_minutos: number;
+  };
 }
 
 export interface ResumoSincronizacao {
@@ -259,3 +265,208 @@ export const ROTULO_STATUS_LOTE: Record<string, string> = {
 };
 
 export const TIPOS: TipoDocumentoFiscal[] = ["nfse", "nfe", "cte"];
+
+// ---------------------------------------------------------------
+// Sessão
+// ---------------------------------------------------------------
+
+export type PapelUsuario = "admin" | "operador" | "leitura";
+
+export interface UsuarioAtual {
+  id: number;
+  nome: string;
+  email: string;
+  papel: PapelUsuario | string;
+  escritorio_id: number;
+  escritorio_nome: string;
+}
+
+export interface Usuario {
+  id: number;
+  nome: string;
+  email: string;
+  papel: PapelUsuario | string;
+  ativo: boolean;
+  criado_em: string;
+}
+
+export interface RegistroAuditoria {
+  id: number;
+  quando: string;
+  usuario_email: string;
+  acao: string;
+  entidade: string | null;
+  entidade_id: number | null;
+  detalhe: string | null;
+}
+
+export const ROTULO_PAPEL: Record<string, string> = {
+  admin: "Administrador",
+  operador: "Operador",
+  leitura: "Somente leitura",
+};
+
+export const ROTULO_ACAO: Record<string, string> = {
+  login: "Entrou no sistema",
+  login_falha: "Tentativa de login falhou",
+  empresa_criada: "Cadastrou empresa",
+  empresa_atualizada: "Atualizou empresa",
+  empresas_lote: "Importou empresas em massa",
+  certificado_enviado: "Enviou certificado",
+  importacao_disparada: "Disparou importação",
+  importacao_lote: "Disparou importação em lote",
+  importacao_selecao: "Disparou importação por seleção",
+  xmls_completar: "Pediu XMLs completos",
+  exportacao_zip: "Baixou ZIP",
+  usuario_criado: "Criou usuário",
+  usuario_atualizado: "Atualizou usuário",
+  webhook_teste: "Testou webhook",
+};
+
+// ---------------------------------------------------------------
+// Dashboard executivo
+// ---------------------------------------------------------------
+
+export interface KpisDashboard {
+  competencia: string;
+  documentos_mes: number;
+  documentos_mes_anterior: number;
+  variacao_pct: number | null;
+  valor_mes: number;
+  canceladas_mes: number;
+  sem_xml_completo: number;
+  documentos_total: number;
+  empresas_total: number;
+  empresas_em_dia: number;
+  combinacoes_em_dia: number;
+  combinacoes_total: number;
+  certificados_vencidos: number;
+  certificados_vencendo: number;
+  empresas_sem_certificado: number;
+  bloqueadas_agora: number;
+  em_andamento: number;
+}
+
+export interface EvolucaoMensal {
+  mes: string;
+  rotulo: string;
+  total: number;
+  valor: number;
+  nfse: number;
+  nfe: number;
+  cte: number;
+}
+
+export interface TipoBreakdown {
+  tipo: TipoDocumentoFiscal;
+  rotulo: string;
+  total: number;
+  valor: number;
+  percentual: number;
+}
+
+export interface EmitenteTop {
+  documento: string | null;
+  nome: string | null;
+  total: number;
+  valor: number;
+}
+
+export interface EmpresaRanking {
+  empresa_id: number;
+  razao_social: string;
+  total: number;
+  valor: number;
+  canceladas: number;
+  sem_xml: number;
+}
+
+// ---------------------------------------------------------------
+// Alertas
+// ---------------------------------------------------------------
+
+export type NivelAlerta = "critico" | "atencao" | "info";
+
+export interface AlertaItem {
+  id: string;
+  nivel: NivelAlerta | string;
+  categoria: string;
+  titulo: string;
+  detalhe: string;
+  empresa_id: number | null;
+  empresa_razao_social: string | null;
+  acao_rotulo: string | null;
+  acao_href: string | null;
+}
+
+export interface AlertasResposta {
+  total: number;
+  criticos: number;
+  atencao: number;
+  infos: number;
+  itens: AlertaItem[];
+}
+
+export const ROTULO_CATEGORIA_ALERTA: Record<string, string> = {
+  certificado: "Certificado",
+  cadastro: "Cadastro",
+  sefaz: "SEFAZ",
+  distribuicao: "Distribuição",
+  sincronismo: "Sincronismo",
+  xml: "XML",
+  execucao: "Execução",
+  sistema: "Sistema",
+};
+
+// ---------------------------------------------------------------
+// Fechamento mensal
+// ---------------------------------------------------------------
+
+export interface FechamentoTipo {
+  qtd: number;
+  valor: number;
+}
+
+export interface FechamentoEmpresa {
+  empresa_id: number;
+  razao_social: string;
+  cnpj: string;
+  uf: string;
+  total: number;
+  valor: number;
+  canceladas: number;
+  sem_xml: number;
+  por_tipo: Record<string, FechamentoTipo>;
+}
+
+export interface FechamentoTotais {
+  documentos: number;
+  valor: number;
+  canceladas: number;
+  sem_xml: number;
+  empresas_com_documento: number;
+  empresas_total: number;
+  por_tipo: Record<string, FechamentoTipo>;
+}
+
+export interface FechamentoMensal {
+  competencia: string;
+  inicio: string;
+  fim: string;
+  totais: FechamentoTotais;
+  empresas: FechamentoEmpresa[];
+}
+
+// ---------------------------------------------------------------
+// Documento detalhado (drawer)
+// ---------------------------------------------------------------
+
+export interface DocumentoDetalhe extends DocumentoFiscal {
+  empresa_razao_social: string;
+  empresa_cnpj: string;
+  empresa_uf: string;
+  importado_em: string | null;
+  xml_disponivel: boolean;
+  xml_bytes: number | null;
+  execucao_id: number | null;
+}

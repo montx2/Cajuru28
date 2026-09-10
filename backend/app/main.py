@@ -5,7 +5,20 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routers import auth, certificados, documentos, empresas, importacoes, sistema
+from app.api.routers import (
+    alertas,
+    auditoria,
+    auth,
+    certificados,
+    dashboard,
+    documentos,
+    empresas,
+    importacoes,
+    metricas,
+    relatorios,
+    sistema,
+    usuarios,
+)
 from app.bootstrap import garantir_usuario_inicial
 from app.core.config import settings
 from app.db.base import criar_tabelas
@@ -22,7 +35,7 @@ async def ciclo_de_vida(_app: FastAPI):
 app = FastAPI(
     title="NotasFlow",
     description="Importação automática de NFS-e, NFe e CT-e via ADN/SEFAZ.",
-    version="1.0.0",
+    version="2.1.0",
     lifespan=ciclo_de_vida,
 )
 
@@ -45,10 +58,16 @@ else:
     )
 
 app.include_router(auth.router)
+app.include_router(usuarios.router)
+app.include_router(auditoria.router)
+app.include_router(metricas.router)
 app.include_router(empresas.router)
 app.include_router(certificados.router)
 app.include_router(documentos.router)
 app.include_router(importacoes.router)
+app.include_router(dashboard.router)
+app.include_router(alertas.router)
+app.include_router(relatorios.router)
 app.include_router(sistema.router)
 
 

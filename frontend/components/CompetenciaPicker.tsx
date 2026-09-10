@@ -28,7 +28,7 @@ export function CompetenciaPicker({
         value={valor ?? ""}
         max={mesAtual()}
         onChange={(e) => aoMudar(e.target.value || null)}
-        className="border border-line bg-bg px-3 py-2 text-sm text-ink outline-none focus:border-accent"
+        className="input"
         aria-label="Competência (mês)"
       />
       <button

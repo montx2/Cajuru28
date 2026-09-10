@@ -4,6 +4,13 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { salvarToken } from "@/lib/auth";
+import { Icone, Logomarca } from "@/components/icons";
+
+const DESTAQUES = [
+  { icone: "raio", titulo: "Sincronismo automático", texto: "O sistema consulta a SEFAZ sozinho, dentro da janela oficial." },
+  { icone: "escudo", titulo: "Cofre de certificados", texto: "Senhas cifradas, um A1 por empresa, alertas de vencimento." },
+  { icone: "baixar", titulo: "Download em massa", texto: "Milhares de XMLs + relação em CSV num clique." },
+];
 
 export default function LoginPage() {
   const router = useRouter();
@@ -28,49 +35,111 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-bg px-4">
-      <div className="w-full max-w-sm">
-        <p className="mb-8 font-serif text-2xl text-ink">NotasFlow</p>
-
-        <form onSubmit={entrar} className="border border-line bg-surface p-6">
-          <label className="mb-1 block text-sm text-ink-muted" htmlFor="email">
-            Email
-          </label>
-          <input
-            id="email"
-            type="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="mb-4 w-full border border-line bg-bg px-3 py-2 text-sm text-ink outline-none focus:border-accent"
-          />
-
-          <label className="mb-1 block text-sm text-ink-muted" htmlFor="senha">
-            Senha
-          </label>
-          <input
-            id="senha"
-            type="password"
-            required
-            value={senha}
-            onChange={(e) => setSenha(e.target.value)}
-            className="mb-5 w-full border border-line bg-bg px-3 py-2 text-sm text-ink outline-none focus:border-accent"
-          />
-
-          {erro && (
-            <p className="mb-4 border border-danger-soft bg-danger-soft px-3 py-2 text-sm text-danger">
-              {erro}
+    <div className="flex min-h-screen">
+      {/* painel da marca */}
+      <div className="relative hidden flex-1 flex-col justify-between overflow-hidden bg-sidebar p-10 lg:flex">
+        <div
+          className="pointer-events-none absolute inset-0 opacity-40"
+          style={{
+            background:
+              "radial-gradient(600px 400px at 20% 20%, rgba(47,163,122,.35), transparent), radial-gradient(500px 500px at 80% 80%, rgba(201,162,39,.18), transparent)",
+          }}
+        />
+        <div className="relative flex items-center gap-3">
+          <Logomarca className="h-11 w-11 text-xl" />
+          <div>
+            <p className="font-serif text-2xl font-bold text-white">NotasFlow</p>
+            <p className="text-xs font-medium uppercase tracking-widest text-white/50">
+              Gestão fiscal automática
             </p>
-          )}
+          </div>
+        </div>
 
-          <button
-            type="submit"
-            disabled={enviando}
-            className="w-full bg-accent px-3 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-          >
-            {enviando ? "Entrando…" : "Entrar"}
-          </button>
-        </form>
+        <div className="relative">
+          <p className="max-w-md font-serif text-4xl font-semibold leading-tight text-white">
+            Todas as notas do escritório, <span className="text-accent-bright">sozinhas</span> no
+            seu banco.
+          </p>
+          <p className="mt-4 max-w-md text-white/60">
+            NFS-e, NFe e CT-e importadas direto do ADN e da SEFAZ com o certificado A1 de cada
+            empresa — sem planilha, sem portal, sem F5.
+          </p>
+          <ul className="mt-8 space-y-4">
+            {DESTAQUES.map((d) => (
+              <li key={d.titulo} className="flex items-start gap-3">
+                <span className="inline-flex h-9 w-9 flex-none items-center justify-center rounded-xl bg-white/10 text-accent-bright">
+                  <Icone nome={d.icone} className="h-5 w-5" />
+                </span>
+                <span>
+                  <span className="block text-sm font-semibold text-white">{d.titulo}</span>
+                  <span className="block text-sm text-white/55">{d.texto}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <p className="relative font-mono text-xs text-white/35">
+          ADN · SEFAZ · mTLS · Celery Beat · PostgreSQL
+        </p>
+      </div>
+
+      {/* formulário */}
+      <div className="flex flex-1 items-center justify-center bg-bg px-4 py-10">
+        <div className="w-full max-w-sm">
+          <div className="mb-8 flex items-center gap-3 lg:hidden">
+            <Logomarca />
+            <p className="font-serif text-2xl font-bold text-ink">NotasFlow</p>
+          </div>
+
+          <p className="font-serif text-3xl font-semibold text-ink">Bem-vindo de volta</p>
+          <p className="mb-6 mt-1 text-sm text-ink-muted">Entre para abrir o painel do escritório.</p>
+
+          <form onSubmit={entrar} className="card-pad">
+            <label className="label" htmlFor="email">
+              Email
+            </label>
+            <input
+              id="email"
+              type="email"
+              required
+              autoComplete="username"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="voce@escritorio.com.br"
+              className="input mb-4"
+            />
+
+            <label className="label" htmlFor="senha">
+              Senha
+            </label>
+            <input
+              id="senha"
+              type="password"
+              required
+              autoComplete="current-password"
+              value={senha}
+              onChange={(e) => setSenha(e.target.value)}
+              placeholder="••••••••"
+              className="input mb-5"
+            />
+
+            {erro && (
+              <p className="mb-4 rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-sm text-danger">
+                {erro}
+              </p>
+            )}
+
+            <button type="submit" disabled={enviando} className="btn-primary w-full">
+              {enviando ? "Entrando…" : "Entrar no painel"}
+              {!enviando && <Icone nome="setaDireita" className="h-4 w-4" />}
+            </button>
+          </form>
+
+          <p className="mt-6 text-center text-xs text-ink-faint">
+            Acesso restrito à equipe do escritório · v2.0
+          </p>
+        </div>
       </div>
     </div>
   );

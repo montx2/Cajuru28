@@ -40,3 +40,39 @@ def escritorio_id_atual(usuario: Usuario = Depends(usuario_atual)) -> int:
     mesmo que o multiempresa ainda não esteja "ligado" no produto.
     """
     return usuario.escritorio_id
+
+
+def papel_do_usuario(usuario: Usuario) -> str:
+    """Papel efetivo (`admin` para linhas antigas sem valor)."""
+    return (usuario.papel or "admin").strip().lower() or "admin"
+
+
+def requer_papel(*papeis: str):
+    """
+    Guarda de rota por papel: `admin: Usuario = Depends(requer_papel("admin"))`.
+
+    Uso: gestão da equipe (só admin), auditoria e testes (admin/operador).
+    """
+
+    def verificar(usuario: Usuario = Depends(usuario_atual)) -> Usuario:
+        if papel_do_usuario(usuario) not in papeis:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Seu perfil não tem permissão para esta ação.",
+            )
+        return usuario
+
+    return verificar
+
+
+def requer_escrita(usuario: Usuario = Depends(usuario_atual)) -> Usuario:
+    """
+    Bloqueia o perfil `leitura` nas rotas de mutação (cadastrar, importar,
+    enviar certificado). Leitura e download continuam liberados.
+    """
+    if papel_do_usuario(usuario) == "leitura":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Seu perfil é somente leitura.",
+        )
+    return usuario

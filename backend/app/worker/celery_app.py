@@ -17,6 +17,11 @@ AGENDA = {
         "schedule": timedelta(hours=max(1, int(settings.completar_xmls_a_cada_horas))),
         "options": {"expires": int(settings.completar_xmls_a_cada_horas * 3600)},
     },
+    "varrer-alertas-webhook": {
+        "task": "varrer_alertas_webhook",
+        "schedule": timedelta(minutes=max(1, int(settings.alerta_webhook_intervalo_minutos))),
+        "options": {"expires": int(settings.alerta_webhook_intervalo_minutos * 60)},
+    },
 }
 
 celery_app = Celery(

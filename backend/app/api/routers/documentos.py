@@ -24,7 +24,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
 
-from app.api.deps import escritorio_id_atual
+from app.api.deps import escritorio_id_atual, requer_escrita, usuario_atual
 from app.core.config import settings
 from app.db.session import get_db
 from app.models import (
@@ -34,8 +34,11 @@ from app.models import (
     ExecucaoImportacao,
     StatusDocumentoFiscal,
     TipoDocumentoFiscal,
+    Usuario,
 )
+from app.services import auditoria
 from app.schemas import (
+    DocumentoDetalhe,
     DocumentoFiscalResposta,
     EmpresaResumoDocumentos,
     EstimativaExportacao,
@@ -408,6 +411,7 @@ def exportar_xmls(
     incluir_relatorio: bool = Query(default=True, description="CSV com a relação, pronto para o Excel"),
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
+    usuario: Usuario = Depends(usuario_atual),
 ):
     """
     ZIP com **todos** os XMLs do filtro — a resposta para "baixar todos os XMLs
@@ -445,6 +449,11 @@ def exportar_xmls(
 
     limite = settings.limite_documentos_por_exportacao
     total = consulta.count()
+    auditoria.registrar(
+        db, usuario, "exportacao_zip",
+        detalhe=f"{total} documento(s) · {periodo.rotulo()}" + (f" · tipo {tipo.value}" if tipo else ""),
+    )
+    db.commit()
     if total == 0:
         raise HTTPException(
             status_code=404,
@@ -719,6 +728,7 @@ def completar_xmls(
     limite: int = Query(default=20, le=20, ge=1),
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
+    usuario: Usuario = Depends(requer_escrita),
 ):
     """
     Manda o worker buscar, pela chave (`consChNFe`), o XML completo das NFe que
@@ -728,6 +738,13 @@ def completar_xmls(
         _empresa_do_escritorio(db, empresa_id, escritorio_id)
     from app.worker.tasks import completar_xmls_pendentes
 
+    auditoria.registrar(
+        db, usuario, "xmls_completar",
+        entidade="empresa" if empresa_id else None,
+        entidade_id=empresa_id,
+        detalhe=f"limite {limite}/h",
+    )
+    db.commit()
     completar_xmls_pendentes.delay(empresa_id=empresa_id, limite=limite)
     return {
         "disparado": True,
@@ -764,6 +781,44 @@ def recibo_documento(
         "execucao_id": execucao.id if execucao else None,
         "importado_em": documento.importado_em,
     }
+
+
+@router.get("/detalhe/{documento_id}", response_model=DocumentoDetalhe)
+def detalhe_documento(
+    documento_id: int,
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+):
+    """Ficha completa de um documento para o painel de detalhes."""
+    documento = _documento_do_escritorio(db, documento_id, escritorio_id)
+    empresa = db.get(Empresa, documento.empresa_id)
+    xml_disponivel = bool(documento.xml_path and os.path.isfile(documento.xml_path))
+    tamanho = None
+    if xml_disponivel:
+        try:
+            tamanho = os.path.getsize(documento.xml_path)
+        except OSError:
+            tamanho = None
+    execucao = (
+        db.query(ExecucaoImportacao)
+        .filter(
+            ExecucaoImportacao.empresa_id == documento.empresa_id,
+            ExecucaoImportacao.tipo == documento.tipo,
+            ExecucaoImportacao.ultimo_nsu.isnot(None),
+        )
+        .order_by(ExecucaoImportacao.id.desc())
+        .first()
+    )
+    return DocumentoDetalhe(
+        **DocumentoFiscalResposta.model_validate(documento).model_dump(),
+        empresa_razao_social=empresa.razao_social if empresa else "",
+        empresa_cnpj=empresa.cnpj_cpf if empresa else "",
+        empresa_uf=empresa.uf if empresa else "",
+        importado_em=documento.importado_em,
+        xml_disponivel=xml_disponivel,
+        xml_bytes=tamanho,
+        execucao_id=execucao.id if execucao else None,
+    )
 
 
 def _documento_do_escritorio(db: Session, documento_id: int, escritorio_id: int) -> DocumentoFiscal:

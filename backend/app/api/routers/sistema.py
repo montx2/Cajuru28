@@ -33,6 +33,11 @@ def informacao_do_sistema(_usuario=Depends(usuario_atual)):
         "hora_do_servidor": datetime.now(timezone.utc).isoformat(),
         "iniciar_com_windows": False,
         "pode_iniciar_com_windows": False,
+        "webhook": {
+            "configurado": bool((settings.alerta_webhook_url or "").strip()),
+            "nivel_minimo": settings.alerta_webhook_min_nivel,
+            "intervalo_minutos": settings.alerta_webhook_intervalo_minutos,
+        },
     }
 
 

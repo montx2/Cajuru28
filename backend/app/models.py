@@ -51,6 +51,9 @@ class Usuario(Base):
     nome: Mapped[str] = mapped_column(String(255))
     email: Mapped[str] = mapped_column(String(255), index=True)
     senha_hash: Mapped[str] = mapped_column(String(255))
+    # Papel: admin (tudo + equipe) | operador (opera, não gerencia usuários)
+    # | leitura (só vê e baixa). Usuários antigos assumem admin na migração.
+    papel: Mapped[str] = mapped_column(String(20), default="admin")
     ativo: Mapped[bool] = mapped_column(Boolean, default=True)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -296,3 +299,34 @@ class EventoFiscalPendente(Base):
 
     empresa: Mapped["Empresa"] = relationship()
     documento: Mapped[Optional["DocumentoFiscal"]] = relationship()
+
+
+class RegistroAuditoria(Base):
+    """
+    Trilha de auditoria: quem fez o quê, quando.
+
+    Registra logins, cadastros, certificados, disparos de importação,
+    downloads e gestão da equipe. `escritorio_id` é anulável para acomodar
+    tentativas de login com e-mail inexistente (dono desconhecido).
+    """
+
+    __tablename__ = "auditoria"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    escritorio_id: Mapped[int | None] = mapped_column(
+        ForeignKey("escritorios.id"), nullable=True, index=True
+    )
+    quando: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    usuario_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios.id"), nullable=True
+    )
+    usuario_email: Mapped[str] = mapped_column(String(255), default="")
+    acao: Mapped[str] = mapped_column(String(60), index=True)
+    entidade: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    entidade_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    detalhe: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    escritorio: Mapped[Optional["Escritorio"]] = relationship()
+    usuario: Mapped[Optional["Usuario"]] = relationship()
