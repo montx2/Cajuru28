@@ -1,5 +1,32 @@
+"""
+Tasks de importação.
+
+Todo o desenho desta fila gira em torno de uma coisa: o Ambiente Nacional
+(SEFAZ) e o ADN (NFS-e) limitam *quem consulta o CNPJ*, não *quantas notas
+você baixa*. Ignorar isso trava o CNPJ por 1 hora e é exatamente o erro que
+derruba importadores comerciais. Aqui, portanto:
+
+- um **lease** por empresa+tipo: nunca duas varreduras no mesmo CNPJ ao mesmo
+  tempo (dois cursores avançando = consulta fora da sequência = cStat 656);
+- o **cursor mora em `sincronizacoes_dfe`**, uma linha por empresa+tipo, e só
+  anda para frente;
+- **137/"nada novo"** ⇒ agenda a próxima consulta para depois da janela
+  oficial (1h + margem);
+- **656** ⇒ não é "erro": a execução vira `aguardando`, o bloqueio é
+  registrado e a continuação é reagendada sozinha — com o `ultNSU` que o
+  ambiente devolveu adotado, para voltar alinhado;
+- **queda de ambiente (5xx/rede)** ⇒ retenta cedo, porque aí nenhuma cota foi
+  gasta;
+- intervalo de **2s entre páginas** e teto de páginas por varredura, como
+  recomenda o sped-nfe;
+- checkpoint a cada lote: o que já baixou está no banco, mesmo se o worker
+  cair no meio da hora de bloqueio.
+"""
+
+import logging
 import os
-from datetime import datetime, timezone
+import time
+from datetime import date, datetime, timezone
 
 from dateutil import parser as date_parser
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
@@ -19,12 +46,30 @@ from app.models import (
     StatusExecucao,
     TipoDocumentoFiscal,
 )
+from app.services import fila, sincronizacao
+from app.services.importadores.base import (
+    AmbienteIndisponivel,
+    ConsumoIndevido,
+    DocumentoBaixado,
+)
 from app.services.importadores.eventos import EventoFiscal
 from app.services.importadores import obter_importador
 from app.services.mtls import sessao_mtls
 from app.worker.celery_app import celery_app
 
-TAMANHO_MAXIMO_LOTE_POR_EXECUCAO = 50  # trava de segurança: no máx. 50 lotes por chamada de task
+log = logging.getLogger("notasflow.worker")
+
+# Trava de segurança: no máximo N lotes (de até 50 documentos) por varredura.
+# Vem do sped-nfe: "o LOOP deve ter um limite de iterações, por exemplo 50".
+TAMANHO_MAXIMO_LOTE_POR_EXECUCAO = max(1, int(settings.max_lotes_por_execucao))
+
+# Intervalo entre páginas. Recomendado explicitamente: "o tempo entre cada busca
+# no LOOP deve ser de pelo menos 2 segundos".
+ESPERA_ENTRE_LOTES = max(0.0, float(settings.espera_entre_lotes_segundos))
+
+
+def _agora() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def _parse_data_emissao(valor: str | datetime | None) -> datetime:
@@ -54,15 +99,32 @@ def _parse_data_emissao(valor: str | datetime | None) -> datetime:
             return datetime.now(timezone.utc)
 
 
+def _parse_data(valor: str | None) -> date | None:
+    """Competência do XML para `date`. Nada de fuso: o que importa é o mês."""
+    if not valor or not str(valor).strip():
+        return None
+    try:
+        return date_parser.parse(str(valor).strip()).date()
+    except (ValueError, TypeError, OverflowError):
+        return None
+
+
 @celery_app.task(name="importar_documentos", bind=True, max_retries=0)
-def importar_documentos(self, empresa_id: int, tipo: str, execucao_id: int) -> None:
+def importar_documentos(
+    self, empresa_id: int, tipo: str, execucao_id: int, tentativa: int = 0
+) -> None:
     """
-    Executa a importação completa de uma empresa até não haver mais
-    documento novo, gravando o progresso a cada lote — se o worker cair no
-    meio, a próxima execução retoma do último NSU salvo (mesmo princípio de
-    checkpoint do Importarnotas original).
+    Varredura completa de uma empresa+tipo, do último NSU conhecido até o
+    maxNSU do ambiente, com checkpoint a cada lote.
+
+    `tentativa` conta apenas retentativas de *queda de ambiente* (5xx/rede).
+    Bloqueio por consumo indevido não usa contador: a regra oficial é esperar,
+    então cada hora é uma tentativa nova e o processo continua sozinho até
+    conseguir.
     """
     db = SessionLocal()
+    estado = None
+    travado = False
     tipo_doc = TipoDocumentoFiscal(tipo)
 
     try:
@@ -70,21 +132,41 @@ def importar_documentos(self, empresa_id: int, tipo: str, execucao_id: int) -> N
         empresa = db.get(Empresa, empresa_id)
         if execucao is None or empresa is None:
             return
+        if execucao.status == StatusExecucao.CONCLUIDA:
+            # Redelivery do broker (acks_late) numa varredura que já terminou:
+            # sair daqui é o que evita reconsultar a SEFAZ de graça.
+            return
 
         certificado = (
             db.query(Certificado)
             .filter(Certificado.empresa_id == empresa_id, Certificado.ativo.is_(True))
             .first()
         )
-
         if certificado is None:
             _marcar_erro(db, execucao, "Nenhum certificado ativo para esta empresa")
             return
 
-        # Checkpoint: retoma do maior NSU já conhecido para esta empresa+tipo
-        # (última execução, ou o NSU desta execução se já avançou em reentrada).
-        ultimo_nsu = _resolver_nsu_inicial(db, empresa_id, tipo_doc, execucao)
+        estado = sincronizacao.obter_estado(db, empresa_id, tipo_doc)
+        if estado is None:
+            _marcar_erro(db, execucao, "Estado de sincronização indisponível (banco?)")
+            return
+        travado = sincronizacao.travar(db, estado)
+        db.commit()
+        if not travado:
+            log.info(
+                "Empresa %s/%s já está sendo varrida por outra task; sem duplicar consulta.",
+                empresa_id, tipo,
+            )
+            return
 
+        # ---------------- janela de consumo ----------------
+        if not getattr(execucao, "forcar", False):
+            libertacao = sincronizacao.liberacao_para(db, empresa_id, tipo_doc)
+            if not libertacao.pode:
+                _aguardar_janela(db, estado, execucao, libertacao)
+                return
+
+        ultimo_nsu = _resolver_nsu_inicial(db, empresa_id, tipo_doc, execucao, estado)
         senha = decifrar_segredo(certificado.senha_cifrada)
         with open(certificado.arquivo_path, "rb") as f:
             pfx_bytes = f.read()
@@ -93,22 +175,38 @@ def importar_documentos(self, empresa_id: int, tipo: str, execucao_id: int) -> N
         total_importado = execucao.documentos_importados or 0
         total_cancelados = execucao.documentos_cancelados or 0
         total_nao_reconhecidos = execucao.eventos_nao_reconhecidos or 0
+        total_no_periodo = execucao.documentos_no_periodo or 0
+        periodo = fila_periodo(execucao)
+        importou_alguma_coisa = False
 
         with sessao_mtls(pfx_bytes, senha) as (cert_path, key_path):
-            for _ in range(TAMANHO_MAXIMO_LOTE_POR_EXECUCAO):
-                lote = importador.buscar_lote(
-                    cnpj=empresa.cnpj_cpf,
-                    cert_path=cert_path,
-                    key_path=key_path,
-                    ultimo_nsu=ultimo_nsu,
-                    uf=empresa.uf,
-                )
+            for pagina in range(TAMANHO_MAXIMO_LOTE_POR_EXECUCAO):
+                if pagina:
+                    time.sleep(ESPERA_ENTRE_LOTES)
+                try:
+                    lote = importador.buscar_lote(
+                        cnpj=empresa.cnpj_cpf,
+                        cert_path=cert_path,
+                        key_path=key_path,
+                        ultimo_nsu=ultimo_nsu,
+                        uf=empresa.uf,
+                    )
+                except ConsumoIndevido as exc:
+                    tratar_consumo_indevido(db, estado, execucao, exc)
+                    return
+                except AmbienteIndisponivel as exc:
+                    tratar_ambiente_indisponivel(db, execucao, exc, tentativa)
+                    return
 
                 for doc in lote.documentos:
-                    # A fonte pode reenviar documentos de um NSU já visitado.
-                    # A contagem representa apenas o que entrou agora no banco.
                     if _gravar_documento(db, empresa_id, tipo_doc, doc):
                         total_importado += 1
+                        importou_alguma_coisa = True
+                        quando = _parse_data(doc.competencia) or _parse_data(
+                            str(doc.data_emissao or "")
+                        )
+                        if periodo.contem(quando):
+                            total_no_periodo += 1
                         if _aplicar_eventos_pendentes(db, empresa_id, tipo_doc, doc.chave_acesso):
                             total_cancelados += 1
 
@@ -118,12 +216,16 @@ def importar_documentos(self, empresa_id: int, tipo: str, execucao_id: int) -> N
                         total_cancelados += 1
 
                 total_nao_reconhecidos += lote.eventos_nao_reconhecidos
-
                 ultimo_nsu = lote.proximo_nsu
+
+                sincronizacao.avançar_cursor(
+                    db, estado, ultimo_nsu=lote.proximo_nsu, max_nsu=lote.max_nsu
+                )
                 execucao.ultimo_nsu = ultimo_nsu
                 execucao.documentos_importados = total_importado
                 execucao.documentos_cancelados = total_cancelados
                 execucao.eventos_nao_reconhecidos = total_nao_reconhecidos
+                execucao.documentos_no_periodo = total_no_periodo
                 if lote.erros:
                     execucao.aviso = _resumir_avisos(execucao.aviso, lote.erros)
                 db.commit()  # checkpoint a cada lote — nada se perde numa queda
@@ -131,51 +233,188 @@ def importar_documentos(self, empresa_id: int, tipo: str, execucao_id: int) -> N
                 if not lote.ha_mais_documentos:
                     break
             else:
-                # Esgotou as 50 iterações sem "acabou" — reenfileira a MESMA
-                # execução para continuar do checkpoint, sem mentir "concluída".
-                importar_documentos.delay(
-                    empresa_id=empresa_id, tipo=tipo, execucao_id=execucao_id
-                )
+                # Estourou o teto de páginas: continua do checkpoint na mesma
+                # execução (não finge "concluída" com trabalho pela metade).
+                fila_reagendar(db, execucao, _agora(), motivo="Continuação da varredura (teto de páginas).")
                 return
 
+        # ---------------- fim da varredura ----------------
+        if sincronizacao.esta_em_dia(estado) or not importou_alguma_coisa:
+            # "ultNSU == maxNSU" é a definição oficial de "não há mais nada
+            # agora" — e é o gatilho da espera de 1 hora.
+            quando = sincronizacao.marcar_sem_novidade(db, estado)
+            execucao.aviso = _resumir_avisos(
+                execucao.aviso,
+                [f"Em dia até o NSU {estado.ultimo_nsu}. Próxima consulta a partir de "
+                 f"{quando:%d/%m/%Y %H:%M} (janela oficial de 1h do ambiente)."],
+            )
+        else:
+            sincronizacao.marcar_consulta_ok(db, estado)
+
+        if (estado.max_nsu and int(estado.ultimo_nsu or 0) < int(estado.max_nsu or 0)):
+            sincronizacao.marcar_consulta_ok(db, estado)
+
         execucao.status = StatusExecucao.CONCLUIDA
-        execucao.finalizado_em = datetime.now(timezone.utc)
+        execucao.bloqueado_ate = None
+        execucao.finalizado_em = _agora()
         db.commit()
 
     except Exception as exc:  # noqa: BLE001 — task de background: captura, registra, não derruba o worker
+        log.exception("Importação %s/%s falhou", empresa_id, tipo)
         db.rollback()
         execucao = db.get(ExecucaoImportacao, execucao_id)
         _marcar_erro(db, execucao, str(exc))
     finally:
+        if estado is not None and travado:
+            try:
+                sincronizacao.liberar(db, estado)
+                db.commit()
+            except Exception:  # noqa: BLE001 — liberar nunca pode esconder o erro real
+                db.rollback()
         db.close()
 
 
+# ---------------------------------------------------------------------------
+# Tratamento dos dois "erros" que não são erro
+# ---------------------------------------------------------------------------
+
+
+def tratar_consumo_indevido(
+    db, estado, execucao: ExecucaoImportacao, erro: ConsumoIndevido
+) -> None:
+    """
+    cStat 656: o CNPJ está bloqueado e a regra oficial manda esperar a hora
+    inteira — retentar antes zera o cronômetro do bloqueio.
+
+    Duas coisas acontecem além de esperar:
+
+    1. o `ultNSU`/`maxNSU` que veio *junto* na resposta é adotado. É o que
+       destrava o caso "outro sistema consultou este CNPJ e o meu cursor ficou
+       para trás", que é o motivo mais comum de gente presa em loop de 656;
+    2. o que já tinha baixado fica commitado (checkpoint por lote), então a
+       retomada continua exatamente de onde parou.
+    """
+    quando = sincronizacao.marcar_consumo_indevido(
+        db, estado, motivo=f"cStat {erro.cstat}: {erro.motivo}"
+    )
+    if erro.ultimo_nsu:
+        sincronizacao.realinhar_cursor(
+            db, estado, ultimo_nsu=erro.ultimo_nsu, max_nsu=erro.max_nsu
+        )
+    db.commit()
+
+    execucao.ultimo_nsu = estado.ultimo_nsu
+    mensagem = (
+        f"{erro.ambiente} bloqueou este CNPJ por consumo indevido (cStat {erro.cstat}): "
+        f"{erro.motivo} "
+        f"Nova tentativa automática em {quando:%d/%m/%Y às %H:%M}. "
+        "Nada foi perdido: o que já baixou está gravado e a retomada continua do checkpoint."
+    )
+    if erro.motivo and "ultNSU" in erro.motivo:
+        mensagem += " O cursor foi realinhado com o NSU informado pelo próprio ambiente."
+    _marcar_aguardando(db, execucao, mensagem, quando)
+    fila_reagendar(db, execucao, quando, motivo=mensagem)
+
+
+def tratar_ambiente_indisponivel(
+    db, execucao: ExecucaoImportacao, erro: AmbienteIndisponivel, tentativa: int
+) -> None:
+    """
+    5xx/rede: nenhuma cota foi gasta, então a espera é curta e crescente.
+    Depois do teto, vira erro visível — mas o agendador continua tentando
+    sozinho nas próximas varreduras.
+    """
+    limite = max(1, int(settings.max_tentativas_transporte))
+    if tentativa >= limite:
+        _marcar_erro(
+            db,
+            execucao,
+            f"Ambiente fiscal indisponível após {tentativa + 1} tentativas: {erro}",
+        )
+        return
+    quando = _agora() + erro.tentativa_recomendada * (2**tentativa)
+    _marcar_aguardando(
+        db,
+        execucao,
+        f"SEFAZ/ADN indisponível. Tentativa {tentativa + 1} de {limite + 1}; "
+        f"próxima em {quando:%H:%M}. ({str(erro)[:300]})",
+        quando,
+    )
+    fila_reagendar(db, execucao, quando, motivo="Ambiente fiscal indisponível — retentando.")
+
+
+def _aguardar_janela(db, estado, execucao: ExecucaoImportacao, libertacao) -> None:
+    """Disparamos uma varredura dentro da janela de espera: reagenda e sai."""
+    _marcar_aguardando(
+        db,
+        execucao,
+        (
+            f"Janela de consumo do ambiente aberta em {libertacao.quando:%d/%m/%Y às %H:%M}. "
+            + (f"{libertacao.motivo} " if libertacao.motivo else "")
+            + "Nova tentativa automática já está agendada."
+        ),
+        libertacao.quando,
+    )
+    fila_reagendar(db, execucao, libertacao.quando, motivo="Aguardando janela de consumo.")
+
+
+def _marcar_aguardando(
+    db, execucao: ExecucaoImportacao, mensagem: str, quando: datetime
+) -> None:
+    execucao.status = StatusExecucao.AGUARDANDO
+    execucao.bloqueado_ate = quando
+    execucao.tentativas = (execucao.tentativas or 0) + 1
+    execucao.mensagem_erro = mensagem[:4000]
+    execucao.finalizado_em = None
+    db.commit()
+
+
+def fila_reagendar(db, execucao: ExecucaoImportacao, quando: datetime, *, motivo: str) -> bool:
+    """Delegado para `app.services.fila.reagendar` (mesmo caminho do Beat)."""
+    return fila.reagendar(db, execucao, quando, motivo=motivo)
+
+
+def fila_periodo(execucao: ExecucaoImportacao):
+    from app.services.periodo import Periodo
+
+    return Periodo(inicio=execucao.data_inicio, fim=execucao.data_fim)
+
+
+# ---------------------------------------------------------------------------
+# Cursor / gravação
+# ---------------------------------------------------------------------------
+
+
 def _resolver_nsu_inicial(
-    db, empresa_id: int, tipo: TipoDocumentoFiscal, execucao: ExecucaoImportacao
+    db, empresa_id: int, tipo: TipoDocumentoFiscal, execucao: ExecucaoImportacao, estado=None
 ) -> str:
     """
-    Ponto de retomada: se esta execução já tem NSU (reentrada após cap de 50
-    lotes), usa ele; senão, pega o maior NSU de qualquer execução anterior
-    concluída/em andamento do mesmo empresa+tipo — evita rebaixar do zero a
-    cada clique em "Importar".
+    Ponto de retomada: o cursor vive em `sincronizacoes_dfe`. Para bancos que
+    ainda não têm estado (recém-migrado), cai no maior NSU do histórico — e só
+    então em "0", que é o único valor que não briga com a sequência do ambiente.
     """
     if execucao.ultimo_nsu:
         return execucao.ultimo_nsu
 
-    anterior = (
-        db.query(ExecucaoImportacao)
+    if estado is None:
+        estado = sincronizacao.obter_estado(db, empresa_id, tipo, criar=False)
+    if estado is not None and estado.ultimo_nsu:
+        return estado.ultimo_nsu
+
+    historico = (
+        db.query(ExecucaoImportacao.ultimo_nsu)
         .filter(
             ExecucaoImportacao.empresa_id == empresa_id,
             ExecucaoImportacao.tipo == tipo,
             ExecucaoImportacao.id != execucao.id,
             ExecucaoImportacao.ultimo_nsu.isnot(None),
         )
-        .order_by(ExecucaoImportacao.id.desc())
-        .first()
+        .all()
     )
-    if anterior and anterior.ultimo_nsu:
-        return anterior.ultimo_nsu
-    return "0"
+    # Máximo **numérico** (ordenar como string colocaria "900" acima de "1000"
+    # e mandaria a consulta para trás na sequência — o que a SEFAZ pune).
+    maiores = [int("".join(c for c in nsu if c.isdigit()) or 0) for (nsu,) in historico]
+    return str(max(maiores)) if maiores else "0"
 
 
 def _normalizar_chave(chave: str | None) -> str:
@@ -236,6 +475,10 @@ def _gravar_documento(db, empresa_id: int, tipo: TipoDocumentoFiscal, doc) -> bo
     xml_path = os.path.join(pasta, f"{nome_seguro}.xml")
     direcao = doc.direcao if doc.direcao in ("tomada", "prestada") else "tomada"
 
+    def texto(field: str, limite: int) -> str | None:
+        valor = str(getattr(doc, field, "") or "").strip()
+        return valor[:limite] or None
+
     valores = {
         "empresa_id": empresa_id,
         "tipo": tipo,
@@ -243,9 +486,19 @@ def _gravar_documento(db, empresa_id: int, tipo: TipoDocumentoFiscal, doc) -> bo
         "chave_acesso": chave,
         "nsu": str(doc.nsu),
         "data_emissao": _parse_data_emissao(doc.data_emissao),
+        "competencia": _parse_data(getattr(doc, "competencia", "")),
         "valor_total": float(doc.valor_total or 0),
         "xml_path": xml_path,
         "status": StatusDocumentoFiscal.NORMAL,
+        "leiaute": getattr(doc, "leiaute", "completo") or "completo",
+        "numero": texto("numero", 20),
+        "serie": texto("serie", 10),
+        "emitente_documento": texto("emitente_documento", 18),
+        "emitente_nome": texto("emitente_nome", 255),
+        "destinatario_documento": texto("destinatario_documento", 18),
+        "destinatario_nome": texto("destinatario_nome", 255),
+        "situacao": texto("status_autorizacao", 255),
+        "origem": "adn" if tipo == TipoDocumentoFiscal.NFSE else "sefaz",
     }
     if not _inserir_documento_sem_duplicar(db, valores):
         return False
@@ -366,21 +619,21 @@ def _aplicar_eventos_pendentes(
         if documento.status != StatusDocumentoFiscal.CANCELADA:
             documento.status = StatusDocumentoFiscal.CANCELADA
             documento.motivo_cancelamento = pendente.motivo or "Cancelamento"
-            documento.cancelado_em = pendente.data_evento or datetime.now(timezone.utc)
+            documento.cancelado_em = pendente.data_evento or _agora()
             aplicou = True
     return aplicou
 
 
 def _parse_data_evento(valor: str | None) -> datetime | None:
     if not valor or not str(valor).strip():
-        return datetime.now(timezone.utc)
+        return _agora()
     try:
         dt = date_parser.isoparse(str(valor).strip())
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         return dt
     except (ValueError, TypeError, OverflowError):
-        return datetime.now(timezone.utc)
+        return _agora()
 
 
 def _resumir_avisos(aviso_atual: str | None, novos: list[str], limite: int = 20) -> str:
@@ -401,5 +654,208 @@ def _marcar_erro(db, execucao: ExecucaoImportacao | None, mensagem: str) -> None
         return
     execucao.status = StatusExecucao.ERRO
     execucao.mensagem_erro = mensagem[:4000] if mensagem else "Erro desconhecido"
-    execucao.finalizado_em = datetime.now(timezone.utc)
+    execucao.finalizado_em = _agora()
     db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Agendador (Celery Beat): o "quase 100% automático" de verdade
+# ---------------------------------------------------------------------------
+
+
+@celery_app.task(name="sincronizar_tudo", bind=True, max_retries=0)
+def sincronizar_tudo(self) -> dict:
+    """
+    Varredura do agendador: dispara o que estiver liberado e acorda o que
+    estava dormindo. Nenhuma requisição é feita daqui — só decisão.
+
+    Rodar isto a cada poucos minutos é o que torna o sistema autônomo: as
+    janelas de consumo (1h por empresa+tipo depois de "nada novo") limitam o
+    ritmo por conta própria, então o tick barato é justamente o design certo.
+    """
+    if not settings.sincronismo_automatico:
+        return {"desativado": True}
+
+    db = SessionLocal()
+    resumo = {"enfileiradas": 0, "aguardando": 0, "ignoradas": 0, "retomadas": 0}
+    try:
+        # 1) execuções dormindo cujo bloqueio venceu: retoma (backstop caso o
+        #    refiro agendado se perca — restart de worker, broker, etc.)
+        vencidas = (
+            db.query(ExecucaoImportacao)
+            .filter(
+                ExecucaoImportacao.status == StatusExecucao.AGUARDANDO,
+                ExecucaoImportacao.bloqueado_ate.isnot(None),
+                ExecucaoImportacao.bloqueado_ate <= _agora(),
+            )
+            .limit(50)
+            .all()
+        )
+        for execucao in vencidas:
+            empresa = db.get(Empresa, execucao.empresa_id)
+            if empresa is None:
+                continue
+            libertacao = sincronizacao.liberacao_para(db, empresa.id, execucao.tipo)
+            if not libertacao.pode:
+                # continua dormindo, só empurra o horário
+                execucao.bloqueado_ate = libertacao.quando
+                continue
+            if fila.retomar(db, execucao):
+                resumo["retomadas"] += 1
+        db.commit()
+
+        # 2) empresas com sincronização automática
+        for empresa, tipos in fila.disponiveis_para_sincronismo_automatico(
+            db, settings.sincronismo_lote_empresas
+        ):
+            for tipo in tipos:
+                resultado = fila.enfileirar(db, empresa, tipo, origem="agendador")
+                if resultado.enfileirada:
+                    resumo["enfileiradas"] += 1
+                elif resultado.status == "em_cooldown":
+                    resumo["aguardando"] += 1
+                else:
+                    resumo["ignoradas"] += 1
+        db.commit()
+        if resumo["enfileiradas"]:
+            log.info("Agendador: %s", resumo)
+        return resumo
+    except Exception as exc:  # noqa: BLE001 — o tick do agendador nunca derruba o beat
+        log.exception("Agendador falhou: %s", exc)
+        db.rollback()
+        return {"erro": str(exc)[:500], **resumo}
+    finally:
+        db.close()
+
+
+@celery_app.task(name="completar_xmls_pendentes", bind=True, max_retries=0)
+def completar_xmls_pendentes(self, empresa_id: int | None = None, limite: int | None = None) -> dict:
+    """
+    Busca o XML completo das notas que chegaram só em resumo (`resNFe`).
+
+    Pelo leiaute oficial, enquanto o destinatário não se manifesta o Ambiente
+    Nacional distribui o `resNFe`; o caminho suportado para obter o XML
+    integral é a consulta pontual pela chave (`consChNFe`) — limitada a 20
+    consultas/h por CNPJ. Por isso este task consome a cota aos poucos, respeita
+    o lease da empresa e para imediatamente se vier 656.
+
+    Roda sozinha no agendador; o botão "completar XML" da tela chama a mesma
+    task para uma empresa só.
+    """
+    db = SessionLocal()
+    resultado = {"completos": 0, "indisponiveis": 0, "sem_cota": 0, "empresas": 0}
+    limite_por_empresa = max(1, min(20, int(limite or settings.limite_consultas_pontuais_por_hora)))
+    try:
+        consulta = db.query(Empresa).filter(Empresa.ativa.is_(True))
+        if empresa_id is not None:
+            consulta = consulta.filter(Empresa.id == empresa_id)
+        empresas = consulta.order_by(Empresa.id).all()
+
+        for empresa in empresas:
+            documentos_pendentes = (
+                db.query(DocumentoFiscal)
+                .filter(
+                    DocumentoFiscal.empresa_id == empresa.id,
+                    DocumentoFiscal.leiaute == "resumo",
+                    DocumentoFiscal.tipo == TipoDocumentoFiscal.NFE,
+                )
+                .order_by(DocumentoFiscal.id.desc())
+                .limit(limite_por_empresa)
+                .all()
+            )
+            if not documentos_pendentes:
+                continue
+            resultado["empresas"] += 1
+
+            certificado = (
+                db.query(Certificado)
+                .filter(Certificado.empresa_id == empresa.id, Certificado.ativo.is_(True))
+                .first()
+            )
+            if certificado is None:
+                continue
+
+            estado = sincronizacao.obter_estado(db, empresa.id, TipoDocumentoFiscal.NFE)
+            if estado is None or not sincronizacao.travar(db, estado):
+                db.commit()
+                continue
+
+            try:
+                db.commit()
+                importador = obter_importador(TipoDocumentoFiscal.NFE)
+                senha = decifrar_segredo(certificado.senha_cifrada)
+                with open(certificado.arquivo_path, "rb") as f:
+                    pfx_bytes = f.read()
+
+                with sessao_mtls(pfx_bytes, senha) as (cert_path, key_path):
+                    for documento in documentos_pendentes:
+                        disponivel = sincronizacao.cota_pontual_disponivel(db, estado)
+                        if disponivel <= 0:
+                            resultado["sem_cota"] += 1
+                            break
+                        sincronizacao.consumir_cota_pontual(db, estado)
+                        db.commit()
+                        try:
+                            completo = importador.buscar_por_chave(
+                                cnpj=empresa.cnpj_cpf,
+                                cert_path=cert_path,
+                                key_path=key_path,
+                                chave_acesso=documento.chave_acesso,
+                                uf=empresa.uf,
+                            )
+                        except ConsumoIndevido as exc:
+                            sincronizacao.marcar_consumo_indevido(
+                                db, estado, motivo=f"consChNFe: {exc.motivo}"
+                            )
+                            db.commit()
+                            break
+                        except AmbienteIndisponivel:
+                            break
+
+                        if completo is None or not completo.xml:
+                            resultado["indisponiveis"] += 1
+                            db.commit()
+                            continue
+
+                        _sobrescrever_xml(documento, completo)
+                        resultado["completos"] += 1
+                        db.commit()
+                        time.sleep(ESPERA_ENTRE_LOTES)
+            finally:
+                sincronizacao.liberar(db, estado)
+                db.commit()
+
+        return resultado
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        log.exception("completar_xmls_pendentes falhou: %s", exc)
+        return {"erro": str(exc)[:500], **resultado}
+    finally:
+        db.close()
+
+
+def _sobrescrever_xml(documento: DocumentoFiscal, completo: DocumentoBaixado) -> None:
+    """
+    Substitui o resumo pelo XML completo, mantendo o mesmo caminho de arquivo.
+
+    O arquivo é reescrito antes do commit: se o commit falhar, o XML na mão do
+    usuário ainda é o resumo (o que o banco diz), nunca um documento órfão.
+    """
+    caminho = documento.xml_path
+    os.makedirs(os.path.dirname(caminho), exist_ok=True)
+    with open(caminho, "wb") as f:
+        f.write(completo.xml)
+
+    documento.leiaute = "completo"
+    documento.valor_total = float(completo.valor_total or documento.valor_total or 0)
+    if completo.data_emissao:
+        documento.data_emissao = _parse_data_emissao(completo.data_emissao)
+    competencia = _parse_data(completo.competencia)
+    if competencia:
+        documento.competencia = competencia
+    if completo.numero:
+        documento.numero = completo.numero[:20]
+    if completo.serie:
+        documento.serie = completo.serie[:10]
+    if completo.emitente_nome:
+        documento.emitente_nome = completo.emitente_nome[:255]

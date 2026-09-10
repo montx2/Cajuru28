@@ -26,11 +26,14 @@ from app.core.vault import cifrar_segredo
 from app.db.session import get_db
 from app.models import Certificado, Empresa
 from app.schemas import (
+    EmpresaAtualizar,
     EmpresaCriar,
     EmpresaResposta,
+    EstadoSincronizacaoResposta,
     ItemLoteEmpresas,
     LoteEmpresasResposta,
 )
+from app.api.routers.importacoes import listar_estado_sincronizacao
 from app.services.certificados import (
     apenas_digitos,
     cnpj_de_nome_arquivo,
@@ -49,6 +52,17 @@ _UFS_VALIDAS = {
 _LIMITE_ARQUIVOS = 200
 _LIMITE_BYTES_PFX = 30 * 1024 * 1024  # 30 MB por .pfx (mesmo limite do CAJURUFINAL)
 _LIMITE_BYTES_CSV = 5 * 1024 * 1024
+
+
+def _empresa_do_escritorio(db: Session, empresa_id: int, escritorio_id: int) -> Empresa:
+    empresa = (
+        db.query(Empresa)
+        .filter(Empresa.id == empresa_id, Empresa.escritorio_id == escritorio_id)
+        .first()
+    )
+    if empresa is None:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada")
+    return empresa
 
 
 @router.get("", response_model=list[EmpresaResposta])
@@ -94,6 +108,49 @@ def obter_empresa(
     if empresa is None:
         raise HTTPException(status_code=404, detail="Empresa não encontrada")
     return empresa
+
+
+@router.patch("/{empresa_id}", response_model=EmpresaResposta)
+def atualizar_empresa(
+    empresa_id: int,
+    dados: EmpresaAtualizar,
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+):
+    """
+    Ajusta cadastro e automação de uma empresa.
+
+    O que mais importa aqui é `sincronizar_automaticamente`: ligado, o agendador
+    entra no ADN/SEFAZ sozinho, dentro das janelas de consumo, sem ninguém
+    apertar botão. Desligado (ex.: empresa em homologação ou com outro sistema
+    consultando o mesmo CNPJ), ela fica fora da varredura automática.
+    """
+    empresa = _empresa_do_escritorio(db, empresa_id, escritorio_id)
+
+    mudanca = dados.model_dump(exclude_unset=True)
+    if "quais_tipos_sincronizar" in mudanca:
+        tipos = mudanca.pop("quais_tipos_sincronizar")
+        empresa.quais_tipos_sincronizar = (
+            ",".join(t.value for t in tipos) if tipos else ""
+        )
+    for campo, valor in mudanca.items():
+        if valor is None:
+            continue
+        setattr(empresa, campo, valor)
+    db.commit()
+    db.refresh(empresa)
+    return empresa
+
+
+@router.get("/{empresa_id}/sincronizacao", response_model=list[EstadoSincronizacaoResposta])
+def sincronizacao_da_empresa(
+    empresa_id: int,
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+):
+    """Cursor, maxNSU, janelas e bloqueios desta empresa — por tipo de documento."""
+    _empresa_do_escritorio(db, empresa_id, escritorio_id)
+    return listar_estado_sincronizacao(db=db, escritorio_id=escritorio_id, empresa_id=empresa_id)
 
 
 @router.post("/lote", response_model=LoteEmpresasResposta)

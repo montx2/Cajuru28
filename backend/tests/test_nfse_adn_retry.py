@@ -5,6 +5,10 @@ import httpx
 import pytest
 import respx
 
+from app.services.importadores.base import (
+    AmbienteIndisponivel,
+    ConsumoIndevido,
+)
 from app.services.importadores.nfse_adn import ImportadorNFSeADN
 
 
@@ -78,25 +82,45 @@ URL_PADRAO = "https://adn.nfse.gov.br/contribuintes/DFe/0"
 
 
 @respx.mock
-def test_retenta_em_429_e_depois_funciona(monkeypatch, tmp_path):
+def test_429_e_tratado_como_bloqueio_e_nao_retentado(monkeypatch, tmp_path):
+    """
+    HTTP 429 no ADN é limite de consumo, não instabilidade: a regra oficial é
+    esperar ~1h. Retentar dentro da task é o que gera o efeito "loop de
+    consumo indevido", então o importador sobe `ConsumoIndevido` (com o NSU
+    intacto) e quem decide a próxima tentativa é o governor.
+    """
     monkeypatch.setattr("app.services.importadores.nfse_adn.time.sleep", lambda _: None)
     cert_path, key_path = _cert_key_falsos(tmp_path)
 
     rota = respx.get(url__regex=r".*/contribuintes/DFe/0.*").mock(
-        side_effect=[
-            httpx.Response(429),
-            httpx.Response(200, json={"LoteDFe": []}),
-        ]
+        return_value=httpx.Response(429)
     )
 
     importador = ImportadorNFSeADN()
-    lote = importador.buscar_lote(
-        cnpj="12345678000199", cert_path=cert_path, key_path=key_path, ultimo_nsu="0"
+    with pytest.raises(ConsumoIndevido, match="429"):
+        importador.buscar_lote(
+            cnpj="12345678000199", cert_path=cert_path, key_path=key_path, ultimo_nsu="0"
+        )
+
+    assert rota.call_count == 1  # uma chamada, não três
+
+
+@respx.mock
+def test_5xx_retenta_e_vira_ambiente_indisponivel(monkeypatch, tmp_path):
+    """Queda de ambiente (5xx) é o oposto: retenta e, se persistir, avisa."""
+    monkeypatch.setattr("app.services.importadores.nfse_adn.time.sleep", lambda _: None)
+    cert_path, key_path = _cert_key_falsos(tmp_path)
+
+    rota = respx.get(url__regex=r".*/contribuintes/DFe/0.*").mock(
+        return_value=httpx.Response(503)
     )
 
-    assert rota.call_count == 2
-    assert lote.documentos == []
-    assert lote.ha_mais_documentos is False
+    importador = ImportadorNFSeADN()
+    with pytest.raises(AmbienteIndisponivel):
+        importador.buscar_lote(
+            cnpj="12345678000199", cert_path=cert_path, key_path=key_path, ultimo_nsu="0"
+        )
+    assert rota.call_count == 3
 
 
 @respx.mock

@@ -3,50 +3,65 @@ Importador de NFe via SEFAZ — webservice nacional NFeDistribuicaoDFe,
 operação nfeDistDFeInteresse.
 
 Fontes:
-- Nota Técnica 2014.002 + XSDs oficiais (distDFeInt / retDistDFeInt)
-- nfephp-org/sped-nfe (docs/metodos/DistDFe.md) — produção consolidada
+- Nota Técnica 2014.002 v1.12 + XSDs oficiais (distDFeInt / retDistDFeInt)
+- nfephp-org/sped-nfe (docs/metodos/DistDFe.md) — prática validada em produção
 - TadaSoftware/PyNFe
 
 cStat relevantes:
-- 137: nenhum documento localizado (não é erro — dispara cooldown de 1h)
+- 137: nenhum documento localizado (não é erro — é o sinal para esperar 1h)
 - 138: documentos localizados
-- 656: consumo indevido (bloqueio temporário — tratar como erro de cooldown)
+- 656: consumo indevido (CNPJ bloqueado por 1h — levanta `ConsumoIndevido`
+  com o ultNSU/maxNSU que o ambiente devolveu, para o worker realinhar)
 
-Cada docZip pode ser resumo (resNFe), documento completo (procNFe) ou
-evento (procEventoNFe/resEvento). Eventos avançam o checkpoint mas não
-viram DocumentoFiscal. Sem manifestação do destinatário, o que chega
-geralmente é o resumo.
+Cada docZip pode ser resumo (resNFe), documento completo (procNFe) ou evento
+(procEventoNFe/resEvento). Eventos avançam o checkpoint mas não viram
+DocumentoFiscal.
+
+Sobre o "só veio o resumo": é comportamento oficial, não bug. Enquanto o
+destinatário não se manifestar, o Ambiente Nacional distribui o `resNFe` e
+guarda a NFe completa. O caminho suportado para obter o XML inteiro é a
+consulta pontual pela chave (`consChNFe`), limitada a 20 consultas/h —
+implementada em `buscar_por_chave()` e usada pelo worker em segundo plano.
+
+Sobre "prestadas": o emitente **não** recebe os próprios documentos pela
+distribuição (tabela oficial do sped-nfe). NFe emitida pela empresa aparece
+aqui só quando ela também é destinatária/transportador/autXML.
 """
 
 from __future__ import annotations
 
-import base64
-import gzip
 import xml.etree.ElementTree as ET
 
 from app.services.importadores._distribuicao_dfe import (
     CODIGO_IBGE_POR_UF,
+    CSTAT_DOCUMENTOS_LOCALIZADOS,
     NFE_DISTRIBUICAO_URL_HOMOLOGACAO,
     NFE_DISTRIBUICAO_URL_PRODUCAO,
     NFE_SOAP_ACTION,
     buscar,
-    buscar_todos,
     chamar_com_retentativa,
+    competencia_de_texto,
+    extrair_metadados,
+    interpretar_resposta,
+    montar_envelope,
     montar_envelope_nfe,
+    texto,
 )
-from app.services.importadores.base import DocumentoBaixado, ImportadorFiscal, LoteImportado
+from app.services.importadores.base import (
+    DocumentoBaixado,
+    ImportadorFiscal,
+    LoteImportado,
+)
 from app.services.importadores.eventos import EventoFiscal, classificar_evento_xml
 
-# cStat 137 = nenhum documento (não é erro — dispara cooldown de 1h).
-# cStat 656 = consumo indevido: SEFAZ bloqueou por 1h. Tratamos como ERRO
-# explícito para o operador ver no painel (e o cooldown da próxima tentativa
-# ainda protege se ele reimportar depois de concluir com 0 docs — mas 656
-# em si deve falhar a execução, não fingir "concluída sem novidade").
+# Reexportados: os testes antigos e chamadores legados importam daqui.
 CSTAT_SEM_DOCUMENTOS = {"137"}
 CSTAT_CONSUMO_INDEVIDO = {"656"}
 
 
 class ImportadorNFeSEFAZ(ImportadorFiscal):
+    ambiente_nome = "SEFAZ NFe"
+
     def __init__(self, ambiente: str = "producao"):
         # NOTA (sped-nfe): o serviço de distribuição NFe na prática só opera
         # em produção. Homologação existe no endpoint mas o comportamento
@@ -58,6 +73,8 @@ class ImportadorNFeSEFAZ(ImportadorFiscal):
             else NFE_DISTRIBUICAO_URL_HOMOLOGACAO
         )
 
+    # -- API pública ---------------------------------------------------------
+
     def buscar_lote(
         self,
         cnpj: str,
@@ -66,141 +83,201 @@ class ImportadorNFeSEFAZ(ImportadorFiscal):
         ultimo_nsu: str,
         uf: str | None = None,
     ) -> LoteImportado:
-        if not uf or uf.upper() not in CODIGO_IBGE_POR_UF:
-            raise ValueError(
-                f"UF inválida ou ausente para consulta de NFe: {uf!r}. "
-                "Cadastre a UF da empresa antes de importar NFe/CT-e."
-            )
-        cuf_autor = CODIGO_IBGE_POR_UF[uf.upper()]
-
+        cuf_autor = self._cuf_autor(uf, "NFe")
         envelope = montar_envelope_nfe(cnpj, cuf_autor, self.tp_amb, ultimo_nsu)
         resposta_bytes = chamar_com_retentativa(
             envelope, self.url, cert_path, key_path, soap_action=NFE_SOAP_ACTION
         )
-        raiz = ET.fromstring(resposta_bytes)
+        return self._interpretar(resposta_bytes, cnpj, ultimo_nsu)
 
-        ret = buscar(raiz, "retDistDFeInt")
-        if ret is None:
+    def buscar_por_chave(
+        self, cnpj: str, cert_path: str, key_path: str, chave_acesso: str, uf: str | None = None
+    ) -> DocumentoBaixado | None:
+        """`consChNFe`: recupera a NFe completa pela chave (20 consultas/h)."""
+        digitos = "".join(c for c in chave_acesso if c.isdigit())
+        if len(digitos) != 44:
+            raise ValueError(f"Chave de acesso de NFe deve ter 44 dígitos, veio {len(digitos)}.")
+        cuf_autor = self._cuf_autor(uf, "NFe")
+        envelope = montar_envelope(
+            cnpj,
+            cuf_autor,
+            self.tp_amb,
+            "0",
+            consulta_especifica=("consChNFe", f"<chNFe>{digitos}</chNFe>"),
+        )
+        resposta_bytes = chamar_com_retentativa(
+            envelope, self.url, cert_path, key_path, soap_action=NFE_SOAP_ACTION
+        )
+        resposta = interpretar_resposta(resposta_bytes, ambiente=self.ambiente_nome)
+        if resposta.inexistente or not resposta.documentos:
+            return None
+        for nsu, schema, xml_bytes in resposta.documentos:
+            documento = self._converter(nsu, schema, xml_bytes, cnpj)
+            if documento is not None:
+                return documento
+        return None
+
+    def buscar_por_nsu(
+        self, cnpj: str, cert_path: str, key_path: str, nsu: str, uf: str | None = None
+    ) -> DocumentoBaixado | None:
+        """`consNSU`: fecha uma lacuna pontual na sequência de NSU."""
+        digitos = "".join(c for c in str(nsu) if c.isdigit()) or "0"
+        cuf_autor = self._cuf_autor(uf, "NFe")
+        envelope = montar_envelope(
+            cnpj,
+            cuf_autor,
+            self.tp_amb,
+            "0",
+            consulta_especifica=("consNSU", f"<NSU>{digitos.zfill(15)}</NSU>"),
+        )
+        resposta_bytes = chamar_com_retentativa(
+            envelope, self.url, cert_path, key_path, soap_action=NFE_SOAP_ACTION
+        )
+        resposta = interpretar_resposta(resposta_bytes, ambiente=self.ambiente_nome)
+        if resposta.inexistente or not resposta.documentos:
+            return None
+        for nsu_item, schema, xml_bytes in resposta.documentos:
+            documento = self._converter(nsu_item, schema, xml_bytes, cnpj)
+            if documento is not None:
+                return documento
+        return None
+
+    # -- internals -----------------------------------------------------------
+
+    @staticmethod
+    def _cuf_autor(uf: str | None, rotulo: str) -> str:
+        if not uf or uf.upper() not in CODIGO_IBGE_POR_UF:
             raise ValueError(
-                "Resposta do SEFAZ não trouxe retDistDFeInt — formato inesperado "
-                f"(primeiros 500 bytes: {resposta_bytes[:500]!r})"
+                f"UF inválida ou ausente para consulta de {rotulo}: {uf!r}. "
+                "Cadastre a UF da empresa antes de importar NFe/CT-e."
             )
+        return CODIGO_IBGE_POR_UF[uf.upper()]
 
-        cstat_el = buscar(ret, "cStat")
-        cstat = (cstat_el.text or "").strip() if cstat_el is not None else ""
-        x_motivo_el = buscar(ret, "xMotivo")
-        x_motivo = x_motivo_el.text if x_motivo_el is not None else ""
+    def _interpretar(self, resposta_bytes: bytes, cnpj: str, ultimo_nsu: str) -> LoteImportado:
+        resposta = interpretar_resposta(resposta_bytes, ambiente=self.ambiente_nome)
 
-        ult_nsu_el = buscar(ret, "ultNSU")
-        ult_nsu_resp = (ult_nsu_el.text or ultimo_nsu or "0").strip() if ult_nsu_el is not None else (ultimo_nsu or "0")
-
-        if cstat in CSTAT_SEM_DOCUMENTOS:
+        if resposta.sem_novidade:
             return LoteImportado(
                 documentos=[],
-                proximo_nsu=str(int(ult_nsu_resp)) if ult_nsu_resp.isdigit() else (ult_nsu_resp.lstrip("0") or "0"),
+                proximo_nsu=_nsu_inteiro(resposta.ultimo_nsu, ultimo_nsu),
                 ha_mais_documentos=False,
+                max_nsu=_nsu_inteiro(resposta.max_nsu, resposta.ultimo_nsu),
+                sem_novidade=True,
             )
 
-        if cstat in CSTAT_CONSUMO_INDEVIDO or cstat != "138":
-            raise ConnectionError(f"SEFAZ retornou cStat={cstat}: {x_motivo}")
-
-        max_nsu_el = buscar(ret, "maxNSU")
-        max_nsu = (max_nsu_el.text or ult_nsu_resp).strip() if max_nsu_el is not None else ult_nsu_resp
+        if resposta.cstat != CSTAT_DOCUMENTOS_LOCALIZADOS:
+            raise ValueError(
+                f"SEFAZ NFe retornou cStat={resposta.cstat}: {resposta.x_motivo}"
+            )
 
         documentos: list[DocumentoBaixado] = []
         eventos: list[EventoFiscal] = []
         eventos_nao_reconhecidos = 0
         erros: list[str] = []
-        for doc_zip in buscar_todos(ret, "docZip"):
-            nsu = doc_zip.get("NSU", "")
-            schema = (doc_zip.get("schema", "") or "").lower()
-            if not doc_zip.text:
+
+        for nsu, schema, xml_bytes in resposta.documentos:
+            if not xml_bytes:
+                erros.append(f"NSU {nsu}: docZip ilegível (gzip/base64 inválido)")
                 continue
             try:
-                xml_bytes = gzip.decompress(base64.b64decode(doc_zip.text))
-            except Exception as exc:  # noqa: BLE001 — item corrompido não derruba o lote
-                erros.append(f"NSU {nsu}: docZip ilegível ({exc})")
+                raiz = ET.fromstring(xml_bytes)
+            except ET.ParseError as exc:
+                erros.append(f"NSU {nsu}: XML malformado ({exc})")
                 continue
 
             # Eventos (cancelamento, CC-e…) não viram documento fiscal, mas
             # NUNCA podem sumir: são devolvidos no lote para o worker aplicar.
-            evento = classificar_evento_xml(xml_bytes, schema=schema, nsu=nsu.lstrip("0") or "0")
+            evento = classificar_evento_xml(
+                xml_bytes, schema=schema, nsu=_nsu_inteiro(nsu, "0")
+            )
             if evento is not None:
                 eventos.append(evento)
                 if not evento.eh_cancelamento:
                     eventos_nao_reconhecidos += 1
                 continue
 
-            documento = self._converter_doc_zip(doc_zip, cnpj, xml_bytes)
+            documento = self._converter(nsu, schema, xml_bytes, cnpj, raiz=raiz)
             if documento is None:
                 erros.append(f"NSU {nsu}: documento sem chave de acesso — não pode ser gravado")
                 continue
             documentos.append(documento)
 
-        try:
-            ha_mais = int(ult_nsu_resp) < int(max_nsu)
-        except ValueError:
-            ha_mais = False  # sem maxNSU confiável, a página decide
-
-        if ult_nsu_resp.isdigit():
-            proximo = str(int(ult_nsu_resp))
-        else:
-            proximo = ult_nsu_resp.lstrip("0") or "0"
+        proximo = _nsu_inteiro(resposta.ultimo_nsu, ultimo_nsu)
+        max_nsu = _nsu_inteiro(resposta.max_nsu, resposta.ultimo_nsu)
 
         return LoteImportado(
             documentos=documentos,
             proximo_nsu=proximo,
-            ha_mais_documentos=ha_mais,
+            # `ultNSU < maxNSU` é a regra oficial para "ainda há mais".
+            ha_mais_documentos=int(proximo) < int(max_nsu),
             eventos=eventos,
             eventos_nao_reconhecidos=eventos_nao_reconhecidos,
             erros=erros,
+            max_nsu=max_nsu,
         )
 
-    def _converter_doc_zip(
-        self, doc_zip_elemento, cnpj_consultado: str, xml_bytes: bytes
+    def _converter(
+        self,
+        nsu: str,
+        schema: str,
+        xml_bytes: bytes,
+        cnpj_consultado: str,
+        raiz: ET.Element | None = None,
     ) -> DocumentoBaixado | None:
-        nsu = doc_zip_elemento.get("NSU", "")
-        raiz_doc = ET.fromstring(xml_bytes)
-        chave_el = buscar(raiz_doc, "chNFe")
-        if chave_el is not None and chave_el.text:
-            chave = chave_el.text
-        else:
-            inf_nfe = buscar(raiz_doc, "infNFe")
-            chave = inf_nfe.get("Id", "")[3:] if inf_nfe is not None else ""
+        if not xml_bytes:
+            return None
+        if raiz is None:
+            try:
+                raiz = ET.fromstring(xml_bytes)
+            except ET.ParseError:
+                return None
 
-        # ElementTree: Element sem filhos é falsy — sempre comparar com is not None
-        emit_el = buscar(raiz_doc, "emit")
-        emitente_cnpj = ""
-        if emit_el is not None:
-            emitente_cnpj_el = buscar(emit_el, "CNPJ")
-            if emitente_cnpj_el is None:
-                emitente_cnpj_el = buscar(emit_el, "CPF")
-            emitente_cnpj = emitente_cnpj_el.text if emitente_cnpj_el is not None else ""
-        else:
-            emitente_cnpj_el = buscar(raiz_doc, "CNPJ")
-            emitente_cnpj = emitente_cnpj_el.text if emitente_cnpj_el is not None else ""
+        chave_el = buscar(raiz, "chNFe")
+        chave = (chave_el.text or "").strip() if chave_el is not None else ""
+        if not chave:
+            inf_nfe = buscar(raiz, "infNFe")
+            if inf_nfe is not None:
+                chave = (inf_nfe.get("Id", "") or "")[3:]
+        if not chave:
+            return None
+        chave = "".join(c for c in chave if c.isdigit()) or chave
 
-        data_emissao_el = buscar(raiz_doc, "dhEmi")
-        data_emissao = data_emissao_el.text if data_emissao_el is not None else ""
-
-        valor_el = buscar(raiz_doc, "vNF")
+        metadados = extrair_metadados(raiz)
         try:
-            valor_total = float(valor_el.text) if valor_el is not None and valor_el.text else 0.0
+            valor_total = float(str(metadados.get("valor") or "0").replace(",", "."))
         except ValueError:
             valor_total = 0.0
 
         cnpj_limpo = "".join(c for c in cnpj_consultado if c.isdigit())
-        emit_limpo = "".join(c for c in (emitente_cnpj or "") if c.isdigit())
-        direcao = "prestada" if emit_limpo and emit_limpo == cnpj_limpo else "tomada"
+        emit_limpo = "".join(c for c in (metadados.get("emit_doc") or "") if c.isdigit())
+        direcao = "tomada"
+        if emit_limpo and emit_limpo == cnpj_limpo:
+            direcao = "prestada"
 
-        if not chave:
-            return None
+        data_emissao = metadados.get("data_emissao") or texto(raiz, "dRec") or ""
 
         return DocumentoBaixado(
             chave_acesso=chave,
-            nsu=nsu.lstrip("0") or nsu or "0",
+            nsu=_nsu_inteiro(nsu, "0"),
             xml=xml_bytes,
             data_emissao=data_emissao,
             valor_total=valor_total,
             direcao=direcao,
+            competencia=competencia_de_texto(metadados.get("competencia", ""), data_emissao),
+            leiaute="resumo" if schema.lower().startswith("res") else "completo",
+            numero=metadados.get("numero", ""),
+            serie=metadados.get("serie", ""),
+            emitente_documento=metadados.get("emit_doc", ""),
+            emitente_nome=metadados.get("emit_nome", ""),
+            destinatario_documento=metadados.get("dest_doc", ""),
+            destinatario_nome=metadados.get("dest_nome", ""),
+            status_autorizacao=metadados.get("situacao", ""),
         )
+
+
+def _nsu_inteiro(valor: str | None, padrao: str | None) -> str:
+    """Normaliza NSU para inteiro em string (o ambiente devolve com zeros à esquerda)."""
+    digitos = "".join(c for c in str(valor if valor not in (None, "") else padrao or "0") if c.isdigit())
+    if not digitos:
+        digitos = "".join(c for c in str(padrao or "0") if c.isdigit()) or "0"
+    return str(int(digitos))
