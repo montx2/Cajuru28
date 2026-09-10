@@ -1,14 +1,22 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
+import { usePapel } from "@/lib/papel";
 import { bytesParaTexto } from "@/lib/competencia";
+import { Icone } from "@/components/icons";
+import { useToast } from "@/components/Toast";
+import { Esqueleto, TituloSecao } from "@/components/ui";
 import type { InfoSistema, ResumoCertificado } from "@/lib/types";
 
 export default function ConfiguracoesPage() {
+  const toast = useToast();
+  const { ehAdmin } = usePapel();
   const [info, setInfo] = useState<InfoSistema | null>(null);
   const [certificados, setCertificados] = useState<ResumoCertificado[]>([]);
   const [saude, setSaude] = useState<{ problemas: string[]; disco_livre_bytes: number | null } | null>(null);
+  const [testando, setTestando] = useState(false);
 
   const carregar = useCallback(() => {
     api.infoSistema().then(setInfo).catch(() => setInfo(null));
@@ -22,40 +30,179 @@ export default function ConfiguracoesPage() {
     return () => clearInterval(intervalo);
   }, [carregar]);
 
+  async function testarWebhook() {
+    setTestando(true);
+    try {
+      const r = await api.testarWebhook();
+      if (r.ok) toast.sucesso("Webhook funcionando — mensagem de teste enviada.");
+      else toast.erro(r.detalhe);
+    } catch (e) {
+      toast.erro(e instanceof ApiError ? e.message : "Falha ao testar o webhook.");
+    } finally {
+      setTestando(false);
+    }
+  }
+
   const vencidos = certificados.filter((item) => item.vencido);
   const vencendo = certificados.filter((item) => item.vence_em_breve && !item.vencido);
+  const webhook = info?.webhook;
 
   return (
-    <div className="max-w-5xl">
-      <h1 className="text-2xl font-semibold text-ink">Configurações</h1>
-      <p className="mt-1 text-sm text-ink-muted">Diagnóstico da implantação Docker e dos certificados.</p>
+    <div className="animate-fade-up max-w-5xl">
+      <h1 className="font-serif text-3xl font-semibold text-ink">Configurações</h1>
+      <p className="mt-1 text-sm text-ink-muted">
+        Diagnóstico do ambiente, certificados, equipe e integrações.
+      </p>
 
-      <section className="mt-6 border border-line bg-surface p-6">
-        <p className="font-medium text-ink">Estado dos serviços</p>
-        <div className="mt-3 flex flex-wrap gap-6 text-sm text-ink-muted">
-          <span>API: <strong className={saude?.problemas.length ? "text-danger" : "text-accent"}>{saude?.problemas.length ? "atenção" : "funcionando"}</strong></span>
-          <span>Banco: <strong className="text-ink">{info?.banco ?? "verificando…"}</strong></span>
-          <span>Fila: <strong className="text-ink">{info?.fila.modo ?? "verificando…"}</strong></span>
-          {saude?.disco_livre_bytes != null && <span>Disco livre: <strong className="text-ink">{bytesParaTexto(saude.disco_livre_bytes)}</strong></span>}
-        </div>
-        {saude?.problemas.map((problema) => <p key={problema} className="mt-2 text-sm text-danger">{problema}</p>)}
-        <p className="mt-4 text-xs text-ink-muted">Atualizações, logs e backups são administrados no servidor com Docker Compose. Proteja os volumes <code>db_data</code>, <code>certificados</code> e <code>xml_saida</code>.</p>
+      {/* atalhos de gestão */}
+      <div className="mt-6 grid gap-4 sm:grid-cols-3">
+        <Link href="/dashboard/usuarios" className="card-pad card-hover block">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-accent-soft text-accent-deep">
+            <Icone nome="usuarios" className="h-5 w-5" />
+          </span>
+          <p className="mt-3 font-semibold text-ink">Equipe</p>
+          <p className="mt-0.5 text-xs text-ink-muted">Usuários, papéis e acessos (só admin).</p>
+        </Link>
+        <Link href="/dashboard/auditoria" className="card-pad card-hover block">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-info-soft text-info">
+            <Icone nome="olho" className="h-5 w-5" />
+          </span>
+          <p className="mt-3 font-semibold text-ink">Auditoria</p>
+          <p className="mt-0.5 text-xs text-ink-muted">Quem fez o quê, quando.</p>
+        </Link>
+        <Link href="/dashboard/alertas" className="card-pad card-hover block">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-warn-soft text-warn">
+            <Icone nome="sino" className="h-5 w-5" />
+          </span>
+          <p className="mt-3 font-semibold text-ink">Alertas</p>
+          <p className="mt-0.5 text-xs text-ink-muted">Central de tudo que precisa de olho.</p>
+        </Link>
+      </div>
+
+      <section className="card-pad mt-4">
+        <TituloSecao titulo="Estado dos serviços" />
+        {!info || !saude ? (
+          <Esqueleto className="h-16" />
+        ) : (
+          <>
+            <div className="flex flex-wrap gap-x-8 gap-y-2 text-sm text-ink-muted">
+              <span>
+                API:{" "}
+                <strong className={saude.problemas.length ? "text-danger" : "text-accent"}>
+                  {saude.problemas.length ? "atenção" : "funcionando"}
+                </strong>
+              </span>
+              <span>
+                Banco: <strong className="text-ink">{info.banco}</strong>
+              </span>
+              <span>
+                Fila: <strong className="text-ink">{info.fila.modo}</strong>
+              </span>
+              {saude.disco_livre_bytes != null && (
+                <span>
+                  Disco livre: <strong className="text-ink">{bytesParaTexto(saude.disco_livre_bytes)}</strong>
+                </span>
+              )}
+            </div>
+            {saude.problemas.map((problema) => (
+              <p key={problema} className="mt-2 text-sm text-danger">
+                {problema}
+              </p>
+            ))}
+          </>
+        )}
+        <p className="mt-4 text-xs text-ink-muted">
+          Atualizações, logs e backups são administrados no servidor com Docker Compose. Proteja os
+          volumes <code>db_data</code>, <code>certificados</code> e <code>xml_saida</code>.
+        </p>
       </section>
 
-      <section className="mt-6 border border-line bg-surface p-6">
-        <p className="font-medium text-ink">Certificados digitais</p>
-        <p className="mt-1 text-sm text-ink-muted">{certificados.filter((c) => c.tem_certificado).length} de {certificados.length} empresas com certificado A1.</p>
-        {(vencidos.length > 0 || vencendo.length > 0) && <p className="mt-2 text-sm text-warn">Revise certificados vencidos ou próximos do vencimento.</p>}
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead><tr className="border-b border-line text-left text-ink-muted"><th className="py-2 font-normal">Empresa</th><th className="py-2 font-normal">Validade</th><th className="py-2 text-right font-normal">Situação</th></tr></thead>
-            <tbody>{certificados.map((certificado) => (
-              <tr key={certificado.empresa_id} className="border-b border-line last:border-0">
-                <td className="py-2 text-ink">{certificado.razao_social}</td>
-                <td className="py-2 font-mono text-xs text-ink-muted">{certificado.validade ? certificado.validade.split("-").reverse().join("/") : "—"}</td>
-                <td className={`py-2 text-right ${certificado.vencido ? "text-danger" : certificado.vence_em_breve ? "text-warn" : "text-accent"}`}>{!certificado.tem_certificado ? "sem certificado" : certificado.vencido ? "vencido" : certificado.vence_em_breve ? `vence em ${certificado.dias_para_vencer} dias` : "válido"}</td>
+      {/* webhook */}
+      <section className="card-pad mt-4">
+        <TituloSecao
+          titulo="Alertas externos (webhook)"
+          subtitulo="Receba os alertas no Slack, Discord ou WhatsApp via gateway"
+        />
+        <div className="flex flex-wrap items-center gap-3">
+          {webhook?.configurado ? (
+            <span className="badge-ok">
+              <Icone nome="checkCirculo" className="h-3.5 w-3.5" /> Configurado
+            </span>
+          ) : (
+            <span className="badge-neutral">Desligado</span>
+          )}
+          {webhook?.configurado && (
+            <span className="text-xs text-ink-muted">
+              a partir de <strong>{webhook.nivel_minimo}</strong> · varredura a cada{" "}
+              {webhook.intervalo_minutos} min
+            </span>
+          )}
+          {ehAdmin && (
+            <button type="button" onClick={testarWebhook} disabled={testando} className="btn-ghost btn-sm">
+              <Icone nome="raio" className="h-4 w-4" />
+              {testando ? "Enviando…" : "Enviar teste"}
+            </button>
+          )}
+        </div>
+        <p className="mt-3 text-xs leading-relaxed text-ink-muted">
+          Configure <code className="font-mono">ALERTA_WEBHOOK_URL</code> no{" "}
+          <code className="font-mono">backend/.env</code> com a URL do conector (Slack Incoming
+          Webhook, Discord, n8n…) e reinicie os contêineres. O sistema envia cada alerta uma vez e
+          respeita o nível mínimo (<code className="font-mono">ALERTA_WEBHOOK_MIN_NIVEL</code>) e o
+          cooldown (<code className="font-mono">ALERTA_WEBHOOK_COOLDOWN_MINUTOS</code>).
+        </p>
+      </section>
+
+      {/* métricas */}
+      <section className="card-pad mt-4">
+        <TituloSecao titulo="Métricas (Prometheus)" subtitulo="Para monitoramento externo" />
+        <p className="text-sm text-ink-muted">
+          Endpoint <code className="font-mono text-ink">GET /metricas</code> no formato de exposição
+          do Prometheus, autenticado com o mesmo JWT do painel. Aponte o{" "}
+          <code className="font-mono">scrape_config</code> para a API com um token de qualquer
+          usuário.
+        </p>
+      </section>
+
+      {/* certificados */}
+      <section className="card-pad mt-4">
+        <TituloSecao
+          titulo="Certificados digitais"
+          subtitulo={`${certificados.filter((c) => c.tem_certificado).length} de ${certificados.length} empresas com certificado A1.`}
+        />
+        {(vencidos.length > 0 || vencendo.length > 0) && (
+          <p className="mb-2 text-sm text-warn">Revise certificados vencidos ou próximos do vencimento.</p>
+        )}
+        <div className="overflow-x-auto">
+          <table className="tabela">
+            <thead>
+              <tr>
+                <th>Empresa</th>
+                <th>Validade</th>
+                <th className="text-right">Situação</th>
               </tr>
-            ))}</tbody>
+            </thead>
+            <tbody>
+              {certificados.map((certificado) => (
+                <tr key={certificado.empresa_id}>
+                  <td className="text-ink">{certificado.razao_social}</td>
+                  <td className="font-mono text-xs text-ink-muted">
+                    {certificado.validade ? certificado.validade.split("-").reverse().join("/") : "—"}
+                  </td>
+                  <td className="text-right">
+                    {!certificado.tem_certificado ? (
+                      <span className="badge-neutral">sem certificado</span>
+                    ) : certificado.vencido ? (
+                      <span className="badge-danger">vencido</span>
+                    ) : certificado.vence_em_breve ? (
+                      <span className="badge-warn">vence em {certificado.dias_para_vencer} dias</span>
+                    ) : (
+                      <span className="badge-ok">válido</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
           </table>
           {!certificados.length && <p className="py-4 text-sm text-ink-muted">Nenhuma empresa cadastrada.</p>}
         </div>

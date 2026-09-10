@@ -20,6 +20,14 @@ exclusivamente com **Docker Compose**.
   chave, número ou emitente.
 - **Sincronismo automático:** o Celery Beat varre as empresas sozinho,
   respeitando a janela oficial de 1 hora por CNPJ e tipo.
+- **Equipe com papéis:** admin, operador e somente-leitura — a API barra de
+  verdade, e a interface esconde o que cada perfil não pode fazer.
+- **Trilha de auditoria:** cada login, cadastro, disparo e download registrado
+  com quem, quando e o detalhe.
+- **Alertas externos:** webhook JSON para Slack, Discord, n8n ou gateway
+  WhatsApp, com nível mínimo, cooldown e botão de teste.
+- **Métricas Prometheus:** `GET /metricas` com documentos, execuções,
+  certificados e alertas por escritório.
 
 ## Arquitetura
 

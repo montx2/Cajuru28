@@ -9,6 +9,8 @@ const ROTAS_API = [
   "alertas",
   "relatorios",
   "sistema",
+  "usuarios",
+  "auditoria",
 ];
 
 const nextConfig = {
@@ -27,6 +29,7 @@ const nextConfig = {
         destination: `${destino}/${rota}/:path*`,
       })),
       { source: "/saude", destination: `${destino}/saude` },
+      { source: "/metricas", destination: `${destino}/metricas` },
     ];
   },
 };

@@ -24,7 +24,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
 
-from app.api.deps import escritorio_id_atual
+from app.api.deps import escritorio_id_atual, requer_escrita, usuario_atual
 from app.core.config import settings
 from app.db.session import get_db
 from app.models import (
@@ -34,7 +34,9 @@ from app.models import (
     ExecucaoImportacao,
     StatusDocumentoFiscal,
     TipoDocumentoFiscal,
+    Usuario,
 )
+from app.services import auditoria
 from app.schemas import (
     DocumentoDetalhe,
     DocumentoFiscalResposta,
@@ -409,6 +411,7 @@ def exportar_xmls(
     incluir_relatorio: bool = Query(default=True, description="CSV com a relação, pronto para o Excel"),
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
+    usuario: Usuario = Depends(usuario_atual),
 ):
     """
     ZIP com **todos** os XMLs do filtro — a resposta para "baixar todos os XMLs
@@ -446,6 +449,11 @@ def exportar_xmls(
 
     limite = settings.limite_documentos_por_exportacao
     total = consulta.count()
+    auditoria.registrar(
+        db, usuario, "exportacao_zip",
+        detalhe=f"{total} documento(s) · {periodo.rotulo()}" + (f" · tipo {tipo.value}" if tipo else ""),
+    )
+    db.commit()
     if total == 0:
         raise HTTPException(
             status_code=404,
@@ -720,6 +728,7 @@ def completar_xmls(
     limite: int = Query(default=20, le=20, ge=1),
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
+    usuario: Usuario = Depends(requer_escrita),
 ):
     """
     Manda o worker buscar, pela chave (`consChNFe`), o XML completo das NFe que
@@ -729,6 +738,13 @@ def completar_xmls(
         _empresa_do_escritorio(db, empresa_id, escritorio_id)
     from app.worker.tasks import completar_xmls_pendentes
 
+    auditoria.registrar(
+        db, usuario, "xmls_completar",
+        entidade="empresa" if empresa_id else None,
+        entidade_id=empresa_id,
+        detalhe=f"limite {limite}/h",
+    )
+    db.commit()
     completar_xmls_pendentes.delay(empresa_id=empresa_id, limite=limite)
     return {
         "disparado": True,

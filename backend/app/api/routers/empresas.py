@@ -20,11 +20,12 @@ import os
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import escritorio_id_atual
+from app.api.deps import escritorio_id_atual, requer_escrita
 from app.core.config import settings
 from app.core.vault import cifrar_segredo
 from app.db.session import get_db
-from app.models import Certificado, Empresa
+from app.models import Certificado, Empresa, Usuario
+from app.services import auditoria
 from app.schemas import (
     EmpresaAtualizar,
     EmpresaCriar,
@@ -78,6 +79,7 @@ def criar_empresa(
     dados: EmpresaCriar,
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
+    usuario: Usuario = Depends(requer_escrita),
 ):
     ja_existe = (
         db.query(Empresa)
@@ -89,6 +91,12 @@ def criar_empresa(
 
     empresa = Empresa(escritorio_id=escritorio_id, **dados.model_dump())
     db.add(empresa)
+    db.flush()
+    auditoria.registrar(
+        db, usuario, "empresa_criada",
+        entidade="empresa", entidade_id=empresa.id,
+        detalhe=f"{empresa.razao_social} ({empresa.cnpj_cpf}/{empresa.uf})",
+    )
     db.commit()
     db.refresh(empresa)
     return empresa
@@ -116,6 +124,7 @@ def atualizar_empresa(
     dados: EmpresaAtualizar,
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
+    usuario: Usuario = Depends(requer_escrita),
 ):
     """
     Ajusta cadastro e automação de uma empresa.
@@ -137,6 +146,11 @@ def atualizar_empresa(
         if valor is None:
             continue
         setattr(empresa, campo, valor)
+    auditoria.registrar(
+        db, usuario, "empresa_atualizada",
+        entidade="empresa", entidade_id=empresa.id,
+        detalhe=f"{empresa.razao_social}: {', '.join(sorted(mudanca)) or 'sem mudanças'}",
+    )
     db.commit()
     db.refresh(empresa)
     return empresa
@@ -161,6 +175,7 @@ async def importar_empresas_em_massa(
     csv_arquivo: UploadFile | None = File(default=None),
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
+    usuario: Usuario = Depends(requer_escrita),
 ):
     """
     Cadastra várias empresas de uma vez.
@@ -218,6 +233,10 @@ async def importar_empresas_em_massa(
     certificados = sum(1 for r in resultados if r.status == "certificado_atualizado")
     ja_existiam = sum(1 for r in resultados if r.status == "ja_existia")
     erros = sum(1 for r in resultados if r.status == "erro")
+    auditoria.registrar(
+        db, usuario, "empresas_lote",
+        detalhe=f"{len(resultados)} itens: {criadas} criadas, {certificados} certificados, {erros} erros",
+    )
     db.commit()
 
     return LoteEmpresasResposta(

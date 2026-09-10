@@ -82,6 +82,17 @@ class Settings(BaseSettings):
     # ---------------- Download em massa ----------------
     limite_documentos_por_exportacao: int = 25000
 
+    # ---------------- Alertas externos (webhook) ----------------
+    # Com URL configurada, o agendador envia os alertas (a partir do nível
+    # mínimo) como JSON via POST — funciona com Slack, Discord, n8n ou
+    # qualquer gateway (ex.: WhatsApp). Vazio = desligado.
+    alerta_webhook_url: str = ""
+    alerta_webhook_min_nivel: str = "atencao"  # critico | atencao | info
+    # Mesmo alerta não é reenviado dentro desta janela (deduplicação).
+    alerta_webhook_cooldown_minutos: int = 120
+    # Frequência da varredura que alimenta o webhook (Celery Beat).
+    alerta_webhook_intervalo_minutos: int = 15
+
     # Bootstrap do primeiro usuário (opcional). Se BOOTSTRAP_EMAIL e
     # BOOTSTRAP_SENHA estiverem preenchidos e não existir nenhum usuário,
     # a API cria o escritório + admin no startup.

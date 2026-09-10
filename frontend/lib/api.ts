@@ -19,6 +19,7 @@ import type {
   ItemImportacaoLote,
   KpisDashboard,
   LoteEmpresasResposta,
+  RegistroAuditoria,
   ResultadoImportacaoSelecionada,
   ResumoCertificado,
   ResumoDocumentos,
@@ -26,6 +27,7 @@ import type {
   StatusDocumentoFiscal,
   TipoBreakdown,
   TipoDocumentoFiscal,
+  Usuario,
   UsuarioAtual,
 } from "./types";
 
@@ -343,6 +345,36 @@ export const api = {
       `/relatorios/fechamento.csv${montarParams({ competencia })}`,
       `NotasFlow_fechamento_${competencia ?? "mes"}.csv`
     ),
+
+  // ---------------------------------------------------------------
+  // Equipe (só admin)
+  // ---------------------------------------------------------------
+
+  listarUsuarios: () => chamar<Usuario[]>("/usuarios"),
+
+  criarUsuario: (dados: { nome: string; email: string; senha: string; papel: string }) =>
+    chamar<Usuario>("/usuarios", { method: "POST", body: JSON.stringify(dados) }),
+
+  atualizarUsuario: (
+    id: number,
+    dados: Partial<{ nome: string; email: string; senha: string; papel: string; ativo: boolean }>
+  ) => chamar<Usuario>(`/usuarios/${id}`, { method: "PATCH", body: JSON.stringify(dados) }),
+
+  // ---------------------------------------------------------------
+  // Auditoria (admin e operador)
+  // ---------------------------------------------------------------
+
+  auditoria: (filtros: { acao?: string; busca?: string; limite?: number } = {}) =>
+    chamar<RegistroAuditoria[]>(`/auditoria${montarParams(filtros)}`),
+
+  acoesAuditoria: () => chamar<string[]>("/auditoria/acoes"),
+
+  // ---------------------------------------------------------------
+  // Webhook (teste manual, só admin)
+  // ---------------------------------------------------------------
+
+  testarWebhook: () =>
+    chamar<{ ok: boolean; detalhe: string }>("/alertas/testar-webhook", { method: "POST" }),
 
   // ---------------------------------------------------------------
   // Documento detalhado + XML como texto (visualizador)

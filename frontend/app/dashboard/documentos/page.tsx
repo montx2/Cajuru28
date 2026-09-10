@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { api, ApiError, type FiltrosExportacao } from "@/lib/api";
+import { usePapel } from "@/lib/papel";
 import { CompetenciaPicker } from "@/components/CompetenciaPicker";
 import { DocumentoDrawer } from "@/components/DocumentoDrawer";
 import { bytesParaTexto, paraAPI, rotulo as rotuloMes } from "@/lib/competencia";
@@ -59,6 +60,7 @@ function ConteudoDocumentos() {
   const [termoBusca, setTermoBusca] = useState(searchParams.get("busca") || "");
   const [aba, setAba] = useState<DirecaoDocumento | "todas" | "cancelada">("todas");
   const [docAberto, setDocAberto] = useState<number | null>(null);
+  const { somenteLeitura } = usePapel();
 
   const [documentos, setDocumentos] = useState<DocumentoFiscal[]>([]);
   const [resumo, setResumo] = useState<ResumoDocumentos | null>(null);
@@ -299,7 +301,7 @@ function ConteudoDocumentos() {
             {estimativa.empresas} empresa(s) · ZIP com XMLs + relação.csv
           </span>
         )}
-        {semXmlCompleto > 0 && (
+        {semXmlCompleto > 0 && !somenteLeitura && (
           <button
             type="button"
             onClick={completarResumos}

@@ -175,6 +175,11 @@ export interface InfoSistema {
     agenda: Record<string, { tarefa?: string }>;
   };
   hora_do_servidor: string;
+  webhook?: {
+    configurado: boolean;
+    nivel_minimo: string;
+    intervalo_minutos: number;
+  };
 }
 
 export interface ResumoSincronizacao {
@@ -265,13 +270,58 @@ export const TIPOS: TipoDocumentoFiscal[] = ["nfse", "nfe", "cte"];
 // Sessão
 // ---------------------------------------------------------------
 
+export type PapelUsuario = "admin" | "operador" | "leitura";
+
 export interface UsuarioAtual {
   id: number;
   nome: string;
   email: string;
+  papel: PapelUsuario | string;
   escritorio_id: number;
   escritorio_nome: string;
 }
+
+export interface Usuario {
+  id: number;
+  nome: string;
+  email: string;
+  papel: PapelUsuario | string;
+  ativo: boolean;
+  criado_em: string;
+}
+
+export interface RegistroAuditoria {
+  id: number;
+  quando: string;
+  usuario_email: string;
+  acao: string;
+  entidade: string | null;
+  entidade_id: number | null;
+  detalhe: string | null;
+}
+
+export const ROTULO_PAPEL: Record<string, string> = {
+  admin: "Administrador",
+  operador: "Operador",
+  leitura: "Somente leitura",
+};
+
+export const ROTULO_ACAO: Record<string, string> = {
+  login: "Entrou no sistema",
+  login_falha: "Tentativa de login falhou",
+  empresa_criada: "Cadastrou empresa",
+  empresa_atualizada: "Atualizou empresa",
+  empresas_lote: "Importou empresas em massa",
+  certificado_enviado: "Enviou certificado",
+  importacao_disparada: "Disparou importação",
+  importacao_lote: "Disparou importação em lote",
+  importacao_selecao: "Disparou importação por seleção",
+  xmls_completar: "Pediu XMLs completos",
+  exportacao_zip: "Baixou ZIP",
+  usuario_criado: "Criou usuário",
+  usuario_atualizado: "Atualizou usuário",
+  webhook_teste: "Testou webhook",
+};
 
 // ---------------------------------------------------------------
 // Dashboard executivo

@@ -35,6 +35,7 @@ class UsuarioAtual(BaseModel):
     id: int
     nome: str
     email: str
+    papel: str = "admin"
     escritorio_id: int
     escritorio_nome: str
 
@@ -507,3 +508,102 @@ class FechamentoMensal(BaseModel):
     fim: date
     totais: FechamentoTotais
     empresas: list[FechamentoEmpresa]
+
+
+# ---------- Equipe ----------
+
+_PAPEIS_VALIDOS = {"admin", "operador", "leitura"}
+
+
+class UsuarioResposta(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    nome: str
+    email: str
+    papel: str = "admin"
+    ativo: bool
+    criado_em: datetime
+
+
+class UsuarioCriar(BaseModel):
+    nome: str
+    email: str
+    senha: str
+    papel: str = "operador"
+
+    @field_validator("email")
+    @classmethod
+    def email_normalizado(cls, v: str) -> str:
+        v = (v or "").strip().lower()
+        if "@" not in v or len(v) < 5:
+            raise ValueError("Email inválido.")
+        return v
+
+    @field_validator("senha")
+    @classmethod
+    def senha_minima(cls, v: str) -> str:
+        if len(v or "") < 6:
+            raise ValueError("A senha precisa de ao menos 6 caracteres.")
+        return v
+
+    @field_validator("papel")
+    @classmethod
+    def papel_valido(cls, v: str) -> str:
+        v = (v or "").strip().lower()
+        if v not in _PAPEIS_VALIDOS:
+            raise ValueError(f"Papel inválido: {v!r} (use admin, operador ou leitura).")
+        return v
+
+    @field_validator("nome")
+    @classmethod
+    def nome_ok(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("Nome é obrigatório.")
+        return v
+
+
+class UsuarioAtualizar(BaseModel):
+    """Tudo opcional: só o que vier é alterado."""
+
+    nome: str | None = None
+    papel: str | None = None
+    ativo: bool | None = None
+    senha: str | None = None
+
+    @field_validator("papel")
+    @classmethod
+    def papel_ok(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip().lower()
+        if v not in _PAPEIS_VALIDOS:
+            raise ValueError(f"Papel inválido: {v!r} (use admin, operador ou leitura).")
+        return v
+
+    @field_validator("senha")
+    @classmethod
+    def senha_ok(cls, v: str | None) -> str | None:
+        if v is not None and len(v) < 6:
+            raise ValueError("A senha precisa de ao menos 6 caracteres.")
+        return v
+
+
+# ---------- Auditoria ----------
+
+class RegistroAuditoriaResposta(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    quando: datetime
+    usuario_email: str
+    acao: str
+    entidade: str | None = None
+    entidade_id: int | None = None
+    detalhe: str | None = None
+
+
+class TesteWebhookResposta(BaseModel):
+    ok: bool
+    detalhe: str

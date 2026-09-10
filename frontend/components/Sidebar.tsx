@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { limparToken } from "@/lib/auth";
+import { limparCachePapel, usePapel } from "@/lib/papel";
 import { api } from "@/lib/api";
 import { Icone, Logomarca } from "./icons";
 
@@ -17,8 +18,17 @@ const NAV_OPERACAO = [
 const NAV_GESTAO = [
   { href: "/dashboard/empresas", rotulo: "Empresas", icone: "empresa" },
   { href: "/dashboard/alertas", rotulo: "Alertas", icone: "sino", seloAlertas: true },
+  { href: "/dashboard/auditoria", rotulo: "Auditoria", icone: "olho", minPapel: "operador" },
+  { href: "/dashboard/usuarios", rotulo: "Equipe", icone: "usuarios", minPapel: "admin" },
   { href: "/dashboard/configuracoes", rotulo: "Configurações", icone: "engrenagem" },
 ];
+
+function visivel(minPapel: string | undefined, papel: string): boolean {
+  if (!minPapel) return true;
+  if (minPapel === "admin") return papel === "admin";
+  if (minPapel === "operador") return papel === "admin" || papel === "operador";
+  return true;
+}
 
 export function Sidebar({
   aberto,
@@ -29,6 +39,7 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { papel } = usePapel();
   const [criticos, setCriticos] = useState(0);
   const [total, setTotal] = useState(0);
 
@@ -54,6 +65,12 @@ export function Sidebar({
 
   const ativo = (href: string, exato?: boolean) =>
     exato ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
+
+  function sair() {
+    limparToken();
+    limparCachePapel();
+    router.push("/login");
+  }
 
   return (
     <>
@@ -100,44 +117,39 @@ export function Sidebar({
           <p className="px-3 pb-1.5 pt-4 text-[11px] font-semibold uppercase tracking-wider text-white/35">
             Gestão
           </p>
-          {NAV_GESTAO.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={aoFechar}
-              className={`nav-item ${ativo(item.href) ? "nav-item-ativo" : ""}`}
-            >
-              <Icone nome={item.icone} className="h-5 w-5 flex-none" />
-              <span className="flex-1">{item.rotulo}</span>
-              {"seloAlertas" in item && total > 0 && (
-                <span
-                  className={`rounded-pill px-2 py-0.5 font-mono text-[11px] font-bold ${
-                    criticos > 0 ? "bg-danger text-white" : "bg-gold text-sidebar"
-                  }`}
-                >
-                  {total}
-                </span>
-              )}
-            </Link>
-          ))}
+          {NAV_GESTAO.filter((item) => visivel((item as { minPapel?: string }).minPapel, papel)).map(
+            (item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={aoFechar}
+                className={`nav-item ${ativo(item.href) ? "nav-item-ativo" : ""}`}
+              >
+                <Icone nome={item.icone} className="h-5 w-5 flex-none" />
+                <span className="flex-1">{item.rotulo}</span>
+                {"seloAlertas" in item && total > 0 && (
+                  <span
+                    className={`rounded-pill px-2 py-0.5 font-mono text-[11px] font-bold ${
+                      criticos > 0 ? "bg-danger text-white" : "bg-gold text-sidebar"
+                    }`}
+                  >
+                    {total}
+                  </span>
+                )}
+              </Link>
+            )
+          )}
         </nav>
 
         <div className="border-t border-sidebar-line px-3 py-4">
           <div className="mb-2 flex items-center justify-between px-3">
-            <span className="font-mono text-[11px] text-white/35">v2.0 premium</span>
+            <span className="font-mono text-[11px] text-white/35">v2.1 enterprise</span>
             <span className="flex items-center gap-1.5 text-[11px] text-accent-bright">
               <span className="pulso-andamento inline-block h-1.5 w-1.5 rounded-full bg-accent-bright" />
               online
             </span>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              limparToken();
-              router.push("/login");
-            }}
-            className="nav-item w-full"
-          >
+          <button type="button" onClick={sair} className="nav-item w-full">
             <Icone nome="sair" className="h-5 w-5 flex-none" />
             Sair
           </button>

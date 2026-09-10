@@ -58,6 +58,9 @@ _COLUNAS_POR_TABELA: dict[str, list[tuple[str, str]]] = {
         ("sincronizar_automaticamente", "BOOLEAN NOT NULL DEFAULT 1"),
         ("quais_tipos_sincronizar", "VARCHAR(30) NOT NULL DEFAULT 'nfse,nfe,cte'"),
     ],
+    "usuarios": [
+        ("papel", "VARCHAR(20) NOT NULL DEFAULT 'admin'"),
+    ],
 }
 
 # Índices que as telas de filtro por competência/download em massa usam.

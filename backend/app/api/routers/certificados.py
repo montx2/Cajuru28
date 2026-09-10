@@ -4,12 +4,13 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import escritorio_id_atual
+from app.api.deps import escritorio_id_atual, requer_escrita
 from app.core.config import settings
 from app.core.vault import cifrar_segredo
 from app.db.session import get_db
-from app.models import Certificado, Empresa
+from app.models import Certificado, Empresa, Usuario
 from app.schemas import CertificadoResposta, ResumoCertificado
+from app.services import auditoria
 from app.services.mtls import obter_validade_certificado
 
 router = APIRouter(prefix="/certificados", tags=["certificados"])
@@ -22,6 +23,7 @@ async def enviar_certificado(
     arquivo: UploadFile = File(...),
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
+    usuario: Usuario = Depends(requer_escrita),
 ):
     """
     Recebe o .pfx e a senha em texto puro apenas nesta requisição (via
@@ -63,6 +65,12 @@ async def enviar_certificado(
         ativo=True,
     )
     db.add(certificado)
+    db.flush()
+    auditoria.registrar(
+        db, usuario, "certificado_enviado",
+        entidade="empresa", entidade_id=empresa.id,
+        detalhe=f"{empresa.razao_social} — válido até {validade.strftime('%d/%m/%Y')}",
+    )
     db.commit()
     db.refresh(certificado)
     return certificado

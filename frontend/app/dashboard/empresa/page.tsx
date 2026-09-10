@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
+import { usePapel } from "@/lib/papel";
 import { emQuanto, horaLocal } from "@/lib/competencia";
 import { formatarDocumento } from "@/components/SeletorEmpresas";
 import {
@@ -50,6 +51,7 @@ function ConteudoEmpresa() {
   const [disparandoImportacao, setDisparandoImportacao] = useState(false);
   const [mensagemImportacao, setMensagemImportacao] = useState<string | null>(null);
   const [sincronizacoes, setSincronizacoes] = useState<EstadoSincronizacao[]>([]);
+  const { somenteLeitura } = usePapel();
 
   function carregar() {
     if (!empresaId) return;
@@ -208,7 +210,8 @@ function ConteudoEmpresa() {
           </div>
           <button
             type="submit"
-            disabled={enviandoCertificado}
+            disabled={enviandoCertificado || somenteLeitura}
+            title={somenteLeitura ? "Seu perfil é somente leitura." : undefined}
             className="btn-primary disabled:opacity-50"
           >
             {enviandoCertificado ? "Enviando…" : "Enviar certificado"}
@@ -231,7 +234,8 @@ function ConteudoEmpresa() {
           <button
             type="button"
             onClick={() => importarTodas()}
-            disabled={disparandoImportacao || !certificadoAtivo}
+            disabled={disparandoImportacao || !certificadoAtivo || somenteLeitura}
+            title={somenteLeitura ? "Seu perfil é somente leitura." : undefined}
             className="btn-primary disabled:cursor-not-allowed disabled:opacity-50"
           >
             Importar todas
@@ -241,7 +245,8 @@ function ConteudoEmpresa() {
               key={tipo}
               type="button"
               onClick={() => importar(tipo)}
-              disabled={disparandoImportacao || !certificadoAtivo}
+              disabled={disparandoImportacao || !certificadoAtivo || somenteLeitura}
+              title={somenteLeitura ? "Seu perfil é somente leitura." : undefined}
               className="btn-ghost disabled:cursor-not-allowed disabled:border-line disabled:text-ink-muted"
             >
               Só {tipo.toUpperCase()}

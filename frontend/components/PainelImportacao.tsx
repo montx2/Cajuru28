@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
+import { usePapel } from "@/lib/papel";
 import { CompetenciaPicker } from "@/components/CompetenciaPicker";
 import { SeletorEmpresas, useSelecaoEmpresas } from "@/components/SeletorEmpresas";
 import { horaLocal, paraAPI } from "@/lib/competencia";
@@ -45,6 +46,7 @@ export function PainelImportacao({
   const [resultado, setResultado] = useState<ResultadoImportacaoSelecionada | null>(null);
   const [disparando, setDisparando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const { somenteLeitura } = usePapel();
   const { selecionadas, setSelecionadas } = useSelecaoEmpresas(empresas);
 
   const tiposDoPedido: TipoDocumentoFiscal[] = tipo === "todos" ? [...TIPOS] : [tipo];
@@ -196,8 +198,9 @@ export function PainelImportacao({
           <button
             type="button"
             onClick={() => disparar(false)}
-            disabled={disparando || idsSelecionados.length === 0}
-            className="bg-accent px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+            disabled={disparando || idsSelecionados.length === 0 || somenteLeitura}
+            title={somenteLeitura ? "Seu perfil é somente leitura." : undefined}
+            className="btn-primary"
           >
             {disparando
               ? "Disparando…"
@@ -206,12 +209,19 @@ export function PainelImportacao({
           <button
             type="button"
             onClick={() => disparar(true)}
-            disabled={disparando || idsSelecionados.length === 0}
-            title="Atravessa a janela de 1 hora da SEFAZ. Só com certeza: insistir antes da hora zera o cronômetro do bloqueio."
-            className="border border-line px-3 py-2 text-sm text-ink-muted hover:border-accent hover:text-ink disabled:opacity-40"
+            disabled={disparando || idsSelecionados.length === 0 || somenteLeitura}
+            title={
+              somenteLeitura
+                ? "Seu perfil é somente leitura."
+                : "Atravessa a janela de 1 hora da SEFAZ. Só com certeza: insistir antes da hora zera o cronômetro do bloqueio."
+            }
+            className="btn-ghost"
           >
             Forçar janela
           </button>
+          {somenteLeitura && (
+            <p className="badge-neutral">perfil somente leitura — disparos desabilitados</p>
+          )}
 
           {previa && (
             <p className="text-sm text-ink-muted">

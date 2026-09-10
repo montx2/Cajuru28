@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.api.deps import escritorio_id_atual
+from app.api.deps import escritorio_id_atual, requer_papel
 from app.api.routers.importacoes import estados_do_escritorio
 from app.core.config import settings
 from app.db.session import get_db
@@ -27,8 +27,11 @@ from app.models import (
     Empresa,
     ExecucaoImportacao,
     StatusExecucao,
+    Usuario,
 )
-from app.schemas import AlertaItem, AlertasResposta
+from app.schemas import AlertaItem, AlertasResposta, TesteWebhookResposta
+from app.services import auditoria
+from app.services import webhook as svc_webhook
 
 router = APIRouter(prefix="/alertas", tags=["alertas"])
 
@@ -344,3 +347,29 @@ def contagem_alertas(
         "criticos": sum(1 for a in itens if a.nivel == "critico"),
         "atencao": sum(1 for a in itens if a.nivel == "atencao"),
     }
+
+
+@router.post("/testar-webhook", response_model=TesteWebhookResposta)
+def testar_webhook(
+    admin: Usuario = Depends(requer_papel("admin")),
+    db: Session = Depends(get_db),
+):
+    """Envia um alerta de teste ao webhook configurado (só admin)."""
+    ok, detalhe = svc_webhook.disparar(
+        {
+            "id": "teste-manual",
+            "nivel": "info",
+            "categoria": "sistema",
+            "titulo": "Teste do webhook NotasFlow",
+            "detalhe": "Se esta mensagem chegou, os alertas externos estão funcionando.",
+            "empresa_razao_social": None,
+            "acao_rotulo": "Abrir painel",
+            "acao_href": "/dashboard/alertas",
+        },
+        escritorio_id=admin.escritorio_id,
+    )
+    auditoria.registrar(
+        db, admin, "webhook_teste", detalhe=f"ok={ok} · {detalhe}",
+    )
+    db.commit()
+    return TesteWebhookResposta(ok=ok, detalhe=detalhe)

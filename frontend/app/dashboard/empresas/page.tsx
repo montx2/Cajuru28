@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
+import { usePapel } from "@/lib/papel";
 import type { Empresa, LoteEmpresasResposta } from "@/lib/types";
 
 const UFS = [
@@ -24,6 +25,7 @@ function formatarData(iso: string | null): string {
 }
 
 export default function EmpresasPage() {
+  const { somenteLeitura } = usePapel();
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [mostrarFormulario, setMostrarFormulario] = useState(false);
@@ -94,26 +96,30 @@ export default function EmpresasPage() {
     <div>
       <div className="mb-6 flex items-center justify-between">
         <p className="font-serif text-2xl text-ink">Empresas</p>
-        <div className="flex gap-2">
-          <button
-            onClick={() => {
-              setMostrarLote((v) => !v);
-              setMostrarFormulario(false);
-            }}
-            className="btn-primary"
-          >
-            {mostrarLote ? "Fechar" : "Importar em massa"}
-          </button>
-          <button
-            onClick={() => {
-              setMostrarFormulario((v) => !v);
-              setMostrarLote(false);
-            }}
-            className="btn-ghost"
-          >
-            {mostrarFormulario ? "Cancelar" : "Nova empresa"}
-          </button>
-        </div>
+        {somenteLeitura ? (
+          <span className="badge-neutral">perfil somente leitura</span>
+        ) : (
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                setMostrarLote((v) => !v);
+                setMostrarFormulario(false);
+              }}
+              className="btn-primary"
+            >
+              {mostrarLote ? "Fechar" : "Importar em massa"}
+            </button>
+            <button
+              onClick={() => {
+                setMostrarFormulario((v) => !v);
+                setMostrarLote(false);
+              }}
+              className="btn-ghost"
+            >
+              {mostrarFormulario ? "Cancelar" : "Nova empresa"}
+            </button>
+          </div>
+        )}
       </div>
 
       {mostrarFormulario && (

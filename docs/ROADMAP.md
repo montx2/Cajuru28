@@ -18,11 +18,19 @@
   com visualizador de XML.
 - **v2.0 — Experiência premium:** sidebar escura, busca global (`Ctrl+K`),
   sino de alertas, toasts, onboarding guiado e layout mobile.
+- **v2.1 — Papéis de usuário** (`/usuarios`): admin, operador e leitura, com
+  travas (sem auto-rebaixamento, sem remover o último admin).
+- **v2.1 — Trilha de auditoria** (`/auditoria`): logins, cadastros,
+  certificados, disparos e downloads.
+- **v2.1 — Webhook de alertas**: task do Beat com nível mínimo + cooldown e
+  endpoint de teste; payload JSON genérico.
+- **v2.1 — Métricas Prometheus** (`GET /metricas`) autenticadas por escritório.
+- **v2.1 — Telas de Equipe e Auditoria** + botões conscientes de papel.
 
 ## Próximos passos
 
-- Métricas Prometheus + alertas externos (e-mail/webhook) a partir da central.
+- Alertas por e-mail (SMTP) além do webhook.
 - Rotação assistida das chaves do cofre.
 - Política automatizada de backup dos volumes.
-- Gestão de usuários e papéis (admin/operador/leitura).
+- Autenticação em dois fatores (TOTP).
 - Testes de carga e dimensionamento horizontal de workers.

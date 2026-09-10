@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { limparToken } from "@/lib/auth";
+import { limparCachePapel } from "@/lib/papel";
 import { iniciais } from "@/lib/format";
 import type { AlertasResposta, UsuarioAtual } from "@/lib/types";
 import { Icone } from "./icons";
@@ -203,6 +204,7 @@ export function Topbar({ aoAbrirMenu }: { aoAbrirMenu: () => void }) {
                 type="button"
                 onClick={() => {
                   limparToken();
+                  limparCachePapel();
                   router.push("/login");
                 }}
                 className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-danger hover:bg-danger-soft"
