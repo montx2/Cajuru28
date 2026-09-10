@@ -4,10 +4,14 @@ import type {
   DirecaoDocumento,
   DocumentoFiscal,
   Empresa,
+  EmpresaResumoDocumentos,
+  EstimativaExportacao,
+  EstadoSincronizacao,
   ExecucaoImportacao,
   ItemImportacaoLote,
   LoteEmpresasResposta,
   ResumoDocumentos,
+  ResumoSincronizacao,
   StatusDocumentoFiscal,
   TipoDocumentoFiscal,
 } from "./types";
@@ -19,6 +23,14 @@ export class ApiError extends Error {
   constructor(status: number, message: string) {
     super(message);
     this.status = status;
+  }
+
+  /**
+   * 429 = "ainda não" (janela de consumo da SEFAZ), não "deu errado". A tela
+   * mostra como aviso neutro e o sistema retoma sozinho na hora certa.
+   */
+  get ehAguardo(): boolean {
+    return this.status === 429;
   }
 }
 
@@ -55,6 +67,60 @@ async function chamar<T>(caminho: string, opcoes: RequestInit = {}): Promise<T> 
   return resposta.json();
 }
 
+function montarParams(filtros: object): string {
+  const params = new URLSearchParams();
+  for (const [chave, valor] of Object.entries(filtros as Record<string, unknown>)) {
+    if (valor === undefined || valor === null || valor === "") continue;
+    params.set(chave, String(valor));
+  }
+  const texto = params.toString();
+  return texto ? `?${texto}` : "";
+}
+
+export interface FiltrosDocumentos {
+  empresa_id?: number | null;
+  /** "1,2,3" — omitir = todas as empresas do escritório */
+  empresa_ids?: string;
+  tipo?: TipoDocumentoFiscal;
+  direcao?: DirecaoDocumento;
+  status?: StatusDocumentoFiscal;
+  /** MM/AAAA (o que a tela chama de "competência") */
+  competencia?: string;
+  leiaute?: "completo" | "resumo";
+  busca?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface FiltrosExportacao extends Omit<FiltrosDocumentos, "limit" | "offset" | "busca"> {
+  incluir_canceladas?: boolean;
+  incluir_relatorio?: boolean;
+  /** seleção da tela ("baixar só estes"): ids separados por vírgula */
+  documento_ids?: string;
+}
+
+async function baixarArquivo(caminho: string, nomePadrao: string): Promise<void> {
+  const token = obterToken();
+  const resposta = await fetch(`${BASE_URL}${caminho}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!resposta.ok) {
+    const corpo = await resposta.json().catch(() => ({}));
+    throw new ApiError(
+      resposta.status,
+      typeof corpo?.detail === "string" ? corpo.detail : `Falha ao baixar ${nomePadrao}`
+    );
+  }
+  const disposicao = resposta.headers.get("content-disposition") ?? "";
+  const nomeReal = /filename="?([^";]+)"?/.exec(disposicao)?.[1] ?? nomePadrao;
+  const url = URL.createObjectURL(await resposta.blob());
+  const ancora = document.createElement("a");
+  ancora.href = url;
+  ancora.download = nomeReal;
+  ancora.click();
+  URL.revokeObjectURL(url);
+}
+
 export const api = {
   login: (email: string, senha: string) =>
     chamar<{ access_token: string }>("/auth/login", {
@@ -66,6 +132,15 @@ export const api = {
 
   criarEmpresa: (razao_social: string, cnpj_cpf: string, uf: string) =>
     chamar<Empresa>("/empresas", { method: "POST", body: JSON.stringify({ razao_social, cnpj_cpf, uf }) }),
+
+  atualizarEmpresa: (
+    id: number,
+    dados: Partial<
+      Pick<Empresa, "razao_social" | "uf" | "ativa" | "sincronizar_automaticamente"> & {
+        quais_tipos_sincronizar: string[];
+      }
+    >
+  ) => chamar<Empresa>(`/empresas/${id}`, { method: "PATCH", body: JSON.stringify(dados) }),
 
   importarEmpresasEmMassa: (
     arquivos: File[],
@@ -83,6 +158,9 @@ export const api = {
 
   obterEmpresa: (id: number) => chamar<Empresa>(`/empresas/${id}`),
 
+  sincronizacaoDaEmpresa: (id: number) =>
+    chamar<EstadoSincronizacao[]>(`/empresas/${id}/sincronizacao`),
+
   listarCertificados: (empresaId: number) =>
     chamar<Certificado[]>(`/certificados/empresa/${empresaId}`),
 
@@ -94,58 +172,79 @@ export const api = {
     return chamar<Certificado>("/certificados", { method: "POST", body: form });
   },
 
-  listarDocumentos: (
-    empresaId: number,
-    filtros?: {
-      tipo?: TipoDocumentoFiscal;
-      status?: StatusDocumentoFiscal;
-      data_inicio?: string;
-      data_fim?: string;
-    }
-  ) => {
-    const params = new URLSearchParams({ empresa_id: String(empresaId) });
-    if (filtros?.tipo) params.set("tipo", filtros.tipo);
-    if (filtros?.status) params.set("status", filtros.status);
-    if (filtros?.data_inicio) params.set("data_inicio", filtros.data_inicio);
-    if (filtros?.data_fim) params.set("data_fim", filtros.data_fim);
-    return chamar<DocumentoFiscal[]>(`/documentos?${params.toString()}`);
-  },
+  listarDocumentos: (filtros: FiltrosDocumentos = {}) =>
+    chamar<DocumentoFiscal[]>(`/documentos${montarParams(filtros)}`),
 
-  resumoDocumentos: (empresaId: number) =>
-    chamar<ResumoDocumentos>(`/documentos/resumo?empresa_id=${empresaId}`),
+  resumoPorEmpresa: (filtros: { competencia?: string; tipo?: TipoDocumentoFiscal } = {}) =>
+    chamar<EmpresaResumoDocumentos[]>(`/documentos/por-empresa${montarParams(filtros)}`),
+
+  resumoDocumentos: (filtros: { empresa_id?: number | null; competencia?: string } = {}) =>
+    chamar<ResumoDocumentos>(`/documentos/resumo${montarParams(filtros)}`),
 
   urlXmlDocumento: (documentoId: number) => {
-    const token = obterToken();
     // O browser precisa do token no header — para download simples abrimos
-    // via fetch + blob no caller. Esta helper só monta a URL.
+    // via fetch + blob em `baixarXmlDocumento`. Esta helper só monta a URL.
     return `${BASE_URL}/documentos/${documentoId}/xml`;
   },
 
-  baixarXmlDocumento: async (documentoId: number, nomeArquivo: string) => {
-    const token = obterToken();
-    const resposta = await fetch(`${BASE_URL}/documentos/${documentoId}/xml`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    if (!resposta.ok) throw new ApiError(resposta.status, "Falha ao baixar XML");
-    const blob = await resposta.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = nomeArquivo;
-    a.click();
-    URL.revokeObjectURL(url);
-  },
+  baixarXmlDocumento: (documentoId: number, nomeArquivo: string) =>
+    baixarArquivo(`/documentos/${documentoId}/xml`, nomeArquivo),
 
-  solicitarImportacao: (empresaId: number, tipo: TipoDocumentoFiscal, forcar = false) =>
+  /** Quantos arquivos e quantos MB o "baixar tudo" vai dar, antes de baixar. */
+  estimarExportacao: (filtros: FiltrosExportacao = {}) =>
+    chamar<EstimativaExportacao>(`/documentos/exportar/estimativa${montarParams(filtros)}`),
+
+  /** O download em massa: ZIP com todos os XMLs do filtro + relação em CSV. */
+  baixarZip: (filtros: FiltrosExportacao = {}, nome?: string) =>
+    baixarArquivo(
+      `/documentos/exportar${montarParams(filtros)}`,
+      nome ?? `NotasFlow_${filtros.competencia ?? "todos"}.zip`
+    ),
+
+  solicitarImportacao: (
+    empresaId: number,
+    tipo: TipoDocumentoFiscal,
+    opcoes: { forcar?: boolean; competencia?: string } = {}
+  ) =>
     chamar<ExecucaoImportacao>("/importacoes", {
       method: "POST",
-      body: JSON.stringify({ empresa_id: empresaId, tipo, forcar }),
+      body: JSON.stringify({
+        empresa_id: empresaId,
+        tipo,
+        forcar: opcoes.forcar ?? false,
+        ...(opcoes.competencia ? { competencia: opcoes.competencia } : {}),
+      }),
     }),
 
-  solicitarImportacaoEmLote: (tipo: TipoDocumentoFiscal) =>
-    chamar<ItemImportacaoLote[]>(`/importacoes/lote?tipo=${tipo}`, { method: "POST" }),
+  solicitarImportacaoEmLote: (
+    tipo: TipoDocumentoFiscal,
+    opcoes: { competencia?: string; forcar?: boolean } = {}
+  ) => {
+    const params = new URLSearchParams({ tipo });
+    if (opcoes.competencia) params.set("competencia", opcoes.competencia);
+    if (opcoes.forcar) params.set("forcar", "true");
+    return chamar<ItemImportacaoLote[]>(`/importacoes/lote?${params.toString()}`, { method: "POST" });
+  },
 
   consultarExecucao: (id: number) => chamar<ExecucaoImportacao>(`/importacoes/${id}`),
 
-  listarExecucoes: () => chamar<ExecucaoImportacao[]>("/importacoes"),
+  listarExecucoes: (empresaId?: number) =>
+    chamar<ExecucaoImportacao[]>(
+      `/importacoes${empresaId ? `?empresa_id=${empresaId}` : ""}`
+    ),
+
+  /** Painel de saúde: cursor, pendência e janela de cada empresa+tipo. */
+  estadoSincronizacao: (empresaId?: number) =>
+    chamar<EstadoSincronizacao[]>(
+      `/importacoes/estado${empresaId ? `?empresa_id=${empresaId}` : ""}`
+    ),
+
+  resumoSincronizacao: () => chamar<ResumoSincronizacao>("/importacoes/resumo"),
+
+  /** Busca o XML completo dos documentos que vieram só em resumo (consChNFe). */
+  completarXmls: (empresaId?: number, limite = 20) =>
+    chamar<{ disparado: boolean; aviso: string }>(
+      `/documentos/completar-xmls${montarParams({ empresa_id: empresaId, limite })}`,
+      { method: "POST" }
+    ),
 };

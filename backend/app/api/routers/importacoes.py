@@ -1,84 +1,59 @@
+"""
+API de importações: disparar, acompanhar e inspecionar as janelas de consumo.
+
+Três princípios de projeto:
+
+- o `POST` responde 202 e vai embora. Nada de requisição longa esperando SEFAZ:
+  o processamento é fila, e o painel acompanha por polling;
+- cooldown **nunca** é surpresa: a resposta diz até quando e por quê;
+- `forcar=true` existe (é o escape hatch de homologação), mas é registrado na
+  execução para o histórico explicar um 656 logo depois.
+"""
+
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.api.deps import escritorio_id_atual
+from app.core.config import settings
 from app.db.session import get_db
 from app.models import (
     Certificado,
+    DocumentoFiscal,
     Empresa,
     ExecucaoImportacao,
     StatusExecucao,
     TipoDocumentoFiscal,
 )
-from app.schemas import ExecucaoImportacaoResposta, ImportacaoSolicitar, ItemImportacaoLote
-from app.worker.tasks import importar_documentos
+from app.schemas import (
+    EstadoSincronizacaoResposta,
+    ExecucaoImportacaoResposta,
+    ImportacaoSolicitar,
+    ItemImportacaoLote,
+    ResumoSincronizacao,
+)
+from app.services import fila, sincronizacao
+from app.services.periodo import Periodo, PeriodoInvalido, interpretar_periodo
 
 router = APIRouter(prefix="/importacoes", tags=["importações"])
 
-# Depois que o ADN diz "não há nada novo", esperar antes de perguntar de
-# novo — existe para não sinalizar a um CNPJ como consumo indevido. Ver
-# docs/ARQUITETURA.md.
-COOLDOWN_SEM_NOVIDADE = timedelta(hours=1)
+# Mantido por compatibilidade: a janela agora é calculada pelo estado de
+# sincronização (uma linha por empresa+tipo), não por varredura do histórico.
+COOLDOWN_SEM_NOVIDADE = sincronizacao.cooldown_oficial()
 
 
-def _fim_do_cooldown(
-    db: Session, empresa_id: int, tipo: TipoDocumentoFiscal
-) -> datetime | None:
-    """
-    Retorna o horário em que a empresa volta a poder ser consultada, ou
-    None se pode importar agora. Só entra em cooldown quando a última
-    execução concluída não trouxe nenhum documento novo — se trouxe, é
-    sinal de que ainda há (ou havia) coisa relevante acontecendo, e não faz
-    sentido bloquear.
-    """
-    ultima = (
-        db.query(ExecucaoImportacao)
-        .filter(
-            ExecucaoImportacao.empresa_id == empresa_id,
-            ExecucaoImportacao.tipo == tipo,
-            ExecucaoImportacao.status == StatusExecucao.CONCLUIDA,
-        )
-        .order_by(ExecucaoImportacao.finalizado_em.desc())
-        .first()
-    )
-    if ultima is None or ultima.documentos_importados > 0 or ultima.finalizado_em is None:
-        return None
-
-    finalizado_em = ultima.finalizado_em
-    if finalizado_em.tzinfo is None:
-        # Alguns drivers/bancos devolvem datetime "naive" mesmo com a coluna
-        # marcada como timezone=True; como tudo aqui é gravado com
-        # datetime.now(timezone.utc), assumir UTC é seguro.
-        finalizado_em = finalizado_em.replace(tzinfo=timezone.utc)
-
-    fim = finalizado_em + COOLDOWN_SEM_NOVIDADE
-    return fim if fim > datetime.now(timezone.utc) else None
-
-
-def _enfileirar(db: Session, empresa_id: int, tipo: TipoDocumentoFiscal) -> ExecucaoImportacao:
-    # Evita enfileirar duas vezes a mesma empresa+tipo enquanto ainda roda
-    em_andamento = (
-        db.query(ExecucaoImportacao)
-        .filter(
-            ExecucaoImportacao.empresa_id == empresa_id,
-            ExecucaoImportacao.tipo == tipo,
-            ExecucaoImportacao.status == StatusExecucao.EM_ANDAMENTO,
-        )
-        .first()
-    )
-    if em_andamento is not None:
-        return em_andamento
-
-    execucao = ExecucaoImportacao(
-        empresa_id=empresa_id, tipo=tipo, status=StatusExecucao.EM_ANDAMENTO
-    )
-    db.add(execucao)
-    db.commit()
-    db.refresh(execucao)
-    importar_documentos.delay(empresa_id=empresa_id, tipo=tipo.value, execucao_id=execucao.id)
-    return execucao
+def _periodo(
+    competencia: str | None = None,
+    data_inicio=None,
+    data_fim=None,
+) -> Periodo | None:
+    try:
+        periodo = interpretar_periodo(competencia, data_inicio, data_fim)
+    except PeriodoInvalido as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return periodo if periodo.definido else None
 
 
 @router.post("", response_model=ExecucaoImportacaoResposta, status_code=202)
@@ -91,6 +66,11 @@ def solicitar_importacao(
     Enfileira a importação de UMA empresa e retorna imediatamente — o
     processamento roda no worker. Para as 30 empresas de uma vez, use
     POST /importacoes/lote.
+
+    `competencia` (ex.: "08/2026") **não** filtra o que é baixado: a
+    distribuição oficial só anda por NSU, então baixar tudo é o que garante
+    que nenhuma nota se perca. O período é registrado na execução (para contar
+    o que caiu naquele mês) e pré-selecionado no download dos XMLs.
     """
     empresa = (
         db.query(Empresa)
@@ -100,34 +80,50 @@ def solicitar_importacao(
     if empresa is None:
         raise HTTPException(status_code=404, detail="Empresa não encontrada")
 
-    if not dados.forcar:
-        fim_cooldown = _fim_do_cooldown(db, dados.empresa_id, dados.tipo)
-        if fim_cooldown:
-            raise HTTPException(
-                status_code=429,
-                detail=(
-                    "O ADN foi consultado recentemente e não havia nada novo. "
-                    f"Para não arriscar bloqueio do CNPJ, aguarde até {fim_cooldown.isoformat()} "
-                    "ou envie forcar=true para pular esta proteção."
-                ),
-            )
+    resultado = fila.enfileirar(
+        db,
+        empresa,
+        dados.tipo,
+        forcar=dados.forcar,
+        periodo=_periodo(dados.competencia, dados.data_inicio, dados.data_fim),
+        origem="manual",
+    )
 
-    return _enfileirar(db, dados.empresa_id, dados.tipo)
+    if resultado.status in ("sem_certificado", "sem_uf"):
+        raise HTTPException(status_code=409, detail=resultado.mensagem)
+    if resultado.status == "em_cooldown":
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                resultado.mensagem
+                + " (o envio de nova consulta antes disso zera o cronômetro do "
+                "bloqueio — por isso o sistema espera; use forcar=true só com consciência)"
+            ),
+        )
+
+    execucao = db.get(ExecucaoImportacao, resultado.execucao_id)
+    resposta = ExecucaoImportacaoResposta.model_validate(execucao)
+    resposta.empresa_razao_social = empresa.razao_social
+    return resposta
 
 
 @router.post("/lote", response_model=list[ItemImportacaoLote])
 def solicitar_importacao_em_lote(
     tipo: TipoDocumentoFiscal,
+    competencia: str | None = Query(default=None, description="MM/AAAA, ex.: 08/2026"),
+    forcar: bool = False,
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
 ):
     """
-    Dispara a importação de TODAS as empresas ativas do escritório de uma
-    vez — o equivalente ao 'sincronizar --todas' do Importarnotas original.
+    Dispara a importação de TODAS as empresas ativas do escritório de uma vez —
+    o equivalente ao 'sincronizar --todas' do Importarnotas original.
     Cada empresa vira uma task independente na fila: uma travar ou falhar
-    não afeta as outras. Empresas sem certificado ou em cooldown são
-    reportadas, não enfileiradas.
+    não afeta as outras. Empresas sem certificado, sem UF ou dentro da janela
+    de consumo são reportadas, não enfileiradas.
     """
+    periodo = _periodo(competencia)
+
     empresas = (
         db.query(Empresa)
         .filter(Empresa.escritorio_id == escritorio_id, Empresa.ativa.is_(True))
@@ -144,34 +140,187 @@ def solicitar_importacao_em_lote(
         if tem_certificado is None:
             resultados.append(
                 ItemImportacaoLote(
-                    empresa_id=empresa.id, razao_social=empresa.razao_social, status="sem_certificado"
-                )
-            )
-            continue
-
-        fim_cooldown = _fim_do_cooldown(db, empresa.id, tipo)
-        if fim_cooldown:
-            resultados.append(
-                ItemImportacaoLote(
                     empresa_id=empresa.id,
                     razao_social=empresa.razao_social,
-                    status="em_cooldown",
-                    disponivel_em=fim_cooldown,
+                    status="sem_certificado",
                 )
             )
             continue
 
-        execucao = _enfileirar(db, empresa.id, tipo)
+        resultado = fila.enfileirar(
+            db, empresa, tipo, forcar=forcar, periodo=periodo, origem="lote"
+        )
+        status = resultado.status
+        if status == "em_andamento":
+            status = "ja_em_andamento"
         resultados.append(
             ItemImportacaoLote(
                 empresa_id=empresa.id,
                 razao_social=empresa.razao_social,
-                status="enfileirada",
-                execucao_id=execucao.id,
+                status=status,
+                execucao_id=resultado.execucao_id,
+                disponivel_em=resultado.disponivel_em,
+                mensagem=resultado.mensagem,
             )
         )
 
     return resultados
+
+
+def _naive_para_aware(valor: datetime | None) -> datetime | None:
+    """SQLite devolve datetime sem fuso; o resto do código trabalha com UTC."""
+    if valor is None:
+        return None
+    return valor if valor.tzinfo else valor.replace(tzinfo=timezone.utc)
+
+
+def estados_do_escritorio(
+    db: Session,
+    *,
+    escritorio_id: int,
+    empresa_id: int | None = None,
+) -> list[EstadoSincronizacaoResposta]:
+    """
+    Onde cada empresa+tipo está: cursor, maxNSU do ambiente, janelas de espera.
+
+    É a tela que responde "preciso clicar em alguma coisa?" — se `em_dia` é
+    true e nada está bloqueado, não. `pendencia` é o número de NSUs que ainda
+    faltam varrer quando a SEFAZ tem mais documento que o nosso cursor.
+    """
+    filtro = [Empresa.escritorio_id == escritorio_id]
+    if empresa_id is not None:
+        filtro.append(Empresa.id == empresa_id)
+    empresas = db.query(Empresa).filter(*filtro).all()
+    agora = datetime.now(timezone.utc)
+    saida: list[EstadoSincronizacaoResposta] = []
+
+    for empresa in empresas:
+        for tipo in TipoDocumentoFiscal:
+            estado = sincronizacao.obter_estado(db, empresa.id, tipo, criar=False)
+            em_andamento = (
+                db.query(ExecucaoImportacao)
+                .filter(
+                    ExecucaoImportacao.empresa_id == empresa.id,
+                    ExecucaoImportacao.tipo == tipo,
+                    ExecucaoImportacao.status == StatusExecucao.EM_ANDAMENTO,
+                )
+                .first()
+            ) is not None
+
+            if estado is None:
+                saida.append(
+                    EstadoSincronizacaoResposta(
+                        empresa_id=empresa.id,
+                        razao_social=empresa.razao_social,
+                        tipo=tipo.value,
+                        ultimo_nsu="0",
+                        em_andamento=em_andamento,
+                        sincronizar_automaticamente=empresa.sincronizar_automaticamente,
+                        cota_pontual_disponivel=settings.limite_consultas_pontuais_por_hora,
+                    )
+                )
+                continue
+
+            bloqueado_ate = estado.bloqueado_ate
+            if bloqueado_ate and bloqueado_ate.tzinfo is None:
+                bloqueado_ate = bloqueado_ate.replace(tzinfo=timezone.utc)
+            proxima = estado.proxima_consulta_em
+            if proxima and proxima.tzinfo is None:
+                proxima = proxima.replace(tzinfo=timezone.utc)
+
+            ultima_varredura = _naive_para_aware(
+                estado.ultima_consulta_em or estado.atualizado_em
+            )
+            dias_sem_varrer = (
+                (agora - ultima_varredura).days if ultima_varredura is not None else None
+            )
+            em_dia = sincronizacao.esta_em_dia(estado)
+            # A distribuição guarda poucos meses para trás. Se o cursor está
+            # parado há mais que isso E ainda falta documento, a janela de
+            # recuperação está se fechando — é o único caso em que esperar é
+            # pior que agir.
+            risco = bool(
+                dias_sem_varrer is not None
+                and dias_sem_varrer >= settings.dias_disponiveis_na_distribuicao
+                and not em_dia
+            )
+
+            saida.append(
+                EstadoSincronizacaoResposta(
+                    empresa_id=empresa.id,
+                    razao_social=empresa.razao_social,
+                    tipo=tipo.value,
+                    dias_sem_varrer=dias_sem_varrer,
+                    risco_documento_fora_da_distribuicao=risco,
+                    ultimo_nsu=estado.ultimo_nsu,
+                    max_nsu=estado.max_nsu,
+                    pendencia=sincronizacao.pendencia_de_documentos(estado),
+                    em_dia=em_dia,
+                    bloqueado_ate=bloqueado_ate if bloqueado_ate and bloqueado_ate > agora else None,
+                    motivo_bloqueio=estado.motivo_bloqueio,
+                    bloqueios_seguidos=estado.bloqueios_seguidos or 0,
+                    proxima_consulta_em=proxima if proxima and proxima > agora else None,
+                    ultima_consulta_em=estado.ultima_consulta_em,
+                    em_andamento=em_andamento,
+                    travado=sincronizacao.esta_travado(estado, agora=agora),
+                    sincronizar_automaticamente=empresa.sincronizar_automaticamente,
+                    cota_pontual_disponivel=sincronizacao.cota_pontual_disponivel(db, estado),
+                )
+            )
+    return saida
+
+
+
+@router.get("/estado", response_model=list[EstadoSincronizacaoResposta])
+def listar_estado_sincronizacao(
+    empresa_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+):
+    """
+    Onde cada empresa+tipo está: cursor, maxNSU do ambiente, janelas de espera.
+
+    É a tela que responde "preciso clicar em alguma coisa?" — se `em_dia` é
+    true e nada está bloqueado, não. `pendencia` é o número de NSUs que ainda
+    faltam varrer quando a SEFAZ tem mais documento que o nosso cursor.
+    """
+    return estados_do_escritorio(db, escritorio_id=escritorio_id, empresa_id=empresa_id)
+
+
+@router.get("/resumo", response_model=ResumoSincronizacao)
+def resumo_sincronizacao(
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+):
+    """Contadores agregados do painel: quantas empresas em dia / esperando / travadas."""
+    estados = estados_do_escritorio(db, escritorio_id=escritorio_id)
+    em_dia = sum(1 for e in estados if e.em_dia)
+    bloqueadas = {e.empresa_id for e in estados if e.bloqueado_ate}
+    aguardando = {e.empresa_id for e in estados if e.proxima_consulta_em and not e.bloqueado_ate}
+    andamentos = {e.empresa_id for e in estados if e.em_andamento}
+    com_pendencia = {e.empresa_id for e in estados if e.pendencia > 0}
+    documentos_no_banco = (
+        db.query(func.count(DocumentoFiscal.id))
+        .join(Empresa)
+        .filter(Empresa.escritorio_id == escritorio_id)
+        .scalar()
+        or 0
+    )
+    return ResumoSincronizacao(
+        empresas=len({e.empresa_id for e in estados}),
+        combinacoes=len(estados),
+        em_dia=em_dia,
+        com_pendencia=len(com_pendencia),
+        em_andamento=len(andamentos),
+        aguardando_janela=len(aguardando - bloqueadas),
+        bloqueadas_sefaz=len(bloqueadas),
+        documentos_no_banco=documentos_no_banco,
+        sincronismo_automatico=settings.sincronismo_automatico,
+        intervalo_minutos=settings.sincronismo_intervalo_minutos,
+        tick_a_partir_de=datetime.now(timezone.utc) + timedelta(
+            minutes=settings.sincronismo_intervalo_minutos
+        ),
+    )
 
 
 @router.get("", response_model=list[ExecucaoImportacaoResposta])
@@ -183,12 +332,14 @@ def listar_execucoes(
 ):
     """Histórico de execuções — usado pela tela de Importações no painel."""
     consulta = (
-        db.query(ExecucaoImportacao).join(Empresa).filter(Empresa.escritorio_id == escritorio_id)
+        db.query(ExecucaoImportacao)
+        .join(Empresa)
+        .filter(Empresa.escritorio_id == escritorio_id)
     )
     if empresa_id is not None:
         consulta = consulta.filter(ExecucaoImportacao.empresa_id == empresa_id)
 
-    execucoes = consulta.order_by(ExecucaoImportacao.iniciado_em.desc()).limit(limit).all()
+    execucoes = consulta.order_by(ExecucaoImportacao.id.desc()).limit(limit).all()
 
     respostas = []
     for execucao in execucoes:

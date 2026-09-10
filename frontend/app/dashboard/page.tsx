@@ -3,29 +3,29 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
-import type { Empresa, ItemImportacaoLote, TipoDocumentoFiscal } from "@/lib/types";
-
-const RÓTULO_TIPO: Record<TipoDocumentoFiscal, string> = {
-  nfse: "NFS-e",
-  nfe: "NFe",
-  cte: "CT-e",
-};
-
-const RÓTULO_STATUS_LOTE: Record<ItemImportacaoLote["status"], string> = {
-  enfileirada: "Enfileirada",
-  em_cooldown: "Aguardando (sem novidade há pouco)",
-  sem_certificado: "Sem certificado ativo",
-};
+import { CompetenciaPicker } from "@/components/CompetenciaPicker";
+import { horaLocal, paraAPI } from "@/lib/competencia";
+import {
+  ROTULO_STATUS_LOTE,
+  ROTULO_TIPO,
+  type Empresa,
+  type ItemImportacaoLote,
+  type ResumoSincronizacao,
+  type TipoDocumentoFiscal,
+} from "@/lib/types";
 
 export default function VisaoGeralPage() {
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
   const [tipo, setTipo] = useState<TipoDocumentoFiscal>("nfse");
+  const [competencia, setCompetencia] = useState<string | null>(null);
+  const [saude, setSaude] = useState<ResumoSincronizacao | null>(null);
   const [disparando, setDisparando] = useState(false);
   const [resultado, setResultado] = useState<ItemImportacaoLote[] | null>(null);
   const [erro, setErro] = useState<string | null>(null);
 
   useEffect(() => {
     api.listarEmpresas().then(setEmpresas).catch(() => {});
+    api.resumoSincronizacao().then(setSaude).catch(() => {});
   }, []);
 
   async function dispararLote() {
@@ -33,8 +33,11 @@ export default function VisaoGeralPage() {
     setErro(null);
     setResultado(null);
     try {
-      const itens = await api.solicitarImportacaoEmLote(tipo);
+      const itens = await api.solicitarImportacaoEmLote(tipo, {
+        competencia: paraAPI(competencia),
+      });
       setResultado(itens);
+      api.resumoSincronizacao().then(setSaude).catch(() => {});
     } catch (e) {
       setErro(e instanceof ApiError ? e.message : "Não foi possível disparar a importação.");
     } finally {
@@ -55,11 +58,30 @@ export default function VisaoGeralPage() {
       <div className="border border-line bg-surface p-6">
         <p className="mb-1 text-base font-medium text-ink">Importar de todas as empresas</p>
         <p className="mb-4 text-sm text-ink-muted">
-          Dispara a importação para cada empresa ativa. Empresas sem certificado, ou que já
-          checaram o portal recentemente sem nada novo, ficam de fora — sem tentar duas vezes à toa.
+          Dispara a importação para cada empresa ativa. Empresas sem certificado, ou dentro da
+          janela de 1 hora que a SEFAZ exige, ficam de fora — e são retomadas sozinhas na hora certa.
         </p>
 
-        <div className="flex items-center gap-3">
+        {saude && (
+          <div className="mb-5 flex flex-wrap gap-x-6 gap-y-2 border-y border-line py-3 text-sm">
+            <span className="text-accent">{saude.em_dia} em dia</span>
+            <span className="text-ink-muted">
+              {saude.com_pendencia} com documento novo
+            </span>
+            <span className="text-warn">
+              {saude.aguardando_janela + saude.bloqueadas_sefaz} na janela da SEFAZ
+            </span>
+            <span className="text-ink-muted">{saude.em_andamento} varrendo agora</span>
+            <span className="ml-auto text-xs text-ink-muted">
+              {saude.sincronismo_automatico
+                ? `automático a cada ${saude.intervalo_minutos} min`
+                : "automático desligado"}{" "}
+              · {saude.documentos_no_banco.toLocaleString("pt-BR")} documentos no banco
+            </span>
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-end gap-3">
           <select
             value={tipo}
             onChange={(e) => setTipo(e.target.value as TipoDocumentoFiscal)}
@@ -70,12 +92,17 @@ export default function VisaoGeralPage() {
             <option value="cte">CT-e</option>
           </select>
 
+          <div>
+            <p className="mb-2 text-xs uppercase text-ink-muted">Competência</p>
+            <CompetenciaPicker valor={competencia} aoMudar={setCompetencia} />
+          </div>
+
           <button
             onClick={dispararLote}
             disabled={disparando || empresas.length === 0}
             className="bg-accent px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
           >
-            {disparando ? "Disparando…" : `Importar ${RÓTULO_TIPO[tipo]} de todas`}
+            {disparando ? "Disparando…" : `Importar ${ROTULO_TIPO[tipo]} de todas`}
           </button>
         </div>
 
@@ -98,7 +125,17 @@ export default function VisaoGeralPage() {
                 <tr key={item.empresa_id} className="border-b border-line last:border-0">
                   <td className="py-2 text-ink">{item.razao_social}</td>
                   <td className="py-2 text-ink-muted">
-                    {RÓTULO_STATUS_LOTE[item.status]}
+                    {ROTULO_STATUS_LOTE[item.status] ?? item.status}
+                    {item.mensagem ? (
+                      <span className="ml-1 text-xs text-ink-muted" title={item.mensagem}>
+                        — {item.mensagem.slice(0, 90)}
+                      </span>
+                    ) : null}
+                    {item.disponivel_em ? (
+                      <span className="ml-1 text-xs text-warn">
+                        retoma {horaLocal(item.disponivel_em)}
+                      </span>
+                    ) : null}
                     {item.status === "enfileirada" && item.execucao_id && (
                       <>
                         {" — "}

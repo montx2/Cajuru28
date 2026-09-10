@@ -7,11 +7,12 @@ multiempresa depois é ligar uma trava de acesso, não migrar dado.
 """
 
 import enum
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
 from sqlalchemy import (
     Boolean,
+    Date,
     DateTime,
     Enum,
     ForeignKey,
@@ -68,6 +69,14 @@ class Empresa(Base):
     cnpj_cpf: Mapped[str] = mapped_column(String(14), index=True)
     uf: Mapped[str] = mapped_column(String(2))  # necessário para o cUFAutor da consulta ao SEFAZ (NFe/CT-e)
     ativa: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Sincronização automática (Celery Beat). Com "sim", o sistema entra
+    # sozinho no ADN/SEFAZ respeitando as janelas de consumo — nenhum clique.
+    sincronizar_automaticamente: Mapped[bool] = mapped_column(Boolean, default=True)
+    quais_tipos_sincronizar: Mapped[str] = mapped_column(String(30), default="nfse,nfe,cte")
+
+    sincronizacoes: Mapped[list["SincronizacaoDFe"]] = relationship(
+        back_populates="empresa", cascade="all, delete-orphan"
+    )
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     escritorio: Mapped["Escritorio"] = relationship(back_populates="empresas")
@@ -128,8 +137,25 @@ class DocumentoFiscal(Base):
     chave_acesso: Mapped[str] = mapped_column(String(60), index=True)
     nsu: Mapped[str] = mapped_column(String(20), index=True)
     data_emissao: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # Competência ("mês do documento"). É isto que o contador pede quando diz
+    # "me dá as notas de 08/2026" — a distribuição oficial não aceita filtro de
+    # data, então guardamos a competência de tudo que chega e filtramos aqui:
+    # trocar de mês passa a custar zero consultas à SEFAZ.
+    competencia: Mapped[Optional[date]] = mapped_column(Date, nullable=True, index=True)
     valor_total: Mapped[float] = mapped_column()
     xml_path: Mapped[str] = mapped_column(String(500))
+    # "completo" = XML inteiro; "resumo" = só o resNFe/resCTe (a SEFAZ libera o
+    # XML completo do destinatário após manifestação — dá para buscar pela
+    # chave, e o botão "completar XML" faz isso respeitando a cota de 20/h).
+    leiaute: Mapped[str] = mapped_column(String(12), default="completo")
+    numero: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    serie: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    emitente_documento: Mapped[str | None] = mapped_column(String(18), nullable=True)
+    emitente_nome: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    destinatario_documento: Mapped[str | None] = mapped_column(String(18), nullable=True)
+    destinatario_nome: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    situacao: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    origem: Mapped[str | None] = mapped_column(String(20), nullable=True)  # adn/sefaz/distDFe...
     status: Mapped[StatusDocumentoFiscal] = mapped_column(
         Enum(StatusDocumentoFiscal), default=StatusDocumentoFiscal.NORMAL
     )
@@ -144,6 +170,10 @@ class StatusExecucao(str, enum.Enum):
     EM_ANDAMENTO = "em_andamento"
     CONCLUIDA = "concluida"
     ERRO = "erro"
+    # A SEFAZ/ADN bloqueou o CNPJ por consumo indevido (cStat 656) e a própria
+    # regra oficial manda esperar 1 hora. Não é erro: o sistema reagendou a
+    # continuação sozinho e o checkpoint de NSU está intacto.
+    AGUARDANDO = "aguardando"
 
 
 class ExecucaoImportacao(Base):
@@ -159,12 +189,78 @@ class ExecucaoImportacao(Base):
     documentos_cancelados: Mapped[int] = mapped_column(Integer, default=0)
     eventos_nao_reconhecidos: Mapped[int] = mapped_column(Integer, default=0)
     ultimo_nsu: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Competência pedida pelo operador (ex.: 08/2026). Nada é descartado por
+    # causa dela — serve para contar o que caiu no mês e para pré-selecionar o
+    # lote na hora de baixar os XMLs.
+    data_inicio: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    data_fim: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    documentos_no_periodo: Mapped[int] = mapped_column(Integer, default=0)
+    # Controle do "quase 100% automático": quantas rodadas esta execução já
+    # dormiu esperando a janela de consumo da SEFAZ abrir.
+    tentativas: Mapped[int] = mapped_column(Integer, default=0)
+    bloqueado_ate: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    origem: Mapped[str] = mapped_column(String(20), default="manual")  # manual | lote | agendador
+    # Pulou a janela de consumo por ordem explícita do operador. Fica registrado
+    # para a tela conseguir explicar um 656 logo em seguida ("você forçou").
+    forcar: Mapped[bool] = mapped_column(Boolean, default=False)
     mensagem_erro: Mapped[str | None] = mapped_column(Text, nullable=True)
     aviso: Mapped[str | None] = mapped_column(Text, nullable=True)
     iniciado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     finalizado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     empresa: Mapped["Empresa"] = relationship()
+
+
+class SincronizacaoDFe(Base):
+    """
+    Estado de sincronização de uma empresa+tipo — a peça que faltava.
+
+    Antes, cursor e "quando posso consultar de novo" viviam espalhados no
+    histórico de execuções. Com o bloqueio por consumo indevido (cStat 656)
+    isso virou frágil: um re-tento cedo demais zera o cronômetro da SEFAZ e o
+    CNPJ fica preso em loop. Aqui mora a verdade única:
+
+    - `ultimo_nsu` → cursor oficial (só anda para frente, exceto realinhamento
+      explícito a partir do `ultNSU` que o próprio ambiente devolveu);
+    - `max_nsu`    → até onde o ambiente tem documento para este CNPJ
+                      (`ultimo_nsu == max_nsu` é a definição oficial de "em dia");
+    - `proxima_consulta_em` / `bloqueado_ate` → janelas de consumo;
+    - `travado_em` → lease: garante que duas tasks do mesmo CNPJ+tipo nunca
+                      consultem ao mesmo tempo (fora de sequência = 656).
+    """
+
+    __tablename__ = "sincronizacoes_dfe"
+    __table_args__ = (
+        UniqueConstraint("empresa_id", "tipo", name="uq_sincronizacao_empresa_tipo"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id"), index=True)
+    tipo: Mapped[TipoDocumentoFiscal] = mapped_column(Enum(TipoDocumentoFiscal))
+
+    ultimo_nsu: Mapped[str] = mapped_column(String(20), default="0")
+    max_nsu: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
+    proxima_consulta_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    bloqueado_ate: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    motivo_bloqueio: Mapped[str | None] = mapped_column(Text, nullable=True)
+    bloqueios_seguidos: Mapped[int] = mapped_column(Integer, default=0)
+
+    # Cota de consultas pontuais (consChNFe/consNSU): 20 por hora, por CNPJ.
+    consultas_pontuais: Mapped[int] = mapped_column(Integer, default=0)
+    janela_pontual_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Lease mútuo entre workers.
+    travado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    tarefas_pendentes: Mapped[int] = mapped_column(Integer, default=0)
+    ultima_consulta_em: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    atualizado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    empresa: Mapped["Empresa"] = relationship(back_populates="sincronizacoes")
 
 
 class EventoFiscalPendente(Base):

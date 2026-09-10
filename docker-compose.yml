@@ -61,6 +61,24 @@ services:
       - certificados:/data/certificados
       - xml_saida:/data/xml
 
+  beat:
+    build: ./backend
+    restart: unless-stopped
+    # O relógio do sistema: dispara o sincronismo automático de todas as
+    # empresas e a retomada dos XMLs que vieram só como resumo. Rode UMA única
+    # instância (escalar o beat duplica os disparos).
+    command: celery -A app.worker.celery_app beat --loglevel=info
+    env_file: ./backend/.env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - certificados:/data/certificados
+      - xml_saida:/data/xml
+
   frontend:
     build:
       context: ./frontend

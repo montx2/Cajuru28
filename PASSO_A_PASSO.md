@@ -104,20 +104,39 @@ Na tela da empresa, botões **NFSE** / **NFE** / **CTE**.
 
 ### Todas de uma vez
 
-1. Menu **Visão geral**  
-2. Escolha o tipo (NFS-e, NFe ou CT-e)  
-3. Clique em **Importar … de todas**
+1. Menu **Visão geral** (ou **Importações**)  
+2. Escolha o tipo (NFS-e, NFe, CT-e — ou os três) e, se quiser, a **competência**
+   (o mês que o contador pediu)  
+3. Clique em **Importar … de todas** / **Sincronizar todas agora**
 
-Empresas sem certificado ou em “cooldown” de 1h aparecem na lista com o motivo.
+Empresas sem certificado ou dentro da janela de 1h da SEFAZ aparecem na lista
+com o motivo e a hora em que a retomada automática já está marcada.
 
 ### Acompanhar
 
-Menu **Importações** — atualiza sozinho a cada 4 segundos.  
-Se der erro, a mensagem aparece em vermelho na linha.
+Menu **Importações** — atualiza sozinho enquanto houver execução rodando.  
+A tabela **“De onde cada empresa está”** mostra o cursor (último NSU), quantos
+documentos faltam e quando a próxima consulta acontece. Estados possíveis:
+
+- **em dia ✔** — nada a fazer;
+- **varrendo…** — o worker está descendo os lotes agora;
+- **espera / bloqueada pela SEFAZ** — é a janela oficial de 1h por CNPJ; a
+  continuação já está agendada, e a linha diz a hora. **Não clique de novo**:
+  consultar antes de a janela vencer renova o bloqueio;
+- **Erro** (vermelho) — aí sim precisa olhar: falta certificado, credencial do
+  cofre, ambiente indisponível.
+
+Depois do primeiro ciclo de cada empresa você não precisa mais clicar em nada:
+o **Importações → sincronizar automática** roda sozinho. Se quiser, desligue
+por empresa na tela dela.
 
 ### Ver e baixar XML
 
-Menu **Documentos** → filtre por empresa/tipo → botão **XML**.
+Menu **Documentos** → filtre empresa/tipo/**mês** → botão **XML** (uma nota) ou
+**Baixar todos os XMLs** (ZIP com os XMLs do filtro + `relacao.csv` +
+`LEIA-ME.txt`). Marque linhas na tabela para baixar só a seleção. O botão
+“N só com resumo → buscar XML completo” manda o sistema buscar pela chave o
+XML que a SEFAZ ainda não tinha entregue — dentro do teto de 20 consultas/h.
 
 ---
 
@@ -170,7 +189,9 @@ Depois volte para `producao` quando validar.
 | “Sem certificado ativo” | Envie o `.pfx` na tela da empresa |
 | “Certificado inacessível; restaure a chave…” | A `VAULT_MASTER_KEY` foi alterada ou a senha cifrada corrompeu. Restaure no `backend/.env` a chave usada quando o certificado foi enviado e reinicie `api` e `worker`; se não a tiver, envie novamente o `.pfx` com a senha. |
 | `duplicate key` / `uq_documento_por_empresa` | Atualize pelo `ATUALIZAR.bat` e importe outra vez. A versão atual ignora a mesma nota de forma atômica; não apague documentos do banco. |
-| Erro 429 / cStat 656 | Cooldown de 1h do governo — aguarde, não force em loop |
+| Erro 429 / cStat 656 no meio de uma importação | Não é falha: é a janela de 1h que a SEFAZ exige por CNPJ. O NotasFlow mostra **Aguardando a SEFAZ** e retoma sozinho na hora marcada — não clique de novo (isso zera o cronômetro do bloqueio). Detalhes em [`docs/SINCRONIZACAO.md`](docs/SINCRONIZACAO.md) |
+| Tela de Importações “parada” sem erro | Falta o serviço `beat`: `docker compose up -d beat` |
+| “Baixar todos os XMLs” responde que o filtro é grande demais | Use um mês (competência) ou uma empresa só; o teto é `LIMITE_DOCUMENTOS_POR_EXPORTACAO` |
 | Porta 3000 ou 8000 em uso | Feche o outro programa ou mude as portas no `docker-compose.yml` |
 | Esqueci a senha do painel | Rode de novo `python scripts\gerar_env.py --forcar` e `docker compose down -v` (apaga o banco local) + `INICIAR.bat` |
 | Quero a versão mais recente | Rode `ATUALIZAR.bat` (baixa o código novo e reconstrói) |

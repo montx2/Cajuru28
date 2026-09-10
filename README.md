@@ -29,15 +29,23 @@ API (FastAPI) ──────┬──────────────┬
                      ▼              ▼               ▼
               PostgreSQL      Cofre Fernet     Redis + Celery
                                                    │
-                                                   ▼
-                                              Workers
-                                         ┌─────┴─────┐
-                                         ▼           ▼
-                                   ADN (NFS-e)   SEFAZ AN
-                                                 (NFe / CT-e)
+                                     ┌─────────────┴─────────────┐
+                                     ▼                           ▼
+                              Workers (importação)          Beat (relógio)
+                                     │                    sincroniza sozinho,
+                                     │                    retoma o que a SEFAZ
+                                     │                    pediu para esperar
+                                     ▼
+                          ┌──────────┴──────────┐
+                          ▼                     ▼
+                    ADN (NFS-e)            SEFAZ AN
+                                          (NFe / CT-e)
 ```
 
 Detalhes em [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md).
+**Como o sistema conversa com a SEFAZ sem queimar o CNPJ** — cooldown de 1h,
+cStat 656, cursor por NSU, cota de consultas pontuais, competência e download
+em massa — está em [`docs/SINCRONIZACAO.md`](docs/SINCRONIZACAO.md).
 Fases em [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Stack
@@ -46,7 +54,7 @@ Fases em [`docs/ROADMAP.md`](docs/ROADMAP.md).
 | -------------- | -------------------- | ------- |
 | Backend        | Python 3.11 + FastAPI | X.509/mTLS/XML fiscal |
 | Banco          | PostgreSQL           | Multiempresa, concorrência |
-| Fila           | Redis + Celery       | Importação em background com retry |
+| Fila           | Redis + Celery       | Importação em background, retomada automática, lease por CNPJ |
 | Cofre          | Fernet (AES)         | Senha de certificado nunca em texto puro |
 | Auth           | JWT                  | Multiusuário + `escritorio_id` |
 | Frontend       | Next.js 16 + Tailwind | Painel operacional clean |
@@ -101,8 +109,11 @@ Login: abra `CREDENCIAIS.txt` (email + senha gerados no seu PC).
 1. **Empresas** → razão social, CNPJ e UF (ou **Importar em massa**, abaixo)  
 2. Abrir empresa → enviar `.pfx` + senha do certificado A1  
 3. **Visão geral** → importar NFS-e / NFe / CT-e de todas  
-4. **Importações** → acompanhar (atualiza sozinho)  
-5. **Documentos** → consultar e baixar XML  
+4. **Importações** → acompanhar; depois do primeiro ciclo você para de clicar:  
+   o agendador (`beat`) mantém todo CNPJ em dia e retoma sozinho quem ficou na  
+   janela de espera da SEFAZ  
+5. **Documentos** → escolher o mês (**competência**), marcar o que quiser e  
+   **baixar todos os XMLs** num ZIP (XMLs + `relacao.csv` + `LEIA-ME.txt`)  
 
 ### Importar empresas em massa (estilo JetTax360)
 
@@ -124,6 +135,38 @@ individual por CNPJ.
 > Importante: o sistema usa **somente a senha que você informa**. Não há
 > tentativa automática de senhas "comuns" — se a senha de um arquivo não
 > bater, ele aparece como erro no relatório e você reenvia com a senha certa.
+
+### Sincronização quase automática (o que mudou nesta versão)
+
+Depois de cadastrar empresa + certificado, **não existe mais clique obrigatório**:
+
+- o `beat` consulta cada CNPJ no ritmo que a SEFAZ permite (janela de 1h por
+  documento, round-robin entre as empresas do escritório);
+- `cStat 656 – Consumo Indevido` deixou de ser "Erro" vermelho na tela: vira
+  **Aguardando a SEFAZ**, com a hora em que a continuação já está marcada;
+- quem consulta o mesmo CNPJ em outro sistema não derruba o cursor — o
+  `ultNSU` devolvido na própria rejeição realinha o checkpoint;
+- nota que chegou só em `resumo` (resNFe) tem o XML completo buscado pela chave
+  numa rodada própria, dentro da cota oficial de 20 consultas/h;
+- cancelamentos e eventos continuam entrando pela mesma varredura.
+
+Regras, ajustes e diagnóstico estão em [`docs/SINCRONIZACAO.md`](docs/SINCRONIZACAO.md).
+
+### Competência (mês) e download em massa
+
+Tanto a importação quanto a tela de documentos entendem `competencia=08/2026`
+(o navegador usa o seletor nativo de mês):
+
+- a **descida** do lote é por NSU — baixar tudo é o que garante que nenhuma
+  nota se perca, e é por isso que o mês não limita a consulta;
+- a **contagem, a lista, o resumo e o ZIP** são recortados pelo mês declarado no
+  próprio XML (`competencia` indexada), então trocar de mês custa zero requests;
+- `GET /documentos/exportar` gera um ZIP com **todos os XMLs do filtro** para
+  todas as empresas do escritório, com `relacao.csv` (`;` + BOM, abre no Excel
+  brasileiro) e um `LEIA-ME.txt`; `GET /documentos/exportar/estimativa` diz
+  quantos arquivos/MB antes de você clicar;
+- a seleção da tela vira `documento_ids=1,2,3` no mesmo endpoint — dá para
+  baixar só o que está marcado, ou o mês inteiro.
 
 ### Notas canceladas
 
@@ -157,6 +200,9 @@ task por empresa. Uma travar não puxa as outras. Para mais paralelismo:
 ```bash
 docker compose up --scale worker=3
 ```
+
+O serviço `beat` roda uma única instância de propósito (é o relógio do
+sincronismo — escalar duplicaria os disparos na SEFAZ).
 
 ## Fontes oficiais usadas
 
@@ -205,12 +251,15 @@ No `.env`:
 AMBIENTE_FISCAL=homologacao
 ```
 
-Reinicie API + worker (`docker compose restart api worker`), rode a importação
-com 1–2 empresas primeiro, confira os logs do worker:
+Reinicie API, worker e beat (`docker compose restart api worker beat`), rode a
+importação com 1–2 empresas primeiro, confira os logs do worker:
 
 ```bash
-docker compose logs -f worker
+docker compose logs -f worker beat
 ```
 
-Se aparecer cStat 656 / HTTP 429, o cooldown de 1h já protege — não force em
-loop. Só use `forcar=true` (ou o equivalente na API) com consciência.
+Se aparecer cStat 656 / HTTP 429, **está funcionando**: é a janela oficial de
+1 hora entre consultas do mesmo CNPJ, o sistema registrou `Aguardando a SEFAZ`
+e vai retomar sozinho na hora certa. Não force em loop — repetir a consulta antes
+da janela zera o cronômetro do bloqueio. `forcar=true` existe para o caso de
+certeza (cursor preso, troca de autorizador) e fica registrado na execução.

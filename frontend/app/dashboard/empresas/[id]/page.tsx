@@ -3,7 +3,15 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
-import type { Certificado, Empresa, TipoDocumentoFiscal } from "@/lib/types";
+import { emQuanto, horaLocal } from "@/lib/competencia";
+import {
+  ROTULO_TIPO,
+  TIPOS,
+  type Certificado,
+  type EstadoSincronizacao,
+  type Empresa,
+  type TipoDocumentoFiscal,
+} from "@/lib/types";
 
 function formatarData(iso: string): string {
   return new Date(iso).toLocaleDateString("pt-BR");
@@ -21,15 +29,21 @@ export default function DetalheEmpresaPage() {
   const [erroCertificado, setErroCertificado] = useState<string | null>(null);
   const [disparandoImportacao, setDisparandoImportacao] = useState(false);
   const [mensagemImportacao, setMensagemImportacao] = useState<string | null>(null);
+  const [sincronizacoes, setSincronizacoes] = useState<EstadoSincronizacao[]>([]);
 
   function carregar() {
     api.obterEmpresa(empresaId).then(setEmpresa);
     api.listarCertificados(empresaId).then(setCertificados);
+    api
+      .sincronizacaoDaEmpresa(empresaId)
+      .then(setSincronizacoes)
+      .catch(() => setSincronizacoes([]));
   }
 
   useEffect(carregar, [empresaId]);
 
   const certificadoAtivo = certificados.find((c) => c.ativo);
+  const automatico = empresa?.sincronizar_automaticamente !== false;
 
   async function enviarCertificado(evento: React.FormEvent) {
     evento.preventDefault();
@@ -55,13 +69,32 @@ export default function DetalheEmpresaPage() {
     setMensagemImportacao(null);
     try {
       const execucao = await api.solicitarImportacao(empresaId, tipo);
-      setMensagemImportacao(`Importação de ${tipo.toUpperCase()} enfileirada (execução #${execucao.id}).`);
+      setMensagemImportacao(`Importação de ${ROTULO_TIPO[tipo]} enfileirada (execução #${execucao.id}).`);
+      carregar();
     } catch (e) {
-      setMensagemImportacao(
-        e instanceof ApiError ? e.message : "Não foi possível iniciar a importação."
-      );
+      if (e instanceof ApiError && e.ehAguardo) {
+        // A SEFAZ pede 1h entre consultas do mesmo CNPJ: é espera, não falha.
+        setMensagemImportacao(e.message);
+      } else {
+        setMensagemImportacao(
+          e instanceof ApiError ? e.message : "Não foi possível iniciar a importação."
+        );
+      }
     } finally {
       setDisparandoImportacao(false);
+      carregar();
+    }
+  }
+
+  async function alternarAutomatico() {
+    if (!empresa) return;
+    try {
+      const atualizada = await api.atualizarEmpresa(empresa.id, {
+        sincronizar_automaticamente: !empresa.sincronizar_automaticamente,
+      });
+      setEmpresa(atualizada);
+    } catch (e) {
+      setMensagemImportacao(e instanceof ApiError ? e.message : "Não foi possível alterar.");
     }
   }
 
@@ -173,7 +206,63 @@ export default function DetalheEmpresaPage() {
             </button>
           ))}
         </div>
-        {mensagemImportacao && <p className="mt-4 text-sm text-ink-muted">{mensagemImportacao}</p>}
+        {mensagemImportacao && (
+          <p className="mt-4 border-l-2 border-warn bg-warn-soft px-3 py-2 text-sm text-ink">
+            {mensagemImportacao}
+          </p>
+        )}
+      </section>
+
+      <section className="mt-6 border border-line bg-surface p-6">
+        <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+          <p className="text-base font-medium text-ink">Sincronização automática</p>
+          <button
+            type="button"
+            onClick={alternarAutomatico}
+            className={
+              automatico
+                ? "bg-accent px-3 py-1.5 text-sm text-white hover:opacity-90"
+                : "border border-line px-3 py-1.5 text-sm text-ink-muted hover:border-accent hover:text-ink"
+            }
+          >
+            {automatico ? "Ligado — desligar" : "Desligado — ligar"}
+          </button>
+        </div>
+        <p className="mb-4 text-sm text-ink-muted">
+          Com o automático ligado, o sistema consulta esta empresa sozinho, respeitando a janela de
+          1 hora por tipo de documento. Desligue apenas se outro sistema consultar o mesmo CNPJ na
+          SEFAZ — aí os dois brigam pelo mesmo NSU.
+        </p>
+
+        <ul className="space-y-2 text-sm">
+          {TIPOS.map((tipo) => {
+            const estado = sincronizacoes.find((linha) => linha.tipo === tipo);
+            const espera = emQuanto(estado?.bloqueado_ate ?? estado?.proxima_consulta_em ?? null);
+            return (
+              <li key={tipo} className="flex flex-wrap items-baseline gap-x-3 border-b border-line pb-2 last:border-0">
+                <span className="w-16 text-ink">{ROTULO_TIPO[tipo]}</span>
+                {!estado || Number(estado.ultimo_nsu) === 0 ? (
+                  <span className="text-ink-muted">nunca consultado</span>
+                ) : estado.em_dia ? (
+                  <span className="text-accent">
+                    em dia até o NSU {Number(estado.ultimo_nsu).toLocaleString("pt-BR")}
+                  </span>
+                ) : (
+                  <span className="text-ink">
+                    faltam {estado.pendencia} documento(s) · cursor {Number(estado.ultimo_nsu).toLocaleString("pt-BR")}
+                    {estado.max_nsu ? ` / ${Number(estado.max_nsu).toLocaleString("pt-BR")}` : ""}
+                  </span>
+                )}
+                {espera && <span className="text-warn">próxima consulta {espera}</span>}
+                {estado?.ultima_consulta_em && (
+                  <span className="text-xs text-ink-muted">
+                    última varredura {horaLocal(estado.ultima_consulta_em)}
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
       </section>
     </div>
   );

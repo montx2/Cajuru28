@@ -82,6 +82,62 @@ A paginação do ADN passou a usar o **tamanho do lote bruto** (eventos
 incluídos) e o cursor é calculado por `UltNSU`/NSU bruto — nunca por contagem
 de notas convertidas.
 
+## O governador de consumo (por que nada vira erro vermelho)
+
+O gargalo real de puxar nota fiscal não é throughput, é **quota**: a SEFAZ
+libera uma consulta por CNPJ por hora e rejeita com **cStat 656** quem consulta
+antes — e cada tentativa antecipada **reinicia** o bloqueio. Um sistema que
+trata isso como exceção vira um botão que o operador aperta com raiva e que
+trava o CNPJ do cliente.
+
+Então existe uma peça só para isso, `app/services/sincronizacao.py`, e um
+estado por (empresa, tipo) na tabela `sincronizacoes_dfe`:
+
+| Campo | Para que serve |
+| --- | --- |
+| `ultimo_nsu` | checkpoint — de onde a próxima varredura continua (nunca regride) |
+| `max_nsu` | até onde o ambiente tem documento: `ultimo >= max` é **em dia** |
+| `proxima_consulta_em` | a janela de 1h (+ folga), válida para clique manual **e** agendador |
+| `bloqueado_ate`, `motivo_bloqueio`, `bloqueios_seguidos` | o 656 como estado operacional, não como falha |
+| `consultas_pontuais`, `janela_pontual_em` | cota de 20/h das consultas por chave/NSU |
+| `travado_em` | `lease` de 25 min: duas varreduras nunca disputam o mesmo NSU |
+| `tarefas_pendentes` | execução `AGUARDANDO` reagendada que o beat retoma |
+
+Quem consome isso:
+
+- **`POST /importacoes`** — responde 429 com a hora da liberação em vez de
+  disparar uma task que ia tomar 656; `forcar=true` atravessa e fica registrado;
+- **`worker/tasks.importar_documentos`** — commit por lote (checkpoint real),
+  espera entre páginas, teto de páginas com reagendaamento da *mesma* execução,
+  656 → `AGUARDANDO` + realinhamento de cursor + retomada automática;
+- **`sincronizar_tudo` (beat)** — round-robin por `ultima_consulta_em` (quem
+  está pronto primeiro; NULLS FIRST para empresas novas), sem enfileirar duas
+  vezes a mesma combinação;
+- **`completar_xmls_pendentes` (beat)** — preenche os `leiaute="resumo"` pela
+  chave, com a cota de 20/h e pausando ao tomar 656.
+
+A resposta de uma importação nunca é "Erro" quando a SEFAZ só pediu para
+esperar: `StatusExecucao.AGUARDANDO` existe exatamente para isso.
+
+Regras completas e diagnóstico: [`SINCRONIZACAO.md`](SINCRONIZACAO.md).
+
+## Competência no banco, não na requisição
+
+Nenhum webservice de distribuição aceita filtro por data — e fingir que aceita
+(cortando o cursor) é como se perdem notas. O modelo grava, em cada documento, a
+`competencia` declarada no próprio XML (`dComp`/`dhEmi`, coluna `date`
+indexada), e toda a API usa **uma única função de filtro**
+(`documentos._filtrar`) para lista, resumo e ZIP. Consequência prática:
+
+- trocar de mês na tela custa zero requests à SEFAZ;
+- o número na tela é o número de arquivos no ZIP;
+- uma competência antiga vira um `WHERE`, não uma "reimportação do mês".
+
+O ZIP (`GET /documentos/exportar`) é montado num arquivo temporário a partir de
+um `SELECT` paginado (`.yield_per(200)`), servido por `FileResponse` e apagado
+em `BackgroundTask` — não existe caminho em que um download de 20 mil arquivos
+segure conexão do banco ou estoure memória do processo.
+
 ## Cadastro em massa de empresas
 
 `POST /empresas/lote` recebe vários `.pfx` + senha (compartilhada ou por
@@ -108,6 +164,7 @@ Script manual: `docker compose exec api python scripts/migrar.py`.
   real, trocar para Alembic é o próximo passo natural — o ponto de troca
   continua isolado em `app/db/base.py`.
 - **Vault externo (HashiCorp/KMS)**: ver seção acima.
-- **Frontend**: a API já está pronta para qualquer frontend (Swagger em
-  `/docs` funciona como painel de teste enquanto isso). Recomendo Next.js
-  (React + Tailwind) quando for a hora — converso sobre isso na Fase 4.
+- **Fila durável (RabbitMQ/Postgres) no lugar de Redis**: o Redis é broker
+  aqui, não store — por isso `task_acks_late`, `visibility_timeout` maior que
+  qualquer countdown e checkpoint no banco. Se um dia a fila precisar de
+  garantia transacional, a troca é no `celery_app`, não nas tasks.
