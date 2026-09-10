@@ -108,6 +108,9 @@ export interface EstadoSincronizacao {
   travado: boolean;
   sincronizar_automaticamente: boolean;
   cota_pontual_disponivel: number;
+  dias_sem_varrer: number | null;
+  /** a distribuição só tem ~3 meses: parado esse tempo, o que falta pode ter saído */
+  risco_documento_fora_da_distribuicao: boolean;
 }
 
 export interface ResumoSincronizacao {

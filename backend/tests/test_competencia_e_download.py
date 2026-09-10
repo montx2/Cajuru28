@@ -526,6 +526,32 @@ def test_endpoint_de_estado_mostra_cursor_e_bloqueio(cliente):
     assert resumo["sincronismo_automatico"] is True
 
 
+def test_cursor_parado_ha_meses_avisa_do_prazo_da_distribuicao(cliente):
+    """
+    A distribuição devolve ~3 meses. Cursor parado mais que isso *com
+    pendência* significa que a janela de recuperação está fechando — é o único
+    caso em que esperar não é a resposta certa, então a tela precisa dizer.
+    """
+    db = cliente["db"]
+    estado = sincronizacao.obter_estado(db, cliente["empresa_id"], TipoDocumentoFiscal.NFE)
+    estado.ultimo_nsu = "10"
+    estado.max_nsu = "90"
+    estado.ultima_consulta_em = datetime.now(timezone.utc) - timedelta(days=120)
+    db.commit()
+
+    corpo = cliente["client"].get("/importacoes/estado").json()
+    nfe = next(item for item in corpo if item["tipo"] == "nfe")
+    assert nfe["dias_sem_varrer"] >= 119
+    assert nfe["risco_documento_fora_da_distribuicao"] is True
+
+    # em dia = nada em risco, por mais parado que esteja
+    estado.max_nsu = "10"
+    db.commit()
+    corpo = cliente["client"].get("/importacoes/estado").json()
+    nfe = next(item for item in corpo if item["tipo"] == "nfe")
+    assert nfe["risco_documento_fora_da_distribuicao"] is False
+
+
 def test_sincronizacao_por_empresa_tem_os_mesmos_campos_do_painel(cliente):
     """A tela da empresa lê o mesmo schema do painel — sem tradução à parte."""
     db = cliente["db"]

@@ -33,7 +33,7 @@ from app.schemas import (
     ItemLoteEmpresas,
     LoteEmpresasResposta,
 )
-from app.api.routers.importacoes import listar_estado_sincronizacao
+from app.api.routers.importacoes import estados_do_escritorio
 from app.services.certificados import (
     apenas_digitos,
     cnpj_de_nome_arquivo,
@@ -150,7 +150,7 @@ def sincronizacao_da_empresa(
 ):
     """Cursor, maxNSU, janelas e bloqueios desta empresa — por tipo de documento."""
     _empresa_do_escritorio(db, empresa_id, escritorio_id)
-    return listar_estado_sincronizacao(db=db, escritorio_id=escritorio_id, empresa_id=empresa_id)
+    return estados_do_escritorio(db, escritorio_id=escritorio_id, empresa_id=empresa_id)
 
 
 @router.post("/lote", response_model=LoteEmpresasResposta)

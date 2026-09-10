@@ -327,6 +327,13 @@ export default function ImportacoesPage() {
                         ) : (
                           <span className="text-ink-muted">nunca consultado</span>
                         )}
+                        {estado.risco_documento_fora_da_distribuicao && (
+                          <p className="text-xs text-danger">
+                            ⚠ {estado.dias_sem_varrer} dias sem varrer com documento faltando — a SEFAZ só
+                            entrega os últimos ~3 meses, então o que passou pode já ter saído da
+                            distribuição.
+                          </p>
+                        )}
                       </td>
                       <td className="py-3 text-right">
                         <button

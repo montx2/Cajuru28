@@ -254,6 +254,11 @@ class EstadoSincronizacaoResposta(BaseModel):
     travado: bool = False
     sincronizar_automaticamente: bool = True
     cota_pontual_disponivel: int = 20
+    #: dias desde a última varredura bem-sucedida (None = nunca varreu)
+    dias_sem_varrer: int | None = None
+    #: a distribuição só guarda ~3 meses: parado esse tempo todo, o que falta
+    #: pode já ter saído do webservice — vale conferir com o cliente
+    risco_documento_fora_da_distribuicao: bool = False
 
 
 class ResumoSincronizacao(BaseModel):

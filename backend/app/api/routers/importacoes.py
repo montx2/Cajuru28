@@ -167,7 +167,14 @@ def solicitar_importacao_em_lote(
     return resultados
 
 
-def _estados_do_escritorio(
+def _naive_para_aware(valor: datetime | None) -> datetime | None:
+    """SQLite devolve datetime sem fuso; o resto do código trabalha com UTC."""
+    if valor is None:
+        return None
+    return valor if valor.tzinfo else valor.replace(tzinfo=timezone.utc)
+
+
+def estados_do_escritorio(
     db: Session,
     *,
     escritorio_id: int,
@@ -209,6 +216,7 @@ def _estados_do_escritorio(
                         ultimo_nsu="0",
                         em_andamento=em_andamento,
                         sincronizar_automaticamente=empresa.sincronizar_automaticamente,
+                        cota_pontual_disponivel=settings.limite_consultas_pontuais_por_hora,
                     )
                 )
                 continue
@@ -220,15 +228,34 @@ def _estados_do_escritorio(
             if proxima and proxima.tzinfo is None:
                 proxima = proxima.replace(tzinfo=timezone.utc)
 
+            ultima_varredura = _naive_para_aware(
+                estado.ultima_consulta_em or estado.atualizado_em
+            )
+            dias_sem_varrer = (
+                (agora - ultima_varredura).days if ultima_varredura is not None else None
+            )
+            em_dia = sincronizacao.esta_em_dia(estado)
+            # A distribuição guarda poucos meses para trás. Se o cursor está
+            # parado há mais que isso E ainda falta documento, a janela de
+            # recuperação está se fechando — é o único caso em que esperar é
+            # pior que agir.
+            risco = bool(
+                dias_sem_varrer is not None
+                and dias_sem_varrer >= settings.dias_disponiveis_na_distribuicao
+                and not em_dia
+            )
+
             saida.append(
                 EstadoSincronizacaoResposta(
                     empresa_id=empresa.id,
                     razao_social=empresa.razao_social,
                     tipo=tipo.value,
+                    dias_sem_varrer=dias_sem_varrer,
+                    risco_documento_fora_da_distribuicao=risco,
                     ultimo_nsu=estado.ultimo_nsu,
                     max_nsu=estado.max_nsu,
                     pendencia=sincronizacao.pendencia_de_documentos(estado),
-                    em_dia=sincronizacao.esta_em_dia(estado),
+                    em_dia=em_dia,
                     bloqueado_ate=bloqueado_ate if bloqueado_ate and bloqueado_ate > agora else None,
                     motivo_bloqueio=estado.motivo_bloqueio,
                     bloqueios_seguidos=estado.bloqueios_seguidos or 0,
@@ -257,7 +284,7 @@ def listar_estado_sincronizacao(
     true e nada está bloqueado, não. `pendencia` é o número de NSUs que ainda
     faltam varrer quando a SEFAZ tem mais documento que o nosso cursor.
     """
-    return _estados_do_escritorio(db, escritorio_id=escritorio_id, empresa_id=empresa_id)
+    return estados_do_escritorio(db, escritorio_id=escritorio_id, empresa_id=empresa_id)
 
 
 @router.get("/resumo", response_model=ResumoSincronizacao)
@@ -266,7 +293,7 @@ def resumo_sincronizacao(
     escritorio_id: int = Depends(escritorio_id_atual),
 ):
     """Contadores agregados do painel: quantas empresas em dia / esperando / travadas."""
-    estados = _estados_do_escritorio(db, escritorio_id=escritorio_id)
+    estados = estados_do_escritorio(db, escritorio_id=escritorio_id)
     em_dia = sum(1 for e in estados if e.em_dia)
     bloqueadas = {e.empresa_id for e in estados if e.bloqueado_ate}
     aguardando = {e.empresa_id for e in estados if e.proxima_consulta_em and not e.bloqueado_ate}

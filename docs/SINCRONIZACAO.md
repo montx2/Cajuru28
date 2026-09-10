@@ -139,3 +139,4 @@ NotasFlow/LEIA-ME.txt      o que o pacote contém e o que falta
 | Prestadas vazio para NFe | A distribuição não entrega os documentos do próprio emitente | Normal. Emitente consulta a SEFAZ autorizadora. |
 | ZIP responde 413 | Filtro maior que o teto | Afine por empresa ou mês; o teto é configurável. |
 | Mês antigo não aparece | Documento anterior aos ~3 meses disponíveis na distribuição | Reimportar não resolve; a fonte é a empresa/contador. |
+| “⚠ N dias sem varrer com documento faltando” na tela | `dias_sem_varrer ≥ DIAS_DISPONIVEIS_NA_DISTRIBUICAO` com pendência aberta: a janela de recuperação está fechando | Rode a varredura dessa empresa o quanto antes (a fila prioriza sozinha); o que passou dos ~3 meses pode já ter saído da distribuição. |
