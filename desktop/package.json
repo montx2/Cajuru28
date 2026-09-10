@@ -1,0 +1,118 @@
+{
+  "name": "notasflow-desktop",
+  "version": "1.0.0",
+  "description": "NotasFlow - Importação automática de documentos fiscais (NFS-e, NFe, CT-e) - Desktop App",
+  "author": "NotasFlow",
+  "license": "MIT",
+  "private": true,
+  "main": "electron/main.js",
+  "homepage": "./",
+  "scripts": {
+    "dev": "electron .",
+    "dev:frontend": "cd ../frontend && npm run dev",
+    "build:frontend": "cd ../frontend && npm run build:desktop",
+    "build:backend": "node scripts/build-backend.js",
+    "build": "npm run build:frontend && npm run build:backend && electron-builder",
+    "build:win": "npm run build:frontend && electron-builder --win --x64",
+    "build:win-portable": "npm run build:frontend && electron-builder --win portable --x64",
+    "build:win-only": "electron-builder --win --x64",
+    "dist": "electron-builder",
+    "postinstall": "electron-builder install-app-deps",
+    "pack": "electron-builder --dir",
+    "lint": "echo \"No lint configured\""
+  },
+  "dependencies": {
+    "electron-log": "^5.1.2",
+    "electron-updater": "^6.3.9",
+    "electron-serve": "^1.1.0"
+  },
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "com.notasflow.desktop",
+    "productName": "NotasFlow",
+    "copyright": "Copyright © 2026 NotasFlow",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**/*",
+      "!**/*.ts",
+      "!**/*.map"
+    ],
+    "extraResources": [
+      {
+        "from": "../frontend/.next/standalone",
+        "to": "frontend",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../frontend/.next/static",
+        "to": "frontend/.next/static",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../frontend/public",
+        "to": "frontend/public",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../backend/dist/notasflow-backend",
+        "to": "backend",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "NotasFlow-${version}-${arch}.${ext}",
+      "publisherName": "NotasFlow",
+      "verifyUpdateCodeSignature": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "NotasFlow",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "deleteAppDataOnUninstall": false,
+      "include": "build/installer.nsh"
+    },
+    "portable": {
+      "artifactName": "NotasFlow-Portable-${version}.${ext}"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "montx2",
+      "repo": "Cajuru28",
+      "private": false,
+      "releaseType": "release"
+    },
+    "mac": {
+      "target": ["dmg", "zip"],
+      "icon": "build/icon.png",
+      "category": "public.app-category.business"
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "icon": "build/icon.png",
+      "category": "Office"
+    }
+  }
+}

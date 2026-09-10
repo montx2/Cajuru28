@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:desktop": "node scripts/build-desktop.js",
+    "build:export": "node scripts/build-desktop.js",
     "start": "next start",
     "lint": "next lint"
   },

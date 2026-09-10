@@ -218,11 +218,12 @@ export const api = {
 
   solicitarImportacaoEmLote: (
     tipo: TipoDocumentoFiscal,
-    opcoes: { competencia?: string; forcar?: boolean } = {}
+    opcoes: { competencia?: string; forcar?: boolean; empresa_ids?: string } = {}
   ) => {
     const params = new URLSearchParams({ tipo });
     if (opcoes.competencia) params.set("competencia", opcoes.competencia);
     if (opcoes.forcar) params.set("forcar", "true");
+    if (opcoes.empresa_ids) params.set("empresa_ids", opcoes.empresa_ids);
     return chamar<ItemImportacaoLote[]>(`/importacoes/lote?${params.toString()}`, { method: "POST" });
   },
 

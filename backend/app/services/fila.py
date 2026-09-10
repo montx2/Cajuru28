@@ -57,7 +57,30 @@ class ResultadoEnfileiramento:
 
 
 def _disparar(empresa_id: int, tipo: str, execucao_id: int) -> None:
-    """Import preguiçoso: `app.worker.tasks` importa este módulo (ciclo)."""
+    """Import preguiçoso: `app.worker.tasks` importa este módulo (ciclo).
+    
+    No modo desktop (.exe), não há Redis/Celery: dispara em thread local.
+    No modo Docker, usa Celery normalmente.
+    """
+    from app.core.config import settings
+
+    # Modo desktop: thread local, sem Celery
+    if settings.is_desktop:
+        import threading
+
+        def _rodar():
+            try:
+                from app.worker.executor import executar_importacao
+                executar_importacao(empresa_id=empresa_id, tipo=tipo, execucao_id=execucao_id)
+            except Exception as exc:  # noqa: BLE001
+                import logging
+                logging.getLogger("notasflow.fila").exception("Falha na execução desktop %s/%s: %s", empresa_id, tipo, exc)
+
+        thread = threading.Thread(target=_rodar, daemon=True, name=f"import-{empresa_id}-{tipo}-{execucao_id}")
+        thread.start()
+        return
+
+    # Modo normal: Celery
     from app.worker.tasks import importar_documentos
 
     importar_documentos.delay(empresa_id=empresa_id, tipo=tipo, execucao_id=execucao_id)
@@ -199,9 +222,8 @@ def reagendar(db: Session, execucao: ExecucaoImportacao, quando: datetime, *, mo
     """
     Marca a execução como "aguardando" e programa a continuação.
 
-    Retorna False quando a task de reforço não pôde ser enfileirada (broker fora
-    do ar). Nesse caso o agendador (Beat) assume, porque varre execuções
-    `aguardando` vencidas — o processo não depende de um único mecanismo.
+    No modo desktop, o scheduler interno retoma execuções vencidas — não precisa
+    de Celery countdown.
     """
     agora = datetime.now(timezone.utc)
     quando_com_tz = quando if quando.tzinfo else quando.replace(tzinfo=timezone.utc)
@@ -211,6 +233,12 @@ def reagendar(db: Session, execucao: ExecucaoImportacao, quando: datetime, *, mo
     execucao.tentativas = (execucao.tentativas or 0) + 1
     execucao.aviso = _acrescentar_aviso(execucao.aviso, motivo)
     db.commit()
+
+    from app.core.config import settings
+
+    if settings.is_desktop:
+        # No desktop, o loop de sincronização retoma sozinho
+        return True
 
     try:
         from app.worker.tasks import importar_documentos
@@ -224,22 +252,31 @@ def reagendar(db: Session, execucao: ExecucaoImportacao, quando: datetime, *, mo
             countdown=atraso,
         )
         return True
-    except Exception:  # noqa: BLE001 — sem broker o Beat continua o trabalho
+    except Exception:  # noqa: BLE001
         return False
 
 
 def retomar(db: Session, execucao: ExecucaoImportacao) -> bool:
     """
-    Acorda uma execução que estava dormindo, sem criar outra por cima.
-
-    É o caminho de recuperação: se o agendamento com countdown se perder
-    (reinício de worker, flush do broker), o Beat assume a mesma execução e o
-    checkpoint de NSU continua válido — nenhuma nota é baixada duas vezes.
+    Acorda uma execução que estava dormindo.
+    No desktop, dispara thread local; no Docker, via Celery.
     """
-    from app.worker.tasks import importar_documentos
+    from app.core.config import settings
 
     execucao.status = StatusExecucao.EM_ANDAMENTO
     db.commit()
+
+    if settings.is_desktop:
+        try:
+            _disparar(execucao.empresa_id, execucao.tipo.value, execucao.id)
+            return True
+        except Exception:  # noqa: BLE001
+            execucao.status = StatusExecucao.AGUARDANDO
+            db.commit()
+            return False
+
+    from app.worker.tasks import importar_documentos
+
     try:
         importar_documentos.delay(
             empresa_id=execucao.empresa_id,
@@ -247,7 +284,7 @@ def retomar(db: Session, execucao: ExecucaoImportacao) -> bool:
             execucao_id=execucao.id,
         )
         return True
-    except Exception:  # noqa: BLE001 — sem broker, fica para o próximo tick
+    except Exception:  # noqa: BLE001
         execucao.status = StatusExecucao.AGUARDANDO
         db.commit()
         return False

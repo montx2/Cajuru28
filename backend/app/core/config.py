@@ -12,6 +12,11 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://notasflow:notasflow@db:5432/notasflow"
     redis_url: str = "redis://redis:6379/0"
 
+    # Modo desktop: quando True, usa SQLite local, fila em thread, sem Redis/Celery.
+    # Ativado automaticamente pelo launcher Electron ou por DESKTOP_MODE=true no .env
+    modo_desktop: bool = False
+    desktop_mode: bool = False  # alias para compatibilidade com env var DESKTOP_MODE
+
     secret_key: str = "troque-esta-chave-em-producao"
     access_token_expire_minutes: int = 480
     algorithm: str = "HS256"
@@ -77,5 +82,21 @@ class Settings(BaseSettings):
     bootstrap_email: str = ""
     bootstrap_senha: str = ""
 
+    @property
+    def is_desktop(self) -> bool:
+        """True se estiver rodando no modo desktop (Electron/.exe)"""
+        return bool(self.modo_desktop or self.desktop_mode)
+
+    @property
+    def is_sqlite(self) -> bool:
+        return self.database_url.strip().lower().startswith("sqlite")
+
 
 settings = Settings()
+# Compat: se DESKTOP_MODE=true mas MODO_DESKTOP não foi setado, espelha
+if settings.desktop_mode and not settings.modo_desktop:
+    settings.modo_desktop = True
+# Se rodando com SQLite e sem Redis configurado explicitamente, assume desktop
+if settings.is_sqlite and "sqlite" in settings.database_url:
+    # não força modo_desktop automaticamente, mas facilita
+    pass

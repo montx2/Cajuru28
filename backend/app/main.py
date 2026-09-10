@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -6,17 +8,28 @@ from app.bootstrap import garantir_usuario_inicial
 from app.core.config import settings
 from app.db.base import criar_tabelas
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    criar_tabelas()
+    garantir_usuario_inicial()
+    yield
+    # Shutdown (se precisar)
+
+
 app = FastAPI(
     title="NotasFlow",
     description="Importação automática de NFS-e, NFe e CT-e via ADN/SEFAZ, com certificado A1.",
-    version="0.2.0",
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
 # Frontend (Next.js) roda em outra origem — sem CORS o browser bloqueia o login.
+# No modo desktop (.exe), Electron carrega via file://, então precisamos liberar tudo.
 _origens = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
-# "*" sozinho não combina com credentials no browser; se a lista tiver "*",
-# liberamos tudo sem credentials-flag estrita via allow_origin_regex.
-if "*" in _origens:
+if settings.is_desktop or "*" in _origens:
+    # Desktop: libera qualquer origem (file://, localhost, etc)
     app.add_middleware(
         CORSMiddleware,
         allow_origin_regex=r".*",
@@ -34,12 +47,6 @@ else:
     )
 
 
-@app.on_event("startup")
-def ao_iniciar() -> None:
-    criar_tabelas()
-    garantir_usuario_inicial()
-
-
 app.include_router(auth.router)
 app.include_router(empresas.router)
 app.include_router(certificados.router)
@@ -49,4 +56,15 @@ app.include_router(importacoes.router)
 
 @app.get("/saude", tags=["infra"])
 def verificar_saude():
-    return {"status": "ok", "versao": "0.2.0"}
+    return {"status": "ok", "versao": "1.0.0", "modo": "desktop" if settings.is_desktop else "server"}
+
+
+@app.get("/", tags=["infra"])
+def root():
+    return {
+        "nome": "NotasFlow",
+        "versao": "1.0.0",
+        "modo": "desktop" if settings.is_desktop else "server",
+        "docs": "/docs",
+        "saude": "/saude",
+    }

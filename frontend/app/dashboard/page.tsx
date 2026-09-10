@@ -22,19 +22,40 @@ export default function VisaoGeralPage() {
   const [disparando, setDisparando] = useState(false);
   const [resultado, setResultado] = useState<ItemImportacaoLote[] | null>(null);
   const [erro, setErro] = useState<string | null>(null);
+  const [selecionadas, setSelecionadas] = useState<Set<number>>(new Set());
+  const [modoSelecao, setModoSelecao] = useState(false);
 
   useEffect(() => {
     api.listarEmpresas().then(setEmpresas).catch(() => {});
     api.resumoSincronizacao().then(setSaude).catch(() => {});
   }, []);
 
+  function alternarEmpresa(id: number) {
+    setSelecionadas((atual) => {
+      const proximo = new Set(atual);
+      if (proximo.has(id)) proximo.delete(id);
+      else proximo.add(id);
+      return proximo;
+    });
+  }
+
+  function selecionarTodas() {
+    if (selecionadas.size === empresas.length) {
+      setSelecionadas(new Set());
+    } else {
+      setSelecionadas(new Set(empresas.map((e) => e.id)));
+    }
+  }
+
   async function dispararLote() {
     setDisparando(true);
     setErro(null);
     setResultado(null);
     try {
+      const empresa_ids = modoSelecao && selecionadas.size > 0 ? [...selecionadas].join(",") : undefined;
       const itens = await api.solicitarImportacaoEmLote(tipo, {
         competencia: paraAPI(competencia),
+        empresa_ids,
       });
       setResultado(itens);
       api.resumoSincronizacao().then(setSaude).catch(() => {});
@@ -44,6 +65,13 @@ export default function VisaoGeralPage() {
       setDisparando(false);
     }
   }
+
+  const totalSelecionadas = selecionadas.size;
+  const textoBotao = modoSelecao
+    ? totalSelecionadas > 0
+      ? `Importar ${ROTULO_TIPO[tipo]} de ${totalSelecionadas} selecionada(s)`
+      : `Selecione empresas acima`
+    : `Importar ${ROTULO_TIPO[tipo]} de todas`;
 
   return (
     <div>
@@ -56,18 +84,31 @@ export default function VisaoGeralPage() {
       </p>
 
       <div className="border border-line bg-surface p-6">
-        <p className="mb-1 text-base font-medium text-ink">Importar de todas as empresas</p>
+        <div className="mb-1 flex items-center justify-between">
+          <p className="text-base font-medium text-ink">
+            {modoSelecao ? "Importar de empresas selecionadas" : "Importar de todas as empresas"}
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setModoSelecao(!modoSelecao);
+              setSelecionadas(new Set());
+            }}
+            className="text-xs text-accent hover:underline"
+          >
+            {modoSelecao ? "← voltar para todas" : "Selecionar quais empresas →"}
+          </button>
+        </div>
         <p className="mb-4 text-sm text-ink-muted">
-          Dispara a importação para cada empresa ativa. Empresas sem certificado, ou dentro da
-          janela de 1 hora que a SEFAZ exige, ficam de fora — e são retomadas sozinhas na hora certa.
+          {modoSelecao
+            ? "Marque apenas as empresas que você quer importar agora. Ideal quando você tem muitas empresas mas só precisa de algumas."
+            : "Dispara a importação para cada empresa ativa. Empresas sem certificado, ou dentro da janela de 1 hora que a SEFAZ exige, ficam de fora — e são retomadas sozinhas na hora certa."}
         </p>
 
         {saude && (
           <div className="mb-5 flex flex-wrap gap-x-6 gap-y-2 border-y border-line py-3 text-sm">
             <span className="text-accent">{saude.em_dia} em dia</span>
-            <span className="text-ink-muted">
-              {saude.com_pendencia} com documento novo
-            </span>
+            <span className="text-ink-muted">{saude.com_pendencia} com documento novo</span>
             <span className="text-warn">
               {saude.aguardando_janela + saude.bloqueadas_sefaz} na janela da SEFAZ
             </span>
@@ -78,6 +119,40 @@ export default function VisaoGeralPage() {
                 : "automático desligado"}{" "}
               · {saude.documentos_no_banco.toLocaleString("pt-BR")} documentos no banco
             </span>
+          </div>
+        )}
+
+        {modoSelecao && empresas.length > 0 && (
+          <div className="mb-5 border border-line bg-bg p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-sm font-medium text-ink">
+                Empresas ({totalSelecionadas} de {empresas.length} selecionadas)
+              </p>
+              <button
+                type="button"
+                onClick={selecionarTodas}
+                className="text-xs text-accent hover:underline"
+              >
+                {selecionadas.size === empresas.length ? "Desmarcar todas" : "Marcar todas"}
+              </button>
+            </div>
+            <div className="max-h-48 overflow-y-auto space-y-1">
+              {empresas.map((emp) => (
+                <label
+                  key={emp.id}
+                  className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-surface cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selecionadas.has(emp.id)}
+                    onChange={() => alternarEmpresa(emp.id)}
+                    className="accent-accent"
+                  />
+                  <span className="text-sm text-ink">{emp.razao_social}</span>
+                  <span className="ml-auto text-xs font-mono text-ink-muted">{emp.cnpj_cpf}</span>
+                </label>
+              ))}
+            </div>
           </div>
         )}
 
@@ -99,10 +174,10 @@ export default function VisaoGeralPage() {
 
           <button
             onClick={dispararLote}
-            disabled={disparando || empresas.length === 0}
+            disabled={disparando || empresas.length === 0 || (modoSelecao && totalSelecionadas === 0)}
             className="bg-accent px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
           >
-            {disparando ? "Disparando…" : `Importar ${ROTULO_TIPO[tipo]} de todas`}
+            {disparando ? "Disparando…" : textoBotao}
           </button>
         </div>
 

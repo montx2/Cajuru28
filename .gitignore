@@ -27,10 +27,31 @@ npm-debug.log*
 
 # Data / runtime
 /data/
+data_desktop/
 *.pfx
 *.p12
 *.pem
 *.key
+
+# Desktop build artifacts
+desktop/dist/
+desktop/out/
+desktop/node_modules/
+backend/dist/
+backend/build/
+backend/venv_desktop/
+frontend/out/
+frontend/.next/
+frontend/node_modules/
+*.spec
+
+# Electron artifacts (only in dist)
+desktop/dist/*.exe
+desktop/dist/*.dmg
+desktop/dist/*.AppImage
+desktop/dist/*.deb
+desktop/dist/*.blockmap
+desktop/dist/*.yml
 
 # IDE / OS
 .DS_Store

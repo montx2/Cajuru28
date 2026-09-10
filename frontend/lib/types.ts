@@ -133,7 +133,9 @@ export interface EmpresaResumoDocumentos {
   total: number;
   normais: number;
   canceladas: number;
-  sem_xml?: number;
+  sem_xml_completo?: number;
+  sem_xml?: number; // alias para compatibilidade
+  valor_total?: number;
 }
 
 export type StatusItemLote =

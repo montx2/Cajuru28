@@ -111,24 +111,38 @@ def solicitar_importacao(
 def solicitar_importacao_em_lote(
     tipo: TipoDocumentoFiscal,
     competencia: str | None = Query(default=None, description="MM/AAAA, ex.: 08/2026"),
+    empresa_ids: str | None = Query(default=None, description="IDs separados por vírgula, ex.: 1,2,3 — vazio = todas"),
     forcar: bool = False,
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
 ):
     """
-    Dispara a importação de TODAS as empresas ativas do escritório de uma vez —
-    o equivalente ao 'sincronizar --todas' do Importarnotas original.
+    Dispara a importação de empresas selecionadas (ou todas se empresa_ids vazio).
+    Agora permite selecionar quais empresas importar — não mais obrigatório pegar todas.
+
     Cada empresa vira uma task independente na fila: uma travar ou falhar
     não afeta as outras. Empresas sem certificado, sem UF ou dentro da janela
     de consumo são reportadas, não enfileiradas.
     """
     periodo = _periodo(competencia)
 
-    empresas = (
-        db.query(Empresa)
-        .filter(Empresa.escritorio_id == escritorio_id, Empresa.ativa.is_(True))
-        .all()
-    )
+    # Parse empresa_ids se fornecido
+    ids_filtrados: list[int] | None = None
+    if empresa_ids and empresa_ids.strip():
+        try:
+            ids_filtrados = [int(x.strip()) for x in empresa_ids.split(",") if x.strip()]
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"empresa_ids inválido: {empresa_ids!r} — use números separados por vírgula")
+
+    query = db.query(Empresa).filter(Empresa.escritorio_id == escritorio_id, Empresa.ativa.is_(True))
+    if ids_filtrados:
+        query = query.filter(Empresa.id.in_(ids_filtrados))
+
+    empresas = query.all()
+
+    # Se o usuário pediu IDs específicos mas nenhum foi encontrado, avisa
+    if ids_filtrados and not empresas:
+        raise HTTPException(status_code=404, detail="Nenhuma das empresas selecionadas foi encontrada")
 
     resultados: list[ItemImportacaoLote] = []
     for empresa in empresas:

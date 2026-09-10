@@ -9,6 +9,11 @@ Evolução do `Importarnotas`: mesma ideia (API oficial + mTLS), agora em
 arquitetura de sistema — pronta para crescer de uso interno do escritório
 para produto multiempresa sem reescrever nada.
 
+> 🖥️ **NOVO: Versão Desktop (.exe)** — Agora cada computador roda seu próprio programa!
+> Baixe o `.exe` bonito, instale e use. Não trava com muitos usuários, cada um usa sua máquina.
+> E quando você corrige um bug, todos recebem atualização automática via GitHub Releases.
+> Veja [`desktop/README.md`](desktop/README.md) e seção "Versão Desktop" abaixo.
+
 ## Por que não usar scraping de portal
 
 Todo portal de nota fiscal no Brasil é só uma casca visual em cima de uma API
@@ -53,14 +58,61 @@ Fases em [`docs/ROADMAP.md`](docs/ROADMAP.md).
 | Camada         | Escolha              | Por quê |
 | -------------- | -------------------- | ------- |
 | Backend        | Python 3.11 + FastAPI | X.509/mTLS/XML fiscal |
-| Banco          | PostgreSQL           | Multiempresa, concorrência |
-| Fila           | Redis + Celery       | Importação em background, retomada automática, lease por CNPJ |
+| Banco          | PostgreSQL (Docker) / SQLite (Desktop) | Multiempresa + modo local sem instalação |
+| Fila           | Redis + Celery (Docker) / Threads (Desktop) | Importação em background, retomada automática, lease por CNPJ |
 | Cofre          | Fernet (AES)         | Senha de certificado nunca em texto puro |
 | Auth           | JWT                  | Multiusuário + `escritorio_id` |
 | Frontend       | Next.js 16 + Tailwind | Painel operacional clean |
-| Deploy         | Docker Compose       | Sobe em qualquer máquina com Docker |
+| Desktop        | Electron + PyInstaller + electron-updater | .exe bonito, auto-update via GitHub |
+| Deploy         | Docker Compose ou .exe instalador | Escolha: servidor central ou cada PC isolado |
 
-## Rodando localmente
+## Versão Desktop (.exe) — Cada PC roda seu próprio programa
+
+**Ideal para contabilidade com muitos usuários — não trava mais!**
+
+Antes: um servidor Docker central, todos competem por recursos. Se 10 pessoas clicam "importar todas" ao mesmo tempo, trava.
+
+Agora: cada computador baixa um `.exe` bonito e roda local. SQLite local, threads locais, sem Docker. Quando você corrige um bug, todos recebem atualização automática via GitHub Releases.
+
+### Como gerar o .exe
+
+**Build local (Windows):**
+```bat
+BUILD_DESKTOP.bat
+```
+Gera `desktop/dist/NotasFlow-1.0.0-x64.exe` (instalador) + portable.
+
+**Build via GitHub (distribuição):**
+```bash
+git tag v1.0.1
+git push origin v1.0.1
+```
+O GitHub Actions compila backend (PyInstaller) + frontend (Next.js export) + Electron e publica na Release. Clientes com app instalado atualizam sozinhos!
+
+**Como o usuário usa:**
+1. Baixa `.exe` da página Releases
+2. Instala com duplo clique
+3. Abre NotasFlow no Menu Iniciar
+4. Primeira vez mostra `CREDENCIAIS.txt` com login
+5. Dados salvos em `%APPDATA%\NotasFlow\` — banco, certificados, XMLs
+
+**Auto-update (você corrige, todos recebem):**
+- Corrigiu bug? Push tag `v1.0.2` → GitHub publica Release → Apps instalados baixam e instalam automaticamente
+- Config em `desktop/package.json` → `publish.provider: github`
+
+Detalhes completos em [`desktop/README.md`](desktop/README.md).
+
+### Seleção de empresas (não mais "pegar todas obrigatórias")
+
+Agora você pode escolher quais empresas importar:
+
+- **Visão geral:** botão "Selecionar quais empresas →" → marque com checkbox só as que precisa
+- **Importações:** mesmo seletor, com contador "3 de 30 selecionadas"
+- **API:** `POST /importacoes/lote?tipo=nfe&empresa_ids=1,2,5` — só as 3 empresas
+
+Antes era inútil pegar todas de uma vez. Agora é útil e flexível.
+
+## Rodando localmente (Docker — modo servidor)
 
 **Guia completo:** [`PASSO_A_PASSO.md`](PASSO_A_PASSO.md)
 

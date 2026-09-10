@@ -11,6 +11,7 @@ import {
   ROTULO_STATUS_LOTE,
   ROTULO_TIPO,
   TIPOS,
+  type Empresa,
   type EstadoSincronizacao,
   type ExecucaoImportacao,
   type ItemImportacaoLote,
@@ -53,17 +54,24 @@ export default function ImportacoesPage() {
   const [tick, setTick] = useState(0);
   const agoraRef = useRef(Date.now());
 
+  // Novo: seleção de empresas
+  const [empresas, setEmpresas] = useState<Empresa[]>([]);
+  const [selecionadas, setSelecionadas] = useState<Set<number>>(new Set());
+  const [modoSelecao, setModoSelecao] = useState(false);
+
   const carregar = useCallback(async () => {
     try {
-      const [lista, estado, agregado] = await Promise.all([
+      const [lista, estado, agregado, listaEmpresas] = await Promise.all([
         api.listarExecucoes(),
         api.estadoSincronizacao(),
         api.resumoSincronizacao(),
+        api.listarEmpresas(),
       ]);
       agoraRef.current = Date.now();
       setExecucoes(lista);
       setEstados(estado);
       setResumo(agregado);
+      setEmpresas(listaEmpresas);
     } finally {
       setCarregando(false);
     }
@@ -71,8 +79,6 @@ export default function ImportacoesPage() {
 
   useEffect(() => {
     carregar();
-    // Enquanto houver execução em andamento, atualiza sozinho — ninguém fica
-    // apertando F5 para ver se já terminou.
     const intervalo = setInterval(carregar, 5000);
     const relogio = setInterval(() => setTick((n) => n + 1), 30_000);
     return () => {
@@ -83,13 +89,31 @@ export default function ImportacoesPage() {
 
   const tiposDoLote: TipoDocumentoFiscal[] = tipoLote === "todos" ? TIPOS : [tipoLote];
 
+  function alternarEmpresa(id: number) {
+    setSelecionadas((atual) => {
+      const proximo = new Set(atual);
+      if (proximo.has(id)) proximo.delete(id);
+      else proximo.add(id);
+      return proximo;
+    });
+  }
+
+  function selecionarTodasEmpresas() {
+    if (selecionadas.size === empresas.length) {
+      setSelecionadas(new Set());
+    } else {
+      setSelecionadas(new Set(empresas.map((e) => e.id)));
+    }
+  }
+
   async function sincronizarAgora(forcar = false) {
     setDisparando(true);
     setAviso(null);
     setResultadoLote(null);
     try {
+      const empresa_ids = modoSelecao && selecionadas.size > 0 ? [...selecionadas].join(",") : undefined;
       const respostaLote = (tipo: TipoDocumentoFiscal) =>
-        api.solicitarImportacaoEmLote(tipo, { competencia: paraAPI(competencia), forcar });
+        api.solicitarImportacaoEmLote(tipo, { competencia: paraAPI(competencia), forcar, empresa_ids });
       const respostas = await Promise.all(
         tiposDoLote.map(async (tipo) => {
           try {
@@ -117,7 +141,6 @@ export default function ImportacoesPage() {
       await carregar();
     } catch (e) {
       if (e instanceof ApiError && e.ehAguardo) {
-        // É a janela de consumo: aviso neutro, não erro vermelho.
         setAviso(e.message);
       } else {
         setAviso(e instanceof ApiError ? e.message : "Não foi possível enfileirar agora.");
@@ -136,7 +159,14 @@ export default function ImportacoesPage() {
   }, [estados]);
 
   const aguardando = estados.filter((e) => (e.bloqueado_ate ?? e.proxima_consulta_em ?? null) !== null);
-  void tick; // os contadores regressivos dependem deste tick
+  void tick;
+
+  const totalSelecionadas = selecionadas.size;
+  const textoBotao = modoSelecao
+    ? totalSelecionadas > 0
+      ? `Sincronizar ${totalSelecionadas} selecionada(s)`
+      : "Selecione empresas"
+    : "Sincronizar todas agora";
 
   return (
     <div>
@@ -166,6 +196,44 @@ export default function ImportacoesPage() {
       </div>
 
       <div className="mb-8 border border-line bg-surface p-5">
+        <div className="mb-4 flex items-center justify-between">
+          <p className="text-base font-medium text-ink">
+            {modoSelecao ? "Importar empresas selecionadas" : "Importar todas"}
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setModoSelecao(!modoSelecao);
+              setSelecionadas(new Set());
+            }}
+            className="text-xs text-accent hover:underline"
+          >
+            {modoSelecao ? "← importar todas" : "Selecionar empresas →"}
+          </button>
+        </div>
+
+        {modoSelecao && (
+          <div className="mb-5 border border-line bg-bg p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-sm font-medium text-ink">
+                Empresas ({totalSelecionadas} de {empresas.length} selecionadas)
+              </p>
+              <button type="button" onClick={selecionarTodasEmpresas} className="text-xs text-accent hover:underline">
+                {selecionadas.size === empresas.length ? "Desmarcar todas" : "Marcar todas"}
+              </button>
+            </div>
+            <div className="max-h-64 overflow-y-auto space-y-1">
+              {empresas.map((emp) => (
+                <label key={emp.id} className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-surface cursor-pointer">
+                  <input type="checkbox" checked={selecionadas.has(emp.id)} onChange={() => alternarEmpresa(emp.id)} className="accent-accent" />
+                  <span className="text-sm text-ink">{emp.razao_social}</span>
+                  <span className="ml-auto text-xs font-mono text-ink-muted">{emp.cnpj_cpf}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="flex flex-wrap items-end gap-x-6 gap-y-4">
           <div>
             <p className="mb-2 text-xs uppercase text-ink-muted">Competência</p>
@@ -189,15 +257,15 @@ export default function ImportacoesPage() {
           <div className="flex gap-2">
             <button
               type="button"
-              disabled={disparando}
+              disabled={disparando || (modoSelecao && totalSelecionadas === 0)}
               onClick={() => sincronizarAgora(false)}
               className="bg-accent px-4 py-2 text-sm text-white hover:opacity-90 disabled:opacity-50"
             >
-              {disparando ? "Disparando…" : "Sincronizar todas agora"}
+              {disparando ? "Disparando…" : textoBotao}
             </button>
             <button
               type="button"
-              disabled={disparando}
+              disabled={disparando || (modoSelecao && totalSelecionadas === 0)}
               onClick={() => sincronizarAgora(true)}
               className="border border-line px-3 py-2 text-sm text-ink-muted hover:border-accent hover:text-ink disabled:opacity-50"
               title="Atravessa a janela de 1 hora da SEFAZ. Só se você tiver certeza — renovar o bloqueio atrasa todas as consultas."
