@@ -29,6 +29,18 @@ export interface Certificado {
   criado_em: string;
 }
 
+export interface ResumoCertificado {
+  empresa_id: number;
+  razao_social: string;
+  tem_certificado: boolean;
+  validade: string | null;
+  dias_para_vencer: number | null;
+  /** true = já venceu (toda importação desta empresa vai falhar) */
+  vencido: boolean;
+  /** true = vence em até 30 dias (prazo real de renovação do A1) */
+  vence_em_breve: boolean;
+}
+
 export interface DocumentoFiscal {
   id: number;
   empresa_id: number;
@@ -113,6 +125,95 @@ export interface EstadoSincronizacao {
   risco_documento_fora_da_distribuicao: boolean;
 }
 
+/** Resultado por empresa+tipo da importação por seleção. */
+export interface ItemImportacaoSelecionada {
+  empresa_id: number;
+  razao_social: string;
+  tipo: TipoDocumentoFiscal;
+  /** ok (prévia) | enfileirada | em_cooldown | sem_certificado | sem_uf | ja_em_andamento | fila_indisponivel */
+  status: string;
+  execucao_id: number | null;
+  disponivel_em: string | null;
+  mensagem: string;
+  enfileirada: boolean;
+}
+
+export interface ResultadoImportacaoSelecionada {
+  total: number;
+  enfileiradas: number;
+  aguardando: number;
+  ignoradas: number;
+  itens: ItemImportacaoSelecionada[];
+}
+
+/** Novos status possíveis da prévia (antes de disparar). */
+export const ROTULO_STATUS_SELECAO: Record<string, string> = {
+  ok: "Pode rodar agora",
+  enfileirada: "Enfileirada",
+  em_cooldown: "Na janela de 1 h da SEFAZ",
+  ja_em_andamento: "Já está varrendo",
+  em_andamento: "Já está varrendo",
+  sem_certificado: "Sem certificado A1",
+  sem_uf: "Sem UF cadastrada",
+  fila_indisponivel: "Fila indisponível",
+  erro: "Falhou",
+};
+
+// ---------------------------------------------------------------
+// O programa instalado
+// ---------------------------------------------------------------
+
+export interface InfoSistema {
+  empacotado: boolean;
+  pasta_programa: string;
+  pasta_dados: string;
+  pasta_logs: string;
+  pasta_web: string;
+  painel_web_presente: boolean;
+  python: string;
+  sistema: string;
+  versao: string;
+  modo_desktop: boolean;
+  modo_servidor: boolean;
+  banco: "sqlite" | "postgresql";
+  arquivo_env: string;
+  iniciar_com_windows: boolean;
+  pode_iniciar_com_windows: boolean;
+  fila: {
+    concorrencia?: number;
+    pendentes?: number;
+    em_execucao?: Record<string, number>;
+    agenda?: Record<string, { tarefa: string; intervalo_segundos: number; proximo: string | null }>;
+    modo?: string;
+  };
+  atualizacao: {
+    versao: string;
+    manifesto: string;
+    pasta_programa: string;
+    pasta_dados: string;
+    empacotado: boolean;
+    sistema: string;
+  };
+  verificado_em: string | null;
+}
+
+export interface EstadoAtualizacao {
+  /** ocioso | verificando | disponivel | atualizado | baixando | verificando_hash | instalando | erro */
+  etapa: string;
+  mensagem: string;
+  erro: string | null;
+  baixado: number;
+  total: number;
+  verificado_em: string | null;
+  versao_atual: string;
+  disponivel: {
+    versao: string;
+    notas: string;
+    obrigatoria: boolean;
+    tamanho: number;
+  } | null;
+}
+
 export interface ResumoSincronizacao {
   empresas: number;
   combinacoes: number;
@@ -133,7 +234,9 @@ export interface EmpresaResumoDocumentos {
   total: number;
   normais: number;
   canceladas: number;
-  sem_xml?: number;
+  /** Quantos ainda estão só com o resumo (`resNFe`) — o botão "completar XML". */
+  sem_xml_completo: number;
+  valor_total: number;
 }
 
 export type StatusItemLote =

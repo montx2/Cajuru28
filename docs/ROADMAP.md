@@ -59,10 +59,40 @@ manda uma vez e **não toca mais nisso**. Ver
 - **Download em massa**: `GET /documentos/exportar` (ZIP com todos os XMLs do
   filtro, `relacao.csv` e `LEIA-ME.txt`) + `/exportar/estimativa` antes do clique
 
-## Fase 5 — Multiempresa self-service (futuro)
+## Fase 5 — Programa instalado com atualização automática (pronta)
+
+Um programa por computador, sem servidor no meio:
+
+- **PyInstaller (onedir) + Inno Setup**: instalador por usuário (sem UAC, nem
+  na instalação nem na atualização), ZIP portátil para máquina sem permissão de
+  administrador;
+- **fila em processo** (`MiniCelery`) no lugar de Redis + Celery, com a mesma
+  interface — as tasks não sabem quem executa;
+- **painel servido pela própria API** (export estático), o que elimina Node,
+  CORS e a pergunta "qual é o IP do servidor?";
+- **atualização automática**: manifesto `latest.json` na Release do GitHub
+  (ou pasta de rede), SHA-256 conferido, instalador silencioso, programa
+  reaberto na versão nova — a faixa avisa e o usuário decide quando;
+- **dados fora do programa** (`%APPDATA%\NotasFlow`): atualizar, reinstalar ou
+  desinstalar não toca em banco, certificados e XMLs;
+- **configurações de campo**: backup com um clique, "abrir junto com o Windows",
+  redefinir senha, ver registros, verificar atualização, encerrar o programa;
+- **bandeja do sistema**: fechar a janela não interrompe o sincronismo.
+
+## Fase 6 — Importação por seleção de empresas (pronta)
+
+- `POST /importacoes/selecionadas` (+ `/previa`): o usuário marca as empresas e
+  dispara só para elas, com o motivo de cada linha (`pode rodar agora`, janela
+  de 1 h da SEFAZ, sem certificado, já varrendo);
+- seleção preservada entre sessões; painel único reaproveitado na Visão geral e
+  em Importações (uma regra, uma tela);
+- aviso de certificado vencido/perto de vencer, com os dias restantes.
+
+## Fase 7 — Multiempresa self-service (futuro)
 - Onboarding de novo escritório sem intervenção manual
 - Cobrança/planos
 - Isolamento de fila por escritório
+- Assinatura de código (Authenticode) e assinatura TUF do manifesto
 
 ## Pendências técnicas conhecidas (não bloqueiam o uso interno)
 

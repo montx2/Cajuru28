@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { api, ApiError, type FiltrosExportacao } from "@/lib/api";
@@ -28,7 +28,22 @@ function truncarChave(chave: string): string {
   return `${chave.slice(0, 8)}…${chave.slice(-6)}`;
 }
 
+/**
+ * Documentos — lista, filtra e baixa os XMLs importados.
+ *
+ * O `Suspense` é exigência do Next para páginas que leem parâmetros da URL em
+ * build estático (modo desktop): o casco da página é pré-renderizado e só a
+ * parte que depende da URL entra no cliente.
+ */
 export default function DocumentosPage() {
+  return (
+    <Suspense fallback={<p className="text-sm text-ink-muted">Carregando…</p>}>
+      <ConteudoDocumentos />
+    </Suspense>
+  );
+}
+
+function ConteudoDocumentos() {
   const searchParams = useSearchParams();
 
   const [empresas, setEmpresas] = useState<Empresa[]>([]);

@@ -9,6 +9,26 @@ Evolução do `Importarnotas`: mesma ideia (API oficial + mTLS), agora em
 arquitetura de sistema — pronta para crescer de uso interno do escritório
 para produto multiempresa sem reescrever nada.
 
+## Dois modos, um código
+
+| | **Programa instalado** (recomendado) | **Servidor** |
+| --- | --- | --- |
+| Como se usa | Baixa um `.exe`, instala com dois cliques | `docker compose up`, painel no navegador |
+| Banco | SQLite, um arquivo por computador | PostgreSQL |
+| Fila | Em processo (threads) | Redis + Celery + beat |
+| Painel | Servido pela própria API, sem Node | Next.js em contêiner |
+| Para quem | Cada contador na própria máquina | Um banco só, vários usuários |
+| Atualização | O programa se atualiza pelas Releases | `git pull` + rebuild |
+
+Os dois compartilham **os mesmos importadores, o mesmo governador de consumo da
+SEFAZ, o mesmo cofre de certificados e as mesmas rotas** — o que muda é onde cada
+peça roda (`MODO_DESKTOP=true`). É isso que permite corrigir um bug uma vez e as
+duas implantações ficarem corrigidas.
+
+> **Distribuir uma versão nova:** `versao.txt` + GitHub Actions →
+> [`docs/DISTRIBUICAO.md`](docs/DISTRIBUICAO.md).
+> **Usar o programa:** [`PASSO_A_PASSO.md`](PASSO_A_PASSO.md).
+
 ## Por que não usar scraping de portal
 
 Todo portal de nota fiscal no Brasil é só uma casca visual em cima de uma API
@@ -20,6 +40,23 @@ próprio certificado digital A1 da empresa via mTLS. Ir direto na API:
 - é o único método realmente suportado pelo governo para grandes volumes.
 
 ## Arquitetura
+
+**Programa instalado** (o modo principal: um computador por contador, dados
+locais, nada exposto na rede):
+
+```
+NotasFlow.exe (PyInstaller)
+   ├── API FastAPI (uvicorn em 127.0.0.1:8765)
+   │      ├── serve o painel já compilado (export estático do Next.js)
+   │      └── fala com ADN/SEFAZ via mTLS (certificado A1 da empresa)
+   ├── fila em processo (threads) + relógio do sincronismo
+   ├── SQLite  →  %APPDATA%\NotasFlow\notasflow.db
+   ├── cofre Fernet  →  senha do certificado cifrada
+   ├── ícone na bandeja  →  continua sincronizando com a janela fechada
+   └── atualizador  →  lê o manifesto da Release, confere SHA-256, instala em silêncio
+```
+
+**Servidor** (um banco só, vários usuários no navegador):
 
 ```
 Frontend web (Next.js)
@@ -53,18 +90,45 @@ Fases em [`docs/ROADMAP.md`](docs/ROADMAP.md).
 | Camada         | Escolha              | Por quê |
 | -------------- | -------------------- | ------- |
 | Backend        | Python 3.11 + FastAPI | X.509/mTLS/XML fiscal |
-| Banco          | PostgreSQL           | Multiempresa, concorrência |
-| Fila           | Redis + Celery       | Importação em background, retomada automática, lease por CNPJ |
+| Banco          | SQLite (instalado) / PostgreSQL (servidor) | Um arquivo por computador, ou um banco central |
+| Fila           | Threads em processo (instalado) / Redis + Celery (servidor) | Retomada automática e lease por CNPJ nos dois modos |
 | Cofre          | Fernet (AES)         | Senha de certificado nunca em texto puro |
 | Auth           | JWT                  | Multiusuário + `escritorio_id` |
-| Frontend       | Next.js 16 + Tailwind | Painel operacional clean |
-| Deploy         | Docker Compose       | Sobe em qualquer máquina com Docker |
+| Frontend       | Next.js 16 + Tailwind | Export estático no programa; servidor no modo Docker |
+| Distribuição   | PyInstaller + Inno Setup + Releases | `.exe` instalável que se atualiza sozinho |
+| Deploy servidor| Docker Compose       | Sobe em qualquer máquina com Docker |
 
 ## Rodando localmente
 
-**Guia completo:** [`PASSO_A_PASSO.md`](PASSO_A_PASSO.md)
+**Guia de quem usa:** [`PASSO_A_PASSO.md`](PASSO_A_PASSO.md)
+**Guia de quem publica:** [`docs/DISTRIBUICAO.md`](docs/DISTRIBUICAO.md)
 
-### Instalação automática — PC zerado (recomendado)
+### Programa instalado (Windows)
+
+Baixe e instale a versão mais recente — sem Docker, sem Python, sem
+administrador:
+
+https://github.com/montx2/Cajuru28/releases/latest
+
+Para gerar o instalador você mesmo (precisa de Python 3.11, Node 20+ e,
+opcionalmente, [Inno Setup](https://jrsoftware.org/isdl.php)):
+
+```bat
+pip install -r backend\requirements-desktop.txt
+npm ci --prefix frontend
+python scripts\empacotar.py                  :: dist\NotasFlow-Setup-<versão>.exe
+```
+
+Para rodar do código-fonte, sem empacotar nada:
+
+```bat
+cd backend
+python desktop_main.py                       :: abre o programa
+python desktop_main.py --diagnostico         :: mostra pastas, banco e versão
+python desktop_main.py --redefinir-senha     :: nova senha do administrador
+```
+
+### Modo servidor — PC zerado (Docker)
 
 **Windows:** dê dois cliques em **`INSTALAR_TUDO.bat`**
 
@@ -108,12 +172,29 @@ Login: abra `CREDENCIAIS.txt` (email + senha gerados no seu PC).
 
 1. **Empresas** → razão social, CNPJ e UF (ou **Importar em massa**, abaixo)  
 2. Abrir empresa → enviar `.pfx` + senha do certificado A1  
-3. **Visão geral** → importar NFS-e / NFe / CT-e de todas  
+3. **Visão geral / Importações** → **marcar as empresas** que você quer e
+   importar só elas (NFS-e / NFe / CT-e, com competência opcional).
+   A lista já mostra, antes de disparar, quem pode rodar agora, quem está na
+   janela de 1 h da SEFAZ e quem está sem certificado  
 4. **Importações** → acompanhar; depois do primeiro ciclo você para de clicar:  
-   o agendador (`beat`) mantém todo CNPJ em dia e retoma sozinho quem ficou na  
+   o agendador mantém todo CNPJ em dia e retoma sozinho quem ficou na  
    janela de espera da SEFAZ  
 5. **Documentos** → escolher o mês (**competência**), marcar o que quiser e  
    **baixar todos os XMLs** num ZIP (XMLs + `relacao.csv` + `LEIA-ME.txt`)  
+
+### Importar por empresa, não "todas de uma vez"
+
+Cada consulta gasta a **janela de 1 hora daquele CNPJ** na SEFAZ. Varrer 30
+empresas quando o cliente pediu duas atrasa quem foi pedido — e consumo
+indevido é o único jeito de o CNPJ ser bloqueado. Por isso o fluxo principal é a
+**seleção**: marque as empresas, veja a prévia (`pode rodar agora`, `na janela de
+1 h`, `sem certificado`) e dispare. A seleção fica guardada no navegador entre
+as sessões, e o botão **Forçar janela** existe para o caso de certeza (está
+marcado como exceção porque insistir antes da hora zera o cronômetro do
+bloqueio).
+
+Endpoints: `POST /importacoes/selecionadas` e
+`POST /importacoes/selecionadas/previa`.
 
 ### Importar empresas em massa (estilo JetTax360)
 
@@ -192,10 +273,11 @@ manual. Também dá para rodar antes:
 docker compose exec api python scripts/migrar.py
 ```
 
-### 30 empresas de uma vez
+### Muitas empresas de uma vez (modo servidor)
 
-`POST /importacoes/lote?tipo=nfse` (ou o botão da Visão geral) dispara uma
-task por empresa. Uma travar não puxa as outras. Para mais paralelismo:
+`POST /importacoes/lote?tipo=nfse` continua existindo para quem tem um banco só
+e quer disparar para todas — no programa instalado o caminho é a seleção (acima).
+Uma empresa travar não puxa as outras. Para mais paralelismo:
 
 ```bash
 docker compose up --scale worker=3
@@ -219,15 +301,23 @@ sincronismo — escalar duplicaria os disparos na SEFAZ).
 - [x] Fase 2 — NFe via SEFAZ AN
 - [x] Fase 3 — CT-e via SEFAZ AN
 - [x] Fase 4 — Frontend web
-- [ ] Fase 5 — Multiempresa self-service
+- [x] Fase 5 — Programa instalado (.exe) com atualização automática
+- [x] Fase 6 — Importação por seleção de empresas
+- [ ] Fase 7 — Assinatura de código (Authenticode) e primeiro uso fora do escritório
 
 ## Testes
 
 ```bash
 cd backend
 pip install -r requirements-dev.txt
-pytest -q
+pytest -q                     # 129 testes
 ```
+
+Os testes cobrem os caminhos que **não podem falhar no computador do cliente**:
+primeira abertura do programa com pasta de dados vazia (banco SQLite criado
+sozinho, sem tocar no PostgreSQL do servidor), comparação de versão do
+atualizador, conferência de SHA-256 do instalador baixado e escolha da porta do
+painel.
 
 ## Recuperação de certificado e rotação da chave do cofre
 

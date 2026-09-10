@@ -1,221 +1,236 @@
-# NotasFlow — Passo a passo (do zero até importar notas)
+# NotasFlow — Passo a passo (do download até as notas no seu computador)
 
+Guia para quem vai **usar** o programa no dia a dia do escritório.
 Repositório: https://github.com/montx2/Cajuru28
 
----
-
-## Passo 1 — Baixar o projeto
-
-Abra o **Prompt de Comando** ou **PowerShell** e rode:
-
-```bat
-cd %USERPROFILE%\Desktop
-git clone https://github.com/montx2/Cajuru28.git
-cd Cajuru28
-```
-
-Se preferir baixar ZIP pelo GitHub:
-
-1. Abra https://github.com/montx2/Cajuru28
-2. Botão verde **Code** → **Download ZIP**
-3. Extraia numa pasta (ex.: `Desktop\Cajuru28`)
-
-> Não tem Git? Sem problema — baixe o ZIP, extraia, e siga o Passo 2:
-> o `INSTALAR_TUDO.bat` instala o Git (e todo o resto) sozinho.
+> **O que mudou:** o NotasFlow agora é um **programa instalado no seu
+> computador** (Windows), e não um site hospedado. Você baixa um `.exe`, instala
+> com dois cliques e pronto — os XMLs ficam no seu disco, no seu banco, e o
+> certificado A1 nunca sai da máquina. Você não precisa de Docker, Python, Node
+> nem internet fixa para trabalhar com o que já baixou.
 
 ---
 
-## Passo 2 — Instalar tudo e subir o sistema (1 clique)
+## Passo 1 — Baixar o instalador
 
-**Windows:** dê dois cliques em **`INSTALAR_TUDO.bat`**
+Abra a página de versões e baixe o arquivo **`NotasFlow-Setup-….exe`** (o maior,
+que tem "Setup" no nome):
 
-Ele faz **tudo** sozinho, num PC que não tem nada:
+https://github.com/montx2/Cajuru28/releases/latest
 
-1. Instala o **Git** (se não tiver)
-2. Instala o **Python 3** (se não tiver)
-3. Instala o **Docker Desktop** + **WSL2** (se não tiver)
-4. Gera suas **chaves de segurança** e o **login** (`CREDENCIAIS.txt`)
-5. Sobe o sistema (containers) e **abre o painel no navegador**
+Se preferir não instalar (máquina sem permissão de administrador, por exemplo),
+baixe o **`NotasFlow-…-portatil.zip`**, extraia em `C:\NotasFlow` e abra o
+`NotasFlow.exe` de dentro da pasta.
 
-Pontos importantes:
+---
 
-- Se pedir **permissão de Administrador**, clique **Sim**.
-- Se o Windows pedir **reiniciar** (para habilitar o WSL2), reinicie e
-  dê dois cliques em `INSTALAR_TUDO.bat` de novo — ele continua de onde parou.
-- Pode rodar quantas vezes quiser: o que já está instalado é pulado.
-- A primeira vez demora vários minutos (baixa imagens e compila o frontend).
+## Passo 2 — Instalar
 
-**Linux / macOS:**
+Dê **dois cliques** no arquivo baixado.
 
-```bash
-./INSTALAR_TUDO.sh                  # instala tudo e sobe
-./INSTALAR_TUDO.sh --so-verificar   # só checa o que falta
-```
+- **Não pede senha de administrador.** O programa é instalado só para o seu
+  usuário, em `%LOCALAPPDATA%\Programs\NotasFlow`.
+- Na tela final, deixe marcado **"Abrir o NotasFlow junto com o Windows"**. É o
+  que garante que o sistema continue consultando a SEFAZ nos dias em que você
+  nem abrir o programa.
+- Se o Windows mostrar o aviso azul *"O Windows protegeu o seu PC"*, clique em
+  **Mais informações → Executar assim mesmo**. Isso aparece em qualquer programa
+  novo sem assinatura digital paga; depois da primeira vez, não aparece mais.
 
-Pronto — quando terminar, o navegador abre em http://localhost:3000
-
-| O que | Endereço |
-|-------|----------|
-| Painel | http://localhost:3000 |
-| API / Swagger | http://localhost:8000/docs |
+Ao terminar, o NotasFlow abre sozinho, já com a sua tela de login, e passa a
+ficar também **ao lado do relógio** (o ícone verde/NF — clique nele para abrir,
+ver o log ou sair).
 
 ---
 
 ## Passo 3 — Entrar no painel
 
-1. Abra http://localhost:3000
-2. Email e senha do **`CREDENCIAIS.txt`** (gerado na instalação)
-3. Clique em **Entrar**
+Na **primeira abertura** o programa criou sozinho:
 
-O usuário admin é criado **sozinho** na primeira subida da API (não precisa de script extra).
+- a sua pasta de dados: `%APPDATA%\NotasFlow`
+- o arquivo **`CREDENCIAIS.txt`** com o e-mail e a senha gerados para este
+  computador;
+- as chaves de segurança que cifram a senha do seu certificado.
 
----
+Abra `CREDENCIAIS.txt` (há um atalho **"Abrir a pasta de dados"** em
+**Configurações**), copie e-mail e senha e entre.
 
-## Passo 4 — Cadastrar uma empresa
-
-1. Menu **Empresas** → **Nova empresa**  
-2. Preencha:
-   - Razão social  
-   - CNPJ (só números ou com máscara)  
-   - UF (ex.: MG, SP)  
-3. Salve e clique em **abrir** na empresa
+Esqueceu a senha depois? Clique com o botão direito no ícone ao lado do relógio →
+**Redefinir senha do administrador**. Não precisa chamar ninguém.
 
 ---
 
-## Passo 5 — Enviar o certificado A1
+## Passo 4 — Cadastrar as empresas e os certificados
 
-Na tela da empresa:
+### Jeito rápido (30 empresas de uma vez)
 
-1. Escolha o arquivo **`.pfx`** (ou `.p12`) da empresa  
-2. Digite a **senha do certificado**  
-3. Clique em **Enviar certificado**
+1. Menu **Empresas** → **Importar em massa**
+2. Selecione **todos os arquivos `.pfx`/`.p12`** de uma vez
+3. Informe a senha (a mesma para todos, ou uma por empresa num CSV
+   `razao_social;cnpj_cpf;uf;senha`)
+4. Confira o relatório linha a linha
 
-A senha é cifrada no banco (cofre). Não aparece de novo na tela.
+O sistema lê o **CNPJ e a razão social de dentro do certificado** (campo
+ICP-Brasil do X.509) e cria a empresa já com o certificado vinculado. Um arquivo
+com senha errada aparece como erro e **não** impede os outros.
 
-Repita para as outras empresas (pode cadastrar ~30).
+### Jeito manual
+
+Menu **Empresas** → **Nova empresa** (razão social, CNPJ, UF) → abrir a empresa
+→ enviar o `.pfx` + senha do certificado A1.
+
+> A senha do certificado é cifrada no cofre local e **nunca** volta para a tela.
+> Só a senha que você digitar é usada — o sistema não tenta senhas "comuns".
 
 ---
 
-## Passo 6 — Importar as notas
+## Passo 5 — Importar as notas (escolhendo as empresas)
 
-### Uma empresa
+Este é o passo que importa para o dia a dia: **você escolhe de quais empresas
+quer puxar as notas agora**. Não faz sentido varrer as 30 quando o cliente pediu
+as notas de duas.
 
-Na tela da empresa, botões **NFSE** / **NFE** / **CTE**.
+1. Abra **Visão geral** (ou **Importações**)
+2. Escolha a **competência** (o mês que o cliente pediu) — opcional
+3. Escolha **o que puxar**: NFS-e, NFe, CT-e ou os três
+4. **Marque as empresas** na lista (há busca por nome/CNPJ; a seleção fica
+   guardada para a próxima vez)
+5. Clique em **Importar N empresas**
 
-### Todas de uma vez
+Antes de disparar, a lista já mostra o que vai acontecer com cada empresa:
 
-1. Menu **Visão geral** (ou **Importações**)  
-2. Escolha o tipo (NFS-e, NFe, CT-e — ou os três) e, se quiser, a **competência**
-   (o mês que o contador pediu)  
-3. Clique em **Importar … de todas** / **Sincronizar todas agora**
+| Situação na lista | O que significa |
+| --- | --- |
+| Pode rodar agora | Janela da SEFAZ livre: a consulta sai na hora |
+| Na janela de 1 h da SEFAZ | Esse CNPJ já foi consultado há pouco. A continuação está agendada — o sistema retoma sozinho |
+| Já está varrendo | Há uma importação em andamento para essa empresa/tipo |
+| Sem certificado A1 | Falta enviar o `.pfx` (o link leva para a tela da empresa) |
 
-Empresas sem certificado ou dentro da janela de 1h da SEFAZ aparecem na lista
-com o motivo e a hora em que a retomada automática já está marcada.
+Uma empresa bloqueada **não** impede as outras: cada linha é tratada
+separadamente, com o motivo escrito.
 
-### Acompanhar
+> **Por que não "importar todas" de uma vez?** Cada consulta gasta a janela de 1
+> hora *daquele CNPJ* na SEFAZ. Varrer quem não foi pedido atrasa quem foi pedido
+> — e consumo indevido é o único jeito de o CNPJ ser bloqueado. Ainda existe um
+> botão para **forçar a janela**, mas ele é exceção e está marcado como tal.
 
-Menu **Importações** — atualiza sozinho enquanto houver execução rodando.  
-A tabela **“De onde cada empresa está”** mostra o cursor (último NSU), quantos
-documentos faltam e quando a próxima consulta acontece. Estados possíveis:
+### Se você não fizer nada
+
+Depois de cadastrar empresa + certificado, o **sincronismo automático** entra em
+ação: o programa consulta cada CNPJ no ritmo que a SEFAZ permite (1 hora por
+empresa e tipo de documento) enquanto o computador estiver ligado. A tela
+**Importações** mostra de onde cada empresa está:
 
 - **em dia ✔** — nada a fazer;
-- **varrendo…** — o worker está descendo os lotes agora;
-- **espera / bloqueada pela SEFAZ** — é a janela oficial de 1h por CNPJ; a
-  continuação já está agendada, e a linha diz a hora. **Não clique de novo**:
-  consultar antes de a janela vencer renova o bloqueio;
-- **Erro** (vermelho) — aí sim precisa olhar: falta certificado, credencial do
-  cofre, ambiente indisponível.
-
-Depois do primeiro ciclo de cada empresa você não precisa mais clicar em nada:
-o **Importações → sincronizar automática** roda sozinho. Se quiser, desligue
-por empresa na tela dela.
-
-### Ver e baixar XML
-
-Menu **Documentos** → filtre empresa/tipo/**mês** → botão **XML** (uma nota) ou
-**Baixar todos os XMLs** (ZIP com os XMLs do filtro + `relacao.csv` +
-`LEIA-ME.txt`). Marque linhas na tabela para baixar só a seleção. O botão
-“N só com resumo → buscar XML completo” manda o sistema buscar pela chave o
-XML que a SEFAZ ainda não tinha entregue — dentro do teto de 20 consultas/h.
+- **varrendo…** — descendo os lotes agora;
+- **bloqueada pela SEFAZ · tenta sozinha 14:37** — é o protocolo, não uma falha;
+  esperar é o que preserva o CNPJ;
+- **⚠ N dias sem varrer com documento faltando** — este é o caso que exige
+  atenção: a distribuição oficial só guarda os últimos ~3 meses. Sem
+  importação nesse período, o que ficou para trás pode ter saído da
+  distribuição — nesse caso o XML precisa ser pedido no portal da SEFAZ.
 
 ---
 
-## Passo 7 — (Recomendado) primeira rodada com poucas empresas
+## Passo 6 — Ver e entregar as notas
 
-1. Cadastre **1 ou 2** empresas com certificado válido  
-2. Importe só **NFS-e** primeiro  
-3. Veja os logs se algo falhar:
+Menu **Documentos**:
 
-```bat
-docker compose logs -f worker
-```
-
-4. Se estiver ok, libere para as 30  
-
-Para mais paralelismo:
-
-```bat
-docker compose up --scale worker=3
-```
+- filtre por **empresa**, **tipo** e **competência (mês)**;
+- **Baixar todos os XMLs** gera um ZIP com os XMLs, um `relacao.csv` (abre
+  direto no Excel, com `;` e acentuação) e um `LEIA-ME.txt`;
+- dá para marcar linhas e baixar só a seleção;
+- notas **canceladas** aparecem marcadas, com motivo e data;
+- quem chegou só em resumo tem o **XML completo** buscado pela chave no botão
+  de completar (dentro da cota oficial de 20 consultas/hora).
 
 ---
 
-## Homologação (teste antes de produção)
+## Passo 7 — Backup (2 minutos que salvam o escritório)
 
-No arquivo `backend\.env`, mude:
+**Configurações → Gerar backup agora** cria um ZIP com o banco de notas, os
+certificados e a configuração. Guarde no pendrive ou na nuvem.
 
-```env
-AMBIENTE_FISCAL=homologacao
-```
+O que acontece se o computador quebrar **sem** backup: os XMLs podem ser baixados
+de novo da SEFAZ (dentro dos ~3 meses da distribuição) e os certificados você já
+tem — mas reenviar 30 certificados com senha não é um dia agradável.
 
-Reinicie:
+O programa também gera um backup sozinho por dia e mantém os 10 últimos na pasta
+de dados.
 
-```bat
-docker compose restart api worker
-```
+---
 
-Depois volte para `producao` quando validar.
+## Passo 8 — Atualizações (você não faz nada)
+
+Quando o autor publica uma correção, o programa lê o aviso, baixa e instala
+sozinho — sem pedir arquivo, sem pedir senha de administrador, sem perder nada
+do que está no banco.
+
+- aparece uma faixa no topo: **"Versão 1.1.0 disponível"** com as notas e
+  **Atualizar agora**;
+- se você estiver no meio de um fechamento, clique em **depois** — a faixa volta
+  depois (e a atualização obrigatória não oferece essa opção);
+- enquanto a tela de Configurações estiver aberta, você pode conferir
+  **Versão** verificado naquele momento, e forçar **Verificar agora**.
+
+Quem atualiza são os computadores; o **código do repositório não precisa ser
+baixado** por ninguém.
 
 ---
 
 ## Problemas comuns
 
 | Sintoma | O que fazer |
-|---------|-------------|
-| `docker` não é reconhecido | Rode `INSTALAR_TUDO.bat` — ele instala o Docker sozinho |
-| Docker instalado mas "não ligou" | Abra o Docker Desktop e espere a baleia parar de animar; ou rode `INICIAR.bat` (ele liga sozinho) |
-| Pediu reinício do Windows | Normal ao habilitar WSL2 — reinicie e rode `INSTALAR_TUDO.bat` de novo |
-| Painel abre mas login falha | Espere ~30s a API subir; confira `docker compose logs api` |
-| “Sem certificado ativo” | Envie o `.pfx` na tela da empresa |
-| “Certificado inacessível; restaure a chave…” | A `VAULT_MASTER_KEY` foi alterada ou a senha cifrada corrompeu. Restaure no `backend/.env` a chave usada quando o certificado foi enviado e reinicie `api` e `worker`; se não a tiver, envie novamente o `.pfx` com a senha. |
-| `duplicate key` / `uq_documento_por_empresa` | Atualize pelo `ATUALIZAR.bat` e importe outra vez. A versão atual ignora a mesma nota de forma atômica; não apague documentos do banco. |
-| Erro 429 / cStat 656 no meio de uma importação | Não é falha: é a janela de 1h que a SEFAZ exige por CNPJ. O NotasFlow mostra **Aguardando a SEFAZ** e retoma sozinho na hora marcada — não clique de novo (isso zera o cronômetro do bloqueio). Detalhes em [`docs/SINCRONIZACAO.md`](docs/SINCRONIZACAO.md) |
-| Tela de Importações “parada” sem erro | Falta o serviço `beat`: `docker compose up -d beat` |
-| “Baixar todos os XMLs” responde que o filtro é grande demais | Use um mês (competência) ou uma empresa só; o teto é `LIMITE_DOCUMENTOS_POR_EXPORTACAO` |
-| Porta 3000 ou 8000 em uso | Feche o outro programa ou mude as portas no `docker-compose.yml` |
-| Esqueci a senha do painel | Rode de novo `python scripts\gerar_env.py --forcar` e `docker compose down -v` (apaga o banco local) + `INICIAR.bat` |
-| Quero a versão mais recente | Rode `ATUALIZAR.bat` (baixa o código novo e reconstrói) |
+| --- | --- |
+| Quero saber onde ficam meus dados | **Configurações → Abrir a pasta de dados** (é `%APPDATA%\NotasFlow`) |
+| "Não foi possível verificar atualização agora" | Sem internet ou a release ainda não foi publicada. O programa funciona normalmente; ele tenta de novo depois |
+| Esqueci a senha do painel | Ícone ao lado do relógio → **Redefinir senha do administrador** → nova senha em `CREDENCIAIS.txt` |
+| "Sem certificado A1" na lista de importação | Envie o `.pfx` da empresa (Passo 4) |
+| "Certificado vencido/perto de vencer" | Renove o A1 (a faixa mostra os dias que faltam) e envie o novo arquivo — o A1 leva alguns dias para sair, então vale olhar essa faixa |
+| Erro `cStat 656` / "Aguardando a SEFAZ" | Isso **não é erro**: é a janela de 1 h que a SEFAZ exige por CNPJ. A retomada está agendada; não force (insistir antes da hora zera o cronômetro) |
+| Tela travada / algo estranho | **Configurações → Ver registros**: as últimas linhas explicam o que aconteceu — é isso que se manda para o suporte |
+| O programa não abre | Veja `%APPDATA%\NotasFlow\logs\notasflow.log`; no menu Iniciar há **NotasFlow** de novo |
+| Quero instalar em outro computador | Baixe o instalador de novo e cadastre as empresas/certificados por lá (cada máquina tem o seu banco). **Não** instale duas cópias no mesmo escritório sincronizando os mesmos CNPJs: as duas consultariam a SEFAZ e o CNPJ seria bloqueado |
+| Quero desinstalar | Configurações do Windows → Aplicativos. Os **dados continuam** lá (é a pergunta que a desinstalação faz) |
 
 ---
 
-## Checklist rápido
+## Segurança
 
-- [ ] Baixou o projeto (`git clone` ou ZIP)  
-- [ ] `INSTALAR_TUDO.bat` (instalou tudo e gerou `CREDENCIAIS.txt`)  
-- [ ] Painel abrindo em http://localhost:3000  
-- [ ] Login no painel  
-- [ ] Empresa + certificado A1  
-- [ ] Importar NFS-e  
+- O painel escuta **só no seu computador** (`127.0.0.1`). Nenhuma outra máquina da
+  rede alcança o NotasFlow — nem os certificados, nem o banco.
+- O certificado fica em `%APPDATA%\NotasFlow\dados\certificados\…`, com permissão
+  restrita ao seu usuário; a senha dele é cifrada com a `VAULT_MASTER_KEY`
+  gerada no seu computador.
+- **Não mexa na `VAULT_MASTER_KEY`** do `.env` (na pasta de dados): trocá-la
+  torna indecifráveis as senhas dos certificados já cadastrados. Se isso
+  acontecer, restaure a chave anterior ou reenvie os `.pfx`.
+- Nunca envie `CREDENCIAIS.txt`, o `.env` ou a pasta de certificados para
+  ninguém.
 
 ---
 
-## Segurança (quando for usar de verdade)
+## Apêndice — Modo servidor (Docker), para quem preferir
 
-Troque depois no `backend\.env` e no painel:
+O mesmo sistema continua tendo o modo servidor com PostgreSQL + Redis + Celery,
+para uso em uma máquina só do escritório com vários usuários no navegador:
 
-- Senha do admin (`BOOTSTRAP_SENHA` só vale na **primeira** criação; depois altere no banco ou recrie o volume)  
-- `SECRET_KEY`  
-- `VAULT_MASTER_KEY` — **não a troque** enquanto houver certificados salvos. O `gerar_env.py --forcar` a preserva automaticamente. Para uma rotação planejada, configure temporariamente a chave anterior em `VAULT_PREVIOUS_MASTER_KEYS`, reenvie os certificados e só então remova a chave antiga.
-- Senha do PostgreSQL no `docker-compose.yml`  
+```bash
+git clone https://github.com/montx2/Cajuru28.git && cd Cajuru28
+./INSTALAR_TUDO.sh        # Windows: dois cliques em INSTALAR_TUDO.bat
+```
 
-Nunca envie o arquivo `CREDENCIAIS.txt` ou o `backend\.env` para o Git ou para terceiros.
+| Serviço | Endereço |
+| --- | --- |
+| Painel | http://localhost:3000 |
+| API / Swagger | http://localhost:8000/docs |
+
+Nesse modo, o crescimento horizontal é `docker compose up --scale worker=3` e o
+`beat` mantém o sincronismo. É a opção certa para quem quer **um banco só** e
+vários contadores acessando — e a opção errada para internet aberta sem TLS.
+
+Se o painel precisar ser acessível de outras máquinas do escritório a partir do
+programa instalado, existe a chave `NOTASFLOW_PERMITIR_REDE=true` (o painel passa
+a escutar em `0.0.0.0`) — mas aí os outros computadores usam o painel **no
+navegador**, sem instalar o programa: duas instalações sincronizando os mesmos
+CNPJs fazem a SEFAZ bloquear por consumo indevido.

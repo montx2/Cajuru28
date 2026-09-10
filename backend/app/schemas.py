@@ -147,6 +147,26 @@ class CertificadoResposta(BaseModel):
     # note: sem campo de senha aqui, de propósito
 
 
+class ResumoCertificado(BaseModel):
+    """
+    Estado do certificado de cada empresa — para o painel avisar antes do
+    problema, não depois.
+
+    Um A1 vencido não dá erro na hora de subir: ele simplesmente faz toda
+    importação daquela empresa falhar. Avisar com 30 dias de antecedência (o
+    prazo real de renovação) é a diferença entre uma tarefa planejada e um
+    chamado de urgência.
+    """
+
+    empresa_id: int
+    razao_social: str
+    tem_certificado: bool = False
+    validade: datetime | None = None
+    dias_para_vencer: int | None = None
+    vencido: bool = False
+    vence_em_breve: bool = False
+
+
 # ---------- Documento fiscal ----------
 
 class DocumentoFiscalResposta(BaseModel):
@@ -208,6 +228,59 @@ class ItemImportacaoLote(BaseModel):
     execucao_id: int | None = None
     disponivel_em: datetime | None = None
     mensagem: str = ""
+
+
+class ImportacaoSelecionadas(BaseModel):
+    """
+    Importar exatamente as empresas marcadas na tela.
+
+    Existe porque "importar de todas" era o comportamento errado para o uso
+    real: o escritório não quer varrer 30 CNPJs quando precisa de 3, e cada
+    CNPJ varrido desnecessariamente gasta a cota de 1 hora da SEFAZ e atrasa a
+    fila dos que importam. Selecionar é a operação padrão; "todas" passa a ser
+    apenas o caso em que o usuário marca todas.
+    """
+
+    empresa_ids: list[int]
+    # Tipos a puxar para cada empresa marcada. Vazio = os três.
+    tipos: list[TipoDocumentoFiscal] = []
+    competencia: str | None = None
+    data_inicio: date | None = None
+    data_fim: date | None = None
+    # Ignora a janela de 1 hora da SEFAZ. Só sob consciência explícita.
+    forcar: bool = False
+
+    @field_validator("empresa_ids")
+    @classmethod
+    def sem_duplicadas(cls, v: list[int]) -> list[int]:
+        vistos: list[int] = []
+        for item in v:
+            if item not in vistos:
+                vistos.append(item)
+        if not vistos:
+            raise ValueError("Selecione ao menos uma empresa.")
+        return vistos
+
+
+class ItemImportacaoSelecionada(BaseModel):
+    """Resultado por empresa **e** tipo — é o que a tabela marca linha a linha."""
+
+    empresa_id: int
+    razao_social: str
+    tipo: TipoDocumentoFiscal
+    status: str
+    execucao_id: int | None = None
+    disponivel_em: datetime | None = None
+    mensagem: str = ""
+    enfileirada: bool = False
+
+
+class ResultadoImportacaoSelecionada(BaseModel):
+    total: int
+    enfileiradas: int
+    aguardando: int
+    ignoradas: int
+    itens: list[ItemImportacaoSelecionada]
 
 
 class ExecucaoImportacaoResposta(BaseModel):
