@@ -356,7 +356,18 @@ _CAMPOS_COMUNS: dict[str, tuple[tuple[str, str], ...]] = {
     "serie": (("ide", "serie"), ("", "serie"), ("", "series")),
     "data_emissao": (("ide", "dhEmi"), ("ide", "dEmi"), ("", "dhEmi"), ("", "dEmi")),
     "competencia": (("", "dComp"), ("", "dCompet"), ("", "cPerCont"), ("ide", "dCompet")),
-    "valor": (("", "vNF"), ("", "vTPrest"), ("", "vTRec"), ("vCarga", "vCarga")),
+    # O valor mora em lugares diferentes no resumo (nível raiz) e no documento
+    # completo (procNFe: infNFe/total/ICMSTot/vNF; CT-e: infCTe/vCTe/vTPrest).
+    "valor": (
+        ("ICMSTot", "vNF"),
+        ("total", "vNF"),
+        ("vCTe", "vTPrest"),
+        ("vCTe", "vTRec"),
+        ("total", "vCarga"),
+        ("", "vNF"),
+        ("", "vTPrest"),
+        ("", "vTRec"),
+    ),
     # No resumo (resNFe/resCTe) o CNPJ/xNome do EMITENTE vêm soltos na raiz —
     # é o que o XSD define — então o fallback de nível raiz é o emitente, não
     # um "qualquer CNPJ" (dest/CNPJ só existe dentro do grupo dest).

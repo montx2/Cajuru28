@@ -526,6 +526,23 @@ def test_endpoint_de_estado_mostra_cursor_e_bloqueio(cliente):
     assert resumo["sincronismo_automatico"] is True
 
 
+def test_sincronizacao_por_empresa_tem_os_mesmos_campos_do_painel(cliente):
+    """A tela da empresa lê o mesmo schema do painel — sem tradução à parte."""
+    db = cliente["db"]
+    estado = sincronizacao.obter_estado(db, cliente["empresa_id"], TipoDocumentoFiscal.NFSE)
+    estado.ultimo_nsu = "42"
+    estado.max_nsu = "42"
+    sincronizacao.marcar_sem_novidade(db, estado)
+    db.commit()
+
+    corpo = cliente["client"].get(f"/empresas/{cliente['empresa_id']}/sincronizacao").json()
+    nfse = next(item for item in corpo if item["tipo"] == "nfse")
+    assert nfse["em_dia"] is True
+    assert nfse["pendencia"] == 0
+    assert nfse["ultimo_nsu"] == "42"
+    assert nfse["proxima_consulta_em"]  # a janela de 1h já está marcada
+
+
 def test_patch_de_empresa_controla_autosync(cliente):
     client, empresa_id = cliente["client"], cliente["empresa_id"]
     resposta = client.patch(
