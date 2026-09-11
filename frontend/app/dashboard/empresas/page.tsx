@@ -49,6 +49,7 @@ export default function EmpresasPage() {
   const [avisoCnpj, setAvisoCnpj] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
+  const [excluindoId, setExcluindoId] = useState<number | null>(null);
 
   // estado do importador em massa
   const [mostrarLote, setMostrarLote] = useState(false);
@@ -141,6 +142,23 @@ export default function EmpresasPage() {
       setErro(e instanceof ApiError ? e.message : "Não foi possível cadastrar a empresa.");
     } finally {
       setSalvando(false);
+    }
+  }
+
+  async function excluirEmpresa(empresa: Empresa) {
+    const confirmado = window.confirm(
+      `Excluir ${empresa.razao_social}?\n\nTodos os XMLs, certificados e históricos desta empresa serão removidos definitivamente.`
+    );
+    if (!confirmado) return;
+    setErro(null);
+    setExcluindoId(empresa.id);
+    try {
+      await api.excluirEmpresa(empresa.id);
+      setEmpresas((atuais) => atuais.filter((item) => item.id !== empresa.id));
+    } catch (e) {
+      setErro(e instanceof ApiError ? e.message : "Não foi possível excluir a empresa.");
+    } finally {
+      setExcluindoId(null);
     }
   }
 
@@ -400,22 +418,30 @@ export default function EmpresasPage() {
       ) : (
         <div className="grid gap-3 lg:grid-cols-2">
           {empresas.map((empresa) => (
-            <Link
-              key={empresa.id}
-              href={`/dashboard/empresa?id=${empresa.id}`}
-              className="card-hover rounded-card border border-line bg-surface p-4"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="truncate font-medium text-ink">{empresa.razao_social}</p>
-                  <p className="mt-1 font-mono text-xs text-ink-muted">
-                    {formatarDocumento(empresa.cnpj_cpf)}
-                  </p>
+            <div key={empresa.id} className="card-hover rounded-card border border-line bg-surface p-4">
+              <Link href={`/dashboard/empresa?id=${empresa.id}`} className="block">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-ink">{empresa.razao_social}</p>
+                    <p className="mt-1 font-mono text-xs text-ink-muted">
+                      {formatarDocumento(empresa.cnpj_cpf)}
+                    </p>
+                  </div>
+                  <span className="badge-neutral">{empresa.uf}</span>
                 </div>
-                <span className="badge-neutral">{empresa.uf}</span>
-              </div>
-              <p className="mt-3 text-xs text-accent">Abrir cadastro →</p>
-            </Link>
+                <p className="mt-3 text-xs text-accent">Abrir cadastro →</p>
+              </Link>
+              {!somenteLeitura && (
+                <button
+                  type="button"
+                  onClick={() => excluirEmpresa(empresa)}
+                  disabled={excluindoId === empresa.id}
+                  className="mt-3 text-xs text-danger hover:underline disabled:opacity-50"
+                >
+                  {excluindoId === empresa.id ? "Excluindo…" : "Excluir empresa e seus XMLs"}
+                </button>
+              )}
+            </div>
           ))}
         </div>
       )}

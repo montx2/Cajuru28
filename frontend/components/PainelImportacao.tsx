@@ -102,7 +102,10 @@ export function PainelImportacao({
   }, [idsSelecionados, tiposChave, competencia]);
 
   async function disparar(forcar = false) {
-    if (idsSelecionados.length === 0) return;
+    if (idsSelecionados.length === 0 || !competencia) {
+      setErro("Informe a competência antes de importar.");
+      return;
+    }
     setDisparando(true);
     setErro(null);
     setResultado(null);
@@ -178,7 +181,7 @@ export function PainelImportacao({
         <div className="mb-5 flex flex-wrap items-end gap-x-6 gap-y-4">
           <div>
             <p className="mb-2 text-xs uppercase text-ink-muted">Competência</p>
-            <CompetenciaPicker valor={competencia} aoMudar={mudarCompetencia} />
+            <CompetenciaPicker valor={competencia} aoMudar={mudarCompetencia} permitirVazio={false} />
           </div>
           <div>
             <p className="mb-2 text-xs uppercase text-ink-muted">O que puxar</p>
@@ -210,7 +213,7 @@ export function PainelImportacao({
           <button
             type="button"
             onClick={() => disparar(false)}
-            disabled={disparando || idsSelecionados.length === 0 || somenteLeitura}
+            disabled={disparando || idsSelecionados.length === 0 || !competencia || somenteLeitura}
             title={somenteLeitura ? "Seu perfil é somente leitura." : undefined}
             className="btn-primary"
           >
@@ -245,7 +248,7 @@ export function PainelImportacao({
             <button
               type="button"
               onClick={() => disparar(true)}
-              disabled={disparando || idsSelecionados.length === 0 || somenteLeitura}
+              disabled={disparando || idsSelecionados.length === 0 || !competencia || somenteLeitura}
               title="Atravessa a janela de 1 hora. Use só quando tiver certeza."
               className="btn-ghost btn-sm"
             >

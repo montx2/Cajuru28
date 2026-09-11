@@ -63,7 +63,7 @@ class Settings(BaseSettings):
     # ---------------- Automação (Celery Beat) ----------------
     # Com isso ligado ninguém precisa apertar botão: o agendador varre as
     # empresas dentro das janelas de consumo, sozinha, para sempre.
-    sincronismo_automatico: bool = True
+    sincronismo_automatico: bool = False
     sincronismo_intervalo_minutos: int = 5
     # Quantas empresas o agendador libera por varredura (dilui a carga e o
     # risco de bater no limite de consultas do certificado ao mesmo tempo).

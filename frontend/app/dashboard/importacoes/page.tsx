@@ -150,9 +150,7 @@ function ConteudoImportacoes() {
         <div>
           <p className="font-serif text-2xl text-ink">Importações</p>
           <p className="mt-1 text-sm text-ink-muted">
-            {resumo?.sincronismo_automatico
-              ? `O sistema consulta a SEFAZ sozinho a cada ${resumo.intervalo_minutos} min, dentro da janela oficial de 1 hora por empresa e tipo.`
-              : "Sincronismo automático desligado — dispare as consultas por aqui."}
+            As consultas só são iniciadas nesta aba, com competência obrigatória. Se a SEFAZ aplicar uma janela de espera, a execução já iniciada retoma sozinha na hora segura.
           </p>
         </div>
         <Link

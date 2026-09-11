@@ -24,7 +24,16 @@ from app.api.deps import escritorio_id_atual, requer_escrita
 from app.core.config import settings
 from app.core.vault import cifrar_segredo
 from app.db.session import get_db
-from app.models import Certificado, Empresa, Usuario
+from app.models import (
+    Certificado,
+    DocumentoFiscal,
+    Empresa,
+    EventoFiscalPendente,
+    ExecucaoImportacao,
+    SincronizacaoDFe,
+    StatusExecucao,
+    Usuario,
+)
 from app.services import auditoria
 from app.schemas import (
     ConsultaCNPJResposta,
@@ -231,6 +240,58 @@ def atualizar_empresa(
     db.commit()
     db.refresh(empresa)
     return empresa
+
+
+@router.delete("/{empresa_id}", status_code=status.HTTP_204_NO_CONTENT)
+def excluir_empresa(
+    empresa_id: int,
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+    usuario: Usuario = Depends(requer_escrita),
+):
+    """Exclui a empresa e todos os seus certificados, documentos e históricos."""
+    empresa = _empresa_do_escritorio(db, empresa_id, escritorio_id)
+    em_andamento = (
+        db.query(ExecucaoImportacao.id)
+        .filter(
+            ExecucaoImportacao.empresa_id == empresa.id,
+            ExecucaoImportacao.status == StatusExecucao.EM_ANDAMENTO,
+        )
+        .first()
+    )
+    if em_andamento:
+        raise HTTPException(
+            status_code=409,
+            detail="Aguarde a importação em andamento terminar antes de excluir a empresa.",
+        )
+
+    caminhos = [c.arquivo_path for c in db.query(Certificado).filter_by(empresa_id=empresa.id)]
+    caminhos += [d.xml_path for d in db.query(DocumentoFiscal).filter_by(empresa_id=empresa.id)]
+    nome, documento = empresa.razao_social, empresa.cnpj_cpf
+
+    # Ordem explícita para funcionar igualmente em SQLite e PostgreSQL, sem
+    # depender de cascatas configuradas no banco instalado.
+    db.query(EventoFiscalPendente).filter_by(empresa_id=empresa.id).delete(synchronize_session=False)
+    db.query(DocumentoFiscal).filter_by(empresa_id=empresa.id).delete(synchronize_session=False)
+    db.query(ExecucaoImportacao).filter_by(empresa_id=empresa.id).delete(synchronize_session=False)
+    db.query(SincronizacaoDFe).filter_by(empresa_id=empresa.id).delete(synchronize_session=False)
+    db.query(Certificado).filter_by(empresa_id=empresa.id).delete(synchronize_session=False)
+    db.delete(empresa)
+    auditoria.registrar(
+        db, usuario, "empresa_excluida", entidade="empresa", entidade_id=empresa_id,
+        detalhe=f"{nome} ({documento}); documentos e certificado removidos",
+    )
+    db.commit()
+
+    for caminho in caminhos:
+        try:
+            if caminho and os.path.isfile(caminho):
+                os.remove(caminho)
+        except OSError:
+            # A exclusão dos dados não deve falhar por um XML já ausente ou
+            # volume temporariamente indisponível.
+            pass
+    return None
 
 
 @router.get("/{empresa_id}/sincronizacao", response_model=list[EstadoSincronizacaoResposta])

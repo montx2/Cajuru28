@@ -255,7 +255,7 @@ class ImportacaoSolicitar(BaseModel):
     # Competência desejada, ex.: "08/2026". Alternativa: data_inicio/data_fim.
     # Ela não corta a descarga (a API oficial anda por NSU), mas registra o mês
     # na execução, conta quantas notas caíram nele e pré-seleciona o download.
-    competencia: str | None = None
+    competencia: str
     data_inicio: date | None = None
     data_fim: date | None = None
 
@@ -284,7 +284,7 @@ class ImportacaoSelecionadas(BaseModel):
     empresa_ids: list[int]
     # Tipos a puxar para cada empresa marcada. Vazio = os três.
     tipos: list[TipoDocumentoFiscal] = []
-    competencia: str | None = None
+    competencia: str
     data_inicio: date | None = None
     data_fim: date | None = None
     # Ignora a janela de 1 hora da SEFAZ. Só sob consciência explícita.

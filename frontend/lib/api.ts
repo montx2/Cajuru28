@@ -212,6 +212,8 @@ export const api = {
 
   obterEmpresa: (id: number) => chamar<Empresa>(`/empresas/${id}`),
 
+  excluirEmpresa: (id: number) => chamar<void>(`/empresas/${id}`, { method: "DELETE" }),
+
   sincronizacaoDaEmpresa: (id: number) =>
     chamar<EstadoSincronizacao[]>(`/empresas/${id}/sincronizacao`),
 
