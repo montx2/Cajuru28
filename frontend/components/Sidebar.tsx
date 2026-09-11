@@ -8,18 +8,8 @@ import { limparCachePapel, usePapel } from "@/lib/papel";
 import { api } from "@/lib/api";
 import { Icone, Logomarca } from "./icons";
 
-/**
- * Navegação do sistema operacional fiscal privado.
- *
- * A estrutura segue a diretriz do produto: o operador entra para responder
- * "está tudo funcionando?" (Visão geral), administra muitas EMPRESAS e
- * documentos (Fiscal) e cuida da máquina (Sistema). Gestão de equipe, planos
- * e outros ruídos de SaaS não ocupam espaço aqui — o sistema é de um
- * operador.
- */
-
 const NAV_VISAO_GERAL = [
-  { href: "/dashboard", rotulo: "Painel", icone: "dashboard", exato: true },
+  { href: "/dashboard", rotulo: "Visão geral", icone: "dashboard", exato: true },
   { href: "/dashboard/atencao", rotulo: "Atenção", icone: "alerta", seloAtencao: true },
   { href: "/dashboard/execucoes", rotulo: "Execuções", icone: "atividade" },
 ];
@@ -38,13 +28,6 @@ const NAV_SISTEMA = [
   { href: "/dashboard/auditoria", rotulo: "Auditoria", icone: "olho", minPapel: "operador" },
 ];
 
-function visivel(minPapel: string | undefined, papel: string): boolean {
-  if (!minPapel) return true;
-  if (minPapel === "admin") return papel === "admin";
-  if (minPapel === "operador") return papel === "admin" || papel === "operador";
-  return true;
-}
-
 type ItemNav = {
   href: string;
   rotulo: string;
@@ -54,7 +37,15 @@ type ItemNav = {
   seloAtencao?: boolean;
 };
 
-function ListaNav({
+function visivel(minPapel: string | undefined, papel: string): boolean {
+  if (!minPapel) return true;
+  if (minPapel === "admin") return papel === "admin";
+  if (minPapel === "operador") return papel === "admin" || papel === "operador";
+  return true;
+}
+
+function GrupoNav({
+  titulo,
   itens,
   ativo,
   aoFechar,
@@ -62,6 +53,7 @@ function ListaNav({
   criticos,
   total,
 }: {
+  titulo: string;
   itens: ItemNav[];
   ativo: (href: string, exato?: boolean) => boolean;
   aoFechar: () => void;
@@ -70,7 +62,8 @@ function ListaNav({
   total: number;
 }) {
   return (
-    <>
+    <div className="mb-5 last:mb-0">
+      <p className="px-3 pb-2 text-[10px] font-bold uppercase tracking-[.16em] text-white/30">{titulo}</p>
       {itens
         .filter((item) => visivel(item.minPapel, papel))
         .map((item) => (
@@ -80,30 +73,25 @@ function ListaNav({
             onClick={aoFechar}
             className={`nav-item ${ativo(item.href, item.exato) ? "nav-item-ativo" : ""}`}
           >
-            <Icone nome={item.icone} className="h-5 w-5 flex-none" />
+            <Icone nome={item.icone} className="h-[18px] w-[18px] flex-none" strokeWidth={1.75} />
             <span className="flex-1">{item.rotulo}</span>
             {item.seloAtencao && total > 0 && (
               <span
-                className={`rounded-pill px-2 py-0.5 font-mono text-[11px] font-bold ${
+                className={`min-w-5 rounded-pill px-1.5 py-0.5 text-center font-mono text-[10px] font-bold ${
                   criticos > 0 ? "bg-danger text-white" : "bg-gold text-sidebar"
                 }`}
               >
-                {total}
+                {total > 99 ? "99+" : total}
               </span>
             )}
           </Link>
         ))}
-    </>
+    </div>
   );
 }
 
-export function Sidebar({
-  aberto,
-  aoFechar,
-}: {
-  aberto: boolean;
-  aoFechar: () => void;
-}) {
+/** Navegação reduzida: status e caminhos de operação em vez de menus de SaaS. */
+export function Sidebar({ aberto, aoFechar }: { aberto: boolean; aoFechar: () => void }) {
   const pathname = usePathname();
   const router = useRouter();
   const { papel } = usePapel();
@@ -115,18 +103,18 @@ export function Sidebar({
     const carregar = () =>
       api
         .contagemAlertas()
-        .then((c) => {
+        .then((contagem) => {
           if (vivo) {
-            setCriticos(c.criticos);
-            setTotal(c.total);
+            setCriticos(contagem.criticos);
+            setTotal(contagem.total);
           }
         })
         .catch(() => {});
     carregar();
-    const intervalo = setInterval(carregar, 60_000);
+    const intervalo = window.setInterval(carregar, 60_000);
     return () => {
       vivo = false;
-      clearInterval(intervalo);
+      window.clearInterval(intervalo);
     };
   }, []);
 
@@ -141,82 +129,42 @@ export function Sidebar({
 
   return (
     <>
-      {/* véu no mobile */}
-      <div
+      <button
+        type="button"
         onClick={aoFechar}
-        className={`no-print fixed inset-0 z-30 bg-ink/50 backdrop-blur-sm transition-opacity lg:hidden ${
+        aria-label="Fechar menu"
+        className={`no-print fixed inset-0 z-30 bg-ink/35 backdrop-blur-[2px] transition-opacity lg:hidden ${
           aberto ? "opacity-100" : "pointer-events-none opacity-0"
         }`}
       />
       <aside
-        style={{
-          backgroundImage:
-            "radial-gradient(600px 300px at 10% -5%, rgba(38,208,139,.14), transparent 60%), linear-gradient(180deg, #0E1613, #0A100E)",
-        }}
-        className={`no-print fixed inset-y-0 left-0 z-40 flex w-64 flex-none flex-col border-r border-sidebar-line transition-transform duration-200 lg:sticky lg:top-0 lg:h-screen lg:translate-x-0 ${
+        className={`no-print fixed inset-y-0 left-0 z-40 flex w-[248px] flex-none flex-col overflow-hidden border-r border-sidebar-line bg-sidebar transition-transform duration-300 ease-out lg:sticky lg:top-0 lg:h-screen lg:translate-x-0 ${
           aberto ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <Link href="/dashboard" onClick={aoFechar} className="flex items-center gap-3 px-5 pb-5 pt-6">
-          <Logomarca />
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-[radial-gradient(ellipse_at_top,rgba(91,197,148,.16),transparent_68%)]" />
+
+        <Link href="/dashboard" onClick={aoFechar} className="relative flex items-center gap-3 px-5 pb-7 pt-6">
+          <Logomarca className="h-10 w-10 rounded-[14px] text-lg" />
           <span>
-            <span className="block font-display text-lg font-bold leading-tight tracking-tight text-white">
-              NotasFlow
-            </span>
-            <span className="block text-[11px] font-medium uppercase tracking-wider text-accent-bright/70">
-              Operação fiscal
-            </span>
+            <span className="block font-display text-[17px] font-extrabold leading-tight tracking-tight text-white">NotasFlow</span>
+            <span className="mt-0.5 block text-[10px] font-bold uppercase tracking-[.14em] text-white/42">Operação fiscal</span>
           </span>
         </Link>
 
-        <nav className="flex-1 overflow-y-auto px-3 pb-4">
-          <p className="px-3 pb-1.5 pt-2 text-[11px] font-semibold uppercase tracking-wider text-white/35">
-            Visão geral
-          </p>
-          <ListaNav
-            itens={NAV_VISAO_GERAL}
-            ativo={ativo}
-            aoFechar={aoFechar}
-            papel={papel}
-            criticos={criticos}
-            total={total}
-          />
-
-          <p className="px-3 pb-1.5 pt-4 text-[11px] font-semibold uppercase tracking-wider text-white/35">
-            Fiscal
-          </p>
-          <ListaNav
-            itens={NAV_FISCAL}
-            ativo={ativo}
-            aoFechar={aoFechar}
-            papel={papel}
-            criticos={criticos}
-            total={total}
-          />
-
-          <p className="px-3 pb-1.5 pt-4 text-[11px] font-semibold uppercase tracking-wider text-white/35">
-            Sistema
-          </p>
-          <ListaNav
-            itens={NAV_SISTEMA}
-            ativo={ativo}
-            aoFechar={aoFechar}
-            papel={papel}
-            criticos={criticos}
-            total={total}
-          />
+        <nav className="relative flex-1 overflow-y-auto px-3 pb-5">
+          <GrupoNav titulo="Visão geral" itens={NAV_VISAO_GERAL} ativo={ativo} aoFechar={aoFechar} papel={papel} criticos={criticos} total={total} />
+          <GrupoNav titulo="Fiscal" itens={NAV_FISCAL} ativo={ativo} aoFechar={aoFechar} papel={papel} criticos={criticos} total={total} />
+          <GrupoNav titulo="Ambiente" itens={NAV_SISTEMA} ativo={ativo} aoFechar={aoFechar} papel={papel} criticos={criticos} total={total} />
         </nav>
 
-        <div className="border-t border-sidebar-line px-3 py-4">
-          <div className="mb-2 flex items-center justify-between px-3">
-            <span className="font-mono text-[11px] text-white/35">v3.0 · privado</span>
-            <span className="flex items-center gap-1.5 text-[11px] text-accent-bright">
-              <span className="pulso-andamento inline-block h-1.5 w-1.5 rounded-full bg-accent-bright" />
-              online
-            </span>
+        <div className="relative border-t border-sidebar-line px-3 py-4">
+          <div className="mb-2 flex items-center gap-2 px-3 text-[10px] font-semibold text-white/42">
+            <span className="pulso-andamento inline-block h-1.5 w-1.5 rounded-full bg-accent-bright" />
+            MONITORAMENTO ATIVO
           </div>
-          <button type="button" onClick={sair} className="nav-item w-full">
-            <Icone nome="sair" className="h-5 w-5 flex-none" />
+          <button type="button" onClick={sair} className="nav-item mb-0 w-full">
+            <Icone nome="sair" className="h-[18px] w-[18px] flex-none" />
             Sair
           </button>
         </div>

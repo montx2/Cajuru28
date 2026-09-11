@@ -1,123 +1,91 @@
 import type { Config } from "tailwindcss";
 
 /**
- * Design system NotasFlow — refeito para um padrão "equipe sênior":
+ * Sistema visual do NotasFlow.
  *
- * - Cores: base neutra fria (slate esverdeado) + acento esmeralda moderno,
- *   com superfícies translúcidas para glassmorphism e sombras duplas
- *   (clara/escura) para neumorphism.
- * - Tipografia: display (Clash/Satoshi via fallback), texto (Inter var) e
- *   mono (Geist Mono). Escala fluida controlada em globals.css.
- * - Raio generoso, sombras suaves em camadas, ritmo consistente.
+ * A base foi reduzida a tons frios de papel e grafite, com verde-petróleo como
+ * único acento funcional. A profundidade vem de transparência e sombras muito
+ * suaves — não de bordas, gradientes ou cores competindo pela atenção.
  */
 const config: Config = {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
-        // fundo do app (levemente esverdeado, frio) e superfícies
-        bg: "#EDF1EF",
-        "bg-deep": "#E3E9E6",
-        surface: "#FFFFFF",
-        "surface-2": "#F7FAF8",
+        bg: "#F2F5F3",
+        "bg-deep": "#E9EEEB",
+        surface: "#FCFDFC",
+        "surface-2": "#F7F9F8",
 
-        // tinta / texto
-        ink: "#0E1613",
-        "ink-muted": "#55655F",
-        "ink-2": "#55655F",
-        "ink-faint": "#8B9C95",
+        ink: "#16201C",
+        "ink-muted": "#65716B",
+        "ink-2": "#65716B",
+        "ink-faint": "#98A29D",
 
-        // acento esmeralda (mais vivo e contemporâneo)
-        accent: "#0F9D6B",
-        "accent-deep": "#0A7A52",
-        "accent-bright": "#26D08B",
-        "accent-soft": "#E0F4EC",
-        "accent-glow": "#5BE9B4",
+        accent: "#197154",
+        "accent-deep": "#10563E",
+        "accent-bright": "#5BC594",
+        "accent-soft": "#E4F3EC",
+        "accent-glow": "#BCEBD4",
 
-        line: "#E2E9E5",
-        "line-strong": "#CDD8D2",
+        line: "#DEE6E1",
+        "line-strong": "#CBD7D0",
 
-        warn: "#B57F16",
-        "warn-soft": "#FBF0D8",
-        danger: "#C93B28",
-        "danger-soft": "#FBE3DE",
-        info: "#2563EB",
-        "info-soft": "#E2EAFE",
+        warn: "#A86F12",
+        "warn-soft": "#FBF0D9",
+        danger: "#C04434",
+        "danger-soft": "#FBE7E3",
+        info: "#3867C8",
+        "info-soft": "#E8EEFD",
 
-        // sidebar — grafite profundo, quase preto esverdeado
-        sidebar: "#0A100E",
-        "sidebar-2": "#0E1613",
-        "sidebar-hover": "#16211D",
-        "sidebar-line": "#1C2A25",
-
-        gold: "#C9A227",
+        sidebar: "#111A17",
+        "sidebar-2": "#18241F",
+        "sidebar-hover": "#22312B",
+        "sidebar-line": "#293A32",
+        gold: "#D5B451",
       },
       fontFamily: {
-        sans: ["var(--font-inter)", "system-ui", "sans-serif"],
-        display: ["var(--font-display)", "var(--font-inter)", "system-ui", "sans-serif"],
+        sans: ["var(--font-sans)", "system-ui", "sans-serif"],
+        display: ["var(--font-display)", "var(--font-sans)", "system-ui", "sans-serif"],
         mono: ["var(--font-mono)", "ui-monospace", "monospace"],
-        // compat: telas antigas usam font-serif para títulos
-        serif: ["var(--font-display)", "var(--font-inter)", "system-ui", "sans-serif"],
+        serif: ["var(--font-display)", "var(--font-sans)", "system-ui", "sans-serif"],
       },
       letterSpacing: {
-        tightest: "-0.04em",
-        tighter: "-0.02em",
+        tightest: "-0.05em",
+        tighter: "-0.025em",
       },
       borderRadius: {
         DEFAULT: "10px",
-        card: "18px",
-        "card-lg": "24px",
+        card: "16px",
+        "card-lg": "22px",
         pill: "999px",
       },
       boxShadow: {
-        // sombra de cartão em camadas — profundidade real, discreta
-        card: "0 1px 2px rgba(14,22,19,.04), 0 8px 24px -12px rgba(14,22,19,.14)",
-        "card-hover": "0 2px 6px rgba(14,22,19,.06), 0 20px 48px -16px rgba(14,22,19,.22)",
-        pop: "0 16px 50px -12px rgba(14,22,19,.30)",
-        // neumorphism: luz no topo-esquerda, sombra na base-direita
-        neu: "6px 6px 16px rgba(14,22,19,.10), -6px -6px 16px rgba(255,255,255,.90)",
-        "neu-inset":
-          "inset 3px 3px 8px rgba(14,22,19,.09), inset -3px -3px 8px rgba(255,255,255,.85)",
-        "neu-sm": "3px 3px 8px rgba(14,22,19,.08), -3px -3px 8px rgba(255,255,255,.85)",
-        // brilho do acento (botões primários, foco)
-        glow: "0 8px 24px -6px rgba(15,157,107,.45)",
-        "inner-top": "inset 0 1px 0 rgba(255,255,255,.6)",
-      },
-      backdropBlur: {
-        xs: "2px",
+        card: "0 1px 2px rgba(18, 31, 25, .025), 0 12px 32px -22px rgba(18, 31, 25, .24)",
+        "card-hover": "0 2px 5px rgba(18, 31, 25, .04), 0 20px 42px -22px rgba(18, 31, 25, .28)",
+        pop: "0 24px 64px -24px rgba(12, 22, 17, .38)",
+        neu: "8px 8px 22px rgba(51, 67, 59, .12), -8px -8px 22px rgba(255, 255, 255, .8)",
+        "neu-inset": "inset 2px 2px 5px rgba(37, 52, 44, .06), inset -2px -2px 5px rgba(255, 255, 255, .72)",
+        "neu-sm": "3px 3px 9px rgba(51, 67, 59, .09), -3px -3px 9px rgba(255, 255, 255, .82)",
+        glow: "0 10px 24px -10px rgba(25, 113, 84, .55)",
+        "inner-top": "inset 0 1px 0 rgba(255, 255, 255, .72)",
       },
       keyframes: {
         "fade-up": {
-          from: { opacity: "0", transform: "translateY(12px)" },
+          from: { opacity: "0", transform: "translateY(10px)" },
           to: { opacity: "1", transform: "translateY(0)" },
         },
         "fade-in": { from: { opacity: "0" }, to: { opacity: "1" } },
-        "scale-in": {
-          from: { opacity: "0", transform: "scale(.97)" },
-          to: { opacity: "1", transform: "scale(1)" },
-        },
-        "slide-in-right": {
-          from: { opacity: "0", transform: "translateX(32px)" },
-          to: { opacity: "1", transform: "translateX(0)" },
-        },
-        shimmer: {
-          "0%": { backgroundPosition: "-400px 0" },
-          "100%": { backgroundPosition: "400px 0" },
-        },
-        "glow-pulse": {
-          "0%, 100%": { opacity: "1" },
-          "50%": { opacity: "0.4" },
-        },
-        float: {
-          "0%, 100%": { transform: "translateY(0)" },
-          "50%": { transform: "translateY(-6px)" },
-        },
+        "scale-in": { from: { opacity: "0", transform: "scale(.985)" }, to: { opacity: "1", transform: "scale(1)" } },
+        "slide-in-right": { from: { opacity: "0", transform: "translateX(24px)" }, to: { opacity: "1", transform: "translateX(0)" } },
+        shimmer: { "0%": { backgroundPosition: "-500px 0" }, "100%": { backgroundPosition: "500px 0" } },
+        pulse: { "0%, 100%": { opacity: "1" }, "50%": { opacity: ".38" } },
       },
       animation: {
-        "fade-up": "fade-up .5s cubic-bezier(.2,.7,.2,1) both",
-        "fade-in": "fade-in .3s ease both",
-        "scale-in": "scale-in .22s cubic-bezier(.2,.7,.2,1) both",
-        "slide-in-right": "slide-in-right .32s cubic-bezier(.2,.7,.2,1) both",
+        "fade-up": "fade-up .42s cubic-bezier(.16, 1, .3, 1) both",
+        "fade-in": "fade-in .2s ease both",
+        "scale-in": "scale-in .2s cubic-bezier(.16, 1, .3, 1) both",
+        "slide-in-right": "slide-in-right .28s cubic-bezier(.16, 1, .3, 1) both",
       },
     },
   },

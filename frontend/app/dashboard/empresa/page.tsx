@@ -79,7 +79,7 @@ function ConteudoEmpresa() {
 
   if (!empresaId) {
     return (
-      <div className="max-w-3xl border border-line bg-surface p-6">
+      <div className="card-pad max-w-3xl">
         <p className="text-sm text-ink-muted">
           Empresa não informada.{" "}
           <Link href="/dashboard/empresas" className="text-accent hover:underline">
@@ -93,16 +93,17 @@ function ConteudoEmpresa() {
   if (!empresa) return <p className="text-sm text-ink-muted">Carregando…</p>;
 
   return (
-    <div className="max-w-3xl">
-      <Link href="/dashboard/empresas" className="text-xs text-accent hover:underline">
-        ← empresas
-      </Link>
-      <p className="mt-2 font-serif text-2xl text-ink">{empresa.razao_social}</p>
-      <p className="mb-8 font-mono text-sm text-ink-muted">
-        {formatarDocumento(empresa.cnpj_cpf)} · {empresa.uf}
-      </p>
+    <div className="animate-fade-up max-w-3xl">
+      <Link href="/dashboard/empresas" className="link text-xs">← Empresas</Link>
+      <div className="mb-8 mt-5">
+        <p className="page-kicker">Cadastro fiscal</p>
+        <h1 className="page-title">{empresa.razao_social}</h1>
+        <p className="mt-2 font-mono text-sm text-ink-muted">
+          {formatarDocumento(empresa.cnpj_cpf)} · {empresa.uf}
+        </p>
+      </div>
 
-      <section className="mb-6 border border-line bg-surface p-6">
+      <section className="card-pad mb-6">
         <p className="mb-4 text-base font-medium text-ink">Certificado A1</p>
 
         {certificadoAtivo ? (
@@ -119,7 +120,7 @@ function ConteudoEmpresa() {
 
         <form onSubmit={enviarCertificado} className="flex flex-wrap items-end gap-3">
           <div>
-            <label className="mb-1 block text-sm text-ink-muted">Arquivo .pfx</label>
+            <label className="label">Arquivo .pfx</label>
             <input
               type="file"
               accept=".pfx,.p12"
@@ -129,7 +130,7 @@ function ConteudoEmpresa() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm text-ink-muted">Senha do certificado</label>
+            <label className="label">Senha do certificado</label>
             <input
               type="password"
               required
@@ -153,7 +154,7 @@ function ConteudoEmpresa() {
         </p>
       </section>
 
-      <section className="border border-line bg-surface p-6">
+      <section className="card-pad">
         <p className="mb-2 text-base font-medium text-ink">Importação de notas</p>
         <p className="mb-4 text-sm text-ink-muted">
           Para evitar consultas duplicadas e bloqueios por consumo indevido, novas importações só

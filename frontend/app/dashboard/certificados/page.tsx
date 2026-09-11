@@ -119,7 +119,7 @@ export default function CertificadosPage() {
     <div className="animate-fade-up space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-serif text-3xl font-semibold text-ink">Certificados</h1>
+          <h1 className="page-title">Certificados</h1>
           <p className="mt-1 text-sm text-ink-muted">
             Validade, última utilização e saúde de cada A1 — troque antes de virar incêndio.
           </p>

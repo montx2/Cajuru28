@@ -111,7 +111,7 @@ export default function UsuariosPage() {
     <div className="animate-fade-up max-w-4xl">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-serif text-3xl font-semibold text-ink">Equipe</h1>
+          <h1 className="page-title">Equipe</h1>
           <p className="mt-1 text-sm text-ink-muted">
             Quem acessa o painel — e o que cada um pode fazer.
           </p>

@@ -183,9 +183,13 @@ export default function EmpresasPage() {
   }
 
   return (
-    <div>
-      <div className="mb-6 flex items-center justify-between">
-        <p className="font-serif text-2xl text-ink">Empresas</p>
+    <div className="animate-fade-up">
+      <div className="page-header">
+        <div>
+          <p className="page-kicker">Base operacional</p>
+          <h1 className="page-title">Empresas</h1>
+          <p className="page-description">Cadastros, certificados e dados fiscais organizados para a automação trabalhar.</p>
+        </div>
         {somenteLeitura ? (
           <span className="badge-neutral">perfil somente leitura</span>
         ) : (
@@ -285,7 +289,7 @@ export default function EmpresasPage() {
       )}
 
       {mostrarLote && (
-        <form onSubmit={importarLote} className="mb-6 border border-line bg-surface p-5">
+        <form onSubmit={importarLote} className="card-pad mb-6">
           <p className="mb-1 text-base font-medium text-ink">Importar empresas em massa</p>
           <p className="mb-4 text-sm text-ink-muted">
             Envie os certificados <span className="font-mono">.pfx</span>; CNPJ, razão social e UF são
@@ -295,7 +299,7 @@ export default function EmpresasPage() {
 
           <div className="mb-3 flex flex-wrap items-end gap-3">
             <div className="min-w-64 flex-1">
-              <label className="mb-1 block text-sm text-ink-muted">
+              <label className="label">
                 Arquivos .pfx / .p12 (pode selecionar vários)
               </label>
               <input
@@ -307,7 +311,7 @@ export default function EmpresasPage() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm text-ink-muted">CSV (opcional)</label>
+              <label className="label">CSV (opcional)</label>
               <input
                 type="file"
                 accept=".csv,.txt"
@@ -316,7 +320,7 @@ export default function EmpresasPage() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm text-ink-muted">Senha dos certificados</label>
+              <label className="label">Senha dos certificados</label>
               <input
                 type="password"
                 value={senhaLote}
@@ -326,7 +330,7 @@ export default function EmpresasPage() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm text-ink-muted">UF fallback</label>
+              <label className="label">UF fallback</label>
               <select value={ufLote} onChange={(e) => setUfLote(e.target.value)} className="input">
                 <option value="">Automática</option>
                 {UFS.map((sigla) => (
@@ -409,7 +413,7 @@ export default function EmpresasPage() {
       {carregando ? (
         <p className="text-sm text-ink-muted">Carregando…</p>
       ) : empresas.length === 0 ? (
-        <div className="border border-line bg-surface p-8 text-center">
+        <div className="empty-state">
           <p className="text-sm text-ink-muted">
             Nenhuma empresa cadastrada ainda. Cadastre a primeira ou use “Importar em massa” para
             subir vários certificados de uma vez.
@@ -418,7 +422,7 @@ export default function EmpresasPage() {
       ) : (
         <div className="grid gap-3 lg:grid-cols-2">
           {empresas.map((empresa) => (
-            <div key={empresa.id} className="card-hover rounded-card border border-line bg-surface p-4">
+            <div key={empresa.id} className="card card-hover p-5">
               <Link href={`/dashboard/empresa?id=${empresa.id}`} className="block">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -429,7 +433,7 @@ export default function EmpresasPage() {
                   </div>
                   <span className="badge-neutral">{empresa.uf}</span>
                 </div>
-                <p className="mt-3 text-xs text-accent">Abrir cadastro →</p>
+                <p className="mt-4 text-xs font-bold text-accent-deep">Abrir cadastro <span aria-hidden="true">→</span></p>
               </Link>
               {!somenteLeitura && (
                 <button

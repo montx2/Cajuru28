@@ -275,7 +275,7 @@ export function PainelImportacao({
 
 function TabelaResultado({ resultado }: { resultado: ResultadoImportacaoSelecionada }) {
   return (
-    <div className="mt-5 rounded-lg bg-bg p-3">
+    <div className="mt-5 rounded-xl border border-line bg-surface-2/80 p-4">
       <div className="flex flex-wrap items-center gap-2 text-sm text-ink">
         {resultado.enfileiradas > 0 ? (
           <span className="badge-ok">{resultado.enfileiradas} enfileirada(s)</span>

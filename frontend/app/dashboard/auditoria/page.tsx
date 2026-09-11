@@ -54,7 +54,7 @@ export default function AuditoriaPage() {
   return (
     <div className="animate-fade-up max-w-5xl">
       <div className="mb-6">
-        <h1 className="font-serif text-3xl font-semibold text-ink">Auditoria</h1>
+        <h1 className="page-title">Auditoria</h1>
         <p className="mt-1 text-sm text-ink-muted">
           Cada login, cadastro, disparo e download — com nome, hora e detalhe.
         </p>
