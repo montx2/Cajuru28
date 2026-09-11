@@ -89,9 +89,21 @@ function ConteudoDocumentos() {
     };
   }, [empresaId, tipo, competencia, somenteResumo, termoBusca]);
 
+  // As abas são também o escopo do download. Antes elas filtravam apenas o
+  // que aparecia na tabela, enquanto "Baixar tudo" ignorava tomada/prestada.
+  const filtrosExportacao = useMemo(() => {
+    if (aba === "tomada" || aba === "prestada") {
+      return { ...filtros, direcao: aba, status: "normal" as const };
+    }
+    if (aba === "cancelada") {
+      return { ...filtros, status: "cancelada" as const };
+    }
+    return filtros;
+  }, [filtros, aba]);
+
   useEffect(() => {
     setSelecionados(new Set());
-  }, [filtros]);
+  }, [filtros, aba]);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -102,7 +114,7 @@ function ConteudoDocumentos() {
           empresa_id: empresaId === "todas" ? undefined : empresaId,
           competencia: filtros.competencia,
         }),
-        api.estimarExportacao(filtros),
+        api.estimarExportacao(filtrosExportacao),
       ]);
       setDocumentos((atual) => (offset === 0 ? lista : [...atual, ...lista]));
       setResumo(agregado);
@@ -112,7 +124,7 @@ function ConteudoDocumentos() {
     } finally {
       setCarregando(false);
     }
-  }, [filtros, offset, empresaId]);
+  }, [filtros, filtrosExportacao, offset, empresaId]);
 
   useEffect(() => {
     carregar();
@@ -123,10 +135,12 @@ function ConteudoDocumentos() {
     setMensagem(null);
     try {
       await api.baixarZip(
-        filtros as FiltrosExportacao,
-        `NotasFlow_${competencia ?? "todos"}.zip`
+        filtrosExportacao as FiltrosExportacao,
+        `NotasFlow_${competencia ?? "todos"}_${aba}.zip`
       );
-      setMensagem("Download iniciado — o ZIP traz os XMLs, a relação em CSV e um LEIA-ME.");
+      setMensagem(
+        "Download iniciado — o ZIP está separado por tipo (NFe, NFS-e e CT-e) e por tomada/prestada."
+      );
     } catch (e) {
       setMensagem(e instanceof ApiError ? e.message : "O download não começou.");
     } finally {
@@ -140,7 +154,10 @@ function ConteudoDocumentos() {
     setMensagem(null);
     try {
       await api.baixarZip(
-        { documento_ids: [...selecionados].join(",") },
+        {
+          ...(filtrosExportacao as FiltrosExportacao),
+          documento_ids: [...selecionados].join(","),
+        },
         `NotasFlow_selecao_${selecionados.size}.zip`
       );
     } catch (e) {
@@ -171,7 +188,7 @@ function ConteudoDocumentos() {
 
   function alternarTodos() {
     setSelecionados((atual) =>
-      atual.size === documentos.length ? new Set() : new Set(documentos.map((d) => d.id))
+      atual.size === visiveis.length ? new Set() : new Set(visiveis.map((d) => d.id))
     );
   }
 
@@ -296,7 +313,7 @@ function ConteudoDocumentos() {
         {estimativa && (
           <span className="text-xs text-ink-muted">
             {estimativa.documentos} arquivo(s) · ~{bytesParaTexto(estimativa.estimado_bytes)} ·{" "}
-            {estimativa.empresas} empresa(s) · ZIP com XMLs + relação.csv
+            {estimativa.empresas} empresa(s) · ZIP separado por tipo e tomada/prestada + relação.csv
           </span>
         )}
         {semXmlCompleto > 0 && !somenteLeitura && (

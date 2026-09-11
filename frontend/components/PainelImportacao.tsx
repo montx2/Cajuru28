@@ -48,6 +48,7 @@ export function PainelImportacao({
   const [certificados, setCertificados] = useState<ResumoCertificado[]>([]);
   const [previa, setPrevia] = useState<ResultadoImportacaoSelecionada | null>(null);
   const [resultado, setResultado] = useState<ResultadoImportacaoSelecionada | null>(null);
+  const [competenciaDoResultado, setCompetenciaDoResultado] = useState<string | null>(null);
   const [disparando, setDisparando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const { somenteLeitura } = usePapel();
@@ -117,6 +118,7 @@ export function PainelImportacao({
         forcar,
       });
       setResultado(resposta);
+      setCompetenciaDoResultado(competencia);
       await carregar();
       aoDisparar?.();
     } catch (e) {
@@ -174,8 +176,9 @@ export function PainelImportacao({
       <section className="card-pad">
         <p className="mb-1 text-base font-semibold text-ink">{titulo}</p>
         <p className="mb-5 text-sm text-ink-muted">
-          Escolha o mês, marque as empresas e clique em importar. O sistema varre por NSU para não
-          deixar nenhuma nota para trás.
+          Escolha o mês, marque as empresas e clique em importar. A fonte fiscal só permite consultar
+          por NSU, não por data: para não perder notas nem quebrar a sequência, a varredura pode
+          encontrar outros meses. O mês escolhido fica aplicado na lista e no ZIP de documentos.
         </p>
 
         <div className="mb-5 flex flex-wrap items-end gap-x-6 gap-y-4">
@@ -240,6 +243,14 @@ export function PainelImportacao({
               )}
             </p>
           )}
+          {competencia && (
+            <Link
+              href={`/dashboard/documentos?competencia=${competencia}`}
+              className="text-sm font-semibold text-accent hover:underline"
+            >
+              ver documentos de {competencia.split("-").reverse().join("/")} →
+            </Link>
+          )}
         </div>
 
         <details className="mt-3 text-xs text-ink-muted">
@@ -255,8 +266,9 @@ export function PainelImportacao({
               Forçar janela
             </button>
             <span>
-              A competência não limita o download: a varredura por NSU traz tudo e o mês só organiza
-              contagem e ZIP.
+              A competência não é enviada à SEFAZ como filtro: a varredura por NSU precisa trazer a
+              sequência para não perder documentos. Ela limita a lista, o resumo e o ZIP — não o
+              acervo de sincronização.
             </span>
           </div>
         </details>
@@ -267,13 +279,21 @@ export function PainelImportacao({
           </p>
         )}
 
-        {resultado && <TabelaResultado resultado={resultado} />}
+        {resultado && (
+          <TabelaResultado resultado={resultado} competencia={competenciaDoResultado} />
+        )}
       </section>
     </>
   );
 }
 
-function TabelaResultado({ resultado }: { resultado: ResultadoImportacaoSelecionada }) {
+function TabelaResultado({
+  resultado,
+  competencia,
+}: {
+  resultado: ResultadoImportacaoSelecionada;
+  competencia: string | null;
+}) {
   return (
     <div className="mt-5 rounded-xl border border-line bg-surface-2/80 p-4">
       <div className="flex flex-wrap items-center gap-2 text-sm text-ink">
@@ -287,6 +307,14 @@ function TabelaResultado({ resultado }: { resultado: ResultadoImportacaoSelecion
         <Link href="/dashboard/importacoes" className="link ml-auto text-xs font-semibold">
           acompanhar →
         </Link>
+        {competencia && (
+          <Link
+            href={`/dashboard/documentos?competencia=${competencia}`}
+            className="text-xs font-semibold text-accent hover:underline"
+          >
+            ver notas do mês →
+          </Link>
+        )}
       </div>
       <details className="mt-3">
         <summary className="cursor-pointer text-xs text-ink-muted hover:text-ink">ver detalhes por empresa</summary>

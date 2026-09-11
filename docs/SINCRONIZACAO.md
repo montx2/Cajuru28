@@ -100,7 +100,7 @@ de 1h independentemente do número de empresas no escritório.
 `data_inicio`/`data_fim`, `busca`, `documento_ids`) e devolve:
 
 ```
-NotasFlow/<empresa-slug>/<tipo>/<chave>.xml
+NotasFlow/<empresa-slug>/<tipo>/<tomada-ou-prestada>/<chave>.xml
 NotasFlow/relacao.csv      ; e BOM — abre direto no Excel brasileiro
 NotasFlow/LEIA-ME.txt      o que o pacote contém e o que falta
 ```
