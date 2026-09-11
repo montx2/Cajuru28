@@ -205,8 +205,9 @@ class ExecucaoImportacao(Base):
     eventos_nao_reconhecidos: Mapped[int] = mapped_column(Integer, default=0)
     ultimo_nsu: Mapped[str | None] = mapped_column(String(20), nullable=True)
     # Competência pedida pelo operador (ex.: 08/2026). Nada é descartado por
-    # causa dela — serve para contar o que caiu no mês e para pré-selecionar o
-    # lote na hora de baixar os XMLs.
+    # causa dela: a fonte fiscal só permite avançar por NSU. Serve para contar
+    # os novos documentos que caíram no mês e pré-selecionar o filtro do lote
+    # na hora de baixar os XMLs.
     data_inicio: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     data_fim: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     documentos_no_periodo: Mapped[int] = mapped_column(Integer, default=0)

@@ -140,7 +140,10 @@ function ConteudoDocumentos() {
     setMensagem(null);
     try {
       await api.baixarZip(
-        { documento_ids: [...selecionados].join(",") },
+        {
+          ...(filtros as FiltrosExportacao),
+          documento_ids: [...selecionados].join(","),
+        },
         `NotasFlow_selecao_${selecionados.size}.zip`
       );
     } catch (e) {
