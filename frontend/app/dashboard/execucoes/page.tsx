@@ -75,7 +75,7 @@ export default function ExecucoesPage() {
     <div className="animate-fade-up space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-serif text-3xl font-semibold text-ink">Execuções</h1>
+          <h1 className="page-title">Execuções</h1>
           <p className="mt-1 text-sm text-ink-muted">
             Tudo que o sistema está fazendo — resumo primeiro, detalhe técnico por clique.
           </p>

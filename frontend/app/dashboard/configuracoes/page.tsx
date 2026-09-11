@@ -49,7 +49,7 @@ export default function ConfiguracoesPage() {
 
   return (
     <div className="animate-fade-up max-w-5xl">
-      <h1 className="font-serif text-3xl font-semibold text-ink">Configurações</h1>
+      <h1 className="page-title">Configurações</h1>
       <p className="mt-1 text-sm text-ink-muted">
         Diagnóstico do ambiente, certificados, atenção e integrações.
       </p>

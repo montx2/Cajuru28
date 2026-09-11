@@ -6,10 +6,10 @@ import { api, ApiError } from "@/lib/api";
 import { salvarToken } from "@/lib/auth";
 import { Icone, Logomarca } from "@/components/icons";
 
-const DESTAQUES = [
-  { icone: "raio", titulo: "Sincronismo automático", texto: "O sistema consulta a SEFAZ sozinho, dentro da janela oficial." },
-  { icone: "escudo", titulo: "Cofre de certificados", texto: "Senhas cifradas, um A1 por empresa, alertas de vencimento." },
-  { icone: "baixar", titulo: "Download em massa", texto: "Milhares de XMLs + relação em CSV num clique." },
+const PONTOS = [
+  "Notas encontradas e organizadas automaticamente",
+  "Certificados A1 protegidos no ambiente local",
+  "Alertas só quando uma ação realmente é necessária",
 ];
 
 export default function LoginPage() {
@@ -35,127 +35,86 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen">
-      {/* painel da marca */}
-      <div
-        className="relative hidden flex-1 flex-col justify-between overflow-hidden p-10 lg:flex"
-        style={{
-          backgroundImage:
-            "radial-gradient(700px 500px at 15% 10%, rgba(38,208,139,.18), transparent 60%), linear-gradient(160deg, #0E1613 0%, #0A100E 60%, #070B09 100%)",
-        }}
-      >
-        <div
-          className="pointer-events-none absolute inset-0 opacity-40"
-          style={{
-            background:
-              "radial-gradient(600px 400px at 20% 20%, rgba(47,163,122,.35), transparent), radial-gradient(500px 500px at 80% 80%, rgba(201,162,39,.18), transparent)",
-          }}
-        />
-        {/* grade sutil */}
-        <div
-          className="pointer-events-none absolute inset-0 opacity-[0.06]"
-          style={{
-            backgroundImage:
-              "linear-gradient(rgba(255,255,255,.6) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.6) 1px, transparent 1px)",
-            backgroundSize: "44px 44px",
-          }}
-        />
-        <div className="relative flex items-center gap-3">
-          <Logomarca className="h-11 w-11 text-xl" />
+    <main className="relative grid min-h-screen overflow-hidden bg-sidebar lg:grid-cols-[minmax(0,1.05fr)_minmax(460px,.95fr)]">
+      <div className="pointer-events-none absolute -left-48 -top-48 h-[520px] w-[520px] rounded-full bg-accent/20 blur-[100px]" />
+      <div className="pointer-events-none absolute bottom-0 left-[28%] h-72 w-72 rounded-full bg-info/10 blur-[120px]" />
+
+      <section className="relative hidden flex-col justify-between px-10 py-10 lg:flex xl:px-16 xl:py-14">
+        <div className="flex items-center gap-3">
+          <Logomarca className="h-11 w-11 rounded-[15px] text-xl" />
           <div>
-            <p className="font-display text-2xl font-bold tracking-tight text-white">NotasFlow</p>
-            <p className="text-xs font-medium uppercase tracking-widest text-accent-bright/70">
-              Gestão fiscal automática
-            </p>
+            <p className="font-display text-xl font-extrabold tracking-tight text-white">NotasFlow</p>
+            <p className="mt-0.5 text-[10px] font-bold uppercase tracking-[.16em] text-white/42">Operação fiscal</p>
           </div>
         </div>
 
-        <div className="relative">
-          <p className="max-w-md font-display text-[2.6rem] font-bold leading-[1.08] tracking-tight text-white">
-            Todas as notas do escritório, <span className="text-accent-bright">sozinhas</span> no
-            seu banco.
+        <div className="max-w-xl">
+          <p className="text-[11px] font-bold uppercase tracking-[.18em] text-accent-bright">Seu centro de controle</p>
+          <h1 className="mt-5 font-display text-[clamp(2.5rem,4.5vw,4.5rem)] font-extrabold leading-[.98] tracking-tight text-white">
+            Fiscal no fluxo. <span className="text-accent-bright">Sem ruído.</span>
+          </h1>
+          <p className="mt-6 max-w-md text-base leading-7 text-white/58">
+            NFS-e, NFe e CT-e chegam do ADN e da SEFAZ para o seu banco. Você acompanha apenas o que precisa de decisão.
           </p>
-          <p className="mt-4 max-w-md text-white/60">
-            NFS-e, NFe e CT-e importadas direto do ADN e da SEFAZ com o certificado A1 de cada
-            empresa — sem planilha, sem portal, sem F5.
-          </p>
-          <ul className="mt-8 space-y-4">
-            {DESTAQUES.map((d) => (
-              <li key={d.titulo} className="flex items-start gap-3">
-                <span className="inline-flex h-9 w-9 flex-none items-center justify-center rounded-xl border border-white/10 bg-white/[0.06] text-accent-bright backdrop-blur">
-                  <Icone nome={d.icone} className="h-5 w-5" />
+          <ul className="mt-9 space-y-4">
+            {PONTOS.map((ponto) => (
+              <li key={ponto} className="flex items-center gap-3 text-sm font-semibold text-white/78">
+                <span className="flex h-6 w-6 items-center justify-center rounded-full border border-accent-bright/30 bg-accent-bright/10 text-accent-bright">
+                  <Icone nome="check" className="h-3.5 w-3.5" strokeWidth={2.2} />
                 </span>
-                <span>
-                  <span className="block text-sm font-semibold text-white">{d.titulo}</span>
-                  <span className="block text-sm text-white/55">{d.texto}</span>
-                </span>
+                {ponto}
               </li>
             ))}
           </ul>
         </div>
 
-        <p className="relative font-mono text-xs text-white/35">
-          ADN · SEFAZ · mTLS · Celery Beat · PostgreSQL
-        </p>
-      </div>
+        <p className="font-mono text-[10px] uppercase tracking-[.12em] text-white/28">ADN · SEFAZ · ambiente privado</p>
+      </section>
 
-      {/* formulário */}
-      <div className="relative flex flex-1 items-center justify-center px-4 py-10">
-        <div className="relative w-full max-w-sm animate-fade-up">
-          <div className="mb-8 flex items-center gap-3 lg:hidden">
-            <Logomarca />
-            <p className="font-display text-2xl font-bold tracking-tight text-ink">NotasFlow</p>
+      <section className="relative flex items-center justify-center bg-bg px-5 py-10 sm:px-8 lg:px-12">
+        <div className="w-full max-w-[390px] animate-fade-up">
+          <div className="mb-10 flex items-center gap-3 lg:hidden">
+            <Logomarca className="h-10 w-10 rounded-[14px]" />
+            <div>
+              <p className="font-display text-lg font-extrabold tracking-tight text-ink">NotasFlow</p>
+              <p className="text-[10px] font-bold uppercase tracking-[.14em] text-ink-faint">Operação fiscal</p>
+            </div>
           </div>
 
-          <p className="font-display text-3xl font-bold tracking-tight text-ink">Bem-vindo de volta</p>
-          <p className="mb-6 mt-1 text-sm text-ink-muted">Entre para abrir o painel do escritório.</p>
+          <div>
+            <p className="page-kicker">Acesso restrito</p>
+            <h2 className="page-title">Entrar no espaço de trabalho</h2>
+            <p className="page-description">Use as credenciais do seu escritório para abrir o painel.</p>
+          </div>
 
-          <form onSubmit={entrar} className="card-pad">
-            <label className="label" htmlFor="email">
-              Email
-            </label>
-            <input
-              id="email"
-              type="email"
-              required
-              autoComplete="username"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="voce@escritorio.com.br"
-              className="input mb-4"
-            />
-
-            <label className="label" htmlFor="senha">
-              Senha
-            </label>
-            <input
-              id="senha"
-              type="password"
-              required
-              autoComplete="current-password"
-              value={senha}
-              onChange={(e) => setSenha(e.target.value)}
-              placeholder="••••••••"
-              className="input mb-5"
-            />
+          <form onSubmit={entrar} className="card-pad mt-8 p-5 sm:p-6">
+            <div>
+              <label className="label" htmlFor="email">E-mail</label>
+              <input id="email" type="email" required autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="voce@escritorio.com.br" className="input" />
+            </div>
+            <div className="mt-4">
+              <label className="label" htmlFor="senha">Senha</label>
+              <input id="senha" type="password" required autoComplete="current-password" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="Sua senha" className="input" />
+            </div>
 
             {erro && (
-              <p className="mb-4 rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-sm text-danger">
-                {erro}
-              </p>
+              <div className="mt-4 flex items-start gap-2 rounded-xl border border-danger/20 bg-danger-soft/70 px-3 py-2.5 text-sm text-danger" role="alert">
+                <Icone nome="alerta" className="mt-0.5 h-4 w-4 flex-none" />
+                <p>{erro}</p>
+              </div>
             )}
 
-            <button type="submit" disabled={enviando} className="btn-primary w-full">
-              {enviando ? "Entrando…" : "Entrar no painel"}
+            <button type="submit" disabled={enviando} className="btn-primary mt-6 w-full">
+              {enviando ? "Verificando acesso…" : "Entrar"}
               {!enviando && <Icone nome="setaDireita" className="h-4 w-4" />}
             </button>
           </form>
 
-          <p className="mt-6 text-center text-xs text-ink-faint">
-            Acesso restrito à equipe do escritório · v2.0
-          </p>
+          <div className="mt-5 flex items-center justify-center gap-2 text-center text-[11px] text-ink-faint">
+            <Icone nome="escudo" className="h-3.5 w-3.5" /> Acesso protegido · dados no seu ambiente
+          </div>
         </div>
-      </div>
-    </div>
+      </section>
+    </main>
   );
 }

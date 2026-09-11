@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { limparToken } from "@/lib/auth";
 import { limparCachePapel } from "@/lib/papel";
@@ -11,29 +11,42 @@ import type { AlertasResposta, UsuarioAtual } from "@/lib/types";
 import { Icone } from "./icons";
 import { SeloNivel } from "./ui";
 
-/**
- * Barra superior: busca global (chave/emitente/número), sino de alertas com
- * prévia e menu do usuário. Fixa no topo em todas as telas do painel.
- */
+const TITULOS: Record<string, string> = {
+  "/dashboard": "Visão geral",
+  "/dashboard/atencao": "Atenção",
+  "/dashboard/execucoes": "Execuções",
+  "/dashboard/documentos": "Documentos",
+  "/dashboard/importacoes": "Importações",
+  "/dashboard/empresas": "Empresas",
+  "/dashboard/empresa": "Empresa",
+  "/dashboard/certificados": "Certificados",
+  "/dashboard/relatorios": "Fechamento",
+  "/dashboard/saude": "Saúde do sistema",
+  "/dashboard/configuracoes": "Configurações",
+  "/dashboard/auditoria": "Auditoria",
+};
+
+/** Barra de contexto: navegação móvel, busca global e somente ações pessoais. */
 export function Topbar({ aoAbrirMenu }: { aoAbrirMenu: () => void }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [busca, setBusca] = useState("");
   const [usuario, setUsuario] = useState<UsuarioAtual | null>(null);
   const [alertas, setAlertas] = useState<AlertasResposta | null>(null);
   const [sinoAberto, setSinoAberto] = useState(false);
   const [menuAberto, setMenuAberto] = useState(false);
   const campoBusca = useRef<HTMLInputElement>(null);
-  const sinoRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const carregarAlertas = useCallback(() => api.alertas().then(setAlertas).catch(() => {}), []);
 
   useEffect(() => {
     api.quemSouEu().then(setUsuario).catch(() => {});
-    const carregar = () => api.alertas().then(setAlertas).catch(() => {});
-    carregar();
-    const intervalo = setInterval(carregar, 60_000);
-    return () => clearInterval(intervalo);
-  }, []);
+    carregarAlertas();
+    const intervalo = window.setInterval(carregarAlertas, 60_000);
+    return () => window.clearInterval(intervalo);
+  }, [carregarAlertas]);
 
-  // Ctrl/⌘+K foca a busca; fecha painéis ao clicar fora.
   useEffect(() => {
     const tecla = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
@@ -43,10 +56,11 @@ export function Topbar({ aoAbrirMenu }: { aoAbrirMenu: () => void }) {
       if (e.key === "Escape") {
         setSinoAberto(false);
         setMenuAberto(false);
+        campoBusca.current?.blur();
       }
     };
     const clique = (e: MouseEvent) => {
-      if (sinoRef.current && !sinoRef.current.contains(e.target as Node)) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setSinoAberto(false);
         setMenuAberto(false);
       }
@@ -65,97 +79,101 @@ export function Topbar({ aoAbrirMenu }: { aoAbrirMenu: () => void }) {
     router.push(termo ? `/dashboard/documentos?busca=${encodeURIComponent(termo)}` : "/dashboard/documentos");
   }
 
-  const previos = (alertas?.itens ?? []).slice(0, 5);
+  const previos = (alertas?.itens ?? []).slice(0, 4);
+  const titulo = TITULOS[pathname] ?? "NotasFlow";
 
   return (
-    <header className="no-print sticky top-0 z-20 border-b border-white/50 bg-surface/60 backdrop-blur-xl backdrop-saturate-150">
-      <div className="flex h-16 items-center gap-3 px-4 sm:px-6">
-        <button
-          type="button"
-          onClick={aoAbrirMenu}
-          className="btn-icon lg:hidden"
-          aria-label="Abrir menu"
-        >
-          <Icone nome="menu" className="h-6 w-6" />
+    <header className="no-print sticky top-0 z-20 border-b border-white/65 bg-bg/70 backdrop-blur-xl backdrop-saturate-150">
+      <div className="mx-auto flex h-16 max-w-[1440px] items-center gap-3 px-4 sm:px-7 lg:px-10">
+        <button type="button" onClick={aoAbrirMenu} className="btn-icon lg:hidden" aria-label="Abrir menu">
+          <Icone nome="menu" className="h-5 w-5" />
         </button>
 
-        <form onSubmit={pesquisar} className="relative hidden max-w-md flex-1 sm:block">
-          <Icone
-            nome="busca"
-            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint"
-          />
+        <div className="hidden min-w-[140px] lg:block">
+          <p className="text-[10px] font-bold uppercase tracking-[.13em] text-ink-faint">NotasFlow</p>
+          <p className="truncate text-sm font-bold text-ink">{titulo}</p>
+        </div>
+
+        <form onSubmit={pesquisar} className="relative hidden max-w-[520px] flex-1 sm:block">
+          <Icone nome="busca" className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
           <input
             ref={campoBusca}
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
-            placeholder="Busca fiscal — chave, número, emitente, CNPJ…  (Ctrl+K)"
-            className="input pl-9"
+            placeholder="Buscar por chave, número, emitente ou CNPJ"
+            className="input h-10 pl-10 pr-16"
+            aria-label="Busca fiscal"
           />
+          <span className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 rounded-md border border-line bg-surface px-1.5 py-0.5 font-mono text-[10px] text-ink-faint md:block">⌘ K</span>
         </form>
-        <div className="flex-1 sm:hidden" />
+        <div className="flex-1 sm:hidden">
+          <p className="truncate text-sm font-bold text-ink">{titulo}</p>
+        </div>
 
-        <div ref={sinoRef} className="relative flex items-center gap-1.5">
+        <div ref={menuRef} className="relative flex items-center gap-1.5">
           <button
             type="button"
             onClick={() => {
-              setSinoAberto((v) => !v);
+              setSinoAberto((valor) => !valor);
               setMenuAberto(false);
             }}
             className="btn-icon relative"
-            aria-label="Alertas"
-            title="Central de alertas"
+            aria-label="Abrir alertas"
+            aria-expanded={sinoAberto}
           >
-            <Icone nome="sino" className="h-5 w-5" />
+            <Icone nome="sino" className="h-[18px] w-[18px]" />
             {(alertas?.total ?? 0) > 0 && (
-              <span
-                className={`absolute -right-0.5 -top-0.5 rounded-pill px-1.5 py-px font-mono text-[10px] font-bold text-white ${
-                  (alertas?.criticos ?? 0) > 0 ? "bg-danger" : "bg-warn"
-                }`}
-              >
-                {alertas?.total}
-              </span>
+              <span className={`absolute right-1 top-1 h-2 w-2 rounded-full ring-2 ring-bg ${
+                (alertas?.criticos ?? 0) > 0 ? "bg-danger" : "bg-warn"
+              }`} />
             )}
           </button>
 
+          <button
+            type="button"
+            onClick={() => {
+              setMenuAberto((valor) => !valor);
+              setSinoAberto(false);
+            }}
+            className="group flex items-center gap-2 rounded-xl border border-transparent py-1 pl-1 pr-2 transition-colors hover:border-line hover:bg-surface"
+            aria-label="Menu do usuário"
+            aria-expanded={menuAberto}
+          >
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-accent-bright to-accent-deep text-[11px] font-extrabold text-white shadow-sm">
+              {iniciais(usuario?.nome)}
+            </span>
+            <span className="hidden max-w-28 text-left md:block">
+              <span className="block truncate text-xs font-bold leading-tight text-ink">{usuario?.nome ?? "…"}</span>
+              <span className="mt-0.5 block truncate text-[10px] leading-tight text-ink-faint">{usuario?.escritorio_nome ?? ""}</span>
+            </span>
+            <Icone nome="chevronBaixo" className="hidden h-3.5 w-3.5 text-ink-faint md:block" />
+          </button>
+
           {sinoAberto && (
-            <div className="animate-fade-in absolute right-0 top-11 w-96 max-w-[90vw] overflow-hidden rounded-card border border-line bg-surface shadow-pop">
-              <div className="flex items-center justify-between border-b border-line px-4 py-3">
-                <p className="text-sm font-semibold text-ink">
-                  Alertas
-                  {(alertas?.total ?? 0) > 0 && (
-                    <span className="ml-2 text-xs font-normal text-ink-muted">
-                      {alertas?.criticos} crítico(s) · {alertas?.atencao} atenção
-                    </span>
-                  )}
-                </p>
-                <Link
-                  href="/dashboard/atencao"
-                  onClick={() => setSinoAberto(false)}
-                  className="link text-xs font-semibold"
-                >
-                  ver tudo
-                </Link>
+            <div className="animate-scale-in absolute right-0 top-12 w-[380px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-card border border-white/80 bg-surface/95 shadow-pop backdrop-blur-xl">
+              <div className="flex items-center justify-between border-b border-line px-4 py-3.5">
+                <div>
+                  <p className="text-sm font-extrabold text-ink">Atenção</p>
+                  <p className="mt-0.5 text-[11px] text-ink-muted">
+                    {(alertas?.total ?? 0) ? `${alertas?.total} item(ns) monitorado(s)` : "Nenhuma pendência agora"}
+                  </p>
+                </div>
+                <Link href="/dashboard/atencao" onClick={() => setSinoAberto(false)} className="link text-xs">Ver lista</Link>
               </div>
               {previos.length === 0 ? (
-                <p className="px-4 py-6 text-center text-sm text-ink-muted">
-                  Nenhum alerta — tudo sob controle. ✨
-                </p>
+                <div className="px-4 py-8 text-center">
+                  <Icone nome="checkCirculo" className="mx-auto h-6 w-6 text-accent" />
+                  <p className="mt-2 text-sm font-bold text-ink">Tudo em ordem</p>
+                  <p className="mt-1 text-xs text-ink-muted">A automação segue monitorando por você.</p>
+                </div>
               ) : (
-                <ul className="max-h-80 divide-y divide-line/70 overflow-y-auto">
-                  {previos.map((a) => (
-                    <li key={a.id}>
-                      <Link
-                        href={a.acao_href ?? "/dashboard/atencao"}
-                        onClick={() => setSinoAberto(false)}
-                        className="block px-4 py-3 hover:bg-bg"
-                      >
-                        <span className="flex items-center gap-2">
-                          <SeloNivel nivel={a.nivel} />
-                        </span>
-                        <span className="mt-1 block text-sm font-medium text-ink">{a.titulo}</span>
-                        <span className="mt-0.5 line-clamp-2 block text-xs text-ink-muted">
-                          {a.detalhe}
-                        </span>
+                <ul className="divide-y divide-line/70">
+                  {previos.map((alerta) => (
+                    <li key={alerta.id}>
+                      <Link href={alerta.acao_href ?? "/dashboard/atencao"} onClick={() => setSinoAberto(false)} className="block px-4 py-3 transition-colors hover:bg-surface-2">
+                        <span className="flex items-center justify-between gap-3"><SeloNivel nivel={alerta.nivel} /><Icone nome="chevronDireita" className="h-3.5 w-3.5 text-ink-faint" /></span>
+                        <span className="mt-2 block text-sm font-bold text-ink">{alerta.titulo}</span>
+                        <span className="mt-1 line-clamp-2 block text-xs leading-5 text-ink-muted">{alerta.detalhe}</span>
                       </Link>
                     </li>
                   ))}
@@ -164,40 +182,13 @@ export function Topbar({ aoAbrirMenu }: { aoAbrirMenu: () => void }) {
             </div>
           )}
 
-          <button
-            type="button"
-            onClick={() => {
-              setMenuAberto((v) => !v);
-              setSinoAberto(false);
-            }}
-            className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-bg"
-            aria-label="Menu do usuário"
-          >
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-accent-bright to-accent-deep text-xs font-bold text-white">
-              {iniciais(usuario?.nome)}
-            </span>
-            <span className="hidden text-left md:block">
-              <span className="block max-w-32 truncate text-sm font-semibold leading-tight text-ink">
-                {usuario?.nome ?? "…"}
-              </span>
-              <span className="block max-w-32 truncate text-xs leading-tight text-ink-muted">
-                {usuario?.escritorio_nome ?? ""}
-              </span>
-            </span>
-            <Icone nome="chevronBaixo" className="h-4 w-4 text-ink-faint" />
-          </button>
-
           {menuAberto && (
-            <div className="animate-fade-in absolute right-0 top-11 w-60 overflow-hidden rounded-card border border-line bg-surface shadow-pop">
-              <div className="border-b border-line px-4 py-3">
-                <p className="truncate text-sm font-semibold text-ink">{usuario?.nome}</p>
-                <p className="truncate text-xs text-ink-muted">{usuario?.email}</p>
+            <div className="animate-scale-in absolute right-0 top-12 w-64 overflow-hidden rounded-card border border-white/80 bg-surface/95 shadow-pop backdrop-blur-xl">
+              <div className="border-b border-line px-4 py-3.5">
+                <p className="truncate text-sm font-extrabold text-ink">{usuario?.nome}</p>
+                <p className="mt-1 truncate text-xs text-ink-muted">{usuario?.email}</p>
               </div>
-              <Link
-                href="/dashboard/configuracoes"
-                onClick={() => setMenuAberto(false)}
-                className="flex items-center gap-2 px-4 py-2.5 text-sm text-ink hover:bg-bg"
-              >
+              <Link href="/dashboard/configuracoes" onClick={() => setMenuAberto(false)} className="flex items-center gap-2.5 px-4 py-3 text-sm font-semibold text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink">
                 <Icone nome="engrenagem" className="h-4 w-4" /> Configurações
               </Link>
               <button
@@ -207,7 +198,7 @@ export function Topbar({ aoAbrirMenu }: { aoAbrirMenu: () => void }) {
                   limparCachePapel();
                   router.push("/login");
                 }}
-                className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-danger hover:bg-danger-soft"
+                className="flex w-full items-center gap-2.5 border-t border-line px-4 py-3 text-sm font-bold text-danger transition-colors hover:bg-danger-soft/60"
               >
                 <Icone nome="sair" className="h-4 w-4" /> Sair
               </button>
@@ -215,18 +206,10 @@ export function Topbar({ aoAbrirMenu }: { aoAbrirMenu: () => void }) {
           )}
         </div>
       </div>
-      {/* busca no mobile */}
+
       <form onSubmit={pesquisar} className="relative px-4 pb-3 sm:hidden">
-        <Icone
-          nome="busca"
-          className="pointer-events-none absolute left-7 top-1/2 h-4 w-4 -translate-y-[calc(50%+6px)] text-ink-faint"
-        />
-        <input
-          value={busca}
-          onChange={(e) => setBusca(e.target.value)}
-          placeholder="Buscar documentos…"
-          className="input pl-9"
-        />
+        <Icone nome="busca" className="pointer-events-none absolute left-7 top-1/2 h-4 w-4 -translate-y-[calc(50%+6px)] text-ink-faint" />
+        <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar documentos…" className="input h-10 pl-10" aria-label="Busca fiscal" />
       </form>
     </header>
   );

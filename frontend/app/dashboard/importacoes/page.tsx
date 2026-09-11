@@ -145,11 +145,12 @@ function ConteudoImportacoes() {
   void tick; // os contadores regressivos dependem deste tick
 
   return (
-    <div className="max-w-6xl">
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+    <div className="animate-fade-up max-w-6xl">
+      <div className="page-header">
         <div>
-          <p className="font-serif text-2xl text-ink">Importações</p>
-          <p className="mt-1 text-sm text-ink-muted">
+          <p className="page-kicker">Automação fiscal</p>
+          <h1 className="page-title">Importações</h1>
+          <p className="page-description">
             O sistema varre as empresas sozinho, dentro da janela oficial de 1h por CNPJ — você não precisa clicar. Use esta aba só para puxar uma competência específica na hora. Se a SEFAZ pedir espera (cStat 656), a execução retoma sozinha no horário certo; forçar antes zera o cronômetro.
           </p>
         </div>
@@ -181,7 +182,7 @@ function ConteudoImportacoes() {
       />
 
       {aviso && (
-        <p className="mt-4 border-l-2 border-warn bg-warn-soft px-3 py-2 text-sm text-ink">{aviso}</p>
+        <p className="mt-4 rounded-xl border border-warn/20 bg-warn-soft/65 px-3 py-2.5 text-sm text-ink">{aviso}</p>
       )}
 
       <details className="mt-8 rounded-card border border-line bg-surface p-4">

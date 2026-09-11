@@ -59,24 +59,24 @@ function BannerStatus({ painel }: { painel: PainelOperacional }) {
   const visual = mapa[(painel.status_geral as keyof typeof mapa) ?? "atencao"] ?? mapa.atencao;
 
   return (
-    <div className={`card flex flex-wrap items-center gap-4 border ${visual.cor}`}>
-      <span className={`inline-flex h-10 w-10 flex-none items-center justify-center rounded-xl bg-surface ${visual.iconeCor}`}>
-        <Icone nome={visual.icone} className="h-6 w-6" />
+    <div className={`card flex flex-wrap items-center gap-4 border p-4 sm:p-5 ${visual.cor}`}>
+      <span className={`inline-flex h-11 w-11 flex-none items-center justify-center rounded-[14px] bg-surface shadow-sm ${visual.iconeCor}`}>
+        <Icone nome={visual.icone} className="h-5 w-5" />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="flex items-center gap-2 font-serif text-lg font-semibold text-ink">
-          <span className={`inline-block h-2.5 w-2.5 rounded-full ${visual.ponto}`} />
+        <p className="flex items-center gap-2 font-display text-base font-extrabold tracking-tight text-ink">
+          <span className={`inline-block h-2 w-2 rounded-full ${visual.ponto}`} />
           {painel.status_geral === "operando"
-            ? "Está tudo funcionando"
+            ? "Operação estável"
             : painel.status_geral === "atencao"
-              ? "Funcionando, com pendências"
-              : "Precisa de você agora"}
+              ? "Operação estável, com pendências"
+              : "Uma ação precisa de você"}
         </p>
-        <p className="mt-0.5 text-sm text-ink-muted">{painel.mensagem}</p>
+        <p className="mt-1 text-sm leading-6 text-ink-muted">{painel.mensagem}</p>
       </div>
       {painel.alertas.criticos + painel.alertas.atencao > 0 && (
         <Link href="/dashboard/atencao" className="btn-primary btn-sm no-print">
-          Ver o que preciso resolver
+          Resolver pendências <Icone nome="setaDireita" className="h-3.5 w-3.5" />
         </Link>
       )}
     </div>
@@ -410,12 +410,13 @@ export default function PainelPage() {
 
   return (
     <div className="animate-fade-up space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-2">
+      <div className="page-header mb-1">
         <div>
-          <h1 className="font-serif text-3xl font-semibold text-ink">{saudacao()}</h1>
-          <p className="mt-1 text-sm capitalize text-ink-muted">{hora}</p>
+          <p className="page-kicker">Centro de controle</p>
+          <h1 className="page-title">{saudacao()}</h1>
+          <p className="page-description capitalize">{hora}. Veja o que exige decisão e deixe o resto com a automação.</p>
         </div>
-        <p className="text-xs text-ink-faint">atualiza a cada 30 s</p>
+        <div className="chip"><span className="pulso-andamento h-1.5 w-1.5 rounded-full bg-accent" />Atualiza a cada 30 s</div>
       </div>
 
       <BannerStatus painel={painel} />

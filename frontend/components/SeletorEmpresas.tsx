@@ -201,7 +201,7 @@ export function SeletorEmpresas({
             <label
               key={empresa.id}
               className={`flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-3 py-2.5 text-sm last:border-0 hover:bg-surface ${
-                marcada ? "bg-accent-soft" : ""
+                marcada ? "bg-accent-soft/80" : ""
               } ${bloqueada ? "cursor-not-allowed opacity-60" : ""}`}
             >
               <input

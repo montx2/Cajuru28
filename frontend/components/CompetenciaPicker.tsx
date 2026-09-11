@@ -34,7 +34,7 @@ export function CompetenciaPicker({
       <button
         type="button"
         onClick={() => aoMudar(mesAnterior(valor))}
-        className="border border-line px-2 py-2 text-sm text-ink-muted hover:border-accent hover:text-ink"
+        className="btn-icon h-10 w-10"
         title="Mês anterior"
         aria-label="Mês anterior"
       >
@@ -43,7 +43,7 @@ export function CompetenciaPicker({
       <button
         type="button"
         onClick={() => aoMudar(mesSeguinte(valor))}
-        className="border border-line px-2 py-2 text-sm text-ink-muted hover:border-accent hover:text-ink"
+        className="btn-icon h-10 w-10"
         title="Mês seguinte"
         aria-label="Mês seguinte"
       >
@@ -55,8 +55,8 @@ export function CompetenciaPicker({
           onClick={() => aoMudar(null)}
           className={
             valor === null
-              ? "bg-accent px-2.5 py-2 text-xs text-white"
-              : "border border-line px-2.5 py-2 text-xs text-ink-muted hover:border-accent"
+              ? "btn-primary btn-sm"
+              : "btn-ghost btn-sm"
           }
         >
           todos
@@ -70,8 +70,8 @@ export function CompetenciaPicker({
             onClick={() => aoMudar(mes)}
             className={
               valor === mes
-                ? "bg-accent-soft px-2 py-1 font-mono text-xs text-accent"
-                : "px-2 py-1 font-mono text-xs text-ink-muted hover:text-ink"
+                ? "rounded-lg bg-accent-soft px-2 py-1 font-mono text-xs font-bold text-accent-deep"
+                : "rounded-lg px-2 py-1 font-mono text-xs text-ink-muted hover:bg-surface hover:text-ink"
             }
             title="Atalho: mês recente"
           >

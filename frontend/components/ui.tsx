@@ -28,10 +28,10 @@ export function TituloSecao({
   acao?: React.ReactNode;
 }) {
   return (
-    <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
+    <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h2 className="font-display text-lg font-bold tracking-tight text-ink">{titulo}</h2>
-        {subtitulo && <p className="mt-0.5 text-sm text-ink-muted">{subtitulo}</p>}
+        <h2 className="section-title">{titulo}</h2>
+        {subtitulo && <p className="section-meta">{subtitulo}</p>}
       </div>
       {acao}
     </div>
@@ -58,26 +58,22 @@ export function KpiCard({
 }) {
   const conteudo = (
     <>
-      <div className="flex items-start justify-between gap-2">
+      <div className="flex items-center justify-between gap-3">
         <span className={`inline-flex h-9 w-9 items-center justify-center rounded-xl ${COR_TOM[tom]}`}>
-          <Icone nome={icone} className="h-5 w-5" />
+          <Icone nome={icone} className="h-[18px] w-[18px]" />
         </span>
         {variacao !== undefined && variacao !== null && (
-          <span
-            className={`rounded-pill px-2 py-0.5 font-mono text-xs font-semibold ${
-              variacao >= 0 ? "bg-accent-soft text-accent-deep" : "bg-danger-soft text-danger"
-            }`}
-          >
+          <span className={`rounded-pill px-2 py-1 font-mono text-[10px] font-semibold ${variacao >= 0 ? "bg-accent-soft text-accent-deep" : "bg-danger-soft text-danger"}`}>
             {variacao >= 0 ? "▲" : "▼"} {Math.abs(variacao).toLocaleString("pt-BR")}%
           </span>
         )}
       </div>
-      <p className="mt-3 font-display text-[1.7rem] font-bold tracking-tight tabular-nums text-ink">{valor}</p>
-      <p className="mt-0.5 text-xs font-medium uppercase tracking-wide text-ink-muted">{rotulo}</p>
-      {detalhe && <p className="mt-1 text-xs text-ink-faint">{detalhe}</p>}
+      <p className="mt-5 font-display text-[1.8rem] font-extrabold leading-none tracking-tight tabular-nums text-ink">{valor}</p>
+      <p className="mt-2 text-[10px] font-bold uppercase tracking-[.13em] text-ink-muted">{rotulo}</p>
+      {detalhe && <p className="mt-1.5 text-xs leading-5 text-ink-faint">{detalhe}</p>}
     </>
   );
-  const classe = `card-pad card-hover block text-left ${href ? "cursor-pointer" : ""}`;
+  const classe = `card-pad card-hover block min-h-[150px] text-left ${href ? "cursor-pointer" : ""}`;
   if (href) {
     return (
       <Link href={href} className={classe}>
@@ -229,13 +225,13 @@ export function EstadoVazio({
   acao?: React.ReactNode;
 }) {
   return (
-    <div className="card flex flex-col items-center px-6 py-12 text-center">
-      <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-accent-soft text-accent-deep">
-        <Icone nome={icone} className="h-6 w-6" />
+    <div className="empty-state">
+      <span className="inline-flex h-11 w-11 items-center justify-center rounded-[14px] bg-accent-soft text-accent-deep">
+        <Icone nome={icone} className="h-5 w-5" />
       </span>
-      <p className="mt-4 font-serif text-lg font-semibold text-ink">{titulo}</p>
-      {texto && <p className="mt-1 max-w-sm text-sm text-ink-muted">{texto}</p>}
-      {acao && <div className="mt-4">{acao}</div>}
+      <p className="mt-4 font-display text-base font-extrabold tracking-tight text-ink">{titulo}</p>
+      {texto && <p className="mt-1 max-w-sm text-sm leading-6 text-ink-muted">{texto}</p>}
+      {acao && <div className="mt-5">{acao}</div>}
     </div>
   );
 }

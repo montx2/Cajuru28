@@ -7,6 +7,7 @@ import { api, ApiError, type FiltrosExportacao } from "@/lib/api";
 import { usePapel } from "@/lib/papel";
 import { CompetenciaPicker } from "@/components/CompetenciaPicker";
 import { DocumentoDrawer } from "@/components/DocumentoDrawer";
+import { Icone } from "@/components/icons";
 import { bytesParaTexto, paraAPI, rotulo as rotuloMes } from "@/lib/competencia";
 import {
   ROTULO_TIPO,
@@ -187,23 +188,21 @@ function ConteudoDocumentos() {
   const semXmlCompleto = documentos.filter((d) => d.leiaute === "resumo").length;
 
   return (
-    <div>
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+    <div className="animate-fade-up">
+      <div className="page-header">
         <div>
-          <p className="font-serif text-2xl text-ink">Documentos</p>
-          <p className="mt-1 text-sm text-ink-muted">
-            {rotuloMes(competencia)} · {resumo ? `${resumo.total} documento(s), ${resumo.canceladas} cancelada(s)` : "…"}
+          <p className="page-kicker">Acervo fiscal</p>
+          <h1 className="page-title">Documentos</h1>
+          <p className="page-description">
+            {rotuloMes(competencia)} · {resumo ? `${resumo.total} documento(s), ${resumo.canceladas} cancelada(s)` : "Lendo o acervo…"}
           </p>
         </div>
-        <Link
-          href={`/dashboard/importacoes${competencia ? `?competencia=${competencia}` : ""}`}
-          className="text-sm text-accent hover:underline"
-        >
-          puxar mais notas →
+        <Link href={`/dashboard/importacoes${competencia ? `?competencia=${competencia}` : ""}`} className="btn-primary btn-sm">
+          <Icone nome="importacao" className="h-3.5 w-3.5" /> Importar notas
         </Link>
       </div>
 
-      <div className="mb-5 flex flex-wrap items-end gap-x-5 gap-y-3">
+      <div className="filter-bar">
         <div>
           <p className="mb-2 text-xs uppercase text-ink-muted">Empresa</p>
           <select
@@ -276,24 +275,23 @@ function ConteudoDocumentos() {
         </label>
       </div>
 
-      <div className="mb-6 flex flex-wrap items-center gap-2 border border-line bg-surface p-3">
+      <div className="card mb-6 flex flex-wrap items-center gap-2 p-3 sm:p-4">
         <button
           type="button"
           onClick={baixarTudo}
           disabled={baixando || (estimativa?.documentos ?? 0) === 0}
-          className="bg-accent px-4 py-2 text-sm text-white hover:opacity-90 disabled:opacity-50"
+          className="btn-primary btn-sm"
         >
-          {baixando
-            ? "Preparando ZIP…"
-            : `Baixar todos os XMLs (${estimativa?.documentos ?? 0})`}
+          <Icone nome="baixar" className="h-3.5 w-3.5" />
+          {baixando ? "Preparando ZIP…" : `Baixar XMLs (${estimativa?.documentos ?? 0})`}
         </button>
         <button
           type="button"
           onClick={baixarSelecionados}
           disabled={baixando || selecionados.size === 0}
-          className="border border-line px-3 py-2 text-sm text-ink hover:border-accent disabled:opacity-40"
+          className="btn-ghost btn-sm"
         >
-          Baixar selecionados ({selecionados.size})
+          Baixar seleção ({selecionados.size})
         </button>
         {estimativa && (
           <span className="text-xs text-ink-muted">
@@ -314,10 +312,10 @@ function ConteudoDocumentos() {
       </div>
 
       {mensagem && (
-        <p className="mb-4 border-l-2 border-warn bg-warn-soft px-3 py-2 text-sm text-ink">{mensagem}</p>
+        <p className="mb-4 flex items-center gap-2 rounded-xl border border-warn/20 bg-warn-soft/65 px-3 py-2.5 text-sm text-ink"><Icone nome="info" className="h-4 w-4 flex-none text-warn" />{mensagem}</p>
       )}
 
-      <div className="mb-6 flex flex-wrap gap-2">
+      <div className="tabs mb-5 w-fit max-w-full">
         {(
           [
             ["todas", `Todas (${grupos.todas.length})`],
@@ -326,16 +324,7 @@ function ConteudoDocumentos() {
             ["cancelada", `Canceladas (${canceladas.length})`],
           ] as const
         ).map(([id, rotuloAba]) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setAba(id)}
-            className={
-              aba === id
-                ? "bg-accent px-3 py-1.5 text-sm text-white"
-                : "border border-line px-3 py-1.5 text-sm text-ink-muted hover:border-accent"
-            }
-          >
+          <button key={id} type="button" onClick={() => setAba(id)} className={`tab ${aba === id ? "tab-active" : ""}`}>
             {rotuloAba}
           </button>
         ))}
@@ -344,8 +333,8 @@ function ConteudoDocumentos() {
       {carregando && documentos.length === 0 ? (
         <p className="text-sm text-ink-muted">Carregando…</p>
       ) : visiveis.length === 0 ? (
-        <div className="border border-line bg-surface p-8 text-center">
-          <p className="text-sm text-ink-muted">Nenhum documento para este filtro.</p>
+        <div className="empty-state">
+          <p className="font-display text-base font-extrabold text-ink">Nenhum documento neste filtro</p>
           <p className="mt-1 text-xs text-ink-muted">
             Se o mês for antigo, rode a importação em{" "}
             <Link href="/dashboard/importacoes" className="text-accent hover:underline">
@@ -356,8 +345,9 @@ function ConteudoDocumentos() {
           </p>
         </div>
       ) : (
-        <table className="tabela w-full border-t border-line">
-          <thead className="sticky top-28 bg-bg sm:top-16">
+        <div className="table-shell">
+        <table className="tabela">
+          <thead className="sticky top-28 bg-surface sm:top-16">
             <tr className="border-b border-line text-left text-ink-muted">
               <th className="py-2 font-normal">
                 <input
@@ -443,6 +433,7 @@ function ConteudoDocumentos() {
             ))}
           </tbody>
         </table>
+        </div>
       )}
 
       <DocumentoDrawer documentoId={docAberto} aoFechar={() => setDocAberto(null)} />

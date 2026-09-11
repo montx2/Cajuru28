@@ -161,7 +161,7 @@ export default function RelatoriosPage() {
     <div className="animate-fade-up">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-serif text-3xl font-semibold text-ink">Fechamento mensal</h1>
+          <h1 className="page-title">Fechamento mensal</h1>
           <p className="mt-1 text-sm text-ink-muted">
             O mapa empresa × tipo do mês — para conferir antes de enviar ao cliente.
           </p>

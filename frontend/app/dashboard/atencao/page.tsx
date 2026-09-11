@@ -94,7 +94,7 @@ export default function AtencaoPage() {
     <div className="animate-fade-up max-w-5xl">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-serif text-3xl font-semibold text-ink">Precisa da sua atenção</h1>
+          <h1 className="page-title">Precisa da sua atenção</h1>
           <p className="mt-1 text-sm text-ink-muted">
             {dados ? (
               <>

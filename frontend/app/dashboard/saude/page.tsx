@@ -135,7 +135,7 @@ export default function SaudePage() {
     <div className="animate-fade-up space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-serif text-3xl font-semibold text-ink">Saúde do sistema</h1>
+          <h1 className="page-title">Saúde do sistema</h1>
           <p className="mt-1 text-sm text-ink-muted">
             A máquina trabalhando sozinha só é boa se você puder confiar nela.
           </p>

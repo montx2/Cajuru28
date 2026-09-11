@@ -1,42 +1,42 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap");
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --font-inter: "Inter", system-ui, sans-serif;
-  --font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
-
-  /* vidro: superfície translúcida reutilizada em cards/overlays */
-  --glass-bg: rgba(255, 255, 255, 0.72);
-  --glass-border: rgba(255, 255, 255, 0.65);
+  --font-sans: "Manrope", "Inter", system-ui, sans-serif;
+  --font-display: "Manrope", "Inter", system-ui, sans-serif;
+  --font-mono: "DM Mono", "JetBrains Mono", ui-monospace, monospace;
+  --glass-bg: rgba(252, 253, 252, .72);
+  --glass-border: rgba(255, 255, 255, .75);
   --glass-blur: 18px;
 }
 
 @layer base {
+  * { border-color: theme("colors.line"); }
+
   html {
+    min-width: 320px;
     -webkit-tap-highlight-color: transparent;
+    text-rendering: optimizeLegibility;
   }
 
   body {
-    @apply text-ink font-sans antialiased;
-    font-feature-settings: "cv02", "cv03", "cv04", "ss01";
-    background-color: theme("colors.bg");
-    /* ambiente: manchas de cor difusas dão profundidade sem poluir (minimalismo) */
+    @apply min-h-screen bg-bg font-sans text-ink antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
     background-image:
-      radial-gradient(900px 600px at 8% -5%, rgba(38, 208, 139, 0.10), transparent 60%),
-      radial-gradient(760px 620px at 100% 0%, rgba(37, 99, 235, 0.06), transparent 55%),
-      radial-gradient(700px 700px at 50% 120%, rgba(15, 157, 107, 0.07), transparent 60%);
+      radial-gradient(850px 520px at 0% -12%, rgba(91, 197, 148, .12), transparent 63%),
+      radial-gradient(720px 520px at 102% 100%, rgba(91, 122, 197, .055), transparent 64%);
     background-attachment: fixed;
-    min-height: 100vh;
   }
 
-  /* tipografia de display: títulos com tracking negativo, ar moderno */
   h1, h2, h3, .font-display {
-    letter-spacing: -0.02em;
+    letter-spacing: -0.035em;
   }
+
+  button, input, select, textarea { font: inherit; }
+  button:not(:disabled), [role="button"] { cursor: pointer; }
 
   ::selection {
     background: theme("colors.accent-glow");
@@ -44,214 +44,151 @@
   }
 }
 
-/* Foco visível — acessibilidade */
 :focus-visible {
   outline: 2px solid theme("colors.accent");
-  outline-offset: 2px;
-  border-radius: 6px;
+  outline-offset: 3px;
+  border-radius: 8px;
 }
 
-/* Movimento sutil do indicador de execução em andamento */
 @media (prefers-reduced-motion: no-preference) {
-  .pulso-andamento {
-    animation: pulso 1.8s ease-in-out infinite;
-  }
+  .pulso-andamento { animation: pulso-andamento 1.9s ease-in-out infinite; }
 }
-@keyframes pulso {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
+@keyframes pulso-andamento {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(91, 197, 148, .35); opacity: 1; }
+  50% { box-shadow: 0 0 0 6px rgba(91, 197, 148, 0); opacity: .72; }
 }
 
 @layer components {
-  /* ============================================================
-     SUPERFÍCIES
-     ============================================================ */
+  /* Estrutura e hierarquia */
+  .app-shell { @apply relative min-h-screen; }
+  .page-header { @apply mb-7 flex flex-wrap items-end justify-between gap-4; }
+  .page-kicker { @apply mb-2 text-[10px] font-bold uppercase tracking-[.16em] text-accent-deep; }
+  .page-title { @apply font-display text-[clamp(1.75rem,3vw,2.25rem)] font-bold leading-none text-ink; }
+  .page-description { @apply mt-2 max-w-2xl text-sm leading-6 text-ink-muted; }
+  .section-title { @apply font-display text-base font-bold tracking-tight text-ink; }
+  .section-meta { @apply mt-1 text-xs leading-5 text-ink-muted; }
 
-  /* cartão padrão: vidro fosco com borda luminosa (glassmorphism) */
+  /* Superfícies: vidro como camada leve; relevo reservado para controles */
   .card {
     @apply rounded-card border shadow-card;
     background: var(--glass-bg);
     border-color: var(--glass-border);
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
-    backdrop-filter: blur(var(--glass-blur)) saturate(140%);
-    box-shadow:
-      theme("boxShadow.card"),
-      theme("boxShadow.inner-top");
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(120%);
+    backdrop-filter: blur(var(--glass-blur)) saturate(120%);
+    box-shadow: theme("boxShadow.card"), theme("boxShadow.inner-top");
   }
-  .card-pad {
-    @apply card p-5 sm:p-6;
-  }
-  .card-hover {
-    @apply transition-all duration-300;
-  }
+  .card-pad { @apply card p-5 sm:p-6; }
+  .card-hover { @apply transition-[transform,box-shadow,border-color] duration-300 ease-out; }
   .card-hover:hover {
-    transform: translateY(-3px);
+    transform: translateY(-2px);
+    border-color: rgba(25, 113, 84, .20);
     box-shadow: theme("boxShadow.card-hover"), theme("boxShadow.inner-top");
   }
-
-  /* superfície sólida (para dentro de cards, sem blur) */
-  .panel {
-    @apply rounded-card border border-line bg-surface shadow-card;
-  }
-
-  /* neumorphism: relevo macio sobre o fundo do app */
+  .panel { @apply rounded-card border border-line bg-surface shadow-card; }
+  .surface-muted { @apply rounded-xl border border-line/80 bg-surface-2; }
   .neu {
-    @apply rounded-card;
-    background: linear-gradient(145deg, #ffffff, theme("colors.bg-deep"));
+    @apply rounded-card bg-bg;
     box-shadow: theme("boxShadow.neu");
   }
   .neu-inset {
-    @apply rounded-card bg-bg;
+    @apply rounded-xl bg-bg;
     box-shadow: theme("boxShadow.neu-inset");
   }
+  .filter-bar { @apply card mb-5 flex flex-wrap items-end gap-x-5 gap-y-4 p-4 sm:p-5; }
+  .table-shell { @apply card overflow-x-auto; }
+  .empty-state { @apply card flex flex-col items-center px-6 py-12 text-center; }
 
-  /* ============================================================
-     BOTÕES
-     ============================================================ */
+  /* Ações */
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-pill px-4 py-2.5 text-sm font-semibold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[.97];
+    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-bold transition-[background,box-shadow,color,transform,border-color] duration-200 disabled:cursor-not-allowed disabled:opacity-45 active:scale-[.98];
   }
   .btn-primary {
-    @apply btn text-white;
-    background-image: linear-gradient(135deg, theme("colors.accent-bright"), theme("colors.accent-deep"));
-    box-shadow: theme("boxShadow.glow"), theme("boxShadow.inner-top");
+    @apply btn border border-accent text-white;
+    background: linear-gradient(135deg, theme("colors.accent"), theme("colors.accent-deep"));
+    box-shadow: theme("boxShadow.glow"), inset 0 1px 0 rgba(255, 255, 255, .22);
   }
-  .btn-primary:hover {
-    filter: brightness(1.05);
-    box-shadow: 0 12px 30px -6px rgba(15, 157, 107, 0.55), theme("boxShadow.inner-top");
+  .btn-primary:hover:not(:disabled) {
+    filter: brightness(1.045);
+    box-shadow: 0 14px 28px -11px rgba(25, 113, 84, .64), inset 0 1px 0 rgba(255, 255, 255, .22);
+    transform: translateY(-1px);
   }
-  .btn-gold {
-    @apply btn bg-gold text-sidebar hover:brightness-105;
-  }
+  .btn-gold { @apply btn bg-gold text-sidebar shadow-sm hover:brightness-105; }
   .btn-ghost {
-    @apply btn border border-line bg-surface/80 text-ink backdrop-blur hover:border-accent/50 hover:text-accent-deep hover:shadow-neu-sm;
+    @apply btn border border-line bg-surface/70 text-ink-muted shadow-[inset_0_1px_0_rgba(255,255,255,.7)] hover:border-line-strong hover:bg-surface hover:text-ink;
   }
-  .btn-soft {
-    @apply btn bg-accent-soft text-accent-deep hover:bg-accent hover:text-white;
-  }
-  .btn-danger-ghost {
-    @apply btn border border-danger/30 bg-surface/80 text-danger backdrop-blur hover:bg-danger-soft;
-  }
-  .btn-sm {
-    @apply px-3 py-1.5 text-xs;
-  }
+  .btn-soft { @apply btn bg-accent-soft text-accent-deep hover:bg-accent hover:text-white; }
+  .btn-danger-ghost { @apply btn border border-danger/20 bg-surface/70 text-danger hover:bg-danger-soft; }
+  .btn-sm { @apply min-h-8 rounded-lg px-3 py-1.5 text-xs; }
   .btn-icon {
-    @apply inline-flex h-9 w-9 items-center justify-center rounded-full text-ink-muted transition-all duration-200 hover:bg-accent-soft hover:text-accent-deep active:scale-90;
+    @apply inline-flex h-9 w-9 items-center justify-center rounded-xl border border-transparent text-ink-muted transition-all duration-200 hover:border-line hover:bg-surface hover:text-ink active:scale-95;
   }
 
-  /* ============================================================
-     FORMULÁRIOS
-     ============================================================ */
-  .label {
-    @apply mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-ink-muted;
-  }
+  /* Campos e seleção */
+  .label { @apply mb-1.5 block text-[10px] font-bold uppercase tracking-[.13em] text-ink-muted; }
   .input {
-    @apply w-full rounded-xl border border-line bg-surface/70 px-3.5 py-2.5 text-sm text-ink outline-none transition-all duration-200 placeholder:text-ink-faint;
+    @apply min-h-10 w-full rounded-xl border border-line bg-surface px-3.5 py-2 text-sm text-ink outline-none transition-[border-color,box-shadow,background] duration-200 placeholder:text-ink-faint;
     box-shadow: theme("boxShadow.neu-inset");
   }
+  .input:hover { @apply border-line-strong; }
   .input:focus {
     @apply border-accent/60 bg-surface;
-    box-shadow: 0 0 0 3px rgba(15, 157, 107, 0.16);
+    box-shadow: 0 0 0 3px rgba(25, 113, 84, .12), theme("boxShadow.neu-inset");
   }
-  select.input {
-    @apply w-auto;
-  }
-  .input-dark {
-    @apply w-full rounded-xl border border-sidebar-line bg-sidebar-hover px-3.5 py-2.5 text-sm text-white outline-none transition-colors placeholder:text-white/30 focus:border-accent-bright;
-  }
+  select.input { @apply w-auto pr-9; }
+  .input-dark { @apply w-full rounded-xl border border-sidebar-line bg-sidebar-hover px-3.5 py-2.5 text-sm text-white outline-none transition-colors placeholder:text-white/30 focus:border-accent-bright; }
 
-  /* ============================================================
-     SELOS / BADGES / LINKS
-     ============================================================ */
-  .badge {
-    @apply inline-flex items-center gap-1 whitespace-nowrap rounded-pill px-2.5 py-1 text-[11px] font-semibold;
-  }
+  /* Informação curta e navegação por estados */
+  .badge { @apply inline-flex items-center gap-1 whitespace-nowrap rounded-pill px-2.5 py-1 text-[10px] font-bold tracking-[.02em]; }
   .badge-ok { @apply badge bg-accent-soft text-accent-deep; }
   .badge-warn { @apply badge bg-warn-soft text-warn; }
   .badge-danger { @apply badge bg-danger-soft text-danger; }
   .badge-info { @apply badge bg-info-soft text-info; }
-  .badge-neutral { @apply badge bg-bg text-ink-muted; }
-  .link { @apply font-medium text-accent-deep underline-offset-2 hover:text-accent hover:underline; }
+  .badge-neutral { @apply badge bg-bg-deep text-ink-muted; }
+  .link { @apply font-bold text-accent-deep underline-offset-4 hover:text-accent hover:underline; }
+  .chip { @apply inline-flex items-center gap-1.5 rounded-pill border border-white/70 bg-white/50 px-3 py-1 text-xs font-semibold text-ink-muted backdrop-blur; }
+  .tabs { @apply flex flex-wrap items-center gap-1 rounded-xl border border-line bg-surface/60 p-1; }
+  .tab { @apply rounded-lg px-3 py-2 text-xs font-bold text-ink-muted transition-colors hover:text-ink; }
+  .tab-active { @apply bg-surface text-ink shadow-sm; }
 
-  /* chip de vidro para métricas discretas */
-  .chip {
-    @apply inline-flex items-center gap-1.5 rounded-pill border border-white/60 bg-white/50 px-3 py-1 text-xs font-medium text-ink-muted backdrop-blur;
-  }
-
-  /* ============================================================
-     TABELAS
-     ============================================================ */
+  /* Listas e tabelas */
   .tabela { @apply w-full text-sm; }
-  .tabela thead tr { @apply border-b border-line text-left text-ink-muted; }
-  .tabela thead th {
-    @apply py-3 pr-3 text-[11px] font-semibold uppercase tracking-wider;
-  }
-  .tabela tbody tr { @apply border-b border-line/60 transition-colors last:border-0; }
+  .tabela thead tr { @apply border-b border-line bg-surface-2/70 text-left text-ink-muted; }
+  .tabela thead th { @apply whitespace-nowrap px-4 py-3 text-[10px] font-bold uppercase tracking-[.11em]; }
+  .tabela tbody tr { @apply border-b border-line/75 transition-colors last:border-0 hover:bg-surface/70; }
   .tabela tbody tr.clicavel { @apply cursor-pointer hover:bg-accent-soft/50; }
-  .tabela tbody td { @apply py-3.5 pr-3 align-middle; }
+  .tabela tbody td { @apply px-4 py-3.5 align-middle; }
 
-  /* ============================================================
-     ESQUELETO
-     ============================================================ */
+  /* Carregamento */
   .skeleton {
-    @apply rounded-xl bg-gradient-to-r from-line/50 via-white/40 to-line/50 bg-[length:800px_100%];
-    animation: shimmer 1.5s linear infinite;
+    @apply rounded-xl bg-gradient-to-r from-line/50 via-white/70 to-line/50 bg-[length:900px_100%];
+    animation: shimmer 1.6s linear infinite;
   }
 
-  /* ============================================================
-     NAVEGAÇÃO LATERAL
-     ============================================================ */
+  /* Navegação lateral */
   .nav-item {
-    @apply relative mb-1 flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-white/55 transition-all duration-200;
+    @apply relative mb-1 flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-white/60 transition-all duration-200;
   }
-  .nav-item:hover {
-    @apply bg-sidebar-hover text-white;
-  }
+  .nav-item:hover { @apply bg-white/5 text-white; }
   .nav-item-ativo {
-    @apply text-white;
-    background: linear-gradient(135deg, rgba(38, 208, 139, 0.22), rgba(15, 157, 107, 0.10));
-    box-shadow: inset 0 0 0 1px rgba(38, 208, 139, 0.25);
+    @apply bg-white/10 text-white;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.07), 0 6px 18px -12px rgba(0,0,0,.5);
   }
-  /* trilho luminoso no item ativo */
   .nav-item-ativo::before {
     content: "";
-    @apply absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-full;
-    background: theme("colors.accent-bright");
-    box-shadow: 0 0 12px 1px theme("colors.accent-bright");
+    @apply absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-accent-bright;
+    box-shadow: 0 0 10px rgba(91, 197, 148, .72);
   }
 
-  /* ============================================================
-     XML
-     ============================================================ */
-  .xml-code {
-    @apply overflow-x-auto rounded-xl border border-sidebar-line bg-sidebar p-4 font-mono text-xs leading-relaxed text-emerald-100/90;
-  }
+  .xml-code { @apply overflow-x-auto rounded-xl border border-sidebar-line bg-sidebar p-4 font-mono text-xs leading-relaxed text-emerald-100/90; }
 }
 
-/* barra de rolagem discreta */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb {
-  background: #c3cfc9;
-  border-radius: 8px;
-  border: 2px solid transparent;
-  background-clip: content-box;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: theme("colors.accent");
-  border: 2px solid transparent;
-  background-clip: content-box;
-}
+::-webkit-scrollbar-thumb { background: #c4cec8; border: 3px solid transparent; border-radius: 8px; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background-color: #91a69b; }
 
-/* impressão do fechamento: só o relatório */
 @media print {
   .no-print { display: none !important; }
   body { background: #fff; background-image: none; }
-  .card, .card-pad, .panel {
-    box-shadow: none;
-    border: 1px solid #ddd;
-    background: #fff;
-    backdrop-filter: none;
-    break-inside: avoid;
-  }
+  .card, .card-pad, .panel { box-shadow: none; border: 1px solid #d9dedb; background: #fff; backdrop-filter: none; break-inside: avoid; }
 }
