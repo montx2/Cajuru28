@@ -6,6 +6,15 @@ from sqlalchemy.pool import StaticPool
 from app.db import migracoes
 
 
+def test_defaults_booleanos_sao_validos_no_postgresql():
+    """PostgreSQL não converte DEFAULT 0/1 implicitamente para BOOLEAN."""
+    tipos = dict(migracoes._COLUNAS_POR_TABELA["execucoes_importacao"])
+    tipos.update(migracoes._COLUNAS_POR_TABELA["empresas"])
+
+    assert tipos["forcar"].endswith("DEFAULT FALSE")
+    assert tipos["sincronizar_automaticamente"].endswith("DEFAULT TRUE")
+
+
 def test_adiciona_colunas_faltantes_e_e_idempotente(monkeypatch):
     engine = create_engine("sqlite://", poolclass=StaticPool)
     with engine.begin() as conexao:

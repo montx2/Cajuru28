@@ -52,10 +52,13 @@ _COLUNAS_POR_TABELA: dict[str, list[tuple[str, str]]] = {
         ("tentativas", "INTEGER NOT NULL DEFAULT 0"),
         ("bloqueado_ate", "TIMESTAMP WITH TIME ZONE"),
         ("origem", "VARCHAR(20) NOT NULL DEFAULT 'manual'"),
-        ("forcar", "BOOLEAN NOT NULL DEFAULT 0"),
+        # PostgreSQL não aceita inteiros como valor padrão de BOOLEAN
+        # (`DEFAULT 0` derruba o startup em bancos de versões anteriores).
+        # TRUE/FALSE também são compreendidos pelo SQLite.
+        ("forcar", "BOOLEAN NOT NULL DEFAULT FALSE"),
     ],
     "empresas": [
-        ("sincronizar_automaticamente", "BOOLEAN NOT NULL DEFAULT 1"),
+        ("sincronizar_automaticamente", "BOOLEAN NOT NULL DEFAULT TRUE"),
         ("quais_tipos_sincronizar", "VARCHAR(30) NOT NULL DEFAULT 'nfse,nfe,cte'"),
     ],
     "usuarios": [
