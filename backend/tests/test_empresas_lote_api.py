@@ -14,11 +14,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.api.deps import escritorio_id_atual
+from app.api.deps import escritorio_id_atual, usuario_atual
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
-from app.models import Certificado, Empresa, Escritorio
+from app.models import Certificado, Empresa, Escritorio, Usuario
 
 OID_CNPJ = ObjectIdentifier("2.16.76.1.3.3")
 SENHA = "senha-do-certificado-fake"
@@ -86,6 +86,16 @@ def cliente(tmp_path, monkeypatch):
     db.add(escritorio)
     db.commit()
     db.refresh(escritorio)
+    usuario = Usuario(
+        escritorio_id=escritorio.id,
+        nome="Administrador Teste",
+        email="admin@teste.local",
+        senha_hash="nao-usado-no-teste",
+        papel="admin",
+        ativo=True,
+    )
+    db.add(usuario)
+    db.commit()
 
     def _get_db():
         try:
@@ -94,6 +104,7 @@ def cliente(tmp_path, monkeypatch):
             pass
 
     app.dependency_overrides[get_db] = _get_db
+    app.dependency_overrides[usuario_atual] = lambda: usuario
     app.dependency_overrides[escritorio_id_atual] = lambda: escritorio.id
 
     client = TestClient(app)

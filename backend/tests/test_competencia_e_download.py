@@ -24,7 +24,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.api.deps import escritorio_id_atual
+from app.api.deps import escritorio_id_atual, usuario_atual
 from app.core import config
 from app.db.base import Base
 from app.db.session import get_db
@@ -39,6 +39,7 @@ from app.models import (
     StatusDocumentoFiscal,
     StatusExecucao,
     TipoDocumentoFiscal,
+    Usuario,
 )
 from app.services import sincronizacao
 from app.services.periodo import PeriodoInvalido, interpretar_competencia
@@ -120,6 +121,16 @@ def cliente(tmp_path, monkeypatch):
     outro = Escritorio(nome="Concorrente")
     db.add_all([escritorio, outro])
     db.flush()
+    usuario = Usuario(
+        escritorio_id=escritorio.id,
+        nome="Administrador Teste",
+        email="admin@teste.local",
+        senha_hash="nao-usado-no-teste",
+        papel="admin",
+        ativo=True,
+    )
+    db.add(usuario)
+    db.flush()
 
     empresa = Empresa(
         escritorio_id=escritorio.id,
@@ -185,6 +196,7 @@ def cliente(tmp_path, monkeypatch):
         yield db
 
     app.dependency_overrides[get_db] = _get_db
+    app.dependency_overrides[usuario_atual] = lambda: usuario
     app.dependency_overrides[escritorio_id_atual] = lambda: escritorio.id
 
     # sem Celery no teste: só registrar que a task foi disparada

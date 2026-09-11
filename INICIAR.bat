@@ -148,9 +148,33 @@ exit /b 1
 :SUBIDA_OK
 
 echo.
-echo Aguardando a API...
-timeout /t 8 /nobreak >nul
+echo Aguardando a API responder (na primeira vez pode demorar)...
+set TENTATIVAS_API=0
+:AGUARDAR_API
+set /a TENTATIVAS_API+=1
+curl.exe -fsS --max-time 4 http://localhost:8000/saude >nul 2>nul
+if not errorlevel 1 goto API_OK
+if %TENTATIVAS_API% GEQ 60 goto API_FALHOU
+timeout /t 3 /nobreak >nul
+goto AGUARDAR_API
 
+:API_FALHOU
+echo.
+echo ============================================
+echo   A API NAO CONSEGUIU INICIAR
+echo ============================================
+echo O painel nao sera aberto porque ainda nao conseguiria entrar.
+echo Abaixo estao as ultimas mensagens da API:
+echo.
+docker compose logs --tail 120 api
+echo.
+echo Tente novamente com INICIAR.bat. Se persistir, copie as mensagens
+echo acima ao pedir suporte. Consulte tambem SOLUCAO_DE_PROBLEMAS.md.
+pause
+exit /b 1
+
+:API_OK
+echo [OK] API respondendo.
 echo.
 echo ============================================
 echo   Pronto!
