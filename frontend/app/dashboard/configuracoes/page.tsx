@@ -51,31 +51,38 @@ export default function ConfiguracoesPage() {
     <div className="animate-fade-up max-w-5xl">
       <h1 className="font-serif text-3xl font-semibold text-ink">Configurações</h1>
       <p className="mt-1 text-sm text-ink-muted">
-        Diagnóstico do ambiente, certificados, equipe e integrações.
+        Diagnóstico do ambiente, certificados, atenção e integrações.
       </p>
 
       {/* atalhos de gestão */}
-      <div className="mt-6 grid gap-4 sm:grid-cols-3">
-        <Link href="/dashboard/usuarios" className="card-pad card-hover block">
-          <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-accent-soft text-accent-deep">
-            <Icone nome="usuarios" className="h-5 w-5" />
+      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Link href="/dashboard/atencao" className="card-pad card-hover block">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-warn-soft text-warn">
+            <Icone nome="sino" className="h-5 w-5" />
           </span>
-          <p className="mt-3 font-semibold text-ink">Equipe</p>
-          <p className="mt-0.5 text-xs text-ink-muted">Usuários, papéis e acessos (só admin).</p>
+          <p className="mt-3 font-semibold text-ink">Atenção</p>
+          <p className="mt-0.5 text-xs text-ink-muted">Tudo que precisa de olho humano.</p>
+        </Link>
+        <Link href="/dashboard/certificados" className="card-pad card-hover block">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-accent-soft text-accent-deep">
+            <Icone nome="escudo" className="h-5 w-5" />
+          </span>
+          <p className="mt-3 font-semibold text-ink">Certificados</p>
+          <p className="mt-0.5 text-xs text-ink-muted">Validade e uso de cada A1.</p>
+        </Link>
+        <Link href="/dashboard/saude" className="card-pad card-hover block">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-info-soft text-info">
+            <Icone nome="hd" className="h-5 w-5" />
+          </span>
+          <p className="mt-3 font-semibold text-ink">Saúde do sistema</p>
+          <p className="mt-0.5 text-xs text-ink-muted">Componentes e backup.</p>
         </Link>
         <Link href="/dashboard/auditoria" className="card-pad card-hover block">
-          <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-info-soft text-info">
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-bg text-ink-muted">
             <Icone nome="olho" className="h-5 w-5" />
           </span>
           <p className="mt-3 font-semibold text-ink">Auditoria</p>
           <p className="mt-0.5 text-xs text-ink-muted">Quem fez o quê, quando.</p>
-        </Link>
-        <Link href="/dashboard/alertas" className="card-pad card-hover block">
-          <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-warn-soft text-warn">
-            <Icone nome="sino" className="h-5 w-5" />
-          </span>
-          <p className="mt-3 font-semibold text-ink">Alertas</p>
-          <p className="mt-0.5 text-xs text-ink-muted">Central de tudo que precisa de olho.</p>
         </Link>
       </div>
 

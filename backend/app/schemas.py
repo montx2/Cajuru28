@@ -623,3 +623,169 @@ class RegistroAuditoriaResposta(BaseModel):
 class TesteWebhookResposta(BaseModel):
     ok: bool
     detalhe: str
+
+
+# ---------- Painel operacional (a tela "está tudo funcionando?") ----------
+
+
+class PainelEmpresas(BaseModel):
+    """Saúde do rebanho de empresas — a escala que importa (não usuários)."""
+
+    cadastradas: int = 0
+    ativas: int = 0
+    habilitadas_sincronizacao: int = 0
+    sincronizadas_hoje: int = 0
+    em_dia: int = 0
+    aguardando_janela: int = 0
+    com_erro_24h: int = 0
+    sem_certificado: int = 0
+
+
+class PainelCertificados(BaseModel):
+    validos: int = 0
+    vencendo: int = 0
+    vencidos: int = 0
+
+
+class PainelExecucoes(BaseModel):
+    em_andamento: int = 0
+    aguardando: int = 0
+    bloqueadas: int = 0
+    concluidas_hoje: int = 0
+    erros_24h: int = 0
+    duracao_media_minutos: float | None = None
+
+
+class PainelDocumentos(BaseModel):
+    hoje: int = 0
+    cancelados_hoje: int = 0
+    total: int = 0
+    aguardando_xml_completo: int = 0
+    mes: int = 0
+    valor_mes: float = 0.0
+    competencia: str = ""
+
+
+class ComponenteStatus(BaseModel):
+    nome: str  # api | banco | fila | worker | agendador
+    status: str  # ok | atencao | erro | desconhecido | desligado
+    detalhe: str = ""
+
+
+class UltimaSincronizacao(BaseModel):
+    empresa_id: int
+    razao_social: str
+    tipo: str
+    status: str
+    documentos: int = 0
+    finalizado_em: datetime | None = None
+    iniciado_em: datetime | None = None
+    mensagem_erro: str | None = None
+    aviso: str | None = None
+
+
+class PainelOperacional(BaseModel):
+    """
+    A resposta da pergunta que abre o dia: "está tudo funcionando, e existe
+    algo que EU preciso resolver?".
+
+    `status_geral` é o semáforo do topo do dashboard:
+    - "operando": nada crítico, automação saudável;
+    - "atencao": há pendências que precisam de olho humano em breve;
+    - "critico": há bloqueio/risco ativo — a lista de atenção é o próximo clique.
+    """
+
+    status_geral: str
+    mensagem: str
+    alertas: dict[str, int] = {}  # {"criticos": n, "atencao": n, "info": n}
+    empresas: PainelEmpresas = PainelEmpresas()
+    certificados: PainelCertificados = PainelCertificados()
+    execucoes: PainelExecucoes = PainelExecucoes()
+    documentos: PainelDocumentos = PainelDocumentos()
+    componentes: list[ComponenteStatus] = []
+    ultimas_sincronizacoes: list[UltimaSincronizacao] = []
+
+
+class ExecucaoAoVivo(BaseModel):
+    """Uma empresa sendo trabalhada agora (ou esperando a janela abrir)."""
+
+    execucao_id: int
+    empresa_id: int
+    razao_social: str
+    tipo: str
+    status: str  # em_andamento | aguardando
+    documentos_importados: int = 0
+    ultimo_nsu: str | None = None
+    iniciado_em: datetime | None = None
+    aguardando_ate: datetime | None = None
+    motivo_espera: str | None = None
+    aviso: str | None = None
+    mensagem_erro: str | None = None
+
+
+class JanelaProximaConsulta(BaseModel):
+    """Empresa parada por janela oficial de consumo — e quando volta."""
+
+    empresa_id: int
+    razao_social: str
+    tipo: str
+    proxima_consulta_em: datetime
+    bloqueada: bool = False
+    pendencia: int = 0
+
+
+class CentralExecucoes(BaseModel):
+    """A tela 'Execuções': o que roda agora, o que vem depois, o que caiu."""
+
+    agora: list[ExecucaoAoVivo] = []
+    proximas: list[JanelaProximaConsulta] = []
+    recentes: list[ExecucaoImportacaoResposta] = []
+    erros: list[ExecucaoImportacaoResposta] = []
+
+
+# ---------- Certificados (centro de certificados) ----------
+
+
+class ResumoCertificadoPainel(ResumoCertificado):
+    """O resumo por empresa com a telemetria de uso do A1."""
+
+    ultima_utilizacao_em: datetime | None = None
+    ultima_validacao_em: datetime | None = None
+    ultimo_erro: str | None = None
+    cnpj_cpf: str = ""
+
+
+# ---------- Backup ----------
+
+
+class BackupRegistroResposta(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    tipo: str
+    status: str
+    iniciado_em: datetime
+    finalizado_em: datetime | None = None
+    tamanho_bytes: int | None = None
+    empresas: int = 0
+    documentos: int = 0
+    execucoes: int = 0
+    detalhe: str | None = None
+    erro: str | None = None
+    restauracao_testada_em: datetime | None = None
+    restauracao_ok: bool | None = None
+
+
+class SaudeBackupResposta(BaseModel):
+    ativo: bool
+    ultimo_ok_em: datetime | None = None
+    ultimo_ok_tamanho_bytes: int | None = None
+    horas_desde_ultimo_ok: float | None = None
+    ultimo_teste_em: datetime | None = None
+    ultimo_teste_ok: bool | None = None
+    proximo_previsto_em: datetime | None = None
+    retencao: int = 14
+    atrasado: bool = False
+    total_registros: int = 0
+    erros_recentes: int = 0
+    tamanho_total_bytes: int = 0

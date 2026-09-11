@@ -64,6 +64,12 @@ _COLUNAS_POR_TABELA: dict[str, list[tuple[str, str]]] = {
     "usuarios": [
         ("papel", "VARCHAR(20) NOT NULL DEFAULT 'admin'"),
     ],
+    "certificados": [
+        # Telemetria de uso do A1 — alimenta o centro de certificados.
+        ("ultima_utilizacao_em", "TIMESTAMP WITH TIME ZONE"),
+        ("ultima_validacao_em", "TIMESTAMP WITH TIME ZONE"),
+        ("ultimo_erro", "TEXT"),
+    ],
 }
 
 # Índices que as telas de filtro por competência/download em massa usam.

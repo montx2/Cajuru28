@@ -88,7 +88,7 @@ export function Topbar({ aoAbrirMenu }: { aoAbrirMenu: () => void }) {
             ref={campoBusca}
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
-            placeholder="Buscar por chave, número ou emitente…  (Ctrl+K)"
+            placeholder="Busca fiscal — chave, número, emitente, CNPJ…  (Ctrl+K)"
             className="input pl-9"
           />
         </form>
@@ -129,11 +129,11 @@ export function Topbar({ aoAbrirMenu }: { aoAbrirMenu: () => void }) {
                   )}
                 </p>
                 <Link
-                  href="/dashboard/alertas"
+                  href="/dashboard/atencao"
                   onClick={() => setSinoAberto(false)}
                   className="link text-xs font-semibold"
                 >
-                  ver todos
+                  ver tudo
                 </Link>
               </div>
               {previos.length === 0 ? (
@@ -145,7 +145,7 @@ export function Topbar({ aoAbrirMenu }: { aoAbrirMenu: () => void }) {
                   {previos.map((a) => (
                     <li key={a.id}>
                       <Link
-                        href={a.acao_href ?? "/dashboard/alertas"}
+                        href={a.acao_href ?? "/dashboard/atencao"}
                         onClick={() => setSinoAberto(false)}
                         className="block px-4 py-3 hover:bg-bg"
                       >

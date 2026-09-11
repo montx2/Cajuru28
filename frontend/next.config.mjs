@@ -6,6 +6,7 @@ const ROTAS_API = [
   "documentos",
   "importacoes",
   "dashboard",
+  "painel",
   "alertas",
   "relatorios",
   "sistema",

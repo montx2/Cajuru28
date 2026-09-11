@@ -15,6 +15,7 @@ from app.api.routers import (
     empresas,
     importacoes,
     metricas,
+    painel,
     relatorios,
     sistema,
     usuarios,
@@ -34,8 +35,11 @@ async def ciclo_de_vida(_app: FastAPI):
 
 app = FastAPI(
     title="NotasFlow",
-    description="Importação automática de NFS-e, NFe e CT-e via ADN/SEFAZ.",
-    version="2.1.0",
+    description=(
+        "Sistema operacional fiscal privado: captura automática de NFS-e, NFe "
+        "e CT-e via ADN/SEFAZ para um único operador administrar muitas empresas."
+    ),
+    version="3.0.0",
     lifespan=ciclo_de_vida,
 )
 
@@ -66,6 +70,7 @@ app.include_router(certificados.router)
 app.include_router(documentos.router)
 app.include_router(importacoes.router)
 app.include_router(dashboard.router)
+app.include_router(painel.router)
 app.include_router(alertas.router)
 app.include_router(relatorios.router)
 app.include_router(sistema.router)

@@ -1,33 +1,52 @@
-# NotasFlow
+# NotasFlow — Cajuru28
 
-Importação automática de documentos fiscais (NFS-e, NFe e CT-e) pelas fontes
-oficiais ADN/SEFAZ, usando certificados A1 — com dashboard executivo, central
-de alertas e fechamento mensal. A aplicação é distribuída e executada
-exclusivamente com **Docker Compose**.
+**Sistema operacional fiscal privado**: captura automática de documentos
+fiscais (NFS-e, NFe e CT-e) pelas fontes oficiais ADN/SEFAZ, com certificados
+A1, feito para **um operador administrar centenas de empresas** com o mínimo
+possível de intervenção manual.
 
-## Destaques
+> A pergunta que guia cada tela: *"como fazer para que o operador precise
+> fazer cada vez menos?"* — ver [`docs/DIRETRIZ_OPERACIONAL.md`](docs/DIRETRIZ_OPERACIONAL.md).
 
-- **Visão geral executiva:** KPIs do mês, evolução de 12 meses, quebra por tipo,
-  ranking de empresas, maiores emitentes e feed de atividades — tudo ao vivo.
-- **Central de alertas:** certificados vencidos/vencendo, bloqueios SEFAZ,
-  risco de perda na distribuição, XMLs pendentes e saúde do disco, com ação
-  direta para cada item.
-- **Fechamento mensal:** mapa empresa × tipo da competência, exportável em CSV
-  e ZIP, pronto para imprimir e enviar ao cliente.
-- **Detalhe de documento:** clique em qualquer nota para ver a ficha completa
-  (estilo DANFE), copiar a chave e inspecionar ou baixar o XML.
-- **Busca global:** `Ctrl+K` na barra superior encontra qualquer documento por
-  chave, número ou emitente.
+## O que muda na v3.0
+
+O sistema deixou de se apresentar como "SaaS de escritório" e passou a ser
+uma **ferramenta de operação fiscal para um único operador**:
+
+- **Painel (home)** — responde imediatamente *"está tudo funcionando?"*:
+  semáforo de status, saúde da automação (empresas sincronizadas hoje,
+  erros, certificados, tempo médio das varreduras), componentes de fundo
+  (banco, fila, worker, agendador) e o que está rodando agora.
+- **Precisa da sua atenção** — a lista operacional principal: poucas linhas,
+  ordenadas por gravidade, cada uma com o botão que resolve.
+- **Execuções** — central do que o sistema está fazendo: rodando agora,
+  próximas janelas de consulta, falhas com reprocessamento em um clique.
+  Resumo primeiro, detalhe técnico só quando pedido.
+- **Certificados** — centro de certificados: validade, dias restantes,
+  **última utilização real** e **último erro de autenticação** de cada A1.
+- **Saúde do sistema** — componentes + **backup de verdade**: pacote diário
+  (dump do banco + manifesto + espelho de XMLs) e **teste de restauração**
+  que recria o schema num banco de prova e confere as contagens.
+- **Menu enxuto** — Visão geral · Fiscal · Sistema. Sem gestão de equipe,
+  planos ou qualquer ruído de SaaS na experiência principal (a arquitetura
+  continua multiusuária por baixo, pronta para o futuro).
+
+## Destaques (já existentes)
+
 - **Sincronismo automático:** o Celery Beat varre as empresas sozinho,
-  respeitando a janela oficial de 1 hora por CNPJ e tipo.
-- **Equipe com papéis:** admin, operador e somente-leitura — a API barra de
-  verdade, e a interface esconde o que cada perfil não pode fazer.
-- **Trilha de auditoria:** cada login, cadastro, disparo e download registrado
-  com quem, quando e o detalhe.
+  respeitando a janela oficial de 1 hora por CNPJ e tipo — com governador
+  de consumo (cStat 656, cotas de 20 consultas/h, lease por empresa+tipo).
+- **Recuperação automática:** retry com reagendamento, checkpoint de NSU a
+  cada lote, uma nota que falha nunca para as outras 9.999.
+- **Importação em massa:** cadastro de empresas+certificados por lote e
+  importação por seleção, com prévia do que vai acontecer.
+- **Fechamento mensal:** mapa empresa × tipo da competência, exportável em
+  CSV e ZIP.
+- **Busca global:** `Ctrl+K` encontra qualquer documento por chave, número
+  ou emitente.
 - **Alertas externos:** webhook JSON para Slack, Discord, n8n ou gateway
-  WhatsApp, com nível mínimo, cooldown e botão de teste.
-- **Métricas Prometheus:** `GET /metricas` com documentos, execuções,
-  certificados e alertas por escritório.
+  WhatsApp.
+- **Trilha de auditoria** e **métricas Prometheus** (`GET /metricas`).
 
 ## Arquitetura
 
@@ -35,14 +54,14 @@ exclusivamente com **Docker Compose**.
 - **API:** FastAPI
 - **Banco:** PostgreSQL
 - **Fila:** Redis + Celery
-- **Agendamento:** Celery Beat
+- **Agendamento:** Celery Beat (sincronismo, retomada de XMLs, alertas e backup)
 
 ## Instalação
 
 ### Windows
 
-Execute `INSTALAR_TUDO.bat`. O script instala/verifica o Docker Desktop, gera as
-chaves locais, sobe os contêineres e abre o painel.
+Execute `INSTALAR_TUDO.bat`. O script instala/verifica o Docker Desktop, gera
+as chaves locais, sobe os contêineres e abre o painel.
 
 Depois, use:
 
@@ -83,7 +102,8 @@ make build    # constrói as imagens
 ## Serviços e dados
 
 O `docker-compose.yml` inicia `db`, `redis`, `api`, `worker`, `beat` e
-`frontend`. Os dados persistentes ficam nos volumes `db_data`, `certificados` e
-`xml_saida`; inclua esses volumes na política de backup do servidor.
+`frontend`. Os dados persistentes ficam nos volumes `db_data`, `certificados`
+e `xml_saida` — e o job de backup diário gera pacotes restauráveis dentro do
+volume de dados (tela **Saúde do sistema** para acompanhar e testar).
 
 Consulte `docs/ARQUITETURA.md` e `docs/SINCRONIZACAO.md` para detalhes técnicos.
