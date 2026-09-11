@@ -1,164 +1,236 @@
-@import url("https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap");
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --font-public-sans: "Public Sans", system-ui, sans-serif;
-  --font-source-serif: "Source Serif 4", Georgia, serif;
-  --font-plex-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --font-inter: "Inter", system-ui, sans-serif;
+  --font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  /* vidro: superfície translúcida reutilizada em cards/overlays */
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-border: rgba(255, 255, 255, 0.65);
+  --glass-blur: 18px;
 }
 
-body {
-  @apply bg-bg text-ink font-sans antialiased;
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply text-ink font-sans antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "ss01";
+    background-color: theme("colors.bg");
+    /* ambiente: manchas de cor difusas dão profundidade sem poluir (minimalismo) */
+    background-image:
+      radial-gradient(900px 600px at 8% -5%, rgba(38, 208, 139, 0.10), transparent 60%),
+      radial-gradient(760px 620px at 100% 0%, rgba(37, 99, 235, 0.06), transparent 55%),
+      radial-gradient(700px 700px at 50% 120%, rgba(15, 157, 107, 0.07), transparent 60%);
+    background-attachment: fixed;
+    min-height: 100vh;
+  }
+
+  /* tipografia de display: títulos com tracking negativo, ar moderno */
+  h1, h2, h3, .font-display {
+    letter-spacing: -0.02em;
+  }
+
+  ::selection {
+    background: theme("colors.accent-glow");
+    color: theme("colors.accent-deep");
+  }
 }
 
-/* Foco visível — acessibilidade, não decoração */
+/* Foco visível — acessibilidade */
 :focus-visible {
   outline: 2px solid theme("colors.accent");
   outline-offset: 2px;
+  border-radius: 6px;
 }
 
-/* O único elemento com movimento do sistema: o indicador de execução em
-   andamento. Tudo o mais fica parado. */
+/* Movimento sutil do indicador de execução em andamento */
 @media (prefers-reduced-motion: no-preference) {
   .pulso-andamento {
-    animation: pulso 1.6s ease-in-out infinite;
+    animation: pulso 1.8s ease-in-out infinite;
   }
 }
-
 @keyframes pulso {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.35;
-  }
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
 }
 
 @layer components {
-  /* ---------- superfícies ---------- */
+  /* ============================================================
+     SUPERFÍCIES
+     ============================================================ */
+
+  /* cartão padrão: vidro fosco com borda luminosa (glassmorphism) */
   .card {
-    @apply rounded-card border border-line bg-surface shadow-card;
+    @apply rounded-card border shadow-card;
+    background: var(--glass-bg);
+    border-color: var(--glass-border);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+    backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+    box-shadow:
+      theme("boxShadow.card"),
+      theme("boxShadow.inner-top");
   }
   .card-pad {
-    @apply rounded-card border border-line bg-surface p-5 shadow-card;
+    @apply card p-5 sm:p-6;
   }
   .card-hover {
-    @apply transition-all duration-200 hover:-translate-y-0.5 hover:shadow-pop;
+    @apply transition-all duration-300;
+  }
+  .card-hover:hover {
+    transform: translateY(-3px);
+    box-shadow: theme("boxShadow.card-hover"), theme("boxShadow.inner-top");
   }
 
-  /* ---------- botões ---------- */
+  /* superfície sólida (para dentro de cards, sem blur) */
+  .panel {
+    @apply rounded-card border border-line bg-surface shadow-card;
+  }
+
+  /* neumorphism: relevo macio sobre o fundo do app */
+  .neu {
+    @apply rounded-card;
+    background: linear-gradient(145deg, #ffffff, theme("colors.bg-deep"));
+    box-shadow: theme("boxShadow.neu");
+  }
+  .neu-inset {
+    @apply rounded-card bg-bg;
+    box-shadow: theme("boxShadow.neu-inset");
+  }
+
+  /* ============================================================
+     BOTÕES
+     ============================================================ */
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-40;
+    @apply inline-flex items-center justify-center gap-2 rounded-pill px-4 py-2.5 text-sm font-semibold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-40 active:scale-[.97];
   }
   .btn-primary {
-    @apply btn bg-accent text-white shadow-sm hover:bg-accent-deep hover:shadow-md active:scale-[.98];
+    @apply btn text-white;
+    background-image: linear-gradient(135deg, theme("colors.accent-bright"), theme("colors.accent-deep"));
+    box-shadow: theme("boxShadow.glow"), theme("boxShadow.inner-top");
+  }
+  .btn-primary:hover {
+    filter: brightness(1.05);
+    box-shadow: 0 12px 30px -6px rgba(15, 157, 107, 0.55), theme("boxShadow.inner-top");
   }
   .btn-gold {
-    @apply btn bg-gold text-sidebar hover:brightness-105 active:scale-[.98];
+    @apply btn bg-gold text-sidebar hover:brightness-105;
   }
   .btn-ghost {
-    @apply btn border border-line bg-surface text-ink hover:border-accent hover:text-accent-deep;
+    @apply btn border border-line bg-surface/80 text-ink backdrop-blur hover:border-accent/50 hover:text-accent-deep hover:shadow-neu-sm;
   }
   .btn-soft {
     @apply btn bg-accent-soft text-accent-deep hover:bg-accent hover:text-white;
   }
   .btn-danger-ghost {
-    @apply btn border border-danger/30 bg-surface text-danger hover:bg-danger-soft;
+    @apply btn border border-danger/30 bg-surface/80 text-danger backdrop-blur hover:bg-danger-soft;
   }
   .btn-sm {
     @apply px-3 py-1.5 text-xs;
   }
   .btn-icon {
-    @apply inline-flex h-8 w-8 items-center justify-center rounded-lg text-ink-muted transition-colors hover:bg-accent-soft hover:text-accent-deep;
+    @apply inline-flex h-9 w-9 items-center justify-center rounded-full text-ink-muted transition-all duration-200 hover:bg-accent-soft hover:text-accent-deep active:scale-90;
   }
 
-  /* ---------- formulários ---------- */
+  /* ============================================================
+     FORMULÁRIOS
+     ============================================================ */
   .label {
-    @apply mb-1.5 block text-xs font-semibold uppercase tracking-wide text-ink-muted;
+    @apply mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-ink-muted;
   }
   .input {
-    @apply w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent focus:ring-2 focus:ring-accent/20;
+    @apply w-full rounded-xl border border-line bg-surface/70 px-3.5 py-2.5 text-sm text-ink outline-none transition-all duration-200 placeholder:text-ink-faint;
+    box-shadow: theme("boxShadow.neu-inset");
+  }
+  .input:focus {
+    @apply border-accent/60 bg-surface;
+    box-shadow: 0 0 0 3px rgba(15, 157, 107, 0.16);
   }
   select.input {
     @apply w-auto;
   }
   .input-dark {
-    @apply w-full rounded-lg border border-sidebar-line bg-sidebar-hover px-3 py-2 text-sm text-white outline-none transition-colors placeholder:text-ink-faint focus:border-accent-bright;
+    @apply w-full rounded-xl border border-sidebar-line bg-sidebar-hover px-3.5 py-2.5 text-sm text-white outline-none transition-colors placeholder:text-white/30 focus:border-accent-bright;
   }
 
-  /* ---------- selos e links ---------- */
+  /* ============================================================
+     SELOS / BADGES / LINKS
+     ============================================================ */
   .badge {
-    @apply inline-flex items-center gap-1 whitespace-nowrap rounded-pill px-2.5 py-0.5 text-xs font-semibold;
+    @apply inline-flex items-center gap-1 whitespace-nowrap rounded-pill px-2.5 py-1 text-[11px] font-semibold;
   }
-  .badge-ok {
-    @apply badge bg-accent-soft text-accent-deep;
-  }
-  .badge-warn {
-    @apply badge bg-warn-soft text-warn;
-  }
-  .badge-danger {
-    @apply badge bg-danger-soft text-danger;
-  }
-  .badge-info {
-    @apply badge bg-info-soft text-info;
-  }
-  .badge-neutral {
-    @apply badge bg-bg text-ink-muted;
-  }
-  .link {
-    @apply text-accent hover:text-accent-deep hover:underline;
+  .badge-ok { @apply badge bg-accent-soft text-accent-deep; }
+  .badge-warn { @apply badge bg-warn-soft text-warn; }
+  .badge-danger { @apply badge bg-danger-soft text-danger; }
+  .badge-info { @apply badge bg-info-soft text-info; }
+  .badge-neutral { @apply badge bg-bg text-ink-muted; }
+  .link { @apply font-medium text-accent-deep underline-offset-2 hover:text-accent hover:underline; }
+
+  /* chip de vidro para métricas discretas */
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-pill border border-white/60 bg-white/50 px-3 py-1 text-xs font-medium text-ink-muted backdrop-blur;
   }
 
-  /* ---------- tabelas ---------- */
-  .tabela {
-    @apply w-full text-sm;
-  }
-  .tabela thead tr {
-    @apply border-b border-line text-left text-ink-muted;
-  }
+  /* ============================================================
+     TABELAS
+     ============================================================ */
+  .tabela { @apply w-full text-sm; }
+  .tabela thead tr { @apply border-b border-line text-left text-ink-muted; }
   .tabela thead th {
-    @apply py-2.5 pr-3 text-xs font-semibold uppercase tracking-wide;
+    @apply py-3 pr-3 text-[11px] font-semibold uppercase tracking-wider;
   }
-  .tabela tbody tr {
-    @apply border-b border-line/70 transition-colors last:border-0;
-  }
-  .tabela tbody tr.clicavel {
-    @apply cursor-pointer hover:bg-accent-soft/40;
-  }
-  .tabela tbody td {
-    @apply py-3 pr-3 align-middle;
-  }
+  .tabela tbody tr { @apply border-b border-line/60 transition-colors last:border-0; }
+  .tabela tbody tr.clicavel { @apply cursor-pointer hover:bg-accent-soft/50; }
+  .tabela tbody td { @apply py-3.5 pr-3 align-middle; }
 
-  /* ---------- esqueleto de carregamento ---------- */
+  /* ============================================================
+     ESQUELETO
+     ============================================================ */
   .skeleton {
-    @apply rounded-lg bg-gradient-to-r from-line/60 via-bg to-line/60 bg-[length:800px_100%] animate-[shimmer_1.4s_linear_infinite];
+    @apply rounded-xl bg-gradient-to-r from-line/50 via-white/40 to-line/50 bg-[length:800px_100%];
+    animation: shimmer 1.5s linear infinite;
   }
 
-  /* ---------- navegação lateral ---------- */
+  /* ============================================================
+     NAVEGAÇÃO LATERAL
+     ============================================================ */
   .nav-item {
-    @apply mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-white/60 transition-all duration-150 hover:bg-sidebar-hover hover:text-white;
+    @apply relative mb-1 flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-white/55 transition-all duration-200;
+  }
+  .nav-item:hover {
+    @apply bg-sidebar-hover text-white;
   }
   .nav-item-ativo {
-    @apply bg-accent text-white shadow-md hover:bg-accent hover:text-white;
+    @apply text-white;
+    background: linear-gradient(135deg, rgba(38, 208, 139, 0.22), rgba(15, 157, 107, 0.10));
+    box-shadow: inset 0 0 0 1px rgba(38, 208, 139, 0.25);
+  }
+  /* trilho luminoso no item ativo */
+  .nav-item-ativo::before {
+    content: "";
+    @apply absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-full;
+    background: theme("colors.accent-bright");
+    box-shadow: 0 0 12px 1px theme("colors.accent-bright");
   }
 
-  /* ---------- XML ---------- */
+  /* ============================================================
+     XML
+     ============================================================ */
   .xml-code {
-    @apply overflow-x-auto rounded-lg border border-sidebar-line bg-sidebar p-4 font-mono text-xs leading-relaxed text-emerald-100/90;
+    @apply overflow-x-auto rounded-xl border border-sidebar-line bg-sidebar p-4 font-mono text-xs leading-relaxed text-emerald-100/90;
   }
 }
 
 /* barra de rolagem discreta */
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
   background: #c3cfc9;
   border-radius: 8px;
@@ -166,22 +238,20 @@ body {
   background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #1f6f54;
+  background: theme("colors.accent");
   border: 2px solid transparent;
   background-clip: content-box;
 }
 
 /* impressão do fechamento: só o relatório */
 @media print {
-  .no-print {
-    display: none !important;
-  }
-  body {
-    background: #fff;
-  }
-  .card, .card-pad {
+  .no-print { display: none !important; }
+  body { background: #fff; background-image: none; }
+  .card, .card-pad, .panel {
     box-shadow: none;
     border: 1px solid #ddd;
+    background: #fff;
+    backdrop-filter: none;
     break-inside: avoid;
   }
 }

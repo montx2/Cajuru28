@@ -315,7 +315,12 @@ def tratar_consumo_indevido(
        retomada continua exatamente de onde parou.
     """
     quando = sincronizacao.marcar_consumo_indevido(
-        db, estado, motivo=f"cStat {erro.cstat}: {erro.motivo}"
+        db,
+        estado,
+        motivo=f"cStat {erro.cstat}: {erro.motivo}",
+        # Quando o ambiente informou o tempo exato (Retry-After do ADN), a
+        # exceção já traz `bloqueio`; senão fica None e cai no cooldown de 1h.
+        bloqueio=getattr(erro, "bloqueio", None),
     )
     if erro.ultimo_nsu:
         sincronizacao.realinhar_cursor(
@@ -731,11 +736,27 @@ def sincronizar_tudo(self) -> dict:
                 resumo["retomadas"] += 1
         db.commit()
 
-        # Novas consultas só podem ser disparadas manualmente pela aba de
-        # Importações, onde a competência é obrigatória. O agendador conserva
-        # apenas a retomada segura de uma execução já bloqueada pelo ambiente.
+        # 2) empresas em modo automático cuja janela está livre: enfileira UMA
+        #    varredura por empresa+tipo, sempre pela mesma porta (fila.enfileirar),
+        #    que respeita o cooldown de 1h. É isto que torna o sistema autônomo:
+        #    sem depender de clique manual, ninguém reconsulta antes da hora e o
+        #    cronômetro do 656 nunca é zerado. Quem está na janela vira
+        #    "aguardando" (não é erro) e o próprio tick tenta de novo mais tarde.
+        limite = max(1, int(settings.sincronismo_lote_empresas))
+        for empresa, tipos in fila.disponiveis_para_sincronismo_automatico(db, limite=limite):
+            for tipo in tipos:
+                resultado = fila.enfileirar(db, empresa, tipo, origem="auto")
+                if resultado.status == "enfileirada":
+                    resumo["enfileiradas"] += 1
+                elif resultado.status == "em_cooldown":
+                    resumo["aguardando"] += 1
+                else:
+                    # em_andamento / sem_certificado / sem_uf / fila_indisponivel:
+                    # nenhuma requisição foi feita; só não há o que disparar agora.
+                    resumo["ignoradas"] += 1
+        db.commit()
 
-        if resumo["enfileiradas"]:
+        if resumo["enfileiradas"] or resumo["retomadas"]:
             log.info("Agendador: %s", resumo)
         return resumo
     except Exception as exc:  # noqa: BLE001 — o tick do agendador nunca derruba o beat

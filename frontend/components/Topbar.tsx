@@ -68,7 +68,7 @@ export function Topbar({ aoAbrirMenu }: { aoAbrirMenu: () => void }) {
   const previos = (alertas?.itens ?? []).slice(0, 5);
 
   return (
-    <header className="no-print sticky top-0 z-20 border-b border-line bg-surface/90 backdrop-blur">
+    <header className="no-print sticky top-0 z-20 border-b border-white/50 bg-surface/60 backdrop-blur-xl backdrop-saturate-150">
       <div className="flex h-16 items-center gap-3 px-4 sm:px-6">
         <button
           type="button"

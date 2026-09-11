@@ -253,9 +253,12 @@ class ImportacaoSolicitar(BaseModel):
     tipo: TipoDocumentoFiscal
     forcar: bool = False  # pula a janela de consumo de 1h — usar com consciência
     # Competência desejada, ex.: "08/2026". Alternativa: data_inicio/data_fim.
-    # Ela não corta a descarga (a API oficial anda por NSU), mas registra o mês
-    # na execução, conta quantas notas caíram nele e pré-seleciona o download.
-    competencia: str
+    # Opcional de propósito: ela NÃO corta a descarga (a API oficial anda por
+    # NSU, não por data), então exigir competência só empurraria o operador a
+    # clicar mais — e clicar antes da janela de 1h é o que zera o cronômetro do
+    # 656. Quando informada, registra o mês na execução, conta quantas notas
+    # caíram nele e pré-seleciona o download.
+    competencia: str | None = None
     data_inicio: date | None = None
     data_fim: date | None = None
 
@@ -363,6 +366,16 @@ class EstadoSincronizacaoResposta(BaseModel):
     bloqueios_seguidos: int = 0
     proxima_consulta_em: datetime | None = None
     ultima_consulta_em: datetime | None = None
+    # Quando a próxima consulta desta empresa+tipo fica liberada (o mais cedo
+    # entre "fim do bloqueio 656" e "fim da janela de 1h"). É o campo que a
+    # tela usa para o cronômetro regressivo — já vem calculado pela API, sem o
+    # front precisar fazer conta com fuso horário.
+    liberacao_em: datetime | None = None
+    # Segundos que faltam até `liberacao_em` (0 = já liberado). Pronto para um
+    # contador regressivo ou uma checagem "posso consultar agora?".
+    segundos_para_liberar: int = 0
+    # Frase pronta em português: "liberado", "libera em 42 min", etc.
+    liberacao_rotulo: str = "liberado"
     em_andamento: bool = False
     travado: bool = False
     sincronizar_automaticamente: bool = True

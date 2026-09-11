@@ -591,6 +591,13 @@ def test_endpoint_de_estado_mostra_cursor_e_bloqueio(cliente):
     assert nfe["em_dia"] is False
     assert nfe["bloqueado_ate"]
     assert nfe["bloqueios_seguidos"] == 1
+    # Cronômetro pronto na API: quanto falta para poder consultar de novo.
+    assert nfe["liberacao_em"]
+    assert nfe["segundos_para_liberar"] > 0
+    assert "libera em" in nfe["liberacao_rotulo"]
+    # Tipo sem bloqueio nenhum aparece como já liberado (0 segundos).
+    assert por_tipo["cte"]["segundos_para_liberar"] == 0
+    assert por_tipo["cte"]["liberacao_rotulo"] == "liberado"
     assert nfe["razao_social"] == "ARM LOGISTICA E TRANSPORTES LTD"
     # tipos sem histórico aparecem como "começando do zero", não somem
     assert por_tipo["cte"]["ultimo_nsu"] == "0"

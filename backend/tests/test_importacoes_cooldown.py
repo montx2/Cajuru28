@@ -238,3 +238,23 @@ def test_execucao_antiga_vira_estado_na_migracao(tmp_path):
         assert estado.ultimo_nsu == "1200"  # o MAIOR, não o último registrado
     finally:
         migracoes.engine = original
+
+
+def test_consumo_indevido_usa_tempo_exato_quando_informado(db):
+    """Com `bloqueio` (ex.: Retry-After do ADN), a espera é a exata, não 1h."""
+    from datetime import timedelta
+
+    sessao, empresa_id = db
+    estado = sincronizacao.obter_estado(sessao, empresa_id, TipoDocumentoFiscal.NFSE)
+    agora = datetime.now(timezone.utc)
+
+    quando = sincronizacao.marcar_consumo_indevido(
+        sessao, estado, motivo="429", bloqueio=timedelta(seconds=120), agora=agora
+    )
+    assert quando == agora + timedelta(seconds=120)  # exato, não o cooldown de 1h
+
+    # Sem `bloqueio`, cai no cooldown oficial (1h + margem).
+    quando_padrao = sincronizacao.marcar_consumo_indevido(
+        sessao, estado, motivo="656", agora=agora
+    )
+    assert quando_padrao == agora + cooldown_oficial()

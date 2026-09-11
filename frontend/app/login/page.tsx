@@ -37,7 +37,13 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-screen">
       {/* painel da marca */}
-      <div className="relative hidden flex-1 flex-col justify-between overflow-hidden bg-sidebar p-10 lg:flex">
+      <div
+        className="relative hidden flex-1 flex-col justify-between overflow-hidden p-10 lg:flex"
+        style={{
+          backgroundImage:
+            "radial-gradient(700px 500px at 15% 10%, rgba(38,208,139,.18), transparent 60%), linear-gradient(160deg, #0E1613 0%, #0A100E 60%, #070B09 100%)",
+        }}
+      >
         <div
           className="pointer-events-none absolute inset-0 opacity-40"
           style={{
@@ -45,18 +51,27 @@ export default function LoginPage() {
               "radial-gradient(600px 400px at 20% 20%, rgba(47,163,122,.35), transparent), radial-gradient(500px 500px at 80% 80%, rgba(201,162,39,.18), transparent)",
           }}
         />
+        {/* grade sutil */}
+        <div
+          className="pointer-events-none absolute inset-0 opacity-[0.06]"
+          style={{
+            backgroundImage:
+              "linear-gradient(rgba(255,255,255,.6) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.6) 1px, transparent 1px)",
+            backgroundSize: "44px 44px",
+          }}
+        />
         <div className="relative flex items-center gap-3">
           <Logomarca className="h-11 w-11 text-xl" />
           <div>
-            <p className="font-serif text-2xl font-bold text-white">NotasFlow</p>
-            <p className="text-xs font-medium uppercase tracking-widest text-white/50">
+            <p className="font-display text-2xl font-bold tracking-tight text-white">NotasFlow</p>
+            <p className="text-xs font-medium uppercase tracking-widest text-accent-bright/70">
               Gestão fiscal automática
             </p>
           </div>
         </div>
 
         <div className="relative">
-          <p className="max-w-md font-serif text-4xl font-semibold leading-tight text-white">
+          <p className="max-w-md font-display text-[2.6rem] font-bold leading-[1.08] tracking-tight text-white">
             Todas as notas do escritório, <span className="text-accent-bright">sozinhas</span> no
             seu banco.
           </p>
@@ -67,7 +82,7 @@ export default function LoginPage() {
           <ul className="mt-8 space-y-4">
             {DESTAQUES.map((d) => (
               <li key={d.titulo} className="flex items-start gap-3">
-                <span className="inline-flex h-9 w-9 flex-none items-center justify-center rounded-xl bg-white/10 text-accent-bright">
+                <span className="inline-flex h-9 w-9 flex-none items-center justify-center rounded-xl border border-white/10 bg-white/[0.06] text-accent-bright backdrop-blur">
                   <Icone nome={d.icone} className="h-5 w-5" />
                 </span>
                 <span>
@@ -85,14 +100,14 @@ export default function LoginPage() {
       </div>
 
       {/* formulário */}
-      <div className="flex flex-1 items-center justify-center bg-bg px-4 py-10">
-        <div className="w-full max-w-sm">
+      <div className="relative flex flex-1 items-center justify-center px-4 py-10">
+        <div className="relative w-full max-w-sm animate-fade-up">
           <div className="mb-8 flex items-center gap-3 lg:hidden">
             <Logomarca />
-            <p className="font-serif text-2xl font-bold text-ink">NotasFlow</p>
+            <p className="font-display text-2xl font-bold tracking-tight text-ink">NotasFlow</p>
           </div>
 
-          <p className="font-serif text-3xl font-semibold text-ink">Bem-vindo de volta</p>
+          <p className="font-display text-3xl font-bold tracking-tight text-ink">Bem-vindo de volta</p>
           <p className="mb-6 mt-1 text-sm text-ink-muted">Entre para abrir o painel do escritório.</p>
 
           <form onSubmit={entrar} className="card-pad">

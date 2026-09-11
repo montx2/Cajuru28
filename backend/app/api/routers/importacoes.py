@@ -125,7 +125,11 @@ def solicitar_importacao(
 @router.post("/lote", response_model=list[ItemImportacaoLote])
 def solicitar_importacao_em_lote(
     tipo: TipoDocumentoFiscal,
-    competencia: str = Query(..., min_length=7, description="Obrigatória — MM/AAAA, ex.: 08/2026"),
+    competencia: str | None = Query(
+        default=None,
+        description="Opcional — MM/AAAA, ex.: 08/2026. Não filtra a descarga (a "
+        "distribuição anda por NSU); só registra o mês na execução.",
+    ),
     forcar: bool = False,
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
@@ -370,6 +374,40 @@ def importar_selecionadas(
     )
 
 
+def _tempo_para_liberar(
+    bloqueado_ate: datetime | None,
+    proxima: datetime | None,
+    *,
+    agora: datetime,
+) -> tuple[datetime | None, int, str]:
+    """
+    Traduz os dois relógios de espera (bloqueio 656 × janela de 1h) em uma
+    resposta pronta para a tela: (quando_libera, segundos_restantes, rótulo).
+
+    A SEFAZ/ADN **não** devolve "faltam X minutos" — o prazo é regra do
+    protocolo (1h). Então este valor é o que o próprio sistema agendou; para o
+    ADN, quando o servidor manda o header `Retry-After`, esse tempo exato já
+    entra em `bloqueado_ate`. Escolhemos o mais cedo dos dois: é quando a
+    próxima consulta realmente pode acontecer.
+    """
+    candidatos = [q for q in (bloqueado_ate, proxima) if q and q > agora]
+    if not candidatos:
+        return None, 0, "liberado"
+    quando = min(candidatos)
+    segundos = max(0, int((quando - agora).total_seconds()))
+    if segundos <= 0:
+        return None, 0, "liberado"
+    if segundos < 60:
+        rotulo = f"libera em {segundos} s"
+    elif segundos < 3600:
+        rotulo = f"libera em {segundos // 60} min"
+    else:
+        horas, resto = divmod(segundos, 3600)
+        minutos = resto // 60
+        rotulo = f"libera em {horas} h {minutos:02d} min" if minutos else f"libera em {horas} h"
+    return quando, segundos, rotulo
+
+
 def estados_do_escritorio(
     db: Session,
     *,
@@ -441,6 +479,10 @@ def estados_do_escritorio(
                 and not em_dia
             )
 
+            liberacao_em, segundos_para_liberar, liberacao_rotulo = _tempo_para_liberar(
+                bloqueado_ate, proxima, agora=agora
+            )
+
             saida.append(
                 EstadoSincronizacaoResposta(
                     empresa_id=empresa.id,
@@ -457,6 +499,9 @@ def estados_do_escritorio(
                     bloqueios_seguidos=estado.bloqueios_seguidos or 0,
                     proxima_consulta_em=proxima if proxima and proxima > agora else None,
                     ultima_consulta_em=estado.ultima_consulta_em,
+                    liberacao_em=liberacao_em,
+                    segundos_para_liberar=segundos_para_liberar,
+                    liberacao_rotulo=liberacao_rotulo,
                     em_andamento=em_andamento,
                     travado=sincronizacao.esta_travado(estado, agora=agora),
                     sincronizar_automaticamente=empresa.sincronizar_automaticamente,

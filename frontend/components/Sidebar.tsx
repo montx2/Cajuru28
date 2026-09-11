@@ -149,17 +149,21 @@ export function Sidebar({
         }`}
       />
       <aside
-        className={`no-print fixed inset-y-0 left-0 z-40 flex w-64 flex-none flex-col bg-sidebar transition-transform duration-200 lg:sticky lg:top-0 lg:h-screen lg:translate-x-0 ${
+        style={{
+          backgroundImage:
+            "radial-gradient(600px 300px at 10% -5%, rgba(38,208,139,.14), transparent 60%), linear-gradient(180deg, #0E1613, #0A100E)",
+        }}
+        className={`no-print fixed inset-y-0 left-0 z-40 flex w-64 flex-none flex-col border-r border-sidebar-line transition-transform duration-200 lg:sticky lg:top-0 lg:h-screen lg:translate-x-0 ${
           aberto ? "translate-x-0" : "-translate-x-full"
         }`}
       >
         <Link href="/dashboard" onClick={aoFechar} className="flex items-center gap-3 px-5 pb-5 pt-6">
           <Logomarca />
           <span>
-            <span className="block font-serif text-lg font-bold leading-tight text-white">
+            <span className="block font-display text-lg font-bold leading-tight tracking-tight text-white">
               NotasFlow
             </span>
-            <span className="block text-[11px] font-medium uppercase tracking-wider text-white/40">
+            <span className="block text-[11px] font-medium uppercase tracking-wider text-accent-bright/70">
               Operação fiscal
             </span>
           </span>

@@ -30,7 +30,7 @@ export function TituloSecao({
   return (
     <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
       <div>
-        <h2 className="font-serif text-lg font-semibold text-ink">{titulo}</h2>
+        <h2 className="font-display text-lg font-bold tracking-tight text-ink">{titulo}</h2>
         {subtitulo && <p className="mt-0.5 text-sm text-ink-muted">{subtitulo}</p>}
       </div>
       {acao}
@@ -72,8 +72,8 @@ export function KpiCard({
           </span>
         )}
       </div>
-      <p className="mt-3 font-serif text-2xl font-semibold text-ink">{valor}</p>
-      <p className="mt-0.5 text-xs font-medium text-ink-muted">{rotulo}</p>
+      <p className="mt-3 font-display text-[1.7rem] font-bold tracking-tight tabular-nums text-ink">{valor}</p>
+      <p className="mt-0.5 text-xs font-medium uppercase tracking-wide text-ink-muted">{rotulo}</p>
       {detalhe && <p className="mt-1 text-xs text-ink-faint">{detalhe}</p>}
     </>
   );

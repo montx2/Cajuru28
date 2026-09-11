@@ -75,6 +75,35 @@ def _local(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
 
 
+def _ler_retry_after(valor: str | None):
+    """
+    Converte o header HTTP `Retry-After` num `timedelta`, quando presente.
+
+    Aceita os dois formatos do RFC 7231: segundos ("3600") ou data HTTP
+    ("Wed, 21 Oct 2026 07:28:00 GMT"). Retorna None se ausente/ilegível —
+    aí o chamador cai na espera padrão de 1h. É o único jeito de a API
+    devolver um tempo EXATO de desbloqueio; a SEFAZ (NFe/CT-e) não manda isso.
+    """
+    if not valor:
+        return None
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    from email.utils import parsedate_to_datetime
+
+    texto = str(valor).strip()
+    if texto.isdigit():
+        return _td(seconds=min(int(texto), 24 * 3600))
+    try:
+        quando = parsedate_to_datetime(texto)
+    except (TypeError, ValueError):
+        return None
+    if quando is None:
+        return None
+    if quando.tzinfo is None:
+        quando = quando.replace(tzinfo=_tz.utc)
+    delta = quando - _dt.now(_tz.utc)
+    return delta if delta.total_seconds() > 0 else None
+
+
 def decodificar_xml_adn(conteudo: str | bytes) -> bytes:
     """
     Converte o ArquivoXml (base64 + gzip, às vezes zip ou XML puro) em bytes
@@ -336,10 +365,16 @@ class ImportadorNFSeADN(ImportadorFiscal):
                         # retentar já só renova o bloqueio (é a regra do ADN:
                         # 1h de espera depois de "nada novo").
                         corpo = resposta.text[:500] if hasattr(resposta, "text") else ""
+                        # Diferente da SEFAZ, o ADN PODE mandar o tempo exato de
+                        # espera no header `Retry-After` (segundos ou data HTTP).
+                        # Quando vier, é a fonte da verdade — usamos em vez da
+                        # estimativa de 1h.
+                        bloqueio = _ler_retry_after(resposta.headers.get("Retry-After"))
                         raise ConsumoIndevido(
                             f"HTTP 429 — limite de requisições do ADN atingido. {corpo}".strip(),
                             cstat="429",
                             ambiente="ADN",
+                            bloqueio=bloqueio,
                         )
 
                     if resposta.status_code >= 500:
