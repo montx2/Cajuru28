@@ -2,7 +2,10 @@ import { limparToken, obterToken } from "./auth";
 import type {
   AlertaItem,
   AlertasResposta,
+  BackupsResposta,
+  BackupRegistro,
   Certificado,
+  CertificadoPainel,
   DirecaoDocumento,
   DocumentoDetalhe,
   DocumentoFiscal,
@@ -19,6 +22,8 @@ import type {
   ItemImportacaoLote,
   KpisDashboard,
   LoteEmpresasResposta,
+  PainelOperacional,
+  CentralExecucoes,
   RegistroAuditoria,
   ResultadoImportacaoSelecionada,
   ResumoCertificado,
@@ -412,6 +417,29 @@ export const api = {
 
   // Diagnóstico do ambiente Docker.
   infoSistema: () => chamar<InfoSistema>("/sistema/info"),
+
+  // ---------------------------------------------------------------
+  // Painel operacional (a primeira tela do operador)
+  // ---------------------------------------------------------------
+
+  painelOperacional: () => chamar<PainelOperacional>("/painel/operacional"),
+
+  centralExecucoes: (limite = 30) =>
+    chamar<CentralExecucoes>(`/painel/execucoes${montarParams({ limite })}`),
+
+  // Centro de certificados: validade + telemetria de uso de cada A1.
+  painelCertificados: () => chamar<CertificadoPainel[]>("/certificados/painel"),
+
+  // Saúde do sistema + histórico de backups.
+  backups: () => chamar<BackupsResposta>("/sistema/backups"),
+
+  executarBackup: () =>
+    chamar<BackupRegistro>("/sistema/backup", { method: "POST" }),
+
+  testarBackup: (id: number) =>
+    chamar<{ ok: boolean; detalhe: string }>(`/sistema/backups/${id}/testar`, {
+      method: "POST",
+    }),
 
   saudeDetalhada: () =>
     chamar<{

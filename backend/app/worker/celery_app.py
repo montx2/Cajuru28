@@ -3,6 +3,7 @@
 from datetime import timedelta
 
 from celery import Celery
+from celery.schedules import crontab
 
 from app.core.config import settings
 
@@ -21,6 +22,11 @@ AGENDA = {
         "task": "varrer_alertas_webhook",
         "schedule": timedelta(minutes=max(1, int(settings.alerta_webhook_intervalo_minutos))),
         "options": {"expires": int(settings.alerta_webhook_intervalo_minutos * 60)},
+    },
+    # Backup diário no horário morto (fuso do beat = America/Sao_Paulo).
+    "backup-diario": {
+        "task": "backup_agendado",
+        "schedule": crontab(hour=int(settings.backup_hora), minute=0),
     },
 }
 

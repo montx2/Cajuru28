@@ -101,6 +101,17 @@ class Settings(BaseSettings):
     bootstrap_email: str = ""
     bootstrap_senha: str = ""
 
+    # ---------------- Backup (operação de um operador só) ----------------
+    # O sistema é a memória fiscal de dezenas de empresas — sem backup real
+    # (banco + XMLs + possibilidade de restaurar), um disco perdido apaga
+    # anos de trabalho. O job roda dentro da própria API, sem depender do
+    # worker, e o agendamento via Celery Beat é só o gatilho das 03:00.
+    backup_ativo: bool = True
+    backup_hora: int = 3  # hora local do dia do backup agendado
+    backup_retencao: int = 14  # quantos backups manter no disco
+    # Horas sem backup ok que viram alerta no painel (26h = 1 dia + margem).
+    backup_alerta_horas: int = 26
+
 
     @property
     def usando_sqlite(self) -> bool:

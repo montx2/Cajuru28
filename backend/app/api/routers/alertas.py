@@ -142,7 +142,7 @@ def computar_alertas(db: Session, escritorio_id: int) -> list[AlertaItem]:
                 f"{nomes}{' …' if resto > 0 else ''} — o A1 leva dias para "
                 f"renovar; programe-se antes do vencimento.",
                 acao_rotulo="Ver certificados",
-                acao_href="/dashboard/configuracoes",
+                acao_href="/dashboard/certificados",
             )
         )
     if sem_cert:
@@ -276,12 +276,53 @@ def computar_alertas(db: Session, escritorio_id: int) -> list[AlertaItem]:
                 "atencao",
                 "execucao",
                 f"{erros} execução(ões) falharam nas últimas 24h",
-                "Abra o histórico de Importações para ver o motivo de cada "
+                "Abra a central de Execuções para ver o motivo de cada "
                 "uma — falhas de rede se resolvem sozinhas na retomada.",
                 acao_rotulo="Ver execuções",
-                acao_href="/dashboard/importacoes",
+                acao_href="/dashboard/execucoes",
             )
         )
+
+    # ---- Backup -------------------------------------------------------------
+    # Um sistema que guarda anos de XMLs de dezenas de empresas sem backup
+    # recente é um risco andando. O alerta aparece quando o job das 03:00
+    # não completou (worker parado, disco cheio) — resolver é um clique.
+    try:
+        from app.services import backup as svc_backup
+
+        saude = svc_backup.saude_do_backup(db)
+        if saude["ativo"] and saude["atrasado"]:
+            horas = saude.get("horas_desde_ultimo_ok")
+            if horas is None:
+                itens.append(
+                    _montar(
+                        "backup-nunca",
+                        "atencao",
+                        "sistema",
+                        "Nenhum backup completo ainda",
+                        "O sistema já tem dados que não podem ser perdidos e "
+                        "nunca rodou um backup. Dispare um agora na Saúde do "
+                        "sistema e deixe o agendamento das 03:00 assumir.",
+                        acao_rotulo="Fazer backup agora",
+                        acao_href="/dashboard/saude",
+                    )
+                )
+            else:
+                itens.append(
+                    _montar(
+                        "backup-atrasado",
+                        "critico" if saude.get("erros_recentes") else "atencao",
+                        "sistema",
+                        f"Backup atrasado — último ok há {horas:.0f} h",
+                        "O backup diário não completou dentro do esperado. "
+                        "Verifique espaço em disco e o resultado dos últimos "
+                        "backups na Saúde do sistema.",
+                        acao_rotulo="Ver saúde do backup",
+                        acao_href="/dashboard/saude",
+                    )
+                )
+    except Exception:  # noqa: BLE001 — alerta de backup nunca derruba os demais
+        pass
 
     # ---- Saúde do ambiente --------------------------------------------------
     if not settings.vault_master_key:

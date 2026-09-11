@@ -91,6 +91,10 @@ class Certificado(Base):
     """
     Certificado A1 de uma empresa. A senha NUNCA fica aqui em texto puro —
     `senha_cifrada` é o resultado de app.core.vault.cifrar_segredo().
+
+    Os campos `ultima_utilizacao_em` / `ultimo_erro` alimentam o centro de
+    certificados: é o que diferencia "vence em 20 dias" de "vence em 20 dias
+    E não autentica desde terça" — o operador só precisa olhar o segundo.
     """
 
     __tablename__ = "certificados"
@@ -101,6 +105,14 @@ class Certificado(Base):
     senha_cifrada: Mapped[str] = mapped_column(Text)
     validade: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     ativo: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Telemetria de uso — atualizada pelo worker a cada varredura.
+    ultima_utilizacao_em: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    ultima_validacao_em: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    ultimo_erro: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     empresa: Mapped["Empresa"] = relationship(back_populates="certificados")
@@ -330,3 +342,66 @@ class RegistroAuditoria(Base):
 
     escritorio: Mapped[Optional["Escritorio"]] = relationship()
     usuario: Mapped[Optional["Usuario"]] = relationship()
+
+
+class BatimentoSistema(Base):
+    """
+    Batimento (heartbeat) de componentes de fundo: agendador e worker.
+
+    O Celery Beat não expõe "estou vivo" por API — mas só ele dispara a task
+    `sincronizar_tudo`. Cada tarefa periódica marca aqui o seu passo; se o
+    batimento do agendador envelhece além de alguns intervalos, é porque o
+    contêiner do beat está parado e ninguém avisou o operador. É o mínimo
+    de observabilidade que faz a diferença entre "sistema parado há 2 dias"
+    e "sistema trabalhando sozinho".
+    """
+
+    __tablename__ = "batimentos_sistema"
+
+    componente: Mapped[str] = mapped_column(String(30), primary_key=True)
+    visto_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    detalhe: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
+
+class StatusBackup(str, enum.Enum):
+    EM_ANDAMENTO = "em_andamento"
+    OK = "ok"
+    ERRO = "erro"
+
+
+class BackupRegistro(Base):
+    """
+    Histórico de backups reais (banco + manifesto + espelho de XMLs).
+
+    Um backup não é "exportar banco": é o pacote que permite reconstruir o
+    sistema num servidor novo. Cada execução registra aqui o resultado,
+    o tamanho e quando a restauração foi testada pela última vez — porque
+    backup que nunca foi restaurado é uma esperança, não um plano.
+    """
+
+    __tablename__ = "backups"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tipo: Mapped[str] = mapped_column(String(20), default="agendado")  # agendado | manual
+    status: Mapped[StatusBackup] = mapped_column(
+        Enum(StatusBackup), default=StatusBackup.EM_ANDAMENTO
+    )
+    iniciado_em: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    finalizado_em: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    tamanho_bytes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    caminho: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    empresas: Mapped[int] = mapped_column(Integer, default=0)
+    documentos: Mapped[int] = mapped_column(Integer, default=0)
+    execucoes: Mapped[int] = mapped_column(Integer, default=0)
+    detalhe: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    erro: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    restauracao_testada_em: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    restauracao_ok: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)

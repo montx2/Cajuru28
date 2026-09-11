@@ -4,13 +4,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 import shutil
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import text
 
 from app.db.session import get_db
 
-from app.api.deps import usuario_atual
+from app.api.deps import requer_escrita, usuario_atual
 from app.core.config import settings
+from app.models import BackupRegistro, Usuario
+from app.schemas import BackupRegistroResposta, SaudeBackupResposta
+from app.services import auditoria, backup as svc_backup
 from app.worker.celery_app import celery_app
 
 router = APIRouter(prefix="/sistema", tags=["sistema"])
@@ -120,9 +123,84 @@ def abrir_pasta_indisponivel(_usuario=Depends(usuario_atual)):
     _somente_docker()
 
 
-@router.post("/backup")
-def backup_indisponivel(_usuario=Depends(usuario_atual)):
-    raise HTTPException(
-        status_code=409,
-        detail="Faça backup dos volumes db_data, certificados e xml_saida do Docker.",
+@router.post("/backup", response_model=BackupRegistroResposta, status_code=202)
+def executar_backup(
+    plano: BackgroundTasks,
+    db=Depends(get_db),
+    usuario: Usuario = Depends(requer_escrita),
+):
+    """
+    Dispara um backup completo AGORA (banco + manifesto + espelho de XMLs).
+
+    Roda em plano de fundo na própria API — não depende do worker, então
+    funciona mesmo com os contêineres de fila parados (que, aliás, é quando
+    mais se quer um backup). Acompanhe o resultado na Saúde do sistema.
+    """
+    if not settings.backup_ativo:
+        raise HTTPException(status_code=409, detail="Backup desativado nas configurações.")
+
+    registro = BackupRegistro(tipo="manual", status=svc_backup.StatusBackup.EM_ANDAMENTO)
+    db.add(registro)
+    db.commit()
+    db.refresh(registro)
+
+    # O serviço cria o próprio registro com contagens; este aqui é o "placeholder"
+    # visível na fila da UI. Para não duplicar linhas, o serviço reaproveita
+    # este registro passando o id.
+    plano.add_task(_rodar_backup_em_fundo, registro.id)
+
+    auditoria.registrar(db, usuario, "backup_disparado", detalhe="Backup manual em plano de fundo")
+    db.commit()
+    return registro
+
+
+def _rodar_backup_em_fundo(registro_id: int) -> None:
+    """Executa o backup reaproveitando o registro criado pelo endpoint."""
+    from app.db.session import SessionLocal
+
+    db = SessionLocal()
+    try:
+        svc_backup.executar_backup(db, tipo="manual", registro_id=registro_id)
+    finally:
+        db.close()
+
+
+@router.get("/backups", response_model=dict)
+def listar_backups(
+    db=Depends(get_db),
+    _usuario=Depends(usuario_atual),
+):
+    """Histórico + retrato de saúde do backup (último, próximo, teste)."""
+    registros = (
+        db.query(BackupRegistro)
+        .order_by(BackupRegistro.id.desc())
+        .limit(max(1, settings.backup_retencao))
+        .all()
     )
+    return {
+        "saude": SaudeBackupResposta(**svc_backup.saude_do_backup(db)),
+        "registros": [BackupRegistroResposta.model_validate(r) for r in registros],
+    }
+
+
+@router.post("/backups/{backup_id}/testar", response_model=dict)
+def testar_restauracao(
+    backup_id: int,
+    db=Depends(get_db),
+    usuario: Usuario = Depends(requer_escrita),
+):
+    """
+    O teste que transforma backup em plano: extrai o pacote, recria o schema
+    num banco de prova, recarrega os registros e confere as contagens.
+    """
+    ok, detalhe = svc_backup.testar_restauracao(db, backup_id)
+    auditoria.registrar(
+        db,
+        usuario,
+        "backup_testado",
+        entidade="backup",
+        entidade_id=backup_id,
+        detalhe=f"ok={ok} · {detalhe[:300]}",
+    )
+    db.commit()
+    return {"ok": ok, "detalhe": detalhe}

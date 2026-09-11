@@ -28,6 +28,7 @@ import os
 import time
 from datetime import date, datetime, timezone
 
+from cryptography.hazmat.primitives.serialization import pkcs12
 from dateutil import parser as date_parser
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -46,7 +47,7 @@ from app.models import (
     StatusExecucao,
     TipoDocumentoFiscal,
 )
-from app.services import fila, sincronizacao
+from app.services import batimento, fila, sincronizacao
 from app.services.importadores.base import (
     AmbienteIndisponivel,
     ConsumoIndevido,
@@ -159,6 +160,10 @@ def importar_documentos(
             )
             return
 
+        # Batimento: a API usa isto (e o ping do broker) para dizer ao
+        # operador se "tem alguém trabalhando" na primeira tela.
+        batimento.registrar(db, "worker", f"importar_documentos {empresa_id}/{tipo}")
+
         # ---------------- janela de consumo ----------------
         if not getattr(execucao, "forcar", False):
             libertacao = sincronizacao.liberacao_para(db, empresa_id, tipo_doc)
@@ -178,6 +183,21 @@ def importar_documentos(
         total_no_periodo = execucao.documentos_no_periodo or 0
         periodo = fila_periodo(execucao)
         importou_alguma_coisa = False
+
+        # Telemetria do A1: o centro de certificados mostra "última utilização"
+        # e "último erro de autenticação". Abrir o .pfx com a senha É a
+        # autenticação local (senha errada/certificado corrompido falham aqui,
+        # antes de gastar qualquer chamada ao ambiente fiscal).
+        try:
+            pkcs12.load_key_and_certificates(pfx_bytes, senha.encode())
+        except Exception as exc:  # noqa: BLE001
+            certificado.ultimo_erro = f"Abertura do .pfx falhou: {str(exc)[:300]}"
+            certificado.ultima_utilizacao_em = _agora()
+            db.commit()
+            raise
+        certificado.ultima_utilizacao_em = _agora()
+        certificado.ultimo_erro = None
+        db.commit()
 
         with sessao_mtls(pfx_bytes, senha) as (cert_path, key_path):
             for pagina in range(TAMANHO_MAXIMO_LOTE_POR_EXECUCAO):
@@ -679,6 +699,13 @@ def sincronizar_tudo(self) -> dict:
     db = SessionLocal()
     resumo = {"enfileiradas": 0, "aguardando": 0, "ignoradas": 0, "retomadas": 0}
     try:
+        # Batimento do agendador: esta task só roda periodicamente se o Celery
+        # Beat estiver vivo. Sem sinal recente, a tela inicial avisa "o
+        # agendador parou" — em vez de deixar o operador descobrir pela falta
+        # de documentos novos.
+        batimento.registrar(
+            db, "agendador", f"tick de {settings.sincronismo_intervalo_minutos} min"
+        )
         # 1) execuções dormindo cujo bloqueio venceu: retoma (backstop caso o
         #    refiro agendado se perca — restart de worker, broker, etc.)
         vencidas = (
@@ -746,6 +773,7 @@ def completar_xmls_pendentes(self, empresa_id: int | None = None, limite: int | 
     resultado = {"completos": 0, "indisponiveis": 0, "sem_cota": 0, "empresas": 0}
     limite_por_empresa = max(1, min(20, int(limite or settings.limite_consultas_pontuais_por_hora)))
     try:
+        batimento.registrar(db, "worker", "completar_xmls_pendentes")
         consulta = db.query(Empresa).filter(Empresa.ativa.is_(True))
         if empresa_id is not None:
             consulta = consulta.filter(Empresa.id == empresa_id)
@@ -904,5 +932,32 @@ def varrer_alertas_webhook(self) -> dict:
         log.exception("Varredura de webhook falhou: %s", exc)
         resumo["erros"].append(str(exc)[:200])
         return resumo
+    finally:
+        db.close()
+
+
+@celery_app.task(name="backup_agendado", bind=True, max_retries=0)
+def backup_agendado(self) -> dict:
+    """
+    O backup das 03:00 — disparado pelo Beat, executado aqui.
+
+    Roda no worker para não competir com requisições da UI, e usa o mesmo
+    serviço do botão "Executar agora" da Saúde do sistema: um caminho só,
+    testado do mesmo jeito.
+    """
+    from app.services import backup as svc_backup
+
+    if not settings.backup_ativo:
+        return {"desativado": True}
+
+    db = SessionLocal()
+    try:
+        batimento.registrar(db, "worker", "backup_agendado")
+        registro = svc_backup.executar_backup(db, tipo="agendado")
+        return {
+            "status": registro.status.value if hasattr(registro.status, "value") else str(registro.status),
+            "caminho": registro.caminho,
+            "erro": registro.erro,
+        }
     finally:
         db.close()

@@ -9,7 +9,7 @@ from app.core.config import settings
 from app.core.vault import cifrar_segredo
 from app.db.session import get_db
 from app.models import Certificado, Empresa, Usuario
-from app.schemas import CertificadoResposta, ResumoCertificado
+from app.schemas import CertificadoResposta, ResumoCertificado, ResumoCertificadoPainel
 from app.services import auditoria
 from app.services.mtls import obter_validade_certificado
 
@@ -63,6 +63,10 @@ async def enviar_certificado(
         senha_cifrada=cifrar_segredo(senha),
         validade=validade,
         ativo=True,
+        # A extração da identidade acima É a validação: o .pfx abriu, a chave
+        # existe e a validade foi lida do X.509.
+        ultima_validacao_em=datetime.now(timezone.utc),
+        ultimo_erro=None,
     )
     db.add(certificado)
     db.flush()
@@ -126,6 +130,76 @@ def resumo_certificados(
             )
         )
     saida.sort(key=lambda item: item.razao_social)
+    return saida
+
+
+@router.get("/painel", response_model=list[ResumoCertificadoPainel])
+def painel_certificados(
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+):
+    """
+    O centro de certificados: tudo de cada A1 num só lugar.
+
+    Além da validade, devolve a telemetria de uso — última utilização real
+    numa varredura, última validação e o erro da última autenticação. É o
+    que transforma "vence em 20 dias" em "vence em 20 dias E não autentica
+    desde terça": o operador troca o certificado ANTES de virar incêndio.
+    """
+    empresas = (
+        db.query(Empresa)
+        .filter(Empresa.escritorio_id == escritorio_id, Empresa.ativa.is_(True))
+        .order_by(Empresa.razao_social)
+        .all()
+    )
+    ativos = {
+        certificado.empresa_id: certificado
+        for certificado in db.query(Certificado).filter(Certificado.ativo.is_(True)).all()
+    }
+
+    agora = datetime.now(timezone.utc)
+    saida: list[ResumoCertificadoPainel] = []
+    for empresa in empresas:
+        certificado = ativos.get(empresa.id)
+        if certificado is None:
+            saida.append(
+                ResumoCertificadoPainel(
+                    empresa_id=empresa.id,
+                    razao_social=empresa.razao_social,
+                    cnpj_cpf=empresa.cnpj_cpf,
+                    tem_certificado=False,
+                )
+            )
+            continue
+        validade = certificado.validade
+        if validade is not None and validade.tzinfo is None:
+            validade = validade.replace(tzinfo=timezone.utc)
+        dias = (validade - agora).days if validade is not None else None
+        saida.append(
+            ResumoCertificadoPainel(
+                empresa_id=empresa.id,
+                razao_social=empresa.razao_social,
+                cnpj_cpf=empresa.cnpj_cpf,
+                tem_certificado=True,
+                validade=validade,
+                dias_para_vencer=dias,
+                vencido=bool(dias is not None and dias < 0),
+                vence_em_breve=bool(dias is not None and 0 <= dias <= 30),
+                ultima_utilizacao_em=certificado.ultima_utilizacao_em,
+                ultima_validacao_em=certificado.ultima_validacao_em,
+                ultimo_erro=certificado.ultimo_erro,
+            )
+        )
+    # Ordem de prioridade do operador: vencidos → sem certificado → vencendo
+    # em breve → saudáveis. Dentro de cada grupo, alfabética.
+    saida.sort(
+        key=lambda item: (
+            not item.vencido,
+            item.tem_certificado,  # sem certificado sobe (False < True)
+            not item.vence_em_breve,
+            item.razao_social,
+        )
+    )
     return saida
 
 

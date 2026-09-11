@@ -188,6 +188,19 @@ const CAMINHOS: Record<string, React.ReactNode> = {
   ),
   codigo: <path d="M8 6l-5 6 5 6M16 6l5 6-5 6" />,
   estrela: <path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8-6.1-3.4-6.1 3.4 1.4-6.8L2.2 9.1l6.9-.8z" />,
+  atividade: (
+    <>
+      <path d="M2 12h4l2.5-7 4 14 2.5-7h7" />
+    </>
+  ),
+  hd: (
+    <>
+      <ellipse cx="12" cy="5.5" rx="8" ry="2.5" />
+      <path d="M4 5.5v13c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5v-13" />
+      <path d="M4 12c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5" />
+    </>
+  ),
+
   filtro: <path d="M3 5h18l-7 8v5l-4 2v-7z" />,
 };
 

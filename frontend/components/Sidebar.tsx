@@ -8,19 +8,34 @@ import { limparCachePapel, usePapel } from "@/lib/papel";
 import { api } from "@/lib/api";
 import { Icone, Logomarca } from "./icons";
 
-const NAV_OPERACAO = [
-  { href: "/dashboard", rotulo: "Visão geral", icone: "dashboard", exato: true },
-  { href: "/dashboard/importacoes", rotulo: "Importações", icone: "importacao" },
+/**
+ * Navegação do sistema operacional fiscal privado.
+ *
+ * A estrutura segue a diretriz do produto: o operador entra para responder
+ * "está tudo funcionando?" (Visão geral), administra muitas EMPRESAS e
+ * documentos (Fiscal) e cuida da máquina (Sistema). Gestão de equipe, planos
+ * e outros ruídos de SaaS não ocupam espaço aqui — o sistema é de um
+ * operador.
+ */
+
+const NAV_VISAO_GERAL = [
+  { href: "/dashboard", rotulo: "Painel", icone: "dashboard", exato: true },
+  { href: "/dashboard/atencao", rotulo: "Atenção", icone: "alerta", seloAtencao: true },
+  { href: "/dashboard/execucoes", rotulo: "Execuções", icone: "atividade" },
+];
+
+const NAV_FISCAL = [
   { href: "/dashboard/documentos", rotulo: "Documentos", icone: "documento" },
+  { href: "/dashboard/importacoes", rotulo: "Importações", icone: "importacao" },
+  { href: "/dashboard/empresas", rotulo: "Empresas", icone: "empresa" },
+  { href: "/dashboard/certificados", rotulo: "Certificados", icone: "escudo" },
   { href: "/dashboard/relatorios", rotulo: "Fechamento", icone: "grafico" },
 ];
 
-const NAV_GESTAO = [
-  { href: "/dashboard/empresas", rotulo: "Empresas", icone: "empresa" },
-  { href: "/dashboard/alertas", rotulo: "Alertas", icone: "sino", seloAlertas: true },
-  { href: "/dashboard/auditoria", rotulo: "Auditoria", icone: "olho", minPapel: "operador" },
-  { href: "/dashboard/usuarios", rotulo: "Equipe", icone: "usuarios", minPapel: "admin" },
+const NAV_SISTEMA = [
+  { href: "/dashboard/saude", rotulo: "Saúde do sistema", icone: "hd" },
   { href: "/dashboard/configuracoes", rotulo: "Configurações", icone: "engrenagem" },
+  { href: "/dashboard/auditoria", rotulo: "Auditoria", icone: "olho", minPapel: "operador" },
 ];
 
 function visivel(minPapel: string | undefined, papel: string): boolean {
@@ -28,6 +43,58 @@ function visivel(minPapel: string | undefined, papel: string): boolean {
   if (minPapel === "admin") return papel === "admin";
   if (minPapel === "operador") return papel === "admin" || papel === "operador";
   return true;
+}
+
+type ItemNav = {
+  href: string;
+  rotulo: string;
+  icone: string;
+  exato?: boolean;
+  minPapel?: string;
+  seloAtencao?: boolean;
+};
+
+function ListaNav({
+  itens,
+  ativo,
+  aoFechar,
+  papel,
+  criticos,
+  total,
+}: {
+  itens: ItemNav[];
+  ativo: (href: string, exato?: boolean) => boolean;
+  aoFechar: () => void;
+  papel: string;
+  criticos: number;
+  total: number;
+}) {
+  return (
+    <>
+      {itens
+        .filter((item) => visivel(item.minPapel, papel))
+        .map((item) => (
+          <Link
+            key={item.href}
+            href={item.href}
+            onClick={aoFechar}
+            className={`nav-item ${ativo(item.href, item.exato) ? "nav-item-ativo" : ""}`}
+          >
+            <Icone nome={item.icone} className="h-5 w-5 flex-none" />
+            <span className="flex-1">{item.rotulo}</span>
+            {item.seloAtencao && total > 0 && (
+              <span
+                className={`rounded-pill px-2 py-0.5 font-mono text-[11px] font-bold ${
+                  criticos > 0 ? "bg-danger text-white" : "bg-gold text-sidebar"
+                }`}
+              >
+                {total}
+              </span>
+            )}
+          </Link>
+        ))}
+    </>
+  );
 }
 
 export function Sidebar({
@@ -93,57 +160,52 @@ export function Sidebar({
               NotasFlow
             </span>
             <span className="block text-[11px] font-medium uppercase tracking-wider text-white/40">
-              Gestão fiscal
+              Operação fiscal
             </span>
           </span>
         </Link>
 
         <nav className="flex-1 overflow-y-auto px-3 pb-4">
           <p className="px-3 pb-1.5 pt-2 text-[11px] font-semibold uppercase tracking-wider text-white/35">
-            Operação
+            Visão geral
           </p>
-          {NAV_OPERACAO.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={aoFechar}
-              className={`nav-item ${ativo(item.href, item.exato) ? "nav-item-ativo" : ""}`}
-            >
-              <Icone nome={item.icone} className="h-5 w-5 flex-none" />
-              {item.rotulo}
-            </Link>
-          ))}
+          <ListaNav
+            itens={NAV_VISAO_GERAL}
+            ativo={ativo}
+            aoFechar={aoFechar}
+            papel={papel}
+            criticos={criticos}
+            total={total}
+          />
 
           <p className="px-3 pb-1.5 pt-4 text-[11px] font-semibold uppercase tracking-wider text-white/35">
-            Gestão
+            Fiscal
           </p>
-          {NAV_GESTAO.filter((item) => visivel((item as { minPapel?: string }).minPapel, papel)).map(
-            (item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={aoFechar}
-                className={`nav-item ${ativo(item.href) ? "nav-item-ativo" : ""}`}
-              >
-                <Icone nome={item.icone} className="h-5 w-5 flex-none" />
-                <span className="flex-1">{item.rotulo}</span>
-                {"seloAlertas" in item && total > 0 && (
-                  <span
-                    className={`rounded-pill px-2 py-0.5 font-mono text-[11px] font-bold ${
-                      criticos > 0 ? "bg-danger text-white" : "bg-gold text-sidebar"
-                    }`}
-                  >
-                    {total}
-                  </span>
-                )}
-              </Link>
-            )
-          )}
+          <ListaNav
+            itens={NAV_FISCAL}
+            ativo={ativo}
+            aoFechar={aoFechar}
+            papel={papel}
+            criticos={criticos}
+            total={total}
+          />
+
+          <p className="px-3 pb-1.5 pt-4 text-[11px] font-semibold uppercase tracking-wider text-white/35">
+            Sistema
+          </p>
+          <ListaNav
+            itens={NAV_SISTEMA}
+            ativo={ativo}
+            aoFechar={aoFechar}
+            papel={papel}
+            criticos={criticos}
+            total={total}
+          />
         </nav>
 
         <div className="border-t border-sidebar-line px-3 py-4">
           <div className="mb-2 flex items-center justify-between px-3">
-            <span className="font-mono text-[11px] text-white/35">v2.1 enterprise</span>
+            <span className="font-mono text-[11px] text-white/35">v3.0 · privado</span>
             <span className="flex items-center gap-1.5 text-[11px] text-accent-bright">
               <span className="pulso-andamento inline-block h-1.5 w-1.5 rounded-full bg-accent-bright" />
               online

@@ -470,3 +470,157 @@ export interface DocumentoDetalhe extends DocumentoFiscal {
   xml_bytes: number | null;
   execucao_id: number | null;
 }
+
+// ---------------------------------------------------------------
+// Painel operacional — a tela "está tudo funcionando?"
+// ---------------------------------------------------------------
+
+export type StatusGeral = "operando" | "atencao" | "critico";
+
+export interface PainelEmpresas {
+  cadastradas: number;
+  ativas: number;
+  habilitadas_sincronizacao: number;
+  sincronizadas_hoje: number;
+  em_dia: number;
+  aguardando_janela: number;
+  com_erro_24h: number;
+  sem_certificado: number;
+}
+
+export interface PainelCertificados {
+  validos: number;
+  vencendo: number;
+  vencidos: number;
+}
+
+export interface PainelExecucoes {
+  em_andamento: number;
+  aguardando: number;
+  bloqueadas: number;
+  concluidas_hoje: number;
+  erros_24h: number;
+  duracao_media_minutos: number | null;
+}
+
+export interface PainelDocumentos {
+  hoje: number;
+  cancelados_hoje: number;
+  total: number;
+  aguardando_xml_completo: number;
+  mes: number;
+  valor_mes: number;
+  competencia: string;
+}
+
+export interface ComponenteStatus {
+  nome: string;
+  status: "ok" | "atencao" | "erro" | "desconhecido" | "desligado" | string;
+  detalhe: string;
+}
+
+export interface UltimaSincronizacao {
+  empresa_id: number;
+  razao_social: string;
+  tipo: string;
+  status: string;
+  documentos: number;
+  finalizado_em: string | null;
+  iniciado_em: string | null;
+  mensagem_erro: string | null;
+  aviso: string | null;
+}
+
+export interface PainelOperacional {
+  status_geral: StatusGeral | string;
+  mensagem: string;
+  alertas: { criticos: number; atencao: number; info: number };
+  empresas: PainelEmpresas;
+  certificados: PainelCertificados;
+  execucoes: PainelExecucoes;
+  documentos: PainelDocumentos;
+  componentes: ComponenteStatus[];
+  ultimas_sincronizacoes: UltimaSincronizacao[];
+}
+
+export interface ExecucaoAoVivo {
+  execucao_id: number;
+  empresa_id: number;
+  razao_social: string;
+  tipo: string;
+  status: string;
+  documentos_importados: number;
+  ultimo_nsu: string | null;
+  iniciado_em: string | null;
+  aguardando_ate: string | null;
+  motivo_espera: string | null;
+  aviso: string | null;
+  mensagem_erro: string | null;
+}
+
+export interface JanelaProximaConsulta {
+  empresa_id: number;
+  razao_social: string;
+  tipo: string;
+  proxima_consulta_em: string;
+  bloqueada: boolean;
+  pendencia: number;
+}
+
+export interface CentralExecucoes {
+  agora: ExecucaoAoVivo[];
+  proximas: JanelaProximaConsulta[];
+  recentes: ExecucaoImportacao[];
+  erros: ExecucaoImportacao[];
+}
+
+// ---------------------------------------------------------------
+// Centro de certificados
+// ---------------------------------------------------------------
+
+export interface CertificadoPainel extends ResumoCertificado {
+  ultima_utilizacao_em: string | null;
+  ultima_validacao_em: string | null;
+  ultimo_erro: string | null;
+  cnpj_cpf: string;
+}
+
+// ---------------------------------------------------------------
+// Backup / saúde do sistema
+// ---------------------------------------------------------------
+
+export interface BackupRegistro {
+  id: number;
+  tipo: string;
+  status: "ok" | "erro" | "em_andamento" | string;
+  iniciado_em: string;
+  finalizado_em: string | null;
+  tamanho_bytes: number | null;
+  empresas: number;
+  documentos: number;
+  execucoes: number;
+  detalhe: string | null;
+  erro: string | null;
+  restauracao_testada_em: string | null;
+  restauracao_ok: boolean | null;
+}
+
+export interface SaudeBackup {
+  ativo: boolean;
+  ultimo_ok_em: string | null;
+  ultimo_ok_tamanho_bytes: number | null;
+  horas_desde_ultimo_ok: number | null;
+  ultimo_teste_em: string | null;
+  ultimo_teste_ok: boolean | null;
+  proximo_previsto_em: string | null;
+  retencao: number;
+  atrasado: boolean;
+  total_registros: number;
+  erros_recentes: number;
+  tamanho_total_bytes: number;
+}
+
+export interface BackupsResposta {
+  saude: SaudeBackup;
+  registros: BackupRegistro[];
+}
