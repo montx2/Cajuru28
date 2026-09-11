@@ -417,8 +417,9 @@ def exportar_xmls(
     ZIP com **todos** os XMLs do filtro — a resposta para "baixar todos os XMLs
     encontrados", que antes só existia nota a nota.
 
-    Estrutura: `NotasFlow/<empresa>/<tipo>/<chave>.xml`, mais o `relacao.csv`
-    (separador `;` + BOM, abre direto no Excel pt-BR). O arquivo é montado em
+    Estrutura: `NotasFlow/<empresa>/<tipo>/<tomada-ou-prestada>/<chave>.xml`,
+    mais o `relacao.csv` (separador `;` + BOM, abre direto no Excel pt-BR).
+    O arquivo é montado em
     streaming no disco temporário e apagado no fim — 25 mil XMLs não cabem na
     memória do container, e um navegador não precisa esperar o ZIP inteiro
     estar pronto para o download começar.
@@ -627,7 +628,13 @@ def _montar_zip(consulta, periodo, *, incluir_relatorio: bool) -> str:
     with zipfile.ZipFile(caminho, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as pacote:
         for documento, empresa in consulta.yield_per(200):
             nome_arquivo = f"{documento.chave_acesso}.xml"
-            pasta = f"NotasFlow/{_slug(empresa.razao_social)}/{documento.tipo.value}"
+            # A hierarquia deixa o pacote pronto para o contador separar sem
+            # abrir arquivo por arquivo: tipo fiscal e, dentro dele, tomada
+            # versus prestada.
+            pasta = (
+                f"NotasFlow/{_slug(empresa.razao_social)}/{documento.tipo.value}/"
+                f"{documento.direcao.value}"
+            )
             endereco = f"{pasta}/{nome_arquivo}"
             if endereco in usados:  # chave repetida entre empresas diferentes já tem pasta própria
                 endereco = f"{pasta}/{documento.id}_{nome_arquivo}"
@@ -687,7 +694,7 @@ def _leia_me(periodo, quantidade: int) -> str:
         f"Período (competência): {periodo.rotulo()}\n"
         f"Documentos no pacote: {quantidade}\n"
         f"Gerado em: {datetime.now(timezone.utc):%d/%m/%Y %H:%M} UTC\n\n"
-        "Estrutura: NotasFlow/<empresa>/<tipo>/<chave>.xml\n"
+        "Estrutura: NotasFlow/<empresa>/<tipo>/<tomada-ou-prestada>/<chave>.xml\n"
         "relacao.csv abre direto no Excel (separador ';').\n\n"
         "Notas com 'so-resumo' na coluna xml_completo: a SEFAZ distribui o\n"
         "resumo até que a nota seja manifestada. Use o botão 'completar XML'\n"

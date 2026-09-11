@@ -76,10 +76,11 @@ def solicitar_importacao(
     processamento roda no worker. Para as 30 empresas de uma vez, use
     POST /importacoes/lote.
 
-    `competencia` (ex.: "08/2026") **não** filtra o que é baixado: a
-    distribuição oficial só anda por NSU, então baixar tudo é o que garante
-    que nenhuma nota se perca. O período é registrado na execução (para contar
-    o que caiu naquele mês) e pré-selecionado no download dos XMLs.
+    `competencia` (ex.: "08/2026") não vira filtro na consulta à fonte fiscal:
+    a distribuição oficial só anda por NSU, então guardar também os outros
+    meses é o que garante que nenhuma nota se perca. O período é registrado na
+    execução para contar os novos documentos daquele mês e é aplicado na lista,
+    no resumo e no download dos XMLs.
     """
     empresa = (
         db.query(Empresa)
@@ -127,8 +128,8 @@ def solicitar_importacao_em_lote(
     tipo: TipoDocumentoFiscal,
     competencia: str | None = Query(
         default=None,
-        description="Opcional — MM/AAAA, ex.: 08/2026. Não filtra a descarga (a "
-        "distribuição anda por NSU); só registra o mês na execução.",
+        description="Opcional — MM/AAAA, ex.: 08/2026. A fonte anda por NSU; "
+        "registra o mês e aplica o filtro na consulta/download dos documentos.",
     ),
     forcar: bool = False,
     db: Session = Depends(get_db),

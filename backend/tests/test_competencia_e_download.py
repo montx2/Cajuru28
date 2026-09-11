@@ -281,8 +281,9 @@ def test_export_zip_contem_todos_os_xmls_do_periodo(cliente, tmp_path):
     xmls = [n for n in nomes if n.endswith(".xml")]
     assert len(xmls) == 2
     assert all("ARM-LOGISTICA" in n.upper().replace("_", "-") or "NOTASFLOW/" in n for n in xmls)
-    # pasta por empresa + tipo, arquivo = chave de acesso
+    # pasta por empresa + tipo + direção, arquivo = chave de acesso
     assert all(n.startswith("NotasFlow/") and n.endswith(".xml") for n in xmls)
+    assert all("/nfse/tomada/" in n for n in xmls)
     for nome in xmls:
         assert b"<NFSe" in pacote.read(nome)
 
@@ -297,6 +298,57 @@ def test_export_zip_contem_todos_os_xmls_do_periodo(cliente, tmp_path):
     # o arquivo temporário do ZIP não fica para trás no disco
     sobras = list(tmp_path.glob("notasflow-export-*"))
     assert sobras == []
+
+
+def test_export_respeita_tipo_direcao_e_organiza_o_zip(cliente):
+    """O filtro escolhido na tela também vale para o ZIP e suas pastas."""
+    client, db, empresa_id = cliente["client"], cliente["db"], cliente["empresa_id"]
+    agosto = (
+        db.query(DocumentoFiscal)
+        .filter(
+            DocumentoFiscal.empresa_id == empresa_id,
+            DocumentoFiscal.competencia >= date(2026, 8, 1),
+            DocumentoFiscal.competencia <= date(2026, 8, 31),
+        )
+        .order_by(DocumentoFiscal.id)
+        .all()
+    )
+    agosto[0].direcao = "prestada"
+    db.commit()
+
+    tomada = client.get(
+        "/documentos/exportar",
+        params={
+            "empresa_id": empresa_id,
+            "tipo": "nfse",
+            "direcao": "tomada",
+            "competencia": "08/2026",
+        },
+    )
+    assert tomada.status_code == 200, tomada.text
+    nomes_tomada = [
+        nome for nome in zipfile.ZipFile(io.BytesIO(tomada.content)).namelist()
+        if nome.endswith(".xml")
+    ]
+    assert len(nomes_tomada) == 1
+    assert "/nfse/tomada/" in nomes_tomada[0]
+
+    prestada = client.get(
+        "/documentos/exportar",
+        params={
+            "empresa_id": empresa_id,
+            "tipo": "nfse",
+            "direcao": "prestada",
+            "competencia": "08/2026",
+        },
+    )
+    assert prestada.status_code == 200, prestada.text
+    nomes_prestada = [
+        nome for nome in zipfile.ZipFile(io.BytesIO(prestada.content)).namelist()
+        if nome.endswith(".xml")
+    ]
+    assert len(nomes_prestada) == 1
+    assert "/nfse/prestada/" in nomes_prestada[0]
 
 
 def test_export_sem_empresa_especifica_puxa_todas_do_escritorio(cliente):

@@ -151,7 +151,7 @@ function ConteudoImportacoes() {
           <p className="page-kicker">Automação fiscal</p>
           <h1 className="page-title">Importações</h1>
           <p className="page-description">
-            O sistema varre as empresas sozinho, dentro da janela oficial de 1h por CNPJ — você não precisa clicar. Use esta aba só para puxar uma competência específica na hora. Se a SEFAZ pedir espera (cStat 656), a execução retoma sozinha no horário certo; forçar antes zera o cronômetro.
+            O sistema varre as empresas sozinho, dentro da janela oficial de 1h por CNPJ — você não precisa clicar. A competência organiza a lista e o ZIP; a fonte fiscal é consultada por NSU e pode devolver documentos de outros meses para manter a sequência íntegra. Se a SEFAZ pedir espera (cStat 656), a execução retoma sozinha no horário certo; forçar antes zera o cronômetro.
           </p>
         </div>
         <Link
@@ -319,7 +319,12 @@ function ConteudoImportacoes() {
                 <th className="py-2 font-normal">Tipo</th>
                 <th className="py-2 font-normal">Status</th>
                 <th className="py-2 font-normal">Período</th>
-                <th className="py-2 text-right font-normal">Notas</th>
+                <th className="py-2 text-right font-normal" title="Novos documentos encontrados em toda a varredura por NSU">
+                  Novas encontradas
+                </th>
+                <th className="py-2 text-right font-normal" title="Novos documentos cuja competência está no período escolhido">
+                  No período
+                </th>
                 <th className="py-2 text-right font-normal">Canceladas</th>
                 <th className="py-2 text-right font-normal">Início</th>
               </tr>
@@ -377,8 +382,21 @@ function ConteudoImportacoes() {
                           .join("/")}`
                       : "todos"}
                   </td>
-                  <td className="py-3 text-right font-mono text-ink">
+                  <td
+                    className="py-3 text-right font-mono text-ink"
+                    title="A fonte fiscal é consultada por NSU; este total pode incluir outros meses."
+                  >
                     {execucao.documentos_importados}
+                  </td>
+                  <td
+                    className="py-3 text-right font-mono text-ink"
+                    title={
+                      execucao.data_inicio
+                        ? "Novos documentos encontrados dentro da competência selecionada."
+                        : "Sem competência específica nesta execução."
+                    }
+                  >
+                    {execucao.data_inicio ? execucao.documentos_no_periodo : "–"}
                   </td>
                   <td className="py-3 text-right font-mono text-ink">
                     {execucao.documentos_cancelados > 0 ? (
