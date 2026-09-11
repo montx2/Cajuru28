@@ -19,6 +19,7 @@ from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
 from app.models import Certificado, Empresa, Escritorio, Usuario
+from app.services.cnpj import DadosCNPJ
 
 OID_CNPJ = ObjectIdentifier("2.16.76.1.3.3")
 SENHA = "senha-do-certificado-fake"
@@ -112,6 +113,35 @@ def cliente(tmp_path, monkeypatch):
 
     app.dependency_overrides.clear()
     db.close()
+
+
+def test_consulta_cnpj_preenche_uf_e_cadastro_sem_uf(cliente, monkeypatch):
+    client, db, _ = cliente
+    from app.api.routers import empresas as router_empresas
+
+    monkeypatch.setattr(
+        router_empresas,
+        "consultar_cnpj",
+        lambda cnpj: DadosCNPJ(
+            documento=cnpj,
+            razao_social="ALFA SERVICOS LTDA",
+            nome_fantasia="ALFA",
+            uf="PR",
+            municipio="Curitiba",
+        ),
+    )
+
+    consulta = client.get(f"/empresas/consulta-cnpj/{CNPJ_A}")
+    assert consulta.status_code == 200
+    assert consulta.json()["uf"] == "PR"
+    assert consulta.json()["encontrado"] is True
+
+    resposta = client.post("/empresas", json={"cnpj_cpf": CNPJ_A})
+    assert resposta.status_code == 201, resposta.text
+    corpo = resposta.json()
+    assert corpo["razao_social"] == "ALFA SERVICOS LTDA"
+    assert corpo["uf"] == "PR"
+    assert db.query(Empresa).filter(Empresa.cnpj_cpf == CNPJ_A).one().uf == "PR"
 
 
 def test_lote_cria_empresas_e_vincula_certificado(cliente, tmp_path):

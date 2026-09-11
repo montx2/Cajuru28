@@ -59,9 +59,11 @@ class UsuarioAtual(BaseModel):
 # ---------- Empresa ----------
 
 class EmpresaCriar(BaseModel):
-    razao_social: str
+    razao_social: str = ""
     cnpj_cpf: str
-    uf: str
+    # UF pode vir vazia: a rota tenta descobrir automaticamente pelo CNPJ.
+    # Se não conseguir, aí sim devolve erro pedindo preenchimento manual.
+    uf: str | None = ""
 
     @field_validator("cnpj_cpf")
     @classmethod
@@ -73,19 +75,29 @@ class EmpresaCriar(BaseModel):
 
     @field_validator("uf")
     @classmethod
-    def validar_uf(cls, v: str) -> str:
+    def validar_uf(cls, v: str | None) -> str:
         uf = (v or "").strip().upper()
+        if not uf:
+            return ""
         if uf not in _UFS_VALIDAS:
             raise ValueError(f"UF inválida: {v!r}")
         return uf
 
     @field_validator("razao_social")
     @classmethod
-    def razao_nao_vazia(cls, v: str) -> str:
-        v = (v or "").strip()
-        if not v:
-            raise ValueError("Razão social é obrigatória")
-        return v
+    def razao_normalizada(cls, v: str) -> str:
+        return (v or "").strip()
+
+
+class ConsultaCNPJResposta(BaseModel):
+    documento: str
+    encontrado: bool
+    razao_social: str = ""
+    nome_fantasia: str = ""
+    uf: str = ""
+    municipio: str = ""
+    fonte: str = ""
+    mensagem: str = ""
 
 
 class EmpresaResposta(BaseModel):
@@ -374,6 +386,52 @@ class ResumoSincronizacao(BaseModel):
     sincronismo_automatico: bool = True
     intervalo_minutos: int = 5
     tick_a_partir_de: datetime | None = None
+
+
+class ItemConferenciaCompetencia(BaseModel):
+    """Prova operacional de uma empresa+tipo para fechar uma competência."""
+
+    empresa_id: int
+    razao_social: str
+    tipo: TipoDocumentoFiscal
+    status: str  # ok | precisa_conferir | pendente | aguardando | rodando | sem_certificado | sem_uf | erro | risco
+    documentos: int = 0
+    canceladas: int = 0
+    sem_xml_completo: int = 0
+    ultimo_nsu: str | None = None
+    max_nsu: str | None = None
+    pendencia: int = 0
+    ultima_consulta_em: datetime | None = None
+    proxima_consulta_em: datetime | None = None
+    bloqueado_ate: datetime | None = None
+    mensagem: str = ""
+
+
+class ConferenciaCompetenciaResposta(BaseModel):
+    """
+    Resultado da conferência "posso fechar este mês sem medo?".
+
+    `ok=True` significa: para todas as empresas/tipos pedidos, existe
+    certificado/UF quando necessário, o cursor local chegou no `maxNSU` oficial
+    e houve consulta depois do fim da competência. É a garantia possível sobre
+    a distribuição oficial (SEFAZ/ADN), sem depender de contagem externa.
+    """
+
+    competencia: str
+    inicio: date
+    fim: date
+    status: str  # completa | parcial | pendente | critico
+    ok: bool
+    mensagem: str
+    documentos: int = 0
+    canceladas: int = 0
+    sem_xml_completo: int = 0
+    empresas: int = 0
+    itens_total: int = 0
+    itens_ok: int = 0
+    itens_pendentes: int = 0
+    itens_criticos: int = 0
+    itens: list[ItemConferenciaCompetencia]
 
 
 # ---------- Exportação em massa ----------

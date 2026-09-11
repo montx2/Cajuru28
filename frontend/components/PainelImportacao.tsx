@@ -6,7 +6,7 @@ import { api, ApiError } from "@/lib/api";
 import { usePapel } from "@/lib/papel";
 import { CompetenciaPicker } from "@/components/CompetenciaPicker";
 import { SeletorEmpresas, useSelecaoEmpresas } from "@/components/SeletorEmpresas";
-import { horaLocal, paraAPI } from "@/lib/competencia";
+import { horaLocal, mesAtual, paraAPI } from "@/lib/competencia";
 import {
   ROTULO_STATUS_SELECAO,
   ROTULO_TIPO,
@@ -32,14 +32,18 @@ import {
 export function PainelImportacao({
   aoDisparar,
   titulo = "Importar notas",
+  competenciaInicial,
+  aoMudarCompetencia,
 }: {
   /** Avisa a página para recarregar os contadores depois de um disparo. */
   aoDisparar?: () => void;
   titulo?: string;
+  competenciaInicial?: string | null;
+  aoMudarCompetencia?: (valor: string | null) => void;
 }) {
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
   const [tipo, setTipo] = useState<TipoDocumentoFiscal | "todos">("todos");
-  const [competencia, setCompetencia] = useState<string | null>(null);
+  const [competencia, setCompetencia] = useState<string | null>(competenciaInicial ?? mesAtual());
   const [estados, setEstados] = useState<EstadoSincronizacao[]>([]);
   const [certificados, setCertificados] = useState<ResumoCertificado[]>([]);
   const [previa, setPrevia] = useState<ResultadoImportacaoSelecionada | null>(null);
@@ -61,6 +65,15 @@ export function PainelImportacao({
   useEffect(() => {
     carregar();
   }, [carregar]);
+
+  useEffect(() => {
+    if (competenciaInicial !== undefined) setCompetencia(competenciaInicial);
+  }, [competenciaInicial]);
+
+  function mudarCompetencia(valor: string | null) {
+    setCompetencia(valor);
+    aoMudarCompetencia?.(valor);
+  }
 
   // Prévia automática, com atraso curto para não fazer uma chamada por clique.
   const tiposChave = tiposDoPedido.join(",");
@@ -155,18 +168,17 @@ export function PainelImportacao({
         </div>
       )}
 
-      <section className="border border-line bg-surface p-6">
-        <p className="mb-1 text-base font-medium text-ink">{titulo}</p>
+      <section className="card-pad">
+        <p className="mb-1 text-base font-semibold text-ink">{titulo}</p>
         <p className="mb-5 text-sm text-ink-muted">
-          Marque as empresas que você quer e clique em importar. Cada consulta gasta a janela de
-          1 hora <em>daquele CNPJ</em> na SEFAZ — importar só o que foi pedido deixa a fila mais
-          rápida para todo mundo.
+          Escolha o mês, marque as empresas e clique em importar. O sistema varre por NSU para não
+          deixar nenhuma nota para trás.
         </p>
 
         <div className="mb-5 flex flex-wrap items-end gap-x-6 gap-y-4">
           <div>
             <p className="mb-2 text-xs uppercase text-ink-muted">Competência</p>
-            <CompetenciaPicker valor={competencia} aoMudar={setCompetencia} />
+            <CompetenciaPicker valor={competencia} aoMudar={mudarCompetencia} />
           </div>
           <div>
             <p className="mb-2 text-xs uppercase text-ink-muted">O que puxar</p>
@@ -206,32 +218,15 @@ export function PainelImportacao({
               ? "Disparando…"
               : `Importar ${selecionadas.size} empresa${selecionadas.size === 1 ? "" : "s"}`}
           </button>
-          <button
-            type="button"
-            onClick={() => disparar(true)}
-            disabled={disparando || idsSelecionados.length === 0 || somenteLeitura}
-            title={
-              somenteLeitura
-                ? "Seu perfil é somente leitura."
-                : "Atravessa a janela de 1 hora da SEFAZ. Só com certeza: insistir antes da hora zera o cronômetro do bloqueio."
-            }
-            className="btn-ghost"
-          >
-            Forçar janela
-          </button>
-          {somenteLeitura && (
-            <p className="badge-neutral">perfil somente leitura — disparos desabilitados</p>
-          )}
+          {somenteLeitura && <p className="badge-neutral">perfil somente leitura</p>}
 
           {previa && (
             <p className="text-sm text-ink-muted">
-              {podemRodar > 0 && (
-                <span className="text-accent">{podemRodar} pode(m) rodar agora</span>
-              )}
+              {podemRodar > 0 && <span className="text-accent">{podemRodar} pronto(s)</span>}
               {naJanela > 0 && (
                 <>
                   {podemRodar > 0 && " · "}
-                  <span className="text-warn">{naJanela} na janela de 1 h</span>
+                  <span className="text-warn">{naJanela} aguardando janela</span>
                 </>
               )}
               {semCert > 0 && (
@@ -244,11 +239,24 @@ export function PainelImportacao({
           )}
         </div>
 
-        <p className="mt-3 max-w-2xl text-xs text-ink-muted">
-          A competência <span className="text-ink">não</span> limita o que é baixado — a SEFAZ só
-          anda por NSU, então baixar tudo é o que garante que nenhuma nota se perca. O mês escolhe
-          o que é contado na tela e o que entra no ZIP.
-        </p>
+        <details className="mt-3 text-xs text-ink-muted">
+          <summary className="cursor-pointer text-ink-muted hover:text-ink">opções avançadas</summary>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => disparar(true)}
+              disabled={disparando || idsSelecionados.length === 0 || somenteLeitura}
+              title="Atravessa a janela de 1 hora. Use só quando tiver certeza."
+              className="btn-ghost btn-sm"
+            >
+              Forçar janela
+            </button>
+            <span>
+              A competência não limita o download: a varredura por NSU traz tudo e o mês só organiza
+              contagem e ZIP.
+            </span>
+          </div>
+        </details>
 
         {erro && (
           <p className="mt-4 border border-danger-soft bg-danger-soft px-3 py-2 text-sm text-danger">
@@ -264,29 +272,22 @@ export function PainelImportacao({
 
 function TabelaResultado({ resultado }: { resultado: ResultadoImportacaoSelecionada }) {
   return (
-    <div className="mt-5 border-t border-line pt-4">
-      <p className="mb-2 text-sm text-ink">
+    <div className="mt-5 rounded-lg bg-bg p-3">
+      <div className="flex flex-wrap items-center gap-2 text-sm text-ink">
         {resultado.enfileiradas > 0 ? (
-          <>
-            <span className="text-accent">
-              {resultado.enfileiradas} varredura(s) enfileirada(s)
-            </span>
-            {resultado.aguardando > 0 && (
-              <>
-                {" · "}
-                <span className="text-warn">{resultado.aguardando} na janela da SEFAZ</span>
-              </>
-            )}
-            {resultado.ignoradas > 0 && <> · {resultado.ignoradas} ignorada(s)</>}
-          </>
+          <span className="badge-ok">{resultado.enfileiradas} enfileirada(s)</span>
         ) : (
-          <span className="text-warn">Nada foi enfileirado — veja o motivo de cada linha.</span>
-        )}{" "}
-        <Link href="/dashboard/importacoes" className="text-accent hover:underline">
-          acompanhar
+          <span className="badge-warn">Nada enfileirado</span>
+        )}
+        {resultado.aguardando > 0 && <span className="badge-warn">{resultado.aguardando} aguardando</span>}
+        {resultado.ignoradas > 0 && <span className="badge-neutral">{resultado.ignoradas} ignorada(s)</span>}
+        <Link href="/dashboard/importacoes" className="link ml-auto text-xs font-semibold">
+          acompanhar →
         </Link>
-      </p>
-      <div className="max-h-72 overflow-y-auto">
+      </div>
+      <details className="mt-3">
+        <summary className="cursor-pointer text-xs text-ink-muted hover:text-ink">ver detalhes por empresa</summary>
+        <div className="mt-2 max-h-72 overflow-y-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-line text-left text-ink-muted">
@@ -330,7 +331,8 @@ function TabelaResultado({ resultado }: { resultado: ResultadoImportacaoSelecion
             ))}
           </tbody>
         </table>
-      </div>
+        </div>
+      </details>
     </div>
   );
 }

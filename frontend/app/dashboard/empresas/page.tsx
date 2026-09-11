@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
 import { usePapel } from "@/lib/papel";
-import type { Empresa, LoteEmpresasResposta } from "@/lib/types";
+import type { ConsultaCNPJ, Empresa, LoteEmpresasResposta } from "@/lib/types";
 
 const UFS = [
   "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS",
@@ -24,6 +24,17 @@ function formatarData(iso: string | null): string {
   return new Date(iso).toLocaleDateString("pt-BR");
 }
 
+function formatarDocumento(valor: string): string {
+  const digitos = (valor || "").replace(/\D/g, "");
+  if (digitos.length === 14) {
+    return digitos.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5");
+  }
+  if (digitos.length === 11) {
+    return digitos.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, "$1.$2.$3-$4");
+  }
+  return valor;
+}
+
 export default function EmpresasPage() {
   const { somenteLeitura } = usePapel();
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
@@ -31,7 +42,11 @@ export default function EmpresasPage() {
   const [mostrarFormulario, setMostrarFormulario] = useState(false);
   const [razaoSocial, setRazaoSocial] = useState("");
   const [cnpj, setCnpj] = useState("");
-  const [uf, setUf] = useState("SP");
+  const [uf, setUf] = useState("");
+  const [ufManual, setUfManual] = useState(false);
+  const [consultandoCnpj, setConsultandoCnpj] = useState(false);
+  const [consultaCnpj, setConsultaCnpj] = useState<ConsultaCNPJ | null>(null);
+  const [avisoCnpj, setAvisoCnpj] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
 
@@ -40,7 +55,7 @@ export default function EmpresasPage() {
   const [arquivos, setArquivos] = useState<File[]>([]);
   const [csv, setCsv] = useState<File | null>(null);
   const [senhaLote, setSenhaLote] = useState("");
-  const [ufLote, setUfLote] = useState("SP");
+  const [ufLote, setUfLote] = useState("");
   const [enviandoLote, setEnviandoLote] = useState(false);
   const [erroLote, setErroLote] = useState<string | null>(null);
   const [resultadoLote, setResultadoLote] = useState<LoteEmpresasResposta | null>(null);
@@ -55,14 +70,71 @@ export default function EmpresasPage() {
 
   useEffect(carregar, []);
 
+  useEffect(() => {
+    const documento = cnpj.replace(/\D/g, "");
+    setConsultaCnpj(null);
+    setAvisoCnpj(null);
+    setConsultandoCnpj(false);
+
+    if (documento.length === 11) {
+      setUf("");
+      setUfManual(true);
+      setAvisoCnpj("CPF não permite consulta de UF. Informe manualmente.");
+      return;
+    }
+    if (documento.length !== 14) {
+      if (!documento) setUfManual(false);
+      setUf("");
+      return;
+    }
+
+    let cancelado = false;
+    setUf("");
+    setConsultandoCnpj(true);
+    const timer = window.setTimeout(async () => {
+      try {
+        const dados = await api.consultarCnpj(documento);
+        if (cancelado) return;
+        setConsultaCnpj(dados);
+        if (dados.encontrado && dados.uf) {
+          setUf(dados.uf);
+          setUfManual(false);
+          setAvisoCnpj(`${dados.uf} encontrada automaticamente${dados.municipio ? ` · ${dados.municipio}` : ""}.`);
+          if (!razaoSocial.trim() && dados.razao_social) {
+            setRazaoSocial(dados.razao_social);
+          }
+        } else {
+          setUfManual(true);
+          setAvisoCnpj(dados.mensagem || "Não consegui buscar a UF. Informe manualmente.");
+        }
+      } catch (e) {
+        if (!cancelado) {
+          setUfManual(true);
+          setAvisoCnpj(e instanceof ApiError ? e.message : "Não consegui buscar a UF. Informe manualmente.");
+        }
+      } finally {
+        if (!cancelado) setConsultandoCnpj(false);
+      }
+    }, 450);
+
+    return () => {
+      cancelado = true;
+      window.clearTimeout(timer);
+    };
+  }, [cnpj]);
+
   async function criar(evento: React.FormEvent) {
     evento.preventDefault();
     setErro(null);
     setSalvando(true);
     try {
-      await api.criarEmpresa(razaoSocial, cnpj.replace(/\D/g, ""), uf);
+      await api.criarEmpresa(razaoSocial, cnpj.replace(/\D/g, ""), uf || undefined);
       setRazaoSocial("");
       setCnpj("");
+      setUf("");
+      setUfManual(false);
+      setConsultaCnpj(null);
+      setAvisoCnpj(null);
       setMostrarFormulario(false);
       carregar();
     } catch (e) {
@@ -123,50 +195,74 @@ export default function EmpresasPage() {
       </div>
 
       {mostrarFormulario && (
-        <form onSubmit={criar} className="mb-6 border border-line bg-surface p-5">
-          <div className="mb-3 flex gap-3">
-            <div className="flex-1">
-              <label className="mb-1 block text-sm text-ink-muted">Razão social</label>
-              <input
-                required
-                value={razaoSocial}
-                onChange={(e) => setRazaoSocial(e.target.value)}
-                className="w-full input"
-              />
-            </div>
-            <div className="w-56">
-              <label className="mb-1 block text-sm text-ink-muted">CNPJ / CPF</label>
+        <form onSubmit={criar} className="card-pad mb-6 max-w-3xl">
+          <p className="mb-4 text-base font-semibold text-ink">Nova empresa</p>
+          <div className="grid gap-4 md:grid-cols-[220px_1fr]">
+            <div>
+              <label className="label">CNPJ / CPF</label>
               <input
                 required
                 value={cnpj}
                 onChange={(e) => setCnpj(e.target.value)}
-                placeholder="Somente números"
-                className="w-full border border-line bg-bg px-3 py-2 font-mono text-sm text-ink outline-none focus:border-accent"
+                placeholder="somente números"
+                className="input font-mono"
+              />
+              <p className="mt-1 text-xs text-ink-faint">
+                Ao informar CNPJ, buscamos razão social e UF automaticamente.
+              </p>
+            </div>
+            <div>
+              <label className="label">Razão social</label>
+              <input
+                value={razaoSocial}
+                onChange={(e) => setRazaoSocial(e.target.value)}
+                placeholder="preenchida pelo CNPJ quando disponível"
+                className="input"
               />
             </div>
-            <div className="w-24">
-              <label className="mb-1 block text-sm text-ink-muted">UF</label>
-              <select
-                value={uf}
-                onChange={(e) => setUf(e.target.value)}
-                className="w-full input"
+          </div>
+
+          <div className="mt-4 rounded-lg border border-line bg-bg px-3 py-2 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-ink-muted">UF</span>
+              {consultandoCnpj ? (
+                <span className="badge-neutral">buscando…</span>
+              ) : uf && !ufManual ? (
+                <span className="badge-ok">{uf} automática</span>
+              ) : (
+                <span className="badge-warn">informe manualmente</span>
+              )}
+              {consultaCnpj?.fonte && <span className="text-xs text-ink-faint">via {consultaCnpj.fonte}</span>}
+              <button
+                type="button"
+                onClick={() => setUfManual((valor) => !valor)}
+                className="link ml-auto text-xs font-semibold"
               >
+                {ufManual ? "ocultar UF" : "alterar UF"}
+              </button>
+            </div>
+            {avisoCnpj && <p className="mt-1 text-xs text-ink-muted">{avisoCnpj}</p>}
+            {ufManual && (
+              <select value={uf} onChange={(e) => setUf(e.target.value)} className="input mt-3">
+                <option value="">Selecione a UF</option>
                 {UFS.map((sigla) => (
                   <option key={sigla} value={sigla}>
                     {sigla}
                   </option>
                 ))}
               </select>
-            </div>
+            )}
           </div>
-          {erro && <p className="mb-3 text-sm text-danger">{erro}</p>}
-          <button
-            type="submit"
-            disabled={salvando}
-            className="btn-primary disabled:opacity-50"
-          >
-            {salvando ? "Salvando…" : "Cadastrar empresa"}
-          </button>
+
+          {erro && <p className="mt-3 text-sm text-danger">{erro}</p>}
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button type="submit" disabled={salvando || consultandoCnpj} className="btn-primary">
+              {salvando ? "Salvando…" : "Cadastrar"}
+            </button>
+            <button type="button" onClick={() => setMostrarFormulario(false)} className="btn-ghost">
+              Cancelar
+            </button>
+          </div>
         </form>
       )}
 
@@ -174,11 +270,9 @@ export default function EmpresasPage() {
         <form onSubmit={importarLote} className="mb-6 border border-line bg-surface p-5">
           <p className="mb-1 text-base font-medium text-ink">Importar empresas em massa</p>
           <p className="mb-4 text-sm text-ink-muted">
-            Envie vários certificados <span className="font-mono">.pfx</span> de uma vez: o CNPJ e a
-            razão social são lidos de dentro de cada certificado e a empresa é criada
-            automaticamente. O CSV é opcional (colunas{" "}
-            <span className="font-mono">razao_social;cnpj_cpf;uf[;senha]</span>) e serve para
-            cadastrar empresas sem certificado ou indicar senha por arquivo.
+            Envie os certificados <span className="font-mono">.pfx</span>; CNPJ, razão social e UF são
+            preenchidos automaticamente quando possível. Use CSV só para corrigir exceções
+            (<span className="font-mono">razao_social;cnpj_cpf;uf[;senha]</span>).
           </p>
 
           <div className="mb-3 flex flex-wrap items-end gap-3">
@@ -214,12 +308,9 @@ export default function EmpresasPage() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm text-ink-muted">UF padrão</label>
-              <select
-                value={ufLote}
-                onChange={(e) => setUfLote(e.target.value)}
-                className="input"
-              >
+              <label className="mb-1 block text-sm text-ink-muted">UF fallback</label>
+              <select value={ufLote} onChange={(e) => setUfLote(e.target.value)} className="input">
+                <option value="">Automática</option>
                 {UFS.map((sigla) => (
                   <option key={sigla} value={sigla}>
                     {sigla}
@@ -230,9 +321,8 @@ export default function EmpresasPage() {
           </div>
 
           <p className="mb-3 text-xs text-ink-muted">
-            O sistema usa a senha que você informa para abrir cada certificado — não há tentativa
-            automática de outras senhas. Arquivos com senha diferente aparecem no resultado como
-            erro e não impedem o restante do lote.
+            A senha é usada só para abrir os certificados enviados. Se a UF não vier do CNPJ,
+            informe no CSV ou escolha uma UF fallback para o lote.
           </p>
           {erroLote && <p className="mb-3 text-sm text-danger">{erroLote}</p>}
           <button
@@ -308,30 +398,26 @@ export default function EmpresasPage() {
           </p>
         </div>
       ) : (
-        <table className="w-full border-t border-line text-sm">
-          <thead>
-            <tr className="border-b border-line text-left text-ink-muted">
-              <th className="py-2 font-normal">Razão social</th>
-              <th className="py-2 font-normal">CNPJ / CPF</th>
-              <th className="py-2 font-normal">UF</th>
-              <th className="py-2 font-normal"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {empresas.map((empresa) => (
-              <tr key={empresa.id} className="border-b border-line last:border-0">
-                <td className="py-3 text-ink">{empresa.razao_social}</td>
-                <td className="py-3 font-mono text-ink-muted">{empresa.cnpj_cpf}</td>
-                <td className="py-3 font-mono text-ink-muted">{empresa.uf}</td>
-                <td className="py-3 text-right">
-                  <Link href={`/dashboard/empresa?id=${empresa.id}`} className="text-accent hover:underline">
-                    abrir
-                  </Link>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="grid gap-3 lg:grid-cols-2">
+          {empresas.map((empresa) => (
+            <Link
+              key={empresa.id}
+              href={`/dashboard/empresa?id=${empresa.id}`}
+              className="card-hover rounded-card border border-line bg-surface p-4"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-ink">{empresa.razao_social}</p>
+                  <p className="mt-1 font-mono text-xs text-ink-muted">
+                    {formatarDocumento(empresa.cnpj_cpf)}
+                  </p>
+                </div>
+                <span className="badge-neutral">{empresa.uf}</span>
+              </div>
+              <p className="mt-3 text-xs text-accent">Abrir cadastro →</p>
+            </Link>
+          ))}
+        </div>
       )}
     </div>
   );

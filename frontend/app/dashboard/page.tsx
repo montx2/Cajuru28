@@ -405,7 +405,8 @@ export default function PainelPage() {
     );
   }
 
-  const { empresas, certificados, execucoes: exec, documentos } = painel;
+  const { empresas, execucoes: exec, documentos } = painel;
+  const pendenciasPrincipais = (painel.alertas.criticos ?? 0) + (painel.alertas.atencao ?? 0);
 
   return (
     <div className="animate-fade-up space-y-5">
@@ -419,8 +420,8 @@ export default function PainelPage() {
 
       <BannerStatus painel={painel} />
 
-      {/* KPIs operacionais — saúde da automação em uma linha */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      {/* KPIs essenciais — só o que o operador precisa decidir agora */}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard
           icone="empresa"
           rotulo="Empresas ativas"
@@ -430,47 +431,26 @@ export default function PainelPage() {
         />
         <KpiCard
           icone="raio"
-          rotulo="Rodando agora"
+          rotulo="Importações"
           valor={numero(exec.em_andamento)}
           detalhe={`${exec.aguardando} aguardando janela`}
           tom={exec.em_andamento > 0 ? "info" : "padrao"}
           href="/dashboard/execucoes"
         />
         <KpiCard
-          icone="xCirculo"
-          rotulo="Erros 24 h"
-          valor={numero(exec.erros_24h)}
-          detalhe={exec.erros_24h > 0 ? `${empresas.com_erro_24h} empresa(s) afetada(s)` : "nenhum"}
-          tom={exec.erros_24h > 0 ? "perigo" : "ok"}
-          href="/dashboard/execucoes"
-        />
-        <KpiCard
-          icone="escudo"
-          rotulo="Certificados"
-          valor={numero(certificados.vencidos + certificados.vencendo)}
-          detalhe={`${certificados.vencidos} vencido(s) · ${certificados.vencendo} vencendo`}
-          tom={
-            certificados.vencidos > 0
-              ? "perigo"
-              : certificados.vencendo > 0
-                ? "alerta"
-                : "ok"
-          }
-          href="/dashboard/certificados"
+          icone="alerta"
+          rotulo="Atenção"
+          valor={numero(pendenciasPrincipais)}
+          detalhe={pendenciasPrincipais > 0 ? "pendências abertas" : "nada urgente"}
+          tom={pendenciasPrincipais > 0 ? "alerta" : "ok"}
+          href="/dashboard/atencao"
         />
         <KpiCard
           icone="documento"
           rotulo="Documentos hoje"
           valor={numero(documentos.hoje)}
-          detalhe={`${documentos.aguardando_xml_completo} aguardando XML completo`}
+          detalhe={`${numero(documentos.mes)} no mês atual`}
           href="/dashboard/documentos"
-        />
-        <KpiCard
-          icone="relogio"
-          rotulo="Tempo médio"
-          valor={exec.duracao_media_minutos !== null ? `${exec.duracao_media_minutos} min` : "—"}
-          detalhe={`${numero(exec.concluidas_hoje)} varredura(s) concluída(s) hoje`}
-          href="/dashboard/execucoes"
         />
       </div>
 
@@ -479,9 +459,13 @@ export default function PainelPage() {
         <CardAgora execucoes={execucoes} />
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        <CardUltimas painel={painel} />
-        <div className="space-y-4">
+      <CardUltimas painel={painel} />
+
+      <details className="card-pad">
+        <summary className="cursor-pointer text-sm font-semibold text-ink hover:text-accent">
+          Detalhes do sistema e do mês
+        </summary>
+        <div className="mt-4 grid gap-4 xl:grid-cols-2">
           <CardComponentes painel={painel} />
           <div className="card card-pad">
             <TituloSecao
@@ -511,7 +495,7 @@ export default function PainelPage() {
             </div>
           </div>
         </div>
-      </div>
+      </details>
     </div>
   );
 }

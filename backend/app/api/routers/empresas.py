@@ -27,6 +27,7 @@ from app.db.session import get_db
 from app.models import Certificado, Empresa, Usuario
 from app.services import auditoria
 from app.schemas import (
+    ConsultaCNPJResposta,
     EmpresaAtualizar,
     EmpresaCriar,
     EmpresaResposta,
@@ -35,6 +36,7 @@ from app.schemas import (
     LoteEmpresasResposta,
 )
 from app.api.routers.importacoes import estados_do_escritorio
+from app.services.cnpj import consultar_cnpj
 from app.services.certificados import (
     apenas_digitos,
     cnpj_de_nome_arquivo,
@@ -66,6 +68,51 @@ def _empresa_do_escritorio(db: Session, empresa_id: int, escritorio_id: int) -> 
     return empresa
 
 
+def _validar_uf_ou_vazio(valor: str | None) -> str:
+    uf = (valor or "").strip().upper()
+    if uf and uf not in _UFS_VALIDAS:
+        raise HTTPException(status_code=422, detail=f"UF inválida: {uf!r}")
+    return uf
+
+
+def _consulta_publica(cnpj_cpf: str):
+    """Busca externa opcional; nunca levanta erro para o fluxo principal."""
+    if len(apenas_digitos(cnpj_cpf)) != 14:
+        return None
+    return consultar_cnpj(cnpj_cpf)
+
+
+def _completar_dados_empresa(dados: EmpresaCriar) -> dict:
+    """
+    Aplica o preenchimento automático de UF/razão social pelo CNPJ.
+
+    A UF continua obrigatória para salvar porque NFe/CT-e precisam dela; a
+    diferença é que agora o sistema tenta descobri-la antes de pedir que o
+    operador escolha manualmente.
+    """
+    documento = apenas_digitos(dados.cnpj_cpf)
+    uf = _validar_uf_ou_vazio(dados.uf)
+    razao = (dados.razao_social or "").strip()
+
+    consulta = _consulta_publica(documento) if (len(documento) == 14 and (not uf or not razao)) else None
+    if consulta is not None:
+        uf = uf or _validar_uf_ou_vazio(consulta.uf)
+        razao = razao or consulta.razao_social or consulta.nome_fantasia
+
+    if not razao:
+        raise HTTPException(
+            status_code=422,
+            detail="Razão social não identificada automaticamente. Informe o nome da empresa.",
+        )
+    if not uf:
+        raise HTTPException(
+            status_code=422,
+            detail="Não foi possível identificar a UF automaticamente. Informe a UF manualmente.",
+        )
+
+    return {"razao_social": razao[:255], "cnpj_cpf": documento, "uf": uf}
+
+
 @router.get("", response_model=list[EmpresaResposta])
 def listar_empresas(
     db: Session = Depends(get_db),
@@ -81,15 +128,16 @@ def criar_empresa(
     escritorio_id: int = Depends(escritorio_id_atual),
     usuario: Usuario = Depends(requer_escrita),
 ):
+    dados_empresa = _completar_dados_empresa(dados)
     ja_existe = (
         db.query(Empresa)
-        .filter(Empresa.escritorio_id == escritorio_id, Empresa.cnpj_cpf == dados.cnpj_cpf)
+        .filter(Empresa.escritorio_id == escritorio_id, Empresa.cnpj_cpf == dados_empresa["cnpj_cpf"])
         .first()
     )
     if ja_existe:
         raise HTTPException(status_code=409, detail="Já existe uma empresa com esse CNPJ/CPF")
 
-    empresa = Empresa(escritorio_id=escritorio_id, **dados.model_dump())
+    empresa = Empresa(escritorio_id=escritorio_id, **dados_empresa)
     db.add(empresa)
     db.flush()
     auditoria.registrar(
@@ -100,6 +148,35 @@ def criar_empresa(
     db.commit()
     db.refresh(empresa)
     return empresa
+
+
+@router.get("/consulta-cnpj/{cnpj}", response_model=ConsultaCNPJResposta)
+def consultar_cadastro_publico_cnpj(
+    cnpj: str,
+    escritorio_id: int = Depends(escritorio_id_atual),
+):
+    """Pré-preenche razão social e UF pelo CNPJ para deixar o cadastro simples."""
+    del escritorio_id  # mantém o endpoint protegido pelo tenant/autenticação
+    documento = apenas_digitos(cnpj)
+    if len(documento) != 14:
+        raise HTTPException(status_code=422, detail="Informe um CNPJ com 14 dígitos.")
+    dados = consultar_cnpj(documento)
+    if dados is None:
+        return ConsultaCNPJResposta(
+            documento=documento,
+            encontrado=False,
+            mensagem="Não foi possível consultar esse CNPJ agora. Preencha a UF manualmente.",
+        )
+    return ConsultaCNPJResposta(
+        documento=documento,
+        encontrado=True,
+        razao_social=dados.razao_social,
+        nome_fantasia=dados.nome_fantasia,
+        uf=dados.uf,
+        municipio=dados.municipio,
+        fonte=dados.fonte,
+        mensagem="Dados encontrados automaticamente.",
+    )
 
 
 @router.get("/{empresa_id}", response_model=EmpresaResposta)
@@ -186,10 +263,11 @@ async def importar_empresas_em_massa(
     - `csv_arquivo`: opcional, texto com colunas
       `razao_social;cnpj_cpf;uf` (ou nome;cnpj;uf) e, opcionalmente, `senha`
       individual. Linhas sem certificado ainda cadastram a empresa.
-    - `uf_padrao`: UF usada quando a linha/arquivo não trouxer uma.
+    - `uf_padrao`: fallback opcional. Se ficar vazio, a UF é tentada pelo CNPJ
+      e só as empresas sem retorno público pedem correção manual.
     """
-    uf_padrao = (uf_padrao or "SP").strip().upper()
-    if uf_padrao not in _UFS_VALIDAS:
+    uf_padrao = (uf_padrao or "").strip().upper()
+    if uf_padrao and uf_padrao not in _UFS_VALIDAS:
         raise HTTPException(status_code=400, detail=f"UF padrão inválida: {uf_padrao!r}")
 
     if not arquivos and csv_arquivo is None:
@@ -227,7 +305,7 @@ async def importar_empresas_em_massa(
     for cnpj, linha in linhas_csv.items():
         if cnpj in usados:
             continue
-        resultados.append(_criar_empresa_de_linha(cnpj, linha, db, escritorio_id, vistos))
+        resultados.append(_criar_empresa_de_linha(cnpj, linha, db, escritorio_id, vistos, uf_padrao))
 
     criadas = sum(1 for r in resultados if r.status == "criada")
     certificados = sum(1 for r in resultados if r.status == "certificado_atualizado")
@@ -305,17 +383,24 @@ async def _processar_pfx(
         )
 
     linha = linhas_csv.get(cnpj, linha_csv)
-    uf = (linha.get("uf") or uf_padrao).upper()
+    publico = None
+    if not (linha.get("uf") or uf_padrao):
+        publico = _consulta_publica(cnpj)
+    uf = (linha.get("uf") or uf_padrao or (publico.uf if publico else "")).upper()
     if uf not in _UFS_VALIDAS:
         return ItemLoteEmpresas(
             origem=nome,
             cnpj_cpf=cnpj,
             razao_social=identidade.razao_social,
             status="erro",
-            mensagem=f"UF inválida: {uf!r}.",
+            mensagem="UF não identificada automaticamente. Informe no CSV ou em UF padrão.",
         )
 
-    razao = (linha.get("razao_social") or identidade.razao_social).strip()
+    razao = (
+        linha.get("razao_social")
+        or (publico.razao_social if publico else "")
+        or identidade.razao_social
+    ).strip()
     empresa, criada_agora = _obter_ou_criar_empresa(
         db, escritorio_id, cnpj, razao, uf, vistos
     )
@@ -451,16 +536,33 @@ def _criar_empresa_de_linha(
     db: Session,
     escritorio_id: int,
     vistos: set[str],
+    uf_padrao: str = "",
 ) -> ItemLoteEmpresas:
-    razao = (linha.get("razao_social") or "").strip()
-    uf = (linha.get("uf") or "").upper()
     origem = f"CSV linha {linha.get('linha_csv', '?')}"
+    publico = None
+    if not (linha.get("uf") or uf_padrao):
+        publico = _consulta_publica(cnpj)
+    razao = (
+        linha.get("razao_social")
+        or (publico.razao_social if publico else "")
+        or ""
+    ).strip()
+    uf = (linha.get("uf") or uf_padrao or (publico.uf if publico else "")).upper()
 
     if not razao:
-        return ItemLoteEmpresas(origem=origem, cnpj_cpf=cnpj, status="erro", mensagem="Razão social vazia.")
+        return ItemLoteEmpresas(
+            origem=origem,
+            cnpj_cpf=cnpj,
+            status="erro",
+            mensagem="Razão social não identificada. Informe no CSV.",
+        )
     if uf not in _UFS_VALIDAS:
         return ItemLoteEmpresas(
-            origem=origem, cnpj_cpf=cnpj, razao_social=razao, status="erro", mensagem=f"UF inválida: {uf!r}."
+            origem=origem,
+            cnpj_cpf=cnpj,
+            razao_social=razao,
+            status="erro",
+            mensagem="UF não identificada automaticamente. Informe no CSV ou em UF padrão.",
         )
 
     empresa, _criada_agora = _obter_ou_criar_empresa(

@@ -9,23 +9,112 @@ import { useToast } from "@/components/Toast";
 import { Esqueleto, KpiCard, TituloSecao } from "@/components/ui";
 import { formatarCnpjCpf, moeda, numero } from "@/lib/format";
 import { mesAtual, paraAPI } from "@/lib/competencia";
-import type { FechamentoMensal } from "@/lib/types";
+import type { ConferenciaCompetencia, FechamentoMensal } from "@/lib/types";
 
 /**
  * Fechamento mensal: o mapa contábil empresa × tipo do mês.
  * Imprimível (só o relatório sai no papel) e exportável em CSV e ZIP.
  */
+
+const ROTULO_STATUS_CONFERENCIA: Record<string, string> = {
+  ok: "Conferida",
+  parcial: "Mês aberto",
+  precisa_conferir: "Precisa varrer",
+  pendente: "Pendente",
+  aguardando: "Aguardando janela",
+  rodando: "Rodando",
+  sem_certificado: "Sem certificado",
+  certificado_vencido: "Certificado vencido",
+  sem_uf: "Sem UF",
+  erro: "Erro",
+  risco: "Risco",
+};
+
+function CardConferencia({
+  conferencia,
+  competencia,
+}: {
+  conferencia: ConferenciaCompetencia | null;
+  competencia: string | null;
+}) {
+  if (!conferencia) return <Esqueleto className="mt-4 h-28" />;
+
+  const pendencias = conferencia.itens.filter((item) => item.status !== "ok").slice(0, 6);
+  const visual = conferencia.ok
+    ? "border-accent/30 bg-accent-soft"
+    : conferencia.status === "critico"
+      ? "border-danger/30 bg-danger-soft"
+      : "border-warn/30 bg-warn-soft";
+  const icone = conferencia.ok ? "checkCirculo" : conferencia.status === "critico" ? "xCirculo" : "alerta";
+  const corIcone = conferencia.ok ? "text-accent-deep" : conferencia.status === "critico" ? "text-danger" : "text-warn";
+
+  return (
+    <section className={`card mt-4 border p-5 ${visual}`}>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex min-w-0 gap-3">
+          <span className={`mt-0.5 inline-flex h-9 w-9 flex-none items-center justify-center rounded-xl bg-surface ${corIcone}`}>
+            <Icone nome={icone} className="h-5 w-5" />
+          </span>
+          <div className="min-w-0">
+            <p className="font-serif text-lg font-semibold text-ink">
+              {conferencia.ok ? "Competência pronta para fechar" : "Conferência da competência"}
+            </p>
+            <p className="mt-1 text-sm text-ink-muted">{conferencia.mensagem}</p>
+            <p className="mt-2 text-xs text-ink-muted">
+              {numero(conferencia.documentos)} documento(s) · {conferencia.itens_ok}/{conferencia.itens_total} fontes conferidas
+              {conferencia.sem_xml_completo > 0 ? ` · ${conferencia.sem_xml_completo} XML(s) só em resumo` : ""}
+            </p>
+          </div>
+        </div>
+        <Link
+          href={`/dashboard/importacoes${competencia ? `?competencia=${competencia}` : ""}`}
+          className={conferencia.ok ? "btn-ghost btn-sm" : "btn-primary btn-sm"}
+        >
+          {conferencia.ok ? "Ver importações" : "Puxar / conferir agora"}
+        </Link>
+      </div>
+
+      {pendencias.length > 0 && (
+        <details className="mt-4">
+          <summary className="cursor-pointer text-xs font-semibold text-ink-muted hover:text-ink">
+            Ver pontos pendentes
+          </summary>
+          <ul className="mt-3 space-y-2">
+            {pendencias.map((item) => (
+              <li key={`${item.empresa_id}-${item.tipo}`} className="rounded-lg bg-surface px-3 py-2 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium text-ink">{item.razao_social}</span>
+                  <span className="badge-neutral">{ROTULO_STATUS_CONFERENCIA[item.status] ?? item.status}</span>
+                  <span className="font-mono text-xs uppercase text-ink-faint">{item.tipo}</span>
+                </div>
+                <p className="mt-1 text-xs text-ink-muted">{item.mensagem}</p>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </section>
+  );
+}
+
 export default function RelatoriosPage() {
   const toast = useToast();
   const [competencia, setCompetencia] = useState<string | null>(mesAtual());
   const [fechamento, setFechamento] = useState<FechamentoMensal | null>(null);
+  const [conferencia, setConferencia] = useState<ConferenciaCompetencia | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [baixando, setBaixando] = useState(false);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
     try {
-      setFechamento(await api.fechamento(paraAPI(competencia)));
+      const competenciaApi = paraAPI(competencia);
+      const [fechamentoResposta, conferenciaResposta] = await Promise.all([
+        api.fechamento(competenciaApi),
+        api.conferirCompetencia({ competencia: competenciaApi }),
+      ]);
+      setFechamento(fechamentoResposta);
+      setConferencia(conferenciaResposta);
     } catch (e) {
       toast.erro(e instanceof ApiError ? e.message : "Não foi possível carregar o fechamento.");
     } finally {
@@ -122,21 +211,23 @@ export default function RelatoriosPage() {
               tom="padrao"
             />
             <KpiCard
-              rotulo="Empresas com documento"
+              rotulo="Empresas"
               valor={`${t.empresas_com_documento}/${t.empresas_total}`}
-              detalhe="no mês selecionado"
+              detalhe="com documento no mês"
               icone="empresa"
               tom={t.empresas_com_documento < t.empresas_total ? "alerta" : "ok"}
             />
             <KpiCard
-              rotulo="Pendências"
+              rotulo="XML completo"
               valor={numero(t.sem_xml)}
-              detalhe={t.sem_xml > 0 ? "aguardando XML completo" : "nenhuma"}
+              detalhe={t.sem_xml > 0 ? "a completar" : "todos ok"}
               icone="relogio"
               tom={t.sem_xml > 0 ? "alerta" : "ok"}
               href="/dashboard/documentos"
             />
           </div>
+
+          <CardConferencia conferencia={conferencia} competencia={competencia} />
 
           <section className="card-pad mt-4">
             <TituloSecao

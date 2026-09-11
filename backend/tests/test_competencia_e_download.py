@@ -511,6 +511,69 @@ def test_lote_reporta_cooldown_e_sem_certificado(cliente):
     assert segundo[0]["status"] in ("enfileirada", "em_cooldown")
 
 
+def test_conferencia_competencia_comprova_mes_quando_cursor_esta_em_dia(cliente, tmp_path):
+    client, db, empresa_id = cliente["client"], cliente["db"], cliente["empresa_id"]
+    pfx = tmp_path / "a1.pfx"
+    pfx.write_bytes(b"fake")
+    db.add(
+        Certificado(
+            empresa_id=empresa_id,
+            arquivo_path=str(pfx),
+            senha_cifrada="x",
+            validade=datetime.now(timezone.utc) + timedelta(days=10),
+            ativo=True,
+        )
+    )
+    estado = sincronizacao.obter_estado(db, empresa_id, TipoDocumentoFiscal.NFSE)
+    estado.ultimo_nsu = "42"
+    estado.max_nsu = "42"
+    estado.ultima_consulta_em = datetime(2026, 9, 2, 8, 0, tzinfo=timezone.utc)
+    estado.atualizado_em = estado.ultima_consulta_em
+    db.commit()
+
+    resposta = client.get(
+        "/importacoes/conferencia", params={"competencia": "08/2026", "tipos": "nfse"}
+    )
+    assert resposta.status_code == 200, resposta.text
+    corpo = resposta.json()
+    assert corpo["ok"] is True
+    assert corpo["status"] == "completa"
+    assert corpo["documentos"] == 2
+    assert corpo["canceladas"] == 1
+    assert corpo["itens_ok"] == 1
+    assert corpo["itens"][0]["status"] == "ok"
+    assert corpo["itens"][0]["ultimo_nsu"] == "42"
+
+
+def test_conferencia_competencia_exige_varredura_depois_do_fechamento(cliente, tmp_path):
+    client, db, empresa_id = cliente["client"], cliente["db"], cliente["empresa_id"]
+    pfx = tmp_path / "a1.pfx"
+    pfx.write_bytes(b"fake")
+    db.add(
+        Certificado(
+            empresa_id=empresa_id,
+            arquivo_path=str(pfx),
+            senha_cifrada="x",
+            validade=datetime.now(timezone.utc) + timedelta(days=10),
+            ativo=True,
+        )
+    )
+    estado = sincronizacao.obter_estado(db, empresa_id, TipoDocumentoFiscal.NFSE)
+    estado.ultimo_nsu = "42"
+    estado.max_nsu = "42"
+    estado.ultima_consulta_em = datetime(2026, 8, 20, 8, 0, tzinfo=timezone.utc)
+    estado.atualizado_em = estado.ultima_consulta_em
+    db.commit()
+
+    corpo = client.get(
+        "/importacoes/conferencia", params={"competencia": "08/2026", "tipos": "nfse"}
+    ).json()
+    assert corpo["ok"] is False
+    assert corpo["status"] == "pendente"
+    assert corpo["itens"][0]["status"] == "precisa_conferir"
+    assert "antes do fechamento" in corpo["itens"][0]["mensagem"]
+
+
 def test_endpoint_de_estado_mostra_cursor_e_bloqueio(cliente):
     client, db = cliente["client"], cliente["db"]
     estado = sincronizacao.obter_estado(db, cliente["empresa_id"], TipoDocumentoFiscal.NFE)

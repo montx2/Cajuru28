@@ -10,10 +10,10 @@ Três princípios de projeto:
   execução para o histórico explicar um 656 logo depois.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from app.api.deps import escritorio_id_atual, requer_escrita
@@ -24,16 +24,19 @@ from app.models import (
     DocumentoFiscal,
     Empresa,
     ExecucaoImportacao,
+    StatusDocumentoFiscal,
     StatusExecucao,
     TipoDocumentoFiscal,
     Usuario,
 )
 from app.services import auditoria
 from app.schemas import (
+    ConferenciaCompetenciaResposta,
     EstadoSincronizacaoResposta,
     ExecucaoImportacaoResposta,
     ImportacaoSelecionadas,
     ImportacaoSolicitar,
+    ItemConferenciaCompetencia,
     ItemImportacaoLote,
     ItemImportacaoSelecionada,
     ResultadoImportacaoSelecionada,
@@ -513,6 +516,402 @@ def resumo_sincronizacao(
         tick_a_partir_de=datetime.now(timezone.utc) + timedelta(
             minutes=settings.sincronismo_intervalo_minutos
         ),
+    )
+
+
+def _competencia_efetiva():
+    return func.coalesce(DocumentoFiscal.competencia, func.date(DocumentoFiscal.data_emissao))
+
+
+def _parse_ids_csv(valor: str | None, *, nome: str) -> list[int] | None:
+    if not valor or not valor.strip():
+        return None
+    ids: list[int] = []
+    for pedaco in valor.split(","):
+        pedaco = pedaco.strip()
+        if not pedaco:
+            continue
+        try:
+            ids.append(int(pedaco))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=f"{nome} inválido: {pedaco!r}") from exc
+    return ids or None
+
+
+def _parse_tipos_csv(valor: str | None) -> list[TipoDocumentoFiscal]:
+    if not valor or not valor.strip():
+        return list(TipoDocumentoFiscal)
+    tipos: list[TipoDocumentoFiscal] = []
+    for pedaco in valor.split(","):
+        pedaco = pedaco.strip().lower()
+        if not pedaco:
+            continue
+        try:
+            tipo = TipoDocumentoFiscal(pedaco)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=f"Tipo inválido: {pedaco!r}") from exc
+        if tipo not in tipos:
+            tipos.append(tipo)
+    return tipos or list(TipoDocumentoFiscal)
+
+
+def _agora_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _fim_da_competencia_utc(fim: date) -> datetime:
+    return datetime.combine(fim + timedelta(days=1), time.min, tzinfo=timezone.utc)
+
+
+def _contagens_por_empresa_tipo(
+    db: Session,
+    *,
+    empresa_ids: list[int],
+    tipos: list[TipoDocumentoFiscal],
+    inicio: date,
+    fim: date,
+) -> dict[tuple[int, TipoDocumentoFiscal], tuple[int, int, int]]:
+    comp = _competencia_efetiva()
+    linhas = (
+        db.query(
+            DocumentoFiscal.empresa_id,
+            DocumentoFiscal.tipo,
+            func.count(DocumentoFiscal.id),
+            func.sum(case((DocumentoFiscal.status == StatusDocumentoFiscal.CANCELADA, 1), else_=0)),
+            func.sum(case((DocumentoFiscal.leiaute == "resumo", 1), else_=0)),
+        )
+        .filter(
+            DocumentoFiscal.empresa_id.in_(empresa_ids or [-1]),
+            DocumentoFiscal.tipo.in_(tipos),
+            comp >= inicio,
+            comp <= fim,
+        )
+        .group_by(DocumentoFiscal.empresa_id, DocumentoFiscal.tipo)
+        .all()
+    )
+    resultado: dict[tuple[int, TipoDocumentoFiscal], tuple[int, int, int]] = {}
+    for empresa_id, tipo, total, canceladas, resumos in linhas:
+        tipo_enum = tipo if isinstance(tipo, TipoDocumentoFiscal) else TipoDocumentoFiscal(str(tipo))
+        resultado[(empresa_id, tipo_enum)] = (total or 0, canceladas or 0, resumos or 0)
+    return resultado
+
+
+def _ultima_execucao(db: Session, empresa_id: int, tipo: TipoDocumentoFiscal) -> ExecucaoImportacao | None:
+    return (
+        db.query(ExecucaoImportacao)
+        .filter(ExecucaoImportacao.empresa_id == empresa_id, ExecucaoImportacao.tipo == tipo)
+        .order_by(ExecucaoImportacao.id.desc())
+        .first()
+    )
+
+
+def _status_conferencia(
+    db: Session,
+    empresa: Empresa,
+    tipo: TipoDocumentoFiscal,
+    *,
+    competencia_fechada: bool,
+    precisa_ter_consulta_apos: datetime,
+    agora: datetime,
+) -> tuple[str, str, str | None, str | None, int, datetime | None, datetime | None, datetime | None]:
+    """
+    Classifica se uma empresa+tipo pode entrar no fechamento do mês.
+
+    Retorna status, mensagem, ultimo_nsu, max_nsu, pendencia,
+    ultima_consulta_em, proxima_consulta_em e bloqueado_ate.
+    """
+    certificado = (
+        db.query(Certificado)
+        .filter(Certificado.empresa_id == empresa.id, Certificado.ativo.is_(True))
+        .first()
+    )
+    status_preflight, mensagem_preflight = fila.verificar_empresa(db, empresa, tipo)
+    if status_preflight == "sem_certificado":
+        return ("sem_certificado", mensagem_preflight, None, None, 0, None, None, None)
+
+    validade = _naive_para_aware(certificado.validade if certificado is not None else None)
+    if validade is not None and validade < agora:
+        return (
+            "certificado_vencido",
+            "Certificado A1 vencido — renove antes de confiar no fechamento.",
+            None,
+            None,
+            0,
+            None,
+            None,
+            None,
+        )
+
+    if status_preflight == "sem_uf":
+        return ("sem_uf", mensagem_preflight, None, None, 0, None, None, None)
+
+    andamento = fila.em_andamento(db, empresa.id, tipo)
+    estado = sincronizacao.obter_estado(db, empresa.id, tipo, criar=False)
+    ultimo_nsu = estado.ultimo_nsu if estado is not None else None
+    max_nsu = estado.max_nsu if estado is not None else None
+    pendencia = sincronizacao.pendencia_de_documentos(estado) if estado is not None else 0
+    ultima_consulta = _naive_para_aware(
+        (estado.ultima_consulta_em or estado.atualizado_em) if estado is not None else None
+    )
+    proxima = _naive_para_aware(estado.proxima_consulta_em if estado is not None else None)
+    bloqueado = _naive_para_aware(estado.bloqueado_ate if estado is not None else None)
+    proxima_visivel = proxima if proxima and proxima > agora else None
+    bloqueado_visivel = bloqueado if bloqueado and bloqueado > agora else None
+
+    if andamento is not None:
+        return (
+            "rodando",
+            "Existe varredura em andamento. Aguarde terminar para fechar a competência.",
+            ultimo_nsu,
+            max_nsu,
+            pendencia,
+            ultima_consulta,
+            proxima_visivel,
+            bloqueado_visivel,
+        )
+
+    ultima = _ultima_execucao(db, empresa.id, tipo)
+    erro_ativo = bool(ultima and ultima.status == StatusExecucao.ERRO)
+
+    if estado is None:
+        status = "erro" if erro_ativo else "precisa_conferir"
+        mensagem = (
+            ultima.mensagem_erro
+            if erro_ativo and ultima and ultima.mensagem_erro
+            else "Ainda não há cursor/maxNSU desta empresa e tipo. Rode uma varredura."
+        )
+        return (status, mensagem, None, None, 0, None, None, None)
+
+    em_dia = sincronizacao.esta_em_dia(estado)
+    risco = bool(
+        estado.ultima_consulta_em
+        and (agora - _naive_para_aware(estado.ultima_consulta_em)).days
+        >= settings.dias_disponiveis_na_distribuicao
+        and not em_dia
+    )
+    if risco:
+        return (
+            "risco",
+            "Cursor atrasado há muitos dias: a janela oficial de distribuição pode estar fechando.",
+            ultimo_nsu,
+            max_nsu,
+            pendencia,
+            ultima_consulta,
+            proxima_visivel,
+            bloqueado_visivel,
+        )
+
+    if erro_ativo and not em_dia:
+        return (
+            "erro",
+            (ultima.mensagem_erro or "A última varredura falhou.")[:500] if ultima else "A última varredura falhou.",
+            ultimo_nsu,
+            max_nsu,
+            pendencia,
+            ultima_consulta,
+            proxima_visivel,
+            bloqueado_visivel,
+        )
+
+    if pendencia > 0:
+        if bloqueado_visivel or proxima_visivel:
+            return (
+                "aguardando",
+                "Há NSUs pendentes, mas o ambiente pediu espera. O sistema retoma sozinho.",
+                ultimo_nsu,
+                max_nsu,
+                pendencia,
+                ultima_consulta,
+                proxima_visivel,
+                bloqueado_visivel,
+            )
+        return (
+            "pendente",
+            "A SEFAZ/ADN informou que há NSUs novos. Rode a importação antes de fechar.",
+            ultimo_nsu,
+            max_nsu,
+            pendencia,
+            ultima_consulta,
+            proxima_visivel,
+            bloqueado_visivel,
+        )
+
+    if not em_dia:
+        return (
+            "precisa_conferir",
+            "Ainda não existe maxNSU confirmado para provar que a fila oficial acabou.",
+            ultimo_nsu,
+            max_nsu,
+            pendencia,
+            ultima_consulta,
+            proxima_visivel,
+            bloqueado_visivel,
+        )
+
+    if competencia_fechada and (
+        ultima_consulta is None or ultima_consulta < precisa_ter_consulta_apos
+    ):
+        return (
+            "precisa_conferir",
+            "A última consulta foi antes do fechamento do mês. Rode uma varredura final.",
+            ultimo_nsu,
+            max_nsu,
+            pendencia,
+            ultima_consulta,
+            proxima_visivel,
+            bloqueado_visivel,
+        )
+
+    if not competencia_fechada:
+        return (
+            "parcial",
+            "Competência ainda aberta: até agora está em dia, mas novas notas ainda podem surgir.",
+            ultimo_nsu,
+            max_nsu,
+            pendencia,
+            ultima_consulta,
+            proxima_visivel,
+            bloqueado_visivel,
+        )
+
+    return (
+        "ok",
+        "Cursor chegou ao maxNSU oficial depois do fechamento do mês.",
+        ultimo_nsu,
+        max_nsu,
+        pendencia,
+        ultima_consulta,
+        proxima_visivel,
+        bloqueado_visivel,
+    )
+
+
+@router.get("/conferencia", response_model=ConferenciaCompetenciaResposta)
+def conferir_competencia(
+    competencia: str | None = Query(default=None, description="MM/AAAA, ex.: 08/2026"),
+    empresa_ids: str | None = Query(default=None, description="1,2,3 — vazio = ativas"),
+    tipos: str | None = Query(default=None, description="nfse,nfe,cte — vazio = todos"),
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+):
+    """
+    Prova operacional para fechar uma competência sem deixar nota passar.
+
+    A distribuição oficial não oferece uma "contagem esperada por mês" para
+    comparar. Então a prova correta é: todo CNPJ/tipo precisa ter sido varrido
+    até `ultNSU == maxNSU` e a última consulta precisa ser posterior ao fim da
+    competência. Se algo não cumprir isso, a resposta aponta exatamente onde
+    rodar de novo ou o que corrigir.
+    """
+    hoje = date.today()
+    periodo = _periodo(competencia or f"{hoje.month:02d}/{hoje.year:04d}")
+    assert periodo is not None and periodo.inicio is not None and periodo.fim is not None
+    tipos_lista = _parse_tipos_csv(tipos)
+    ids = _parse_ids_csv(empresa_ids, nome="empresa_id")
+
+    consulta_empresas = db.query(Empresa).filter(Empresa.escritorio_id == escritorio_id)
+    if ids is None:
+        consulta_empresas = consulta_empresas.filter(Empresa.ativa.is_(True))
+    else:
+        consulta_empresas = consulta_empresas.filter(Empresa.id.in_(ids))
+    empresas = consulta_empresas.order_by(Empresa.razao_social).all()
+
+    encontrados = {empresa.id for empresa in empresas}
+    if ids is not None:
+        fora = [identificador for identificador in ids if identificador not in encontrados]
+        if fora:
+            raise HTTPException(status_code=403, detail=f"Empresa(s) fora deste escritório: {fora}")
+
+    contagens = _contagens_por_empresa_tipo(
+        db,
+        empresa_ids=[empresa.id for empresa in empresas],
+        tipos=tipos_lista,
+        inicio=periodo.inicio,
+        fim=periodo.fim,
+    )
+    agora = _agora_utc()
+    competencia_fechada = periodo.fim < hoje
+    precisa_apos = _fim_da_competencia_utc(periodo.fim)
+
+    itens: list[ItemConferenciaCompetencia] = []
+    for empresa in empresas:
+        for tipo in tipos_lista:
+            total, canceladas, resumos = contagens.get((empresa.id, tipo), (0, 0, 0))
+            (
+                status_item,
+                mensagem,
+                ultimo_nsu,
+                max_nsu,
+                pendencia,
+                ultima_consulta,
+                proxima,
+                bloqueado,
+            ) = _status_conferencia(
+                db,
+                empresa,
+                tipo,
+                competencia_fechada=competencia_fechada,
+                precisa_ter_consulta_apos=precisa_apos,
+                agora=agora,
+            )
+            itens.append(
+                ItemConferenciaCompetencia(
+                    empresa_id=empresa.id,
+                    razao_social=empresa.razao_social,
+                    tipo=tipo,
+                    status=status_item,
+                    documentos=total,
+                    canceladas=canceladas,
+                    sem_xml_completo=resumos,
+                    ultimo_nsu=ultimo_nsu,
+                    max_nsu=max_nsu,
+                    pendencia=pendencia,
+                    ultima_consulta_em=ultima_consulta,
+                    proxima_consulta_em=proxima,
+                    bloqueado_ate=bloqueado,
+                    mensagem=mensagem,
+                )
+            )
+
+    criticos_status = {"sem_certificado", "certificado_vencido", "sem_uf", "erro", "risco"}
+    itens_criticos = sum(1 for item in itens if item.status in criticos_status)
+    itens_ok = sum(1 for item in itens if item.status == "ok")
+    itens_parciais = sum(1 for item in itens if item.status == "parcial")
+    itens_pendentes = len(itens) - itens_ok - itens_criticos
+    pendencias_reais = len(itens) - itens_ok - itens_criticos - itens_parciais
+
+    if not itens:
+        status_geral = "critico"
+        mensagem = "Nenhuma empresa ativa encontrada para conferir."
+    elif itens_criticos:
+        status_geral = "critico"
+        mensagem = "Há bloqueios de cadastro/erro antes de confiar no fechamento."
+    elif pendencias_reais:
+        status_geral = "pendente"
+        mensagem = "Ainda existe varredura pendente ou mês sem consulta final."
+    elif not competencia_fechada:
+        status_geral = "parcial"
+        mensagem = "Competência em andamento: tudo está em dia até agora, mas o mês ainda não fechou."
+    else:
+        status_geral = "completa"
+        mensagem = "Competência conferida: todos os CNPJs/tipos chegaram ao maxNSU oficial."
+
+    return ConferenciaCompetenciaResposta(
+        competencia=periodo.rotulo(),
+        inicio=periodo.inicio,
+        fim=periodo.fim,
+        status=status_geral,
+        ok=status_geral == "completa",
+        mensagem=mensagem,
+        documentos=sum(item.documentos for item in itens),
+        canceladas=sum(item.canceladas for item in itens),
+        sem_xml_completo=sum(item.sem_xml_completo for item in itens),
+        empresas=len(empresas),
+        itens_total=len(itens),
+        itens_ok=itens_ok,
+        itens_pendentes=itens_pendentes,
+        itens_criticos=itens_criticos,
+        itens=itens,
     )
 
 
