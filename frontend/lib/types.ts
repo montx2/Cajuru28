@@ -21,6 +21,17 @@ export interface Empresa {
   quais_tipos_sincronizar?: string | null;
 }
 
+export interface ConsultaCNPJ {
+  documento: string;
+  encontrado: boolean;
+  razao_social: string;
+  nome_fantasia: string;
+  uf: string;
+  municipio: string;
+  fonte: string;
+  mensagem: string;
+}
+
 export interface Certificado {
   id: number;
   empresa_id: number;
@@ -194,6 +205,41 @@ export interface ResumoSincronizacao {
   sincronismo_automatico: boolean;
   intervalo_minutos: number;
   tick_a_partir_de: string | null;
+}
+
+export interface ItemConferenciaCompetencia {
+  empresa_id: number;
+  razao_social: string;
+  tipo: TipoDocumentoFiscal;
+  status: string;
+  documentos: number;
+  canceladas: number;
+  sem_xml_completo: number;
+  ultimo_nsu: string | null;
+  max_nsu: string | null;
+  pendencia: number;
+  ultima_consulta_em: string | null;
+  proxima_consulta_em: string | null;
+  bloqueado_ate: string | null;
+  mensagem: string;
+}
+
+export interface ConferenciaCompetencia {
+  competencia: string;
+  inicio: string;
+  fim: string;
+  status: "completa" | "parcial" | "pendente" | "critico" | string;
+  ok: boolean;
+  mensagem: string;
+  documentos: number;
+  canceladas: number;
+  sem_xml_completo: number;
+  empresas: number;
+  itens_total: number;
+  itens_ok: number;
+  itens_pendentes: number;
+  itens_criticos: number;
+  itens: ItemConferenciaCompetencia[];
 }
 
 export interface EmpresaResumoDocumentos {

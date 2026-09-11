@@ -6,6 +6,8 @@ import type {
   BackupRegistro,
   Certificado,
   CertificadoPainel,
+  ConferenciaCompetencia,
+  ConsultaCNPJ,
   DirecaoDocumento,
   DocumentoDetalhe,
   DocumentoFiscal,
@@ -177,8 +179,13 @@ export const api = {
 
   listarEmpresas: () => chamar<Empresa[]>("/empresas"),
 
-  criarEmpresa: (razao_social: string, cnpj_cpf: string, uf: string) =>
-    chamar<Empresa>("/empresas", { method: "POST", body: JSON.stringify({ razao_social, cnpj_cpf, uf }) }),
+  consultarCnpj: (cnpj: string) => chamar<ConsultaCNPJ>(`/empresas/consulta-cnpj/${cnpj}`),
+
+  criarEmpresa: (razao_social: string, cnpj_cpf: string, uf?: string) =>
+    chamar<Empresa>("/empresas", {
+      method: "POST",
+      body: JSON.stringify({ razao_social, cnpj_cpf, ...(uf ? { uf } : {}) }),
+    }),
 
   atualizarEmpresa: (
     id: number,
@@ -290,6 +297,12 @@ export const api = {
     ),
 
   resumoSincronizacao: () => chamar<ResumoSincronizacao>("/importacoes/resumo"),
+
+  conferirCompetencia: (filtros: {
+    competencia?: string;
+    empresa_ids?: string;
+    tipos?: string;
+  } = {}) => chamar<ConferenciaCompetencia>(`/importacoes/conferencia${montarParams(filtros)}`),
 
   /** Busca o XML completo dos documentos que vieram só em resumo (consChNFe). */
   completarXmls: (empresaId?: number, limite = 20) =>

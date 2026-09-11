@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { StatusDot } from "@/components/StatusDot";
 import { PainelImportacao } from "@/components/PainelImportacao";
-import { emQuanto, horaLocal, paraAPI } from "@/lib/competencia";
+import { emQuanto, horaLocal, mesAtual, paraAPI } from "@/lib/competencia";
 import {
   ROTULO_TIPO,
   type Empresa,
@@ -64,7 +64,7 @@ function Ficha({
 function ConteudoImportacoes() {
   const searchParams = useSearchParams();
   const execucaoDestacada = searchParams.get("execucao");
-  const [competencia] = useState<string | null>(searchParams.get("competencia") || null);
+  const [competencia, setCompetencia] = useState<string | null>(searchParams.get("competencia") || mesAtual());
 
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
   const [execucoes, setExecucoes] = useState<ExecucaoImportacao[]>([]);
@@ -175,15 +175,25 @@ function ConteudoImportacoes() {
         <Ficha rotulo="documentos no banco" valor={String(resumo?.documentos_no_banco ?? 0)} />
       </div>
 
-      <PainelImportacao aoDisparar={carregar} titulo="Puxar agora" />
+      <PainelImportacao
+        aoDisparar={carregar}
+        titulo="Puxar notas"
+        competenciaInicial={competencia ?? undefined}
+        aoMudarCompetencia={setCompetencia}
+      />
 
       {aviso && (
         <p className="mt-4 border-l-2 border-warn bg-warn-soft px-3 py-2 text-sm text-ink">{aviso}</p>
       )}
 
-      <section className="mb-10 mt-10">
+      <details className="mt-8 rounded-card border border-line bg-surface p-4">
+        <summary className="cursor-pointer text-sm font-semibold text-ink hover:text-accent">
+          Detalhes técnicos (NSU, janelas e histórico)
+        </summary>
+
+      <section className="mb-10 mt-5">
         <div className="mb-3 flex items-baseline justify-between">
-          <p className="text-base font-medium text-ink">De onde cada empresa está</p>
+          <p className="text-base font-medium text-ink">Situação por empresa</p>
           {aguardando.length === 0 && !carregando && (
             <p className="text-xs text-accent">
               Nada para fazer aqui — nenhuma consulta está atrasada.
@@ -385,6 +395,7 @@ function ConteudoImportacoes() {
           </table>
         )}
       </section>
+      </details>
     </div>
   );
 }
