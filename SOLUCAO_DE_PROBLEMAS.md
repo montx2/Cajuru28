@@ -1,5 +1,71 @@
 # Solução de problemas — NotasFlow
 
+## `ports are not available: ... listen tcp 0.0.0.0:3000: bind: An attempt was made to access a socket in a way forbidden by its access permissions`
+
+**Esse erro é do Windows, não do NotasFlow.** Ele aparece ao subir o
+container do frontend (porta 3000) e tem duas causas comuns:
+
+1. **Faixa de porta reservada pelo Hyper-V/WinNAT** (a mais comum): a cada
+   boot o Windows reserva faixas dinâmicas de portas TCP para si, e a 3000
+   cai nelas com frequência. Nada está *usando* a porta — ela está
+   *proibida* para qualquer programa.
+2. Outro programa já está escutando na porta (Node, outro Docker, etc).
+
+Confira qual é o seu caso:
+
+```powershell
+netstat -ano | findstr :3000        # vazio = ninguém usando; provável reserva
+netsh interface ipv4 show excludedportrange protocol=tcp   # faixas reservadas
+```
+
+### O sistema já se protege sozinho
+
+O `INICIAR.bat` / `INSTALAR_TUDO` **testam as portas antes de subir** e,
+se a 3000 estiver ocupada ou reservada, escolhem automaticamente a próxima
+livre (3001, 3002, …) e gravam no `.env` da raiz — o docker-compose lê de
+lá. O endereço do painel passa a ser, por exemplo,
+`http://localhost:3001` (o script mostra qual foi usado e o abrevia no
+navegador). A escolha é estável: gravada no `.env`, vale até o dia em que
+deixar de funcionar.
+
+### Como usar a porta 3000 de volta (opcional)
+
+Se você *quer* a 3000 (ex.: favorito salvo), num PowerShell **como
+administrador**:
+
+```powershell
+net stop winnat
+net start winnat
+```
+
+Isso libera as reservas dinâmicas (o Hyper-V re-reserva outras na próxima
+reinicialização). Para reservar a 3000 permanentemente para o Docker:
+
+```powershell
+net stop winnat
+netsh int ipv4 add excludedportrange protocol=tcp startport=3000 numberofports=1
+net start winnat
+```
+
+Depois apague a linha `FRONTEND_PORT` do `.env` da raiz e rode
+`INICIAR.bat` de novo.
+
+### Como fixar qualquer porta manualmente
+
+Crie/edite o arquivo `.env` **na raiz do projeto** (o mesmo que o script
+gera) e defina:
+
+```
+FRONTEND_PORT=3030
+API_PORT=8080        # opcional; se mudar, o frontend é reconstruído sozinho
+```
+
+> Porta do painel e do navegador: trocar `FRONTEND_PORT` muda só o
+> endereço no navegador. Trocar `API_PORT` exige reconstruir o frontend
+> (o `INICIAR.bat` já faz com `--build`).
+
+---
+
 ## `failed to solve: write /var/lib/desktop-containerd/.../meta.db: read-only file system`
 
 **Esse erro não vem do NotasFlow.** É o Docker Desktop que não conseguiu

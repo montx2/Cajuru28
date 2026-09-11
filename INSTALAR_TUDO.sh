@@ -69,7 +69,7 @@ printf '  Sistema detectado: %s\n\n' "$SO"
 FALTANDO=()
 
 # ---------- PASSO 1: pacotes básicos (git, python3, curl) ----------
-passo "PASSO 1/6 — Git e Python 3"
+passo "PASSO 1/7 — Git e Python 3"
 
 instalar_pacotes() {
   local pkgs=("$@")
@@ -112,7 +112,7 @@ if [[ $SO_VERIFICAR -eq 0 && ( $GIT_OK -eq 0 || $PYTHON_OK -eq 0 ) ]]; then
 fi
 
 # ---------- PASSO 2: Docker ----------
-passo "PASSO 2/6 — Docker"
+passo "PASSO 2/7 — Docker"
 
 DOCKER_OK=0
 if command -v docker >/dev/null 2>&1; then DOCKER_OK=1; fi
@@ -133,7 +133,7 @@ else
 fi
 
 # ---------- PASSO 3: motor do Docker ligado ----------
-passo "PASSO 3/6 — Motor do Docker"
+passo "PASSO 3/7 — Motor do Docker"
 
 MOTOR_OK=0
 if [[ $SO == "macos" ]]; then
@@ -181,7 +181,7 @@ fi
 if [[ $MOTOR_OK -eq 1 ]]; then ok "Motor do Docker ligado"; fi
 
 # ---------- PASSO 4: Docker Compose ----------
-passo "PASSO 4/6 — Docker Compose"
+passo "PASSO 4/7 — Docker Compose"
 
 COMPOSE_OK=0
 $DC version >/dev/null 2>&1 && COMPOSE_OK=1
@@ -212,7 +212,7 @@ if [[ $SO_VERIFICAR -eq 1 ]]; then
 fi
 
 # ---------- PASSO 5: chaves e credenciais ----------
-passo "PASSO 5/6 — Gerando chaves e login"
+passo "PASSO 5/7 — Gerando chaves e login"
 
 if [[ -f backend/.env ]]; then
   ok "backend/.env já existe (mantendo o atual)"
@@ -221,25 +221,73 @@ else
   ok "Chaves geradas (backend/.env, frontend/.env.local, CREDENCIAIS.txt)"
 fi
 
-# ---------- PASSO 6: subir o sistema ----------
-passo "PASSO 6/6 — Subindo o NotasFlow (primeira vez demora vários minutos)"
+# ---------- PASSO 6: portas livres ----------
+passo "PASSO 6/7 — Verificando portas livres"
+
+# Detecta portas ocupadas/reservadas e escolhe alternativas quando precisa,
+# gravando a escolha no .env da raiz (o docker-compose lê de lá).
+SAIDA_PORTAS="$(python3 scripts/ajustar_portas.py)" || {
+  erro "Nenhuma porta livre encontrada. Feche o programa que usa a porta"
+  erro "ou defina outra no arquivo .env da raiz (ex.: FRONTEND_PORT=3030)."
+  exit 1
+}
+# Mensagens para humano (linhas com '#').
+printf '%s\n' "$SAIDA_PORTAS" | grep '^#' | sed 's/^#//' || true
+
+FRONTEND_PORT="$(printf '%s\n' "$SAIDA_PORTAS" | sed -n 's/^FRONTEND_PORT=//p' | head -1)"
+API_PORT="$(printf '%s\n' "$SAIDA_PORTAS" | sed -n 's/^API_PORT=//p' | head -1)"
+[[ -z "${FRONTEND_PORT:-}" ]] && FRONTEND_PORT=3000
+[[ -z "${API_PORT:-}" ]] && API_PORT=8000
+ok "Painel: http://localhost:${FRONTEND_PORT} — API: http://localhost:${API_PORT}"
+
+# ---------- PASSO 7: subir o sistema ----------
+passo "PASSO 7/7 — Subindo o NotasFlow (primeira vez demora vários minutos)"
 
 $DC up --build -d
+
+# Confere que TODOS os serviços ficaram de pé (antes só se checava a API).
+SERVICOS="api frontend worker beat db redis"
+FALTANDO=""
+for s in $SERVICOS; do
+  if ! $DC ps --services --status running 2>/dev/null | grep -qx "$s"; then
+    FALTANDO="$FALTANDO $s"
+  fi
+done
+if [[ -n "$FALTANDO" ]]; then
+  erro "Estes serviços não subiram:$FALTANDO"
+  aviso "Últimas mensagens:"
+  $DC logs --tail 40 $FALTANDO || true
+  aviso "Dica: se for conflito de porta, veja SOLUCAO_DE_PROBLEMAS.md."
+  exit 1
+fi
 ok "Containers no ar"
 
 printf '  Aguardando a API responder'
 API_OK=0
 for i in $(seq 1 60); do
   sleep 5; printf '.'
-  if curl -fsS http://localhost:8000/saude >/dev/null 2>&1; then API_OK=1; break; fi
+  if curl -fsS "http://localhost:${API_PORT}/saude" >/dev/null 2>&1; then API_OK=1; break; fi
 done
 printf '\n'
-if [[ $API_OK -eq 1 ]]; then ok "API respondendo em http://localhost:8000"; else aviso "API ainda subindo — aguarde 1-2 minutos."; fi
+if [[ $API_OK -eq 1 ]]; then ok "API respondendo em http://localhost:${API_PORT}"; else aviso "API ainda subindo — aguarde 1-2 minutos."; fi
+
+printf '  Aguardando o painel responder'
+PAINEL_OK=0
+for i in $(seq 1 30); do
+  sleep 3; printf '.'
+  if curl -fsS "http://localhost:${FRONTEND_PORT}/" >/dev/null 2>&1; then PAINEL_OK=1; break; fi
+done
+printf '\n'
+if [[ $PAINEL_OK -eq 1 ]]; then ok "Painel respondendo em http://localhost:${FRONTEND_PORT}"; else aviso "Painel ainda subindo — aguarde 1-2 minutos."; fi
 
 # ---------- final ----------
 passo "PRONTO! NotasFlow instalado"
-printf '\n  \033[1;32mPainel:\033[0m  http://localhost:3000\n'
-printf '  \033[1;32mAPI:\033[0m     http://localhost:8000/docs\n\n'
+printf '\n  \033[1;32mPainel:\033[0m  http://localhost:%s\n' "$FRONTEND_PORT"
+printf '  \033[1;32mAPI:\033[0m     http://localhost:%s/docs\n\n' "$API_PORT"
+
+if [[ "$FRONTEND_PORT" != "3000" ]]; then
+  aviso "A porta 3000 estava ocupada/reservada — o painel está na porta ${FRONTEND_PORT} (gravada no .env da raiz)."
+fi
 
 if [[ -f CREDENCIAIS.txt ]]; then
   printf '  Seu login (guarde o arquivo CREDENCIAIS.txt):\n'

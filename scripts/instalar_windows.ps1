@@ -433,6 +433,8 @@ LOGIN DO PAINEL (http://localhost:3000)
 
 URLs
   Painel:  http://localhost:3000
+  (Se esta porta estiver ocupada/reservada no Windows, o INICIAR.bat
+   escolhe outra sozinho e mostra o endereco certo no final.)
   API:     http://localhost:8000/docs
 
 COMO SUBIR
@@ -454,38 +456,116 @@ if (-not (Test-Path "frontend\.env.local")) {
 # PASSO 7 - Subir o sistema
 # =============================================================================
 Etapa "PASSO 7/7 - Subindo o NotasFlow (primeira vez demora varios minutos)"
+
+# --- 7a. portas livres -----------------------------------------------------
+# No Windows o Hyper-V/WinNAT reserva faixas de portas (a 3000 cai nelas com
+# frequencia) e o Docker falha com "ports are not available". O ajustador
+# testa cada porta e grava outra livre no .env quando preciso.
+Write-Host "  Verificando portas livres..." -ForegroundColor White
+$portaPainel = 3000
+$portaApi = 8000
+# Comandos nativos com ErrorActionPreference=Stop exigem este cuidado (PS 5.1).
+$eapAnterior = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+try {
+    $saidaPortas = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "ajustar_portas.ps1") 2>$null
+    $codPortas = $LASTEXITCODE
+} catch {
+    $codPortas = 1
+    $saidaPortas = @()
+} finally {
+    $ErrorActionPreference = $eapAnterior
+}
+if ($codPortas -ne 0) {
+    Erro "Nenhuma porta livre encontrada. Feche programas que usem as portas"
+    Erro "3000/8000/5432/6379 ou rode como administrador:"
+    Erro "    net stop winnat ; net start winnat"
+    Read-Host "  Pressione ENTER para sair"
+    exit 1
+}
+foreach ($linha in $saidaPortas) {
+    if ("$linha" -match '^FRONTEND_PORT=(\d+)$') { $portaPainel = [int]$Matches[1] }
+    if ("$linha" -match '^API_PORT=(\d+)$')      { $portaApi = [int]$Matches[1] }
+    if ("$linha".StartsWith("#")) { Write-Host "  $linha" -ForegroundColor Yellow }
+}
+Ok "Portas: painel $portaPainel - API $portaApi"
+
+# --- 7b. subir --------------------------------------------------------------
 $codUp = Rodar-Seguro { docker compose up --build -d }
 if ($codUp -ne 0) {
     # mostra o erro real (sem Rodar-Seguro, agora que ja sabemos que falhou)
     docker compose up --build -d 2>&1 | Select-Object -First 30 | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
     Erro "Falha ao subir os containers. Veja a mensagem acima."
+    Erro "Se for erro de porta, rode INICIAR.bat - ele diagnostica e orienta."
     Read-Host "  Pressione ENTER para sair"
     exit 1
 }
+
+# --- 7c. TODOS os servicos de pe? ------------------------------------------
+# Antes so se esperava a API; com o frontend caido dizia "instalado".
+$eapAnterior = $ErrorActionPreference
+foreach ($svc in @("api", "frontend", "worker", "beat", "db", "redis")) {
+    $ErrorActionPreference = "Continue"
+    try {
+        $rodando = docker compose ps --services --status running 2>$null | Where-Object { "$_".Trim() -eq $svc }
+    } catch {
+        $rodando = $null
+    }
+    $ErrorActionPreference = $eapAnterior
+    if (-not $rodando) {
+        $ErrorActionPreference = "Continue"
+        try { docker compose logs --tail 30 $svc 2>$null | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray } } catch { }
+        $ErrorActionPreference = $eapAnterior
+        Erro "O servico '$svc' nao ficou de pe. Veja as mensagens acima."
+        Erro "Rode INICIAR.bat - ele diagnostica os erros conhecidos."
+        Read-Host "  Pressione ENTER para sair"
+        exit 1
+    }
+}
 Ok "Containers no ar"
 
+# --- 7d. aguardar API e painel ---------------------------------------------
 Write-Host "  Aguardando a API responder..." -ForegroundColor White
 $apiPronta = $false
 $tentativas = 0
 while ($tentativas -lt 60) {
     try {
-        $r = Invoke-WebRequest -Uri "http://localhost:8000/saude" -UseBasicParsing -TimeoutSec 5
+        $r = Invoke-WebRequest -Uri "http://localhost:${portaApi}/saude" -UseBasicParsing -TimeoutSec 5
         if ($r.StatusCode -eq 200) { $apiPronta = $true; break }
     } catch { }
     Start-Sleep -Seconds 5
     $tentativas++
 }
-if ($apiPronta) { Ok "API respondendo em http://localhost:8000" }
+if ($apiPronta) { Ok "API respondendo em http://localhost:${portaApi}" }
 else { Aviso "API ainda subindo - de mais 1-2 minutos e abra o painel." }
+
+Write-Host "  Aguardando o painel responder..." -ForegroundColor White
+$painelPronto = $false
+$tentativas = 0
+while ($tentativas -lt 30) {
+    try {
+        $r = Invoke-WebRequest -Uri "http://localhost:${portaPainel}/" -UseBasicParsing -TimeoutSec 5
+        if ($r.StatusCode -eq 200) { $painelPronto = $true; break }
+    } catch { }
+    Start-Sleep -Seconds 3
+    $tentativas++
+}
+if ($painelPronto) { Ok "Painel respondendo em http://localhost:${portaPainel}" }
+else { Aviso "Painel ainda subindo - de mais 1-2 minutos e abra o painel." }
 
 # ---------- Final ----------
 Etapa "PRONTO! NotasFlow instalado"
 Write-Host @"
 
-  Painel:  http://localhost:3000
-  API:     http://localhost:8000/docs
+  Painel:  http://localhost:${portaPainel}
+  API:     http://localhost:${portaApi}/docs
 
 "@ -ForegroundColor Green
+
+if ($portaPainel -ne 3000) {
+    Aviso "A porta 3000 estava ocupada/reservada no Windows - o painel"
+    Aviso "esta na porta ${portaPainel} (gravada no .env da raiz). Anote o endereco."
+}
 
 if (Test-Path "CREDENCIAIS.txt") {
     Write-Host "  Seu login (guarde o arquivo CREDENCIAIS.txt):" -ForegroundColor White
@@ -494,7 +574,7 @@ if (Test-Path "CREDENCIAIS.txt") {
 }
 
 if (-not $NaoAbrirBrowser) {
-    Start-Process "http://localhost:3000"
+    Start-Process "http://localhost:${portaPainel}"
 }
 
 Write-Host "  Para parar o sistema:  PARAR.bat"

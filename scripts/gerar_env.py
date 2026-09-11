@@ -98,6 +98,8 @@ CHAVES DO SISTEMA (backend/.env)
 
 URLs
   Painel:  http://localhost:3000
+  (Se esta porta estiver ocupada/reservada no Windows, o INICIAR.bat
+   escolhe outra sozinho e mostra o endereco certo no final.)
   API:     http://localhost:8000/docs
 
 COMO SUBIR

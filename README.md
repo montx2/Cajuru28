@@ -88,6 +88,15 @@ Acesse:
 - Painel: http://localhost:3000
 - API/Swagger: http://localhost:8000/docs
 
+> **Portas ocupadas ou reservadas?** No Windows, o Hyper-V reserva faixas
+> de portas e a 3000 costuma cair nelas — o Docker então falha com
+> `ports are not available ... access permissions`. Os scripts
+> `INICIAR.bat`/`INSTALAR_TUDO` testam as portas antes de subir e escolhem
+> automaticamente a próxima livre (gravada no `.env` da raiz), e o
+> `INICIAR.bat` só diz "Pronto!" quando **todos** os serviços estão de pé.
+> Para fixar portas manuais, defina `FRONTEND_PORT`/`API_PORT` no `.env` da
+> raiz. Veja [SOLUCAO_DE_PROBLEMAS.md](SOLUCAO_DE_PROBLEMAS.md).
+
 ## Comandos úteis
 
 ```bash

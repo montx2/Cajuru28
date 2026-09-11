@@ -12,6 +12,10 @@ A instalação prepara o ambiente e inicia todos os serviços via Docker Compose
 Abra http://localhost:3000 e use as credenciais gravadas em `CREDENCIAIS.txt`.
 A API e sua documentação ficam em http://localhost:8000/docs.
 
+> Se a porta 3000 estiver ocupada/reservada no seu Windows (é comum: o
+> Hyper-V reserva faixas de portas), o próprio instalador escolhe outra
+> porta automaticamente e mostra o endereço certo no final. Anote-o.
+
 ## 3. Configurar empresas
 
 1. Cadastre a empresa com CNPJ e UF.
