@@ -97,12 +97,48 @@ def test_429_e_tratado_como_bloqueio_e_nao_retentado(monkeypatch, tmp_path):
     )
 
     importador = ImportadorNFSeADN()
-    with pytest.raises(ConsumoIndevido, match="429"):
+    with pytest.raises(ConsumoIndevido, match="429") as exc:
         importador.buscar_lote(
             cnpj="12345678000199", cert_path=cert_path, key_path=key_path, ultimo_nsu="0"
         )
 
     assert rota.call_count == 1  # uma chamada, não três
+    # Sem header Retry-After: a exceção não fixa duração (cai no cooldown de 1h).
+    assert exc.value.bloqueio is None or exc.value.bloqueio.total_seconds() > 0
+
+
+@respx.mock
+def test_429_com_retry_after_em_segundos_define_o_tempo_exato(monkeypatch, tmp_path):
+    """O ADN pode mandar `Retry-After` — aí o tempo de bloqueio é o exato dele."""
+    monkeypatch.setattr("app.services.importadores.nfse_adn.time.sleep", lambda _: None)
+    cert_path, key_path = _cert_key_falsos(tmp_path)
+
+    respx.get(url__regex=r".*/contribuintes/DFe/0.*").mock(
+        return_value=httpx.Response(429, headers={"Retry-After": "120"})
+    )
+
+    importador = ImportadorNFSeADN()
+    with pytest.raises(ConsumoIndevido) as exc:
+        importador.buscar_lote(
+            cnpj="12345678000199", cert_path=cert_path, key_path=key_path, ultimo_nsu="0"
+        )
+
+    # 120 segundos exatos vieram do servidor — não a estimativa de 1h.
+    assert exc.value.bloqueio is not None
+    assert exc.value.bloqueio.total_seconds() == 120
+
+
+def test_ler_retry_after_aceita_segundos_e_data_http():
+    from datetime import timedelta
+
+    from app.services.importadores.nfse_adn import _ler_retry_after
+
+    assert _ler_retry_after(None) is None
+    assert _ler_retry_after("") is None
+    assert _ler_retry_after("lixo") is None
+    assert _ler_retry_after("300") == timedelta(seconds=300)
+    # teto de segurança: nunca bloqueia mais que 24h por um header maluco
+    assert _ler_retry_after("999999") == timedelta(seconds=24 * 3600)
 
 
 @respx.mock

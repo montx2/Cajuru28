@@ -203,6 +203,7 @@ def marcar_consumo_indevido(
     estado: SincronizacaoDFe,
     *,
     motivo: str,
+    bloqueio: timedelta | None = None,
     agora: datetime | None = None,
 ) -> datetime:
     """
@@ -211,9 +212,14 @@ def marcar_consumo_indevido(
     `bloqueios_seguidos` existe para o painel contar o caso em que o CNPJ está
     sendo consumido por outro sistema: ali a resposta certa é "use um único
     importador", não "insista".
+
+    `bloqueio` é a duração exata quando o ambiente a informa (ex.: header
+    `Retry-After` do ADN). Sem ela, cai no cooldown oficial de 1h + margem —
+    que é o que a SEFAZ (NFe/CT-e) usa, já que ela nunca devolve o tempo.
     """
     agora = agora or _agora()
-    quando = agora + cooldown_oficial()
+    espera = bloqueio if (bloqueio and bloqueio.total_seconds() > 0) else cooldown_oficial()
+    quando = agora + espera
     estado.bloqueado_ate = quando
     estado.proxima_consulta_em = quando
     estado.motivo_bloqueio = (motivo or "")[:2000]

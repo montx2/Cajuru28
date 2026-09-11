@@ -366,6 +366,16 @@ class EstadoSincronizacaoResposta(BaseModel):
     bloqueios_seguidos: int = 0
     proxima_consulta_em: datetime | None = None
     ultima_consulta_em: datetime | None = None
+    # Quando a próxima consulta desta empresa+tipo fica liberada (o mais cedo
+    # entre "fim do bloqueio 656" e "fim da janela de 1h"). É o campo que a
+    # tela usa para o cronômetro regressivo — já vem calculado pela API, sem o
+    # front precisar fazer conta com fuso horário.
+    liberacao_em: datetime | None = None
+    # Segundos que faltam até `liberacao_em` (0 = já liberado). Pronto para um
+    # contador regressivo ou uma checagem "posso consultar agora?".
+    segundos_para_liberar: int = 0
+    # Frase pronta em português: "liberado", "libera em 42 min", etc.
+    liberacao_rotulo: str = "liberado"
     em_andamento: bool = False
     travado: bool = False
     sincronizar_automaticamente: bool = True

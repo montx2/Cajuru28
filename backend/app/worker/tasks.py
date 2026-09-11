@@ -315,7 +315,12 @@ def tratar_consumo_indevido(
        retomada continua exatamente de onde parou.
     """
     quando = sincronizacao.marcar_consumo_indevido(
-        db, estado, motivo=f"cStat {erro.cstat}: {erro.motivo}"
+        db,
+        estado,
+        motivo=f"cStat {erro.cstat}: {erro.motivo}",
+        # Quando o ambiente informou o tempo exato (Retry-After do ADN), a
+        # exceção já traz `bloqueio`; senão fica None e cai no cooldown de 1h.
+        bloqueio=getattr(erro, "bloqueio", None),
     )
     if erro.ultimo_nsu:
         sincronizacao.realinhar_cursor(

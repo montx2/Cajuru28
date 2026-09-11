@@ -96,7 +96,7 @@ function ConteudoImportacoes() {
     // Enquanto houver execução em andamento, atualiza sozinho — ninguém fica
     // apertando F5 para ver se já terminou.
     const intervalo = setInterval(carregar, 5000);
-    const relogio = setInterval(() => setTick((n) => n + 1), 30_000);
+    const relogio = setInterval(() => setTick((n) => n + 1), 10_000);
     return () => {
       clearInterval(intervalo);
       clearInterval(relogio);
@@ -249,16 +249,18 @@ function ConteudoImportacoes() {
                           <span className="text-warn">varrendo…</span>
                         ) : estado.bloqueado_ate ? (
                           <span className="text-warn" title={estado.motivo_bloqueio ?? ""}>
-                            bloqueada pela SEFAZ · tenta sozinha {horaLocal(estado.bloqueado_ate)}
+                            bloqueada pela SEFAZ · {emQuanto(estado.liberacao_em) ?? "liberando"}
+                            {" "}(desbloqueia {horaLocal(estado.bloqueado_ate)})
                             {estado.bloqueios_seguidos > 1
-                              ? ` (${estado.bloqueios_seguidos}ª vez)`
+                              ? ` · ${estado.bloqueios_seguidos}ª vez`
                               : ""}
                           </span>
                         ) : estado.em_dia ? (
                           <span className="text-accent">em dia ✔</span>
                         ) : estado.proxima_consulta_em ? (
                           <span className="text-ink-muted">
-                            espera {emQuanto(estado.proxima_consulta_em) ?? "acabando"}
+                            espera {emQuanto(estado.liberacao_em ?? estado.proxima_consulta_em) ?? "acabando"}
+                            {" "}(libera {horaLocal(estado.proxima_consulta_em)})
                           </span>
                         ) : (
                           <span className="text-ink-muted">nunca consultado</span>

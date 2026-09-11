@@ -128,6 +128,12 @@ export interface EstadoSincronizacao {
   bloqueios_seguidos: number;
   proxima_consulta_em: string | null;
   ultima_consulta_em: string | null;
+  /** quando a próxima consulta fica liberada (ISO); null = já liberado */
+  liberacao_em: string | null;
+  /** segundos que faltam até liberar (0 = já pode consultar) */
+  segundos_para_liberar: number;
+  /** frase pronta: "liberado", "libera em 42 min"… */
+  liberacao_rotulo: string;
   em_andamento: boolean;
   travado: boolean;
   sincronizar_automaticamente: boolean;
