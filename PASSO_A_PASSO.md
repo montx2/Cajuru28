@@ -35,3 +35,14 @@ No Windows, os atalhos equivalentes são `INICIAR.bat`, `PARAR.bat` e
 
 Faça backup regular dos volumes Docker `db_data`, `certificados` e `xml_saida`.
 Não copie apenas o código-fonte: os dados persistentes estão nesses volumes.
+
+## Atualizar
+
+Para pegar uma versão nova **sem reinstalar nada** e sem perder dados, rode
+`ATUALIZAR.bat` (ou `./ATUALIZAR.sh`). Detalhes em
+[COMO_ATUALIZAR.md](COMO_ATUALIZAR.md).
+
+## Problemas
+
+Se algo falhar ao subir (ex.: `read-only file system`, porta ocupada, disco
+cheio), veja [SOLUCAO_DE_PROBLEMAS.md](SOLUCAO_DE_PROBLEMAS.md).
