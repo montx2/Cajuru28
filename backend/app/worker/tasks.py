@@ -731,19 +731,10 @@ def sincronizar_tudo(self) -> dict:
                 resumo["retomadas"] += 1
         db.commit()
 
-        # 2) empresas com sincronização automática
-        for empresa, tipos in fila.disponiveis_para_sincronismo_automatico(
-            db, settings.sincronismo_lote_empresas
-        ):
-            for tipo in tipos:
-                resultado = fila.enfileirar(db, empresa, tipo, origem="agendador")
-                if resultado.enfileirada:
-                    resumo["enfileiradas"] += 1
-                elif resultado.status == "em_cooldown":
-                    resumo["aguardando"] += 1
-                else:
-                    resumo["ignoradas"] += 1
-        db.commit()
+        # Novas consultas só podem ser disparadas manualmente pela aba de
+        # Importações, onde a competência é obrigatória. O agendador conserva
+        # apenas a retomada segura de uma execução já bloqueada pelo ambiente.
+
         if resumo["enfileiradas"]:
             log.info("Agendador: %s", resumo)
         return resumo

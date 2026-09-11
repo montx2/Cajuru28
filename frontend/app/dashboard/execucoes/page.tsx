@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { dataHora, numero, tempoRelativo } from "@/lib/format";
-import type { CentralExecucoes, TipoDocumentoFiscal } from "@/lib/types";
+import type { CentralExecucoes } from "@/lib/types";
 import { Icone } from "@/components/icons";
 import { useToast } from "@/components/Toast";
 import { Esqueleto, EstadoVazio, TituloSecao } from "@/components/ui";
@@ -39,7 +39,6 @@ export default function ExecucoesPage() {
   const [dados, setDados] = useState<CentralExecucoes | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [expandida, setExpandida] = useState<number | null>(null);
-  const [reprocessando, setReprocessando] = useState<number | null>(null);
 
   const carregar = useCallback(
     async (silencioso = false) => {
@@ -60,19 +59,6 @@ export default function ExecucoesPage() {
     const intervalo = setInterval(() => carregar(true), 15_000);
     return () => clearInterval(intervalo);
   }, [carregar]);
-
-  async function reprocessar(empresaId: number, tipo: string) {
-    setReprocessando(empresaId);
-    try {
-      await api.solicitarImportacao(empresaId, tipo as TipoDocumentoFiscal);
-      toast.sucesso("Varredura reenfileirada — a fila cuida do resto.");
-      carregar(true);
-    } catch (e) {
-      toast.erro(e instanceof Error ? e.message : "Falha ao reenfileirar.");
-    } finally {
-      setReprocessando(null);
-    }
-  }
 
   if (carregando && !dados) {
     return (
@@ -264,15 +250,10 @@ export default function ExecucoesPage() {
                       {tempoRelativo(e.iniciado_em)}
                     </td>
                     <td className="text-right">
-                      <button
-                        type="button"
-                        onClick={() => reprocessar(e.empresa_id, e.tipo)}
-                        disabled={reprocessando === e.empresa_id}
-                        className="btn-ghost btn-sm"
-                      >
+                      <Link href="/dashboard/importacoes" className="btn-ghost btn-sm">
                         <Icone nome="atualizar" className="h-4 w-4" />
-                        Reprocessar
-                      </button>
+                        Importar novamente
+                      </Link>
                     </td>
                   </tr>
                 ))}

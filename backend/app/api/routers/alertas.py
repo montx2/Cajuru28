@@ -190,8 +190,9 @@ def computar_alertas(db: Session, escritorio_id: int) -> list[AlertaItem]:
                     "critico" if estado.bloqueios_seguidos >= 3 else "atencao",
                     "sefaz",
                     f"{rotulo} bloqueada até {_hora(estado.bloqueado_ate)} — {empresa.razao_social}",
-                    "Consumo indevido (cStat 656): o sistema retoma sozinho na "
-                    "hora certa. "
+                    "Consumo indevido (cStat 656): a janela pertence ao CNPJ na SEFAZ, "
+                    "não a este sistema. Mesmo sendo a primeira consulta aqui, outro programa "
+                    "pode ter consultado antes. O sistema retoma sozinho na hora certa. "
                     + (
                         f"{estado.bloqueios_seguidos} bloqueios seguidos — outro "
                         f"sistema pode estar consultando este CNPJ."
