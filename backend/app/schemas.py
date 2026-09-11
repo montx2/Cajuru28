@@ -23,6 +23,22 @@ class LoginRequest(BaseModel):
     email: str
     senha: str
 
+    @field_validator("email")
+    @classmethod
+    def email_normalizado(cls, v: str) -> str:
+        # O usuário digita "Admin@NotasFlow.local " com maiúscula, espaço no
+        # fim, ou o autofill do navegador capitaliza a primeira letra. O
+        # cadastro (bootstrap/UsuarioCriar) grava sempre minúsculo e sem
+        # espaços — normalizar aqui é o que faz os dois lados baterem.
+        return (v or "").strip().lower()
+
+    @field_validator("senha")
+    @classmethod
+    def senha_sem_espaco_nas_pontas(cls, v: str) -> str:
+        # Copiar a senha do CREDENCIAIS.txt costuma trazer espaço/quebra de
+        # linha junto. Espaço interno é preservado (pode ser parte da senha).
+        return (v or "").strip()
+
 
 class TokenResponse(BaseModel):
     access_token: str

@@ -79,6 +79,70 @@ docker run --rm -v cajuru28-main_db_data:/v -v "%CD%":/b alpine tar xzf /b/backu
 
 ---
 
+## "Não foi possível entrar. Tente novamente." no login
+
+Essa frase é o erro **genérico** da tela — ela aparece quando o navegador
+não conseguiu nem falar com a API, ou quando a credencial não bate. Rode o
+diagnóstico automático, que identifica qual dos casos é o seu:
+
+```
+RESETAR_SENHA.bat
+```
+
+(no Linux/macOS: `docker compose exec api python scripts/diagnosticar_login.py`)
+
+Ele checa o banco, lista os usuários existentes e diz exatamente qual é a
+causa. As três causas reais:
+
+### Causa 1 — a senha do `CREDENCIAIS.txt` não é a que está no banco
+
+A mais comum. O `.env` foi regerado (senha nova no arquivo), mas o banco
+já existia com o hash da senha **antiga**. O bootstrap não sobrescreve
+usuário existente, de propósito — então o arquivo e o banco divergem.
+
+```
+docker compose exec api python scripts/diagnosticar_login.py --redefinir admin@notasflow.local --senha "NovaSenha123"
+```
+
+### Causa 2 — o banco não tem nenhum usuário
+
+O bootstrap só cria o admin quando a tabela está vazia **e** as variáveis
+`BOOTSTRAP_*` já estão preenchidas no momento em que a API sobe. Se o
+`backend/.env` foi criado depois do primeiro `up`, ninguém foi criado.
+
+```
+docker compose exec api python scripts/diagnosticar_login.py --criar-admin
+```
+
+### Causa 3 — o navegador não alcança a API
+
+Se o diagnóstico disser que a senha confere, o problema é de rede. Teste:
+
+1. `docker compose ps` — o serviço `api` precisa estar `running`.
+2. Abra http://localhost:8000/saude — deve responder `{"status":"ok"}`.
+3. Confira `NEXT_PUBLIC_API_URL` em `frontend/.env.local`.
+
+> `NEXT_PUBLIC_*` é embutido no build do Next. Mudar o `.env.local` **não
+> tem efeito** sem reconstruir a imagem:
+>
+> ```
+> docker compose up --build -d frontend
+> ```
+
+Veja o motivo exato no console do navegador (F12 → aba Console/Network).
+
+---
+
+## Esqueci a senha do admin
+
+```
+docker compose exec api python scripts/diagnosticar_login.py --redefinir admin@notasflow.local --senha "NovaSenha123"
+```
+
+Funciona para qualquer usuário e reativa quem estiver inativo.
+
+---
+
 ## `port is already allocated`
 
 Alguma porta usada pelo projeto (3000, 8000, 5432 ou 6379) já está ocupada —

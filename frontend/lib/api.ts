@@ -64,9 +64,28 @@ async function chamar<T>(caminho: string, opcoes: RequestInit = {}): Promise<T> 
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 
-  const resposta = await fetch(`${BASE_URL}${caminho}`, { ...opcoes, headers: cabecalhos });
+  // O próprio login é público: um 401 aqui significa "senha errada", não
+  // "sessão expirada". Sem esta distinção o tratamento genérico abaixo
+  // limpava o token e recarregava /login, engolindo o motivo real.
+  const ehLogin = caminho.startsWith("/auth/login");
 
-  if (resposta.status === 401) {
+  let resposta: Response;
+  try {
+    resposta = await fetch(`${BASE_URL}${caminho}`, { ...opcoes, headers: cabecalhos });
+  } catch {
+    // fetch só lança em falha de rede/CORS — a API não respondeu. Sem este
+    // catch a tela dizia apenas "tente novamente", escondendo que o
+    // problema é o contêiner da API fora do ar.
+    throw new ApiError(
+      0,
+      `Não foi possível falar com a API em ${BASE_URL || "(mesma origem)"}. ` +
+        `Verifique se os contêineres estão rodando (docker compose ps) e se a API responde em ${
+          BASE_URL || "http://localhost:8000"
+        }/saude.`
+    );
+  }
+
+  if (resposta.status === 401 && !ehLogin) {
     limparToken();
     if (typeof window !== "undefined") window.location.href = "/login";
     throw new ApiError(401, "Sessão expirada");
