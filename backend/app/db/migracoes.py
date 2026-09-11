@@ -84,8 +84,17 @@ _INDICES: list[tuple[str, str]] = [
 ]
 
 # `ALTER TYPE` só faz sentido no PostgreSQL (SQLite guarda enum como texto).
+#
+# IMPORTANTE: o valor aqui precisa ser o *nome* do membro do Enum Python
+# (ex.: "AGUARDANDO"), não o `.value` ("aguardando"). O SQLAlchemy, ao mapear
+# um `enum.Enum` para uma coluna `Enum` nativa do PostgreSQL, grava e lê pelo
+# `.name` do membro por padrão (a menos que `values_callable` seja usado, o
+# que este projeto não faz). Usar o `.value` minúsculo aqui criava um rótulo
+# que o SQLAlchemy nunca consultava, e toda leitura/escrita de
+# `StatusExecucao.AGUARDANDO` falhava com
+# `invalid input value for enum statusexecucao: "AGUARDANDO"`.
 _TIPOS_ENUM_POR_TABELA: dict[str, str] = {
-    "statusexecucao": "aguardando",
+    "statusexecucao": "AGUARDANDO",
 }
 
 
