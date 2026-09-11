@@ -125,7 +125,11 @@ def solicitar_importacao(
 @router.post("/lote", response_model=list[ItemImportacaoLote])
 def solicitar_importacao_em_lote(
     tipo: TipoDocumentoFiscal,
-    competencia: str = Query(..., min_length=7, description="Obrigatória — MM/AAAA, ex.: 08/2026"),
+    competencia: str | None = Query(
+        default=None,
+        description="Opcional — MM/AAAA, ex.: 08/2026. Não filtra a descarga (a "
+        "distribuição anda por NSU); só registra o mês na execução.",
+    ),
     forcar: bool = False,
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),

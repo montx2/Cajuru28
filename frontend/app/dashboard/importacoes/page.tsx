@@ -150,7 +150,7 @@ function ConteudoImportacoes() {
         <div>
           <p className="font-serif text-2xl text-ink">Importações</p>
           <p className="mt-1 text-sm text-ink-muted">
-            As consultas só são iniciadas nesta aba, com competência obrigatória. Se a SEFAZ aplicar uma janela de espera, a execução já iniciada retoma sozinha na hora segura.
+            O sistema varre as empresas sozinho, dentro da janela oficial de 1h por CNPJ — você não precisa clicar. Use esta aba só para puxar uma competência específica na hora. Se a SEFAZ pedir espera (cStat 656), a execução retoma sozinha no horário certo; forçar antes zera o cronômetro.
           </p>
         </div>
         <Link

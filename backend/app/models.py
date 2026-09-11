@@ -74,7 +74,7 @@ class Empresa(Base):
     ativa: Mapped[bool] = mapped_column(Boolean, default=True)
     # Sincronização automática (Celery Beat). Com "sim", o sistema entra
     # sozinho no ADN/SEFAZ respeitando as janelas de consumo — nenhum clique.
-    sincronizar_automaticamente: Mapped[bool] = mapped_column(Boolean, default=False)
+    sincronizar_automaticamente: Mapped[bool] = mapped_column(Boolean, default=True)
     quais_tipos_sincronizar: Mapped[str] = mapped_column(String(30), default="nfse,nfe,cte")
 
     sincronizacoes: Mapped[list["SincronizacaoDFe"]] = relationship(

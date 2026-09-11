@@ -253,9 +253,12 @@ class ImportacaoSolicitar(BaseModel):
     tipo: TipoDocumentoFiscal
     forcar: bool = False  # pula a janela de consumo de 1h — usar com consciência
     # Competência desejada, ex.: "08/2026". Alternativa: data_inicio/data_fim.
-    # Ela não corta a descarga (a API oficial anda por NSU), mas registra o mês
-    # na execução, conta quantas notas caíram nele e pré-seleciona o download.
-    competencia: str
+    # Opcional de propósito: ela NÃO corta a descarga (a API oficial anda por
+    # NSU, não por data), então exigir competência só empurraria o operador a
+    # clicar mais — e clicar antes da janela de 1h é o que zera o cronômetro do
+    # 656. Quando informada, registra o mês na execução, conta quantas notas
+    # caíram nele e pré-seleciona o download.
+    competencia: str | None = None
     data_inicio: date | None = None
     data_fim: date | None = None
 
