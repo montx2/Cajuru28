@@ -8,8 +8,11 @@ services:
       POSTGRES_DB: notasflow
     volumes:
       - db_data:/var/lib/postgresql/data
+    # Porta do host configurável (arquivo .env na raiz). O INICIAR.bat/
+    # INSTALAR_TUDO já escolhem automaticamente uma porta livre quando a
+    # padrão está ocupada ou reservada (caso comum no Windows com Hyper-V).
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U notasflow -d notasflow"]
       interval: 5s
@@ -20,7 +23,7 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -38,7 +41,7 @@ services:
       redis:
         condition: service_healthy
     ports:
-      - "8000:8000"
+      - "${API_PORT:-8000}:8000"
     volumes:
       - ./backend:/app
       - certificados:/data/certificados
@@ -106,7 +109,20 @@ services:
       api:
         condition: service_healthy
     ports:
-      - "3000:3000"
+      - "${FRONTEND_PORT:-3000}:3000"
+    healthcheck:
+      # node:20-alpine não tem curl/wget confiáveis, mas tem fetch nativo.
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
 
 volumes:
   db_data:

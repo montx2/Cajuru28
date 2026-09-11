@@ -1,0 +1,10 @@
+# Não entra na imagem (o build fica menor e mais rápido; segredos ficam fora).
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+.env
+*.log

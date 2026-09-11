@@ -40,7 +40,17 @@ if errorlevel 1 (
 )
 
 echo.
-echo Pronto. Entre em http://localhost:3000 com a senha nova.
+
+REM Descobre a porta real do painel (pode ter sido trocada pelo INICIAR.bat
+REM quando a 3000 estava ocupada/reservada no Windows).
+set PORTA_PAINEL=3000
+if exist ".env" (
+  for /f "eol=# tokens=1,* delims==" %%A in (.env) do (
+    if /i "%%A"=="FRONTEND_PORT" set PORTA_PAINEL=%%B
+  )
+)
+
+echo Pronto. Entre em http://localhost:%PORTA_PAINEL% com a senha nova.
 goto FIM
 
 :FALTOU
