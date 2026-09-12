@@ -233,7 +233,9 @@ class ClienteJettax:
     def _requisitar(self, metodo: str, rota_ou_url: str, *, params: dict[str, Any] | None = None, json: dict[str, Any] | None = None) -> Any:
         cabecalhos = {
             "Authorization": self.token,
-            "Accept": "application/vnd.morfeu.v2+json, application/json",
+            # A coleção Morfeu não publica media type versionado. Pedir um
+            # "application/vnd.morfeu.v2+json" inexistente pode render 406.
+            "Accept": "application/json",
         }
         if self._client is not None:
             return self._tratar_resposta(self._client.request(metodo, self._url_segura(rota_ou_url), params=params, json=json, headers=cabecalhos))
@@ -259,7 +261,14 @@ class ClienteJettax:
             # host configurado, mesmo que o fornecedor responda Location.
             raise JettaxErro("A Jettax respondeu com redirecionamento inesperado.", categoria="protocolo", status_code=resposta.status_code)
         if resposta.status_code >= 400:
-            raise JettaxErro("A Jettax rejeitou a solicitação do conector.", categoria="rejeitada", status_code=resposta.status_code)
+            # O corpo remoto continua não sendo propagado (pode conter dado
+            # operacional), mas sem o status HTTP é impossível distinguir um
+            # 404 de rota/CNPJ de um 422 de payload durante o diagnóstico.
+            raise JettaxErro(
+                f"A Jettax rejeitou a solicitação do conector (HTTP {resposta.status_code}).",
+                categoria="rejeitada",
+                status_code=resposta.status_code,
+            )
         if not resposta.content:
             return {}
         try:
@@ -367,8 +376,11 @@ def carga_cliente(empresa: Empresa, configuracao: JettaxConfiguracaoEmpresa, *, 
         "codigo_ibge": codigo_ibge,
         "cnpj": cnpj,
         "ccm": ccm,
-        "baixar_nfes": bool(configuracao.baixar_nfes),
-        "baixar_nfes_enviadas": bool(configuracao.baixar_nfes_enviadas),
+        # A coleção Morfeu documenta estes campos como inteiros 1/0
+        # ("mandar 1 pra ativar a captura e 0 pra desativar"), não como
+        # booleanos JSON. Enviar true/false faz a API rejeitar o cadastro.
+        "baixar_nfes": 1 if configuracao.baixar_nfes else 0,
+        "baixar_nfes_enviadas": 1 if configuracao.baixar_nfes_enviadas else 0,
     }
     if certificado_base64 is not None and senha_certificado is not None:
         resultado["digital_certificate"] = certificado_base64

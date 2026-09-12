@@ -261,9 +261,12 @@ def test_registro_remoto_tem_corpo_documentado_sem_revelar_segredo(cliente_api):
         "codigo_ibge": "3133808",
         "cnpj": CNPJ,
         "ccm": "CCM-42",
-        "baixar_nfes": True,
-        "baixar_nfes_enviadas": False,
+        # A coleção Morfeu especifica inteiros 1/0, não booleanos JSON.
+        "baixar_nfes": 1,
+        "baixar_nfes_enviadas": 0,
     }
+    assert corpo_enviado["baixar_nfes"] is not True
+    assert isinstance(corpo_enviado["baixar_nfes"], int)
     assert TOKEN not in resposta.text
     assert "digital_certificate" not in corpo_enviado
 
