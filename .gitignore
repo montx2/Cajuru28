@@ -41,3 +41,6 @@ npm-debug.log*
 
 # Docker
 *.log
+
+# venv local de diagnóstico
+backend/.venv/
