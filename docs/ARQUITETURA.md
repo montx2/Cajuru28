@@ -9,6 +9,7 @@ Navegador -> Frontend Next.js -> API FastAPI -> PostgreSQL
                                              Celery Beat
                                   |
                                   +-> ADN / SEFAZ (mTLS)
+                                  +-> Jettax 360 / Morfeu (token de deploy)
 ```
 
 ## Serviços
@@ -24,6 +25,10 @@ Navegador -> Frontend Next.js -> API FastAPI -> PostgreSQL
 
 Os certificados e XMLs ficam em volumes separados. O backend nunca grava a
 senha do certificado em texto puro; ela é protegida pelo cofre Fernet.
+
+A Jettax/Morfeu é um adaptador complementar, com token somente no ambiente do
+servidor e cursores próprios: ele não divide estado NSU com ADN/SEFAZ. A
+operação e os limites do conector estão em [`JETTAX.md`](JETTAX.md).
 
 ## Operação
 

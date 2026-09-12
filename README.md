@@ -47,6 +47,11 @@ uma **ferramenta de operação fiscal para um único operador**:
 - **Alertas externos:** webhook JSON para Slack, Discord, n8n ou gateway
   WhatsApp.
 - **Trilha de auditoria** e **métricas Prometheus** (`GET /metricas`).
+- **Jettax 360/Morfeu (opcional):** conector backend-first, com token em
+  segredo de deploy, registro explícito de clientes, saúde/auditoria,
+  deduplicação por fonte e captura de NFS-e/NF-e pelos contratos públicos
+  verificados (CT-e permanece protegido por contrato ainda incompleto). Veja
+  [`docs/JETTAX.md`](docs/JETTAX.md).
 
 ## Arquitetura
 

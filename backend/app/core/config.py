@@ -43,6 +43,18 @@ class Settings(BaseSettings):
     # Ambiente fiscal dos importadores: "producao" | "homologacao"
     ambiente_fiscal: str = "producao"
 
+    # ---------------- Jettax 360 / Morfeu ----------------
+    # O token é um segredo de infraestrutura: configure JETTAX_API_TOKEN no
+    # gerenciador de segredos/ambiente do deploy, nunca em uma tela, arquivo
+    # versionado ou chamada de API. Vazio mantém o conector desativado.
+    jettax_api_base_url: str = "https://morfeu-api.jettax.com.br"
+    jettax_api_token: str = ""
+    jettax_timeout_segundos: float = 30.0
+    jettax_max_paginas_por_execucao: int = 50
+    # URL secreta para receber os eventos cuja entrega a Jettax configurar.
+    # O segredo é parte do caminho e nunca é devolvido pela API.
+    jettax_webhook_secret: str = ""
+
     # ---------------- Consumo consciente (regras SEFAZ/ADN) ----------------
     # Regra oficial: depois de "nada novo" (cStat 137), aguardar 1 hora.
     cooldown_horas: int = 1

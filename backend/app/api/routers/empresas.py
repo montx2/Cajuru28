@@ -27,9 +27,12 @@ from app.db.session import get_db
 from app.models import (
     Certificado,
     DocumentoFiscal,
+    DocumentoFiscalFonte,
     Empresa,
     EventoFiscalPendente,
     ExecucaoImportacao,
+    JettaxConfiguracaoEmpresa,
+    JettaxExecucao,
     SincronizacaoDFe,
     StatusExecucao,
     Usuario,
@@ -119,7 +122,13 @@ def _completar_dados_empresa(dados: EmpresaCriar) -> dict:
             detail="Não foi possível identificar a UF automaticamente. Informe a UF manualmente.",
         )
 
-    return {"razao_social": razao[:255], "cnpj_cpf": documento, "uf": uf}
+    return {
+        "razao_social": razao[:255],
+        "cnpj_cpf": documento,
+        "uf": uf,
+        "codigo_ibge": dados.codigo_ibge,
+        "inscricao_municipal": dados.inscricao_municipal,
+    }
 
 
 @router.get("", response_model=list[EmpresaResposta])
@@ -272,7 +281,14 @@ def excluir_empresa(
     # Ordem explícita para funcionar igualmente em SQLite e PostgreSQL, sem
     # depender de cascatas configuradas no banco instalado.
     db.query(EventoFiscalPendente).filter_by(empresa_id=empresa.id).delete(synchronize_session=False)
+    # Exclusão local jamais chama DELETE /api/clients: a Jettax documenta que
+    # esse DELETE também apaga as notas remotas, então só o operador pode fazer
+    # isso conscientemente fora deste fluxo.
+    ids_documentos = db.query(DocumentoFiscal.id).filter_by(empresa_id=empresa.id).subquery()
+    db.query(DocumentoFiscalFonte).filter(DocumentoFiscalFonte.documento_id.in_(ids_documentos)).delete(synchronize_session=False)
     db.query(DocumentoFiscal).filter_by(empresa_id=empresa.id).delete(synchronize_session=False)
+    db.query(JettaxExecucao).filter_by(empresa_id=empresa.id).delete(synchronize_session=False)
+    db.query(JettaxConfiguracaoEmpresa).filter_by(empresa_id=empresa.id).delete(synchronize_session=False)
     db.query(ExecucaoImportacao).filter_by(empresa_id=empresa.id).delete(synchronize_session=False)
     db.query(SincronizacaoDFe).filter_by(empresa_id=empresa.id).delete(synchronize_session=False)
     db.query(Certificado).filter_by(empresa_id=empresa.id).delete(synchronize_session=False)
