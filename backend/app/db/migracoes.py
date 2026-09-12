@@ -65,12 +65,18 @@ _COLUNAS_POR_TABELA: dict[str, list[tuple[str, str]]] = {
     ],
     "usuarios": [
         ("papel", "VARCHAR(20) NOT NULL DEFAULT 'admin'"),
+        ("versao_sessao", "INTEGER NOT NULL DEFAULT 1"),
     ],
     "certificados": [
         # Telemetria de uso do A1 — alimenta o centro de certificados.
         ("ultima_utilizacao_em", "TIMESTAMP WITH TIME ZONE"),
         ("ultima_validacao_em", "TIMESTAMP WITH TIME ZONE"),
         ("ultimo_erro", "TEXT"),
+    ],
+    "backups": [
+        ("checksum_sha256", "VARCHAR(64)"),
+        ("objeto_remoto", "VARCHAR(700)"),
+        ("arquivos_incluidos", "INTEGER NOT NULL DEFAULT 0"),
     ],
 }
 

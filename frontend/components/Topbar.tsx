@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
-import { limparToken } from "@/lib/auth";
 import { limparCachePapel } from "@/lib/papel";
 import { iniciais } from "@/lib/format";
 import type { AlertasResposta, UsuarioAtual } from "@/lib/types";
@@ -198,10 +197,13 @@ export function Topbar({ aoAbrirMenu }: { aoAbrirMenu: () => void }) {
               </Link>
               <button
                 type="button"
-                onClick={() => {
-                  limparToken();
-                  limparCachePapel();
-                  router.push("/login");
+                onClick={async () => {
+                  try {
+                    await api.logout();
+                  } finally {
+                    limparCachePapel();
+                    router.push("/login");
+                  }
                 }}
                 className="flex w-full items-center gap-2.5 border-t border-line px-4 py-3 text-sm font-bold text-danger transition-colors hover:bg-danger-soft/60"
               >

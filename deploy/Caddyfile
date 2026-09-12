@@ -1,0 +1,43 @@
+{
+	# Caddy obtains/renews public TLS certificates for this exact domain.
+	email {$ACME_EMAIL}
+}
+
+{$NOTASFLOW_DOMAIN} {
+	encode zstd gzip
+
+	# Headers apply to both the browser application and API. The API itself adds
+	# an intentionally stricter CSP (`default-src 'none'`) to /api responses.
+	header {
+		-Server
+		-X-Powered-By
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	}
+
+	# One browser origin: credentials stay an HttpOnly same-origin cookie.
+	# Override instead of appending forwarding headers, so an Internet client
+	# cannot choose the IP key used by the API rate limiter.
+	@api path /api/*
+	handle @api {
+		uri strip_prefix /api
+		# A1 aceito pela aplicação: até 30 MiB; margem cobre multipart. O proxy
+		# corta corpos maiores antes de encaminhá-los ao processo Python.
+		request_body {
+			max_size 35MB
+		}
+		reverse_proxy api:8000 {
+			header_up Host {host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Host {host}
+			header_up X-Forwarded-Proto https
+		}
+	}
+
+	handle {
+		reverse_proxy frontend:3000
+	}
+}

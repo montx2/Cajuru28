@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
-import { salvarToken } from "@/lib/auth";
 import { Icone, Logomarca } from "@/components/icons";
 
 const PONTOS = [
@@ -24,8 +23,8 @@ export default function LoginPage() {
     setErro(null);
     setEnviando(true);
     try {
-      const { access_token } = await api.login(email, senha);
-      salvarToken(access_token);
+      await api.login(email, senha);
+      // A API gravou uma sessão HttpOnly; nenhum token passa pelo JavaScript.
       router.push("/dashboard");
     } catch (e) {
       setErro(e instanceof ApiError ? e.message : "Não foi possível entrar. Tente novamente.");

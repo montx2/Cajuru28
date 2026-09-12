@@ -23,6 +23,7 @@ Esta é a dúvida mais comum. O código e os dados moram em lugares diferentes:
 | Volume `db_data` | Banco: empresas, notas, usuários | **Intacto** |
 | Volume `certificados` | Certificados A1 | **Intacto** |
 | Volume `xml_saida` | XMLs baixados | **Intacto** |
+| Volume `backups_local` | Pacotes cifrados de recuperação | **Intacto** |
 | `backend/.env` | Suas chaves e senhas | **Intacto** (não vai para o Git) |
 
 Volumes Docker são independentes dos contêineres. Atualizar destrói e recria
@@ -41,6 +42,19 @@ O passo 2 aproveita o cache do Docker: se as dependências não mudaram, ele
 não baixa nada de novo. Por isso é rápido, diferente da primeira instalação.
 
 As migrações do banco rodam sozinhas quando a API sobe.
+
+### Atualização de segurança: chave de backup
+
+Se o seu `backend/.env` foi criado antes dos pacotes cifrados, acrescente uma
+chave **nova e distinta** sem trocar `VAULT_MASTER_KEY`:
+
+```bash
+python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+Guarde o resultado no cofre e adicione `BACKUP_ENCRYPTION_KEY=RESULTADO` ao
+arquivo. O sistema não gera backup em claro quando essa chave falta; ele mostra
+o erro na Saúde até a configuração ser concluída.
 
 ---
 

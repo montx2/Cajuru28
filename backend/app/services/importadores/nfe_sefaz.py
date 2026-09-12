@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
+from app.core.documentos import normalizar_documento
 from app.services.importadores._distribuicao_dfe import (
     CODIGO_IBGE_POR_UF,
     CSTAT_DOCUMENTOS_LOCALIZADOS,
@@ -248,10 +249,16 @@ class ImportadorNFeSEFAZ(ImportadorFiscal):
         except ValueError:
             valor_total = 0.0
 
-        cnpj_limpo = "".join(c for c in cnpj_consultado if c.isdigit())
-        emit_limpo = "".join(c for c in (metadados.get("emit_doc") or "") if c.isdigit())
+        try:
+            cnpj_canonico = normalizar_documento(cnpj_consultado)
+        except ValueError:
+            cnpj_canonico = str(cnpj_consultado or "").strip().upper()
+        try:
+            emit_canonico = normalizar_documento(metadados.get("emit_doc") or "")
+        except ValueError:
+            emit_canonico = str(metadados.get("emit_doc") or "").strip().upper()
         direcao = "tomada"
-        if emit_limpo and emit_limpo == cnpj_limpo:
+        if emit_canonico and emit_canonico == cnpj_canonico:
             direcao = "prestada"
 
         data_emissao = metadados.get("data_emissao") or texto(raiz, "dRec") or ""

@@ -1,0 +1,184 @@
+# Produção: não use `docker-compose.yml` (desenvolvimento local).
+# Antes de subir, copie deploy/*.env.example para deploy/*.env, preencha em um
+# secret manager/arquivo 0600 e execute:
+#   docker compose -f docker-compose.production.yml --env-file deploy/production.proxy.env up -d --build
+# A API, banco e Redis não publicam portas; somente Caddy recebe a Internet.
+
+services:
+  # Named volumes nascem como root. Este job curto prepara exclusivamente os
+  # diretórios persistentes para o UID não privilegiado da aplicação; API e
+  # workers nunca precisam rodar como root para gravar XML/PFX/backups.
+  volume-init:
+    build:
+      context: ./backend
+      target: runtime
+    user: "0:0"
+    restart: "no"
+    command:
+      ["sh", "-ec", "mkdir -p /data/certificados /data/xml /data/beat /backups && chown -R 10001:10001 /data /backups"]
+    volumes:
+      - certificados:/data/certificados
+      - xml_saida:/data/xml
+      - backups:/backups
+      - beat_state:/data/beat
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file: ./deploy/production.database.env
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks: [app_net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U notasflow -d notasflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    security_opt: ["no-new-privileges:true"]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    env_file: ./deploy/production.redis.env
+    command: ["sh", "-ec", "exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
+    volumes:
+      - redis_data:/data
+    networks: [app_net]
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -qx PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+
+  api:
+    build:
+      context: ./backend
+      target: runtime
+    restart: unless-stopped
+    init: true
+    env_file: ./deploy/production.app.env
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+    depends_on:
+      volume-init: { condition: service_completed_successfully }
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    volumes:
+      # Persistência compartilhada de objetos fiscais: API e workers usam a
+      # mesma árvore, sem bind mount do código ou diretório do host.
+      - certificados:/data/certificados
+      - xml_saida:/data/xml
+      - backups:/backups
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m
+    read_only: true
+    networks: [app_net]
+    healthcheck:
+      # A API aceita apenas host público e `api` interno; força o segundo para
+      # que TrustedHost não recuse o probe loopback.
+      test: ["CMD", "python", "-c", "import urllib.request; r=urllib.request.Request('http://127.0.0.1:8000/saude', headers={'Host':'api'}); urllib.request.urlopen(r, timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 25s
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+
+  worker:
+    build:
+      context: ./backend
+      target: runtime
+    restart: unless-stopped
+    init: true
+    env_file: ./deploy/production.app.env
+    command: ["celery", "-A", "app.worker.celery_app", "worker", "--loglevel=warning", "--concurrency=4"]
+    depends_on:
+      volume-init: { condition: service_completed_successfully }
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    volumes:
+      - certificados:/data/certificados
+      - xml_saida:/data/xml
+      - backups:/backups
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=512m
+    read_only: true
+    networks: [app_net]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+
+  beat:
+    build:
+      context: ./backend
+      target: runtime
+    restart: unless-stopped
+    init: true
+    env_file: ./deploy/production.app.env
+    command: ["celery", "-A", "app.worker.celery_app", "beat", "--loglevel=warning", "--schedule=/data/beat/celerybeat-schedule"]
+    depends_on:
+      volume-init: { condition: service_completed_successfully }
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    volumes:
+      - beat_state:/data/beat
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m
+    read_only: true
+    networks: [app_net]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+
+  frontend:
+    # Imagem oficial Node fornece o usuário não privilegiado `node`.
+    user: "node"
+    build:
+      context: ./frontend
+      args:
+        # Caddy remove /api antes de encaminhar à FastAPI; o browser nunca
+        # precisa conhecer host/porta interna e o cookie é same-origin.
+        NEXT_PUBLIC_API_URL: /api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+    depends_on:
+      api: { condition: service_healthy }
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    networks: [app_net]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    env_file: ./deploy/production.proxy.env
+    depends_on:
+      frontend: { condition: service_started }
+      api: { condition: service_healthy }
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [app_net]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    cap_add: ["NET_BIND_SERVICE"]
+
+networks:
+  app_net:
+    driver: bridge
+
+volumes:
+  db_data:
+  redis_data:
+  certificados:
+  xml_saida:
+  backups:
+  beat_state:
+  caddy_data:
+  caddy_config:

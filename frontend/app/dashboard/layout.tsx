@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { obterToken } from "@/lib/auth";
 import { Sidebar } from "@/components/Sidebar";
 import { Topbar } from "@/components/Topbar";
 import { ProvedorToast } from "@/components/Toast";
+import { api } from "@/lib/api";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -13,11 +13,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [menuAberto, setMenuAberto] = useState(false);
 
   useEffect(() => {
-    if (!obterToken()) {
-      router.replace("/login");
-    } else {
-      setAutorizado(true);
-    }
+    let ativo = true;
+    // O cookie é HttpOnly, logo a única forma correta de conhecer a sessão é
+    // perguntar à API. Isso também valida revogação e versão de sessão.
+    api.quemSouEu()
+      .then(() => ativo && setAutorizado(true))
+      .catch(() => router.replace("/login"));
+    return () => { ativo = false; };
   }, [router]);
 
   if (!autorizado) return null;

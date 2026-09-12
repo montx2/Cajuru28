@@ -1,37 +1,27 @@
-"""
-Backup de verdade: o pacote que reconstrói o sistema num servidor novo.
+"""Backup recuperável: banco, XMLs, certificados, integridade e cópia externa.
 
-"Exportar banco" não é backup. Um backup aqui é:
-
-1. **dump lógico do banco** (JSONL compactado, uma linha por registro, na
-   ordem de dependência das tabelas) — restaurável em qualquer banco que o
-   SQLAlchemy crie, sem depender de binários do PostgreSQL no container;
-2. **pg_dump** adicional quando o binário existe (bônus canônico em produção);
-3. **manifesto.json** com data, versão e contagens de tudo que entrou;
-4. **espelho vivo dos XMLs e certificados** (cópia incremental — só o que
-   mudou desde o último backup), porque o dump do banco não carrega os
-   arquivos fiscais em si;
-5. **retenção**: além de N pacotes, os mais antigos são apagados.
-
-E o que separa este módulo de um "export": o **teste de restauração**. Ele
-extrai o pacote, recria o schema num banco temporário, recarrega todos os
-registros e confere as contagens contra o manifesto. Backup que nunca foi
-restaurado é esperança, não plano — então o teste é um clique na tela, e a
-data da última passagem fica visível na saúde do sistema.
+Cada execução gera uma única unidade de recuperação: dump lógico, pg_dump
+quando disponível, todos os objetos fiscais, manifesto com hashes e pacote
+cifrado. Em produção o pacote só é marcado como concluído depois da confirmação
+no bucket S3 compatível configurado no secret manager.
 """
 
 from __future__ import annotations
 
 import gzip
+import hashlib
 import json
 import logging
+import os
 import shutil
 import subprocess
 import tarfile
 import tempfile
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
+from cryptography.fernet import Fernet, MultiFernet
 from sqlalchemy import func, insert, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
@@ -41,9 +31,6 @@ from app.db.base import Base
 from app.models import BackupRegistro, StatusBackup
 
 log = logging.getLogger("notasflow.backup")
-
-# Tabelas cujo conteúdo NÃO entra no dump: o backup não deve crescer com
-# estado transitório de processo (batimento é telemetria do momento).
 _TABELAS_IGNORADAS = {"batimentos_sistema"}
 
 
@@ -52,24 +39,23 @@ def _agora() -> datetime:
 
 
 def _pasta_backups() -> Path:
-    return Path(settings.dados_dir) / "backups"
+    return settings.pasta_backup
 
 
-def _serializar_valor(valor):
+def _serializar_valor(valor: Any):
+    """Transforma valores SQLAlchemy em JSON sem perder datas/decimais/enums."""
     if valor is None:
         return None
-    if isinstance(valor, datetime):
+    if isinstance(valor, (datetime, date)):
         return valor.isoformat()
     if isinstance(valor, (str, int, float, bool)):
         return valor
-    return str(valor)  # enum, date e afins
+    # Enum, Decimal e UUID têm representação textual estável para o dump.
+    return str(getattr(valor, "value", valor))
 
 
 def _dump_logico(db: Session, caminho: Path) -> dict[str, int]:
-    """Dump JSONL de todas as tabelas, na ordem de dependência do metadata."""
     contagens: dict[str, int] = {}
-    # O bind da sessão do chamador — nunca um engine global: o backup deve
-    # enxergar exatamente o banco que a requisição está usando.
     bind = db.get_bind()
     with gzip.open(caminho, "wt", encoding="utf-8") as arquivo:
         for tabela in Base.metadata.sorted_tables:
@@ -98,69 +84,140 @@ def _pg_dump_disponivel() -> bool:
 
 
 def _dump_postgres(caminho: Path) -> bool:
-    """Tenta o dump canônico do PostgreSQL (requer pg_dump no container)."""
     if not _pg_dump_disponivel():
         return False
-    url = settings.database_url
-    # postgresql:// → postgresql:// já serve ao pg_dump; esconder eco de senha
-    # em log não é necessário: nada aqui é impresso.
     try:
+        # A URL nunca entra em log. Em produção o processo roda isolado e o
+        # segredo vem do ambiente protegido do container.
         with gzip.open(caminho, "wb") as arquivo:
-            processo = subprocess.run(  # noqa: S603 — binário conhecido, sem shell
-                ["pg_dump", "--no-owner", "--no-privileges", url],
+            processo = subprocess.run(
+                ["pg_dump", "--no-owner", "--no-privileges", settings.database_url],
                 stdout=arquivo,
                 stderr=subprocess.PIPE,
                 timeout=1800,
                 check=False,
             )
         if processo.returncode != 0:
-            log.warning("pg_dump falhou (%s); ficamos com o dump lógico.", processo.stderr[:200])
+            log.warning("pg_dump falhou; dump lógico será preservado.")
             return False
         return True
-    except Exception as exc:  # noqa: BLE001 — dump lógico já cobre o caso
-        log.warning("pg_dump indisponível: %s", exc)
+    except Exception:  # noqa: BLE001 - há fallback lógico verificável
+        log.warning("pg_dump indisponível; dump lógico será preservado.")
         return False
 
 
-def _espelhar(origem: Path, destino: Path, desde: datetime | None) -> int:
-    """Copia para `destino` os arquivos de `origem` novos/alterados desde `desde`."""
+def _sha256(caminho: Path) -> str:
+    digest = hashlib.sha256()
+    with caminho.open("rb") as arquivo:
+        for bloco in iter(lambda: arquivo.read(1024 * 1024), b""):
+            digest.update(bloco)
+    return digest.hexdigest()
+
+
+def _descricao_arquivo(caminho: Path, *, relativo_a: Path) -> dict[str, Any]:
+    """Entrada do manifesto para qualquer payload guardado no pacote."""
+    return {
+        "path": str(caminho.relative_to(relativo_a)).replace(os.sep, "/"),
+        "bytes": caminho.stat().st_size,
+        "sha256": _sha256(caminho),
+    }
+
+
+def _copiar_arvore(origem: Path, destino: Path) -> list[dict[str, Any]]:
+    """Copia objetos para a unidade de backup e devolve hashes relativos."""
+    arquivos: list[dict[str, Any]] = []
     if not origem.exists():
-        return 0
-    copiados = 0
-    for caminho in origem.rglob("*"):
+        return arquivos
+    for caminho in sorted(origem.rglob("*")):
         if not caminho.is_file():
             continue
-        if desde is not None:
-            try:
-                mtime = datetime.fromtimestamp(caminho.stat().st_mtime, tz=timezone.utc)
-                if mtime <= desde:
-                    continue
-            except OSError:
-                continue
-        alvo = destino / caminho.relative_to(origem)
+        relativo = caminho.relative_to(origem)
+        alvo = destino / relativo
         alvo.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(caminho, alvo)
-        copiados += 1
-    return copiados
+        arquivos.append(_descricao_arquivo(alvo, relativo_a=destino))
+    return arquivos
 
 
-def _ultimo_backup_ok_em(db: Session) -> datetime | None:
-    registro = (
-        db.query(BackupRegistro)
-        .filter(BackupRegistro.status == StatusBackup.OK)
-        .order_by(BackupRegistro.id.desc())
-        .first()
-    )
-    if registro is None or registro.finalizado_em is None:
+def _fernet_backup(*, incluir_anteriores: bool = False) -> Fernet | MultiFernet:
+    chave = (settings.backup_encryption_key or "").strip()
+    if not chave:
+        raise RuntimeError("BACKUP_ENCRYPTION_KEY é necessária para gerar backup cifrado.")
+    chaves = [Fernet(chave.encode())]
+    if incluir_anteriores:
+        for anterior in settings.backup_previous_encryption_keys.split(","):
+            if anterior.strip():
+                chaves.append(Fernet(anterior.strip().encode()))
+    return MultiFernet(chaves) if len(chaves) > 1 else chaves[0]
+
+
+def _cifrar_pacote(pacote: Path) -> Path:
+    fernet = _fernet_backup()
+    cifrado = pacote.with_suffix(pacote.suffix + ".enc")
+    with pacote.open("rb") as origem, cifrado.open("wb") as destino:
+        destino.write(fernet.encrypt(origem.read()))
+        destino.flush()
+        os.fsync(destino.fileno())
+    os.chmod(cifrado, 0o600)
+    pacote.unlink()
+    return cifrado
+
+
+def _decifrar_pacote(pacote: Path, destino: Path) -> Path:
+    if pacote.suffix != ".enc":
+        return pacote
+    try:
+        conteudo = _fernet_backup(incluir_anteriores=True).decrypt(pacote.read_bytes())
+    except Exception as exc:  # noqa: BLE001 - token inválido/chave ausente não é restaurável
+        raise ValueError("Não foi possível decifrar o pacote com as chaves de backup configuradas.") from exc
+    destino.write_bytes(conteudo)
+    return destino
+
+
+def _chave_remota(nome_arquivo: str) -> str:
+    prefixo = (settings.backup_s3_prefix or "notasflow").strip().strip("/")
+    return f"{prefixo}/{nome_arquivo}" if prefixo else nome_arquivo
+
+
+def _enviar_para_s3(pacote: Path, checksum: str) -> str | None:
+    """Envia e confirma tamanho/hash no storage S3; não registra credenciais."""
+    bucket = (settings.backup_s3_bucket or "").strip()
+    if not bucket:
         return None
-    visto = registro.finalizado_em
-    return visto if visto.tzinfo else visto.replace(tzinfo=timezone.utc)
+    try:
+        import boto3
+
+        kwargs: dict[str, Any] = {"region_name": settings.backup_s3_region or None}
+        if settings.backup_s3_endpoint_url:
+            kwargs["endpoint_url"] = settings.backup_s3_endpoint_url
+        if settings.backup_s3_access_key_id:
+            kwargs["aws_access_key_id"] = settings.backup_s3_access_key_id
+        if settings.backup_s3_secret_access_key:
+            kwargs["aws_secret_access_key"] = settings.backup_s3_secret_access_key
+        cliente = boto3.client("s3", **kwargs)
+        chave = _chave_remota(pacote.name)
+        extra: dict[str, Any] = {
+            "Metadata": {"sha256": checksum, "app": "notasflow"},
+            "ServerSideEncryption": "aws:kms" if settings.backup_s3_kms_key_id else "AES256",
+        }
+        if settings.backup_s3_kms_key_id:
+            extra["SSEKMSKeyId"] = settings.backup_s3_kms_key_id
+        cliente.upload_file(str(pacote), bucket, chave, ExtraArgs=extra)
+        cabeca = cliente.head_object(Bucket=bucket, Key=chave)
+        if int(cabeca.get("ContentLength", -1)) != pacote.stat().st_size:
+            raise RuntimeError("o tamanho remoto não confere")
+        if (cabeca.get("Metadata", {}).get("sha256") or "").lower() != checksum.lower():
+            raise RuntimeError("o hash remoto não confere")
+        return f"s3://{bucket}/{chave}"
+    except Exception as exc:  # noqa: BLE001 - não ecoar endpoint/credenciais
+        raise RuntimeError("Não foi possível confirmar o backup no storage externo.") from exc
 
 
 def _aplicar_retencao(pasta: Path) -> int:
-    """Mantém apenas os N pacotes mais recentes; devolve quantos removeu."""
     pacotes = sorted(
-        pasta.glob("backup-*.tar.gz"), key=lambda p: p.stat().st_mtime, reverse=True
+        [*pasta.glob("backup-*.tar.gz"), *pasta.glob("backup-*.tar.gz.enc")],
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
     )
     removidos = 0
     for pacote in pacotes[max(0, settings.backup_retencao) :]:
@@ -168,23 +225,11 @@ def _aplicar_retencao(pasta: Path) -> int:
             pacote.unlink()
             removidos += 1
         except OSError:
-            pass
+            log.warning("Não foi possível aplicar retenção local de backup.")
     return removidos
 
 
-def executar_backup(
-    db: Session, tipo: str = "agendado", registro_id: int | None = None
-) -> BackupRegistro:
-    """
-    Roda o backup completo e devolve o registro correspondente.
-
-    `registro_id` permite reaproveitar a linha já criada pelo endpoint manual
-    (a UI mostra "em andamento" no instante do clique, não depois).
-
-    Levanta exceção só em falha catastrófica (sem disco, sem permissão);
-    o registro com status=erro é o caminho normal de "tentou e falhou" —
-    o painel precisa mostrar isso, não engolir.
-    """
+def executar_backup(db: Session, *, tipo: str = "agendado", registro_id: int | None = None) -> BackupRegistro:
     if registro_id is not None:
         registro = db.get(BackupRegistro, registro_id)
         if registro is None:
@@ -198,88 +243,88 @@ def executar_backup(
 
     pasta = _pasta_backups()
     pasta.mkdir(parents=True, exist_ok=True)
-    # Milissegundos no nome: dois backups no mesmo segundo (teste, disparo
-    # manual em cima do agendado) nunca se sobrescrevem.
-    agora_inicio = _agora()
-    rotulo = agora_inicio.strftime("%Y%m%d-%H%M%S") + f"-{agora_inicio.microsecond // 1000:03d}"
-    nome_pacote = pasta / f"backup-{rotulo}.tar.gz"
+    os.chmod(pasta, 0o700)
+    inicio = _agora()
+    rotulo = inicio.strftime("%Y%m%d-%H%M%S") + f"-{inicio.microsecond // 1000:03d}"
+    pacote_base = pasta / f"backup-{rotulo}.tar.gz"
 
     try:
         with tempfile.TemporaryDirectory(dir=pasta, prefix="tmp-") as temporaria:
             trabalho = Path(temporaria)
-
-            # 1. Dump lógico (sempre — é o formato que o teste de restauração lê).
             contagens = _dump_logico(db, trabalho / "banco.jsonl.gz")
-
-            # 2. pg_dump quando disponível (cópia canônica adicional).
             tem_pg_dump = _dump_postgres(trabalho / "banco.sql.gz")
 
-            # 3. Manifesto: o que entrou, quando, e com que versão.
-            total_registros = sum(contagens.values())
+            arquivos_xml = _copiar_arvore(Path(settings.dados_dir) / "xml", trabalho / "objetos" / "xml")
+            arquivos_cert = _copiar_arvore(
+                Path(settings.dados_dir) / "certificados", trabalho / "objetos" / "certificados"
+            )
+            payloads = [_descricao_arquivo(trabalho / "banco.jsonl.gz", relativo_a=trabalho)]
+            if tem_pg_dump:
+                payloads.append(_descricao_arquivo(trabalho / "banco.sql.gz", relativo_a=trabalho))
             manifesto = {
+                "versao": 2,
                 "criado_em": _agora().isoformat(),
                 "tipo": tipo,
                 "formato_logico": "jsonl",
                 "pg_dump": tem_pg_dump,
                 "contagens": contagens,
-                "total_registros": total_registros,
+                "total_registros": sum(contagens.values()),
+                # Todo payload recuperável tem tamanho e SHA-256; o checksum
+                # externo do pacote protege inclusive este manifesto.
+                "payloads": payloads,
+                "objetos": {"xml": arquivos_xml, "certificados": arquivos_cert},
                 "app": "notasflow",
             }
             (trabalho / "manifesto.json").write_text(
                 json.dumps(manifesto, ensure_ascii=False, indent=2), encoding="utf-8"
             )
-
-            # 4. Pacote final.
-            with tarfile.open(nome_pacote, "w:gz") as tar:
+            with tarfile.open(pacote_base, "w:gz") as tar:
                 for item in sorted(trabalho.iterdir()):
                     tar.add(item, arcname=item.name)
 
-        # 5. Espelho vivo dos arquivos (fora do pacote — sempre atual).
-        desde = _ultimo_backup_ok_em(db)
-        dados = Path(settings.dados_dir)
-        xmls = _espelhar(dados / "xml", pasta / "espelho-xml", desde)
-        certificados = _espelhar(
-            dados / "certificados", pasta / "espelho-certificados", desde
-        )
+        pacote = _cifrar_pacote(pacote_base)
+        checksum = _sha256(pacote)
+        remoto = _enviar_para_s3(pacote, checksum)
+        if settings.em_producao and not remoto:
+            raise RuntimeError("Backup externo não foi confirmado.")
 
         registro.status = StatusBackup.OK
         registro.finalizado_em = _agora()
-        registro.tamanho_bytes = nome_pacote.stat().st_size
-        registro.caminho = str(nome_pacote)
+        registro.tamanho_bytes = pacote.stat().st_size
+        registro.caminho = str(pacote)
+        registro.checksum_sha256 = checksum
+        registro.objeto_remoto = remoto
+        registro.arquivos_incluidos = len(arquivos_xml) + len(arquivos_cert)
         registro.empresas = contagens.get("empresas", 0)
         registro.documentos = contagens.get("documentos_fiscais", 0)
         registro.execucoes = contagens.get("execucoes_importacao", 0)
         registro.detalhe = (
-            f"{total_registros} registros · {len(contagens)} tabelas"
-            + (f" · pg_dump incluído" if tem_pg_dump else "")
-            + f" · espelho: {xmls} XML(s), {certificados} certificado(s) novos"
+            f"{sum(contagens.values())} registros · {registro.arquivos_incluidos} objetos com hash"
+            + (" · pg_dump incluído" if tem_pg_dump else "")
+            + (" · cópia externa confirmada" if remoto else " · cópia local (desenvolvimento)")
         )
         registro.erro = None
         db.commit()
-
-        removidos = _aplicar_retencao(pasta)
-        if removidos:
-            log.info("Retenção apagou %d backup(s) antigo(s).", removidos)
-
-    except Exception as exc:  # noqa: BLE001 — falha vira registro visível, não stacktrace
+        _aplicar_retencao(pasta)
+    except Exception as exc:  # noqa: BLE001
+        # Nunca abandona um pacote em claro caso a cifra/configuração falhe.
+        # Se a falha ocorreu depois da cifra (ex.: confirmação S3), o `.enc`
+        # fica preservado para investigação/recuperação manual, nunca o bruto.
+        try:
+            pacote_base.unlink(missing_ok=True)
+        except OSError:
+            pass
         db.rollback()
         registro = db.get(BackupRegistro, registro.id)
         registro.status = StatusBackup.ERRO
         registro.finalizado_em = _agora()
-        registro.erro = str(exc)[:2000]
+        registro.erro = str(exc)[:500]
         db.commit()
         log.exception("Backup %s falhou", rotulo)
-
     return registro
 
 
-# ---------------------------------------------------------------------------
-# Teste de restauração — a parte que transforma backup em plano
-# ---------------------------------------------------------------------------
-
-
 def _desserializar(tabela, dados: dict):
-    """Converte uma linha do JSONL de volta em valores aceitos pelo insert."""
     valores = {}
     for coluna in tabela.columns:
         if coluna.name not in dados:
@@ -292,131 +337,173 @@ def _desserializar(tabela, dados: dict):
     return valores
 
 
-def testar_restauracao(db: Session, backup_id: int) -> tuple[bool, str]:
-    """
-    Extrai o pacote, recria o schema num banco temporário, recarrega os
-    registros e confere as contagens contra o manifesto.
+def _verificar_arquivos(pasta: Path, arquivos: list[dict[str, Any]], *, rotulo: str = "") -> list[str]:
+    """Confere presença, tamanho e hash antes que algo seja restaurado."""
+    erros: list[str] = []
+    raiz = pasta.resolve()
+    for item in arquivos:
+        relativo = Path(str(item.get("path") or ""))
+        caminho = (pasta / relativo).resolve()
+        if not relativo.parts or caminho == raiz or raiz not in caminho.parents:
+            erros.append(f"{rotulo}{relativo}: caminho inválido")
+        elif not caminho.is_file():
+            erros.append(f"{rotulo}{relativo}: ausente")
+        elif caminho.stat().st_size != item.get("bytes"):
+            erros.append(f"{rotulo}{relativo}: tamanho diverge")
+        elif _sha256(caminho) != item.get("sha256"):
+            erros.append(f"{rotulo}{relativo}: hash diverge")
+    return erros
 
-    Roda num SQLite em arquivo temporário: independe do banco de produção e
-    não toca em nada vivo. É o "restore de verdade" que a tela de saúde
-    precisa para dizer "sim, isto aqui volta".
+
+def _verificar_objetos(pasta: Path, manifesto: dict) -> list[str]:
+    erros: list[str] = []
+    for categoria in ("xml", "certificados"):
+        erros.extend(
+            _verificar_arquivos(
+                pasta / "objetos" / categoria,
+                manifesto.get("objetos", {}).get(categoria, []),
+                rotulo=f"{categoria}/",
+            )
+        )
+    return erros
+
+
+def _extrair_tar_seguro(pacote: Path, destino: Path) -> None:
+    """Extrai somente arquivos/diretórios regulares sem seguir links ou '..'."""
+    destino.mkdir(parents=True, exist_ok=True)
+    raiz = destino.resolve()
+    with tarfile.open(pacote, "r:gz") as tar:
+        for membro in tar.getmembers():
+            relativo = Path(membro.name)
+            alvo = (destino / relativo).resolve()
+            if (
+                not membro.name
+                or relativo.is_absolute()
+                or ".." in relativo.parts
+                or (alvo != raiz and raiz not in alvo.parents)
+                or membro.issym()
+                or membro.islnk()
+                or not (membro.isdir() or membro.isfile())
+            ):
+                raise ValueError("Pacote contém caminho ou tipo de arquivo não seguro.")
+            if membro.isdir():
+                alvo.mkdir(parents=True, exist_ok=True)
+                continue
+            origem = tar.extractfile(membro)
+            if origem is None:
+                raise ValueError("Pacote contém arquivo ilegível.")
+            alvo.parent.mkdir(parents=True, exist_ok=True)
+            with origem, alvo.open("xb") as arquivo:
+                shutil.copyfileobj(origem, arquivo, length=1024 * 1024)
+
+
+def extrair_backup_verificado(
+    pacote: Path,
+    destino: Path,
+    *,
+    checksum_esperado: str | None = None,
+) -> tuple[Path, dict[str, Any]]:
+    """Decifra, extrai com segurança e confere cada conteúdo recuperável.
+
+    É a fronteira obrigatória tanto do teste pela UI como do utilitário de
+    recuperação. Nada deve ler o dump ou copiar XML/PFX antes desta função.
     """
+    if not pacote.is_file():
+        raise ValueError("O pacote local do backup não está disponível.")
+    if pacote.suffix != ".enc":
+        raise ValueError("Backup não cifrado é recusado; gere um novo pacote protegido.")
+    if checksum_esperado and _sha256(pacote) != checksum_esperado:
+        raise ValueError("Checksum do pacote diverge; não é seguro restaurá-lo.")
+    pacote_aberto = _decifrar_pacote(pacote, destino / "pacote.tar.gz")
+    conteudo = destino / "conteudo"
+    _extrair_tar_seguro(pacote_aberto, conteudo)
+    manifesto_path = conteudo / "manifesto.json"
+    if not manifesto_path.exists():
+        raise ValueError("Pacote sem manifesto.")
+    manifesto = json.loads(manifesto_path.read_text(encoding="utf-8"))
+    if manifesto.get("versao") != 2 or not manifesto.get("payloads"):
+        raise ValueError("Backup legado sem manifesto de integridade; gere um novo backup cifrado.")
+    erros_payloads = _verificar_arquivos(conteudo, manifesto["payloads"])
+    if erros_payloads:
+        raise ValueError("Payloads inválidos: " + "; ".join(erros_payloads[:5]))
+    erros_objetos = _verificar_objetos(conteudo, manifesto)
+    if erros_objetos:
+        raise ValueError("Objetos inválidos: " + "; ".join(erros_objetos[:5]))
+    return conteudo, manifesto
+
+
+def testar_restauracao(db: Session, backup_id: int) -> tuple[bool, str]:
+    """Valida pacote cifrado, banco de prova e cada arquivo fiscal incluído."""
     registro = db.get(BackupRegistro, backup_id)
     if registro is None or not registro.caminho:
         return False, "Backup não encontrado."
     pacote = Path(registro.caminho)
-    if not pacote.exists():
-        return False, "O arquivo do backup não está mais no disco."
 
     try:
         with tempfile.TemporaryDirectory(prefix="restore-test-") as temporaria:
             pasta = Path(temporaria)
-            with tarfile.open(pacote, "r:gz") as tar:
-                # `filter` existe a partir do 3.11.4/3.12; em versões mais
-                # antigas extraímos sem filtro — o pacote é gerado por nós.
-                try:
-                    tar.extractall(pasta, filter="data")  # noqa: S202
-                except TypeError:  # pragma: no cover — Python antigo
-                    tar.extractall(pasta)  # noqa: S202
-
-            manifesto_path = pasta / "manifesto.json"
-            if not manifesto_path.exists():
-                return False, "Pacote sem manifesto — não é um backup deste sistema."
-            manifesto = json.loads(manifesto_path.read_text(encoding="utf-8"))
-            esperado = manifesto.get("contagens", {})
+            conteudo, manifesto = extrair_backup_verificado(
+                pacote, pasta, checksum_esperado=registro.checksum_sha256
+            )
 
             from sqlalchemy import create_engine
 
             engine_teste: Engine = create_engine(f"sqlite:///{pasta / 'restore.db'}")
             Base.metadata.create_all(engine_teste)
-
             carregadas: dict[str, int] = {}
-            with gzip.open(pasta / "banco.jsonl.gz", "rt", encoding="utf-8") as arquivo:
+            with gzip.open(conteudo / "banco.jsonl.gz", "rt", encoding="utf-8") as arquivo:
                 with engine_teste.begin() as conexao:
                     for linha_bruta in arquivo:
-                        registro_json = json.loads(linha_bruta)
-                        tabela = Base.metadata.tables[registro_json["t"]]
-                        conexao.execute(
-                            insert(tabela).values(
-                                _desserializar(tabela, registro_json["d"])
-                            )
-                        )
-                        carregadas[registro_json["t"]] = (
-                            carregadas.get(registro_json["t"], 0) + 1
-                        )
-
-            divergencias = [
-                f"{tabela}: manifesto={esperado} restaurado={carregadas.get(tabela, 0)}"
-                for tabela, esperado in esperado.items()
-                if carregadas.get(tabela, 0) != esperado
-            ]
+                        linha = json.loads(linha_bruta)
+                        tabela = Base.metadata.tables[linha["t"]]
+                        conexao.execute(insert(tabela).values(_desserializar(tabela, linha["d"])))
+                        carregadas[linha["t"]] = carregadas.get(linha["t"], 0) + 1
             engine_teste.dispose()
-
+            divergencias = [
+                nome for nome, esperado in manifesto.get("contagens", {}).items()
+                if carregadas.get(nome, 0) != esperado
+            ]
             if divergencias:
-                return False, "Contagens divergem: " + "; ".join(divergencias[:5])
+                return False, "Contagens do banco divergem: " + ", ".join(divergencias[:5])
 
-            total = sum(carregadas.values())
             registro.restauracao_testada_em = _agora()
             registro.restauracao_ok = True
             db.commit()
             return True, (
-                f"Restaurado em banco de prova: {total} registros em "
-                f"{len(carregadas)} tabelas, contagens conferem com o manifesto."
+                f"Restaurado em banco de prova: {sum(carregadas.values())} registros e "
+                f"{registro.arquivos_incluidos} objeto(s) fiscal(is) com hashes conferidos."
             )
     except Exception as exc:  # noqa: BLE001
         try:
             registro.restauracao_testada_em = _agora()
             registro.restauracao_ok = False
             db.commit()
-        except Exception:  # noqa: BLE001
+        except Exception:
             db.rollback()
-        return False, f"Falha no teste de restauração: {exc}"
+        return False, "Falha no teste de restauração: " + str(exc)[:300]
 
 
 def saude_do_backup(db: Session) -> dict:
-    """O retrato que a tela de saúde mostra: último, próximo, testado, tamanho."""
-    registros = (
-        db.query(BackupRegistro)
-        .order_by(BackupRegistro.id.desc())
-        .limit(max(1, settings.backup_retencao))
-        .all()
-    )
+    registros = db.query(BackupRegistro).order_by(BackupRegistro.id.desc()).limit(
+        max(1, settings.backup_retencao)
+    ).all()
     ultimo_ok = next((r for r in registros if r.status == StatusBackup.OK), None)
     ultimo_testado = next((r for r in registros if r.restauracao_testada_em), None)
-
     agora = _agora()
-    horas_desde_ok = None
-    if ultimo_ok is not None and ultimo_ok.finalizado_em is not None:
+    horas = None
+    if ultimo_ok and ultimo_ok.finalizado_em:
         fim = ultimo_ok.finalizado_em
         fim = fim if fim.tzinfo else fim.replace(tzinfo=timezone.utc)
-        horas_desde_ok = (agora - fim).total_seconds() / 3600
-
-    # Próximo previsto: hoje às `backup_hora` (hora local) se ainda não passou,
-    # senão amanhã. É o que o operador espera ver ao lado de "último backup".
-    previsto = agora.astimezone().replace(
-        hour=settings.backup_hora, minute=0, second=0, microsecond=0
-    )
+        horas = (agora - fim).total_seconds() / 3600
+    previsto = agora.astimezone().replace(hour=settings.backup_hora, minute=0, second=0, microsecond=0)
     if previsto <= agora:
-        previsto = previsto + timedelta(days=1)
-
-    atrasado = bool(
-        settings.backup_ativo
-        and (
-            horas_desde_ok is None
-            and (
-                # Sem nenhum backup ainda: só é atraso se o sistema já tem
-                # conteúdo para perder.
-                _tem_conteudo(db)
-            )
-            or (horas_desde_ok is not None and horas_desde_ok > settings.backup_alerta_horas)
-        )
-    )
-
+        previsto += timedelta(days=1)
+    atrasado = bool(settings.backup_ativo and ((horas is None and _tem_conteudo(db)) or (horas is not None and horas > settings.backup_alerta_horas)))
     return {
         "ativo": settings.backup_ativo,
         "ultimo_ok_em": ultimo_ok.finalizado_em if ultimo_ok else None,
         "ultimo_ok_tamanho_bytes": ultimo_ok.tamanho_bytes if ultimo_ok else None,
-        "horas_desde_ultimo_ok": horas_desde_ok,
+        "horas_desde_ultimo_ok": horas,
         "ultimo_teste_em": ultimo_testado.restauracao_testada_em if ultimo_testado else None,
         "ultimo_teste_ok": ultimo_testado.restauracao_ok if ultimo_testado else None,
         "proximo_previsto_em": previsto.astimezone(timezone.utc),
@@ -424,26 +511,11 @@ def saude_do_backup(db: Session) -> dict:
         "atrasado": atrasado,
         "total_registros": len(registros),
         "erros_recentes": sum(1 for r in registros if r.status == StatusBackup.ERRO),
-        "tamanho_total_bytes": _tamanho_espelho(),
+        "tamanho_total_bytes": sum((r.tamanho_bytes or 0) for r in registros if r.status == StatusBackup.OK),
     }
 
 
 def _tem_conteudo(db: Session) -> bool:
     from app.models import DocumentoFiscal, Empresa
 
-    return bool(
-        db.query(func.count(Empresa.id)).scalar()
-        or db.query(func.count(DocumentoFiscal.id)).scalar()
-    )
-
-
-def _tamanho_espelho() -> int:
-    total = 0
-    for nome in ("espelho-xml", "espelho-certificados"):
-        pasta = _pasta_backups() / nome
-        if not pasta.exists():
-            continue
-        for caminho in pasta.rglob("*"):
-            if caminho.is_file():
-                total += caminho.stat().st_size
-    return total
+    return bool(db.query(func.count(Empresa.id)).scalar() or db.query(func.count(DocumentoFiscal.id)).scalar())

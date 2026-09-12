@@ -32,9 +32,14 @@ services:
 
   api:
     build: ./backend
+    # A imagem é não privilegiada em produção. O modo local mantém root para
+    # inicializar automaticamente volumes Docker já existentes como root.
+    user: "0:0"
     restart: unless-stopped
     init: true
     env_file: ./backend/.env
+    environment:
+      BACKUP_DIR: /backups
     depends_on:
       db:
         condition: service_healthy
@@ -46,6 +51,7 @@ services:
       - ./backend:/app
       - certificados:/data/certificados
       - xml_saida:/data/xml
+      - backups_local:/backups
     # Sem --reload: o supervisor de desenvolvimento reiniciava o processo ao
     # detectar alterações no volume e podia causar ERR_EMPTY_RESPONSE.
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
@@ -64,11 +70,14 @@ services:
 
   worker:
     build: ./backend
+    user: "0:0"
     restart: unless-stopped
     # concurrency=4: processa até 4 empresas em paralelo por container.
     # Para mais de ~30 empresas: `docker compose up --scale worker=3`.
     command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=4
     env_file: ./backend/.env
+    environment:
+      BACKUP_DIR: /backups
     depends_on:
       db:
         condition: service_healthy
@@ -76,17 +85,23 @@ services:
         condition: service_healthy
     volumes:
       - ./backend:/app
+      # Mesmo staging persistente que a API: o worker precisa ler A1/XML e
+      # precisa gravar a unidade de backup que o beat dispara.
       - certificados:/data/certificados
       - xml_saida:/data/xml
+      - backups_local:/backups
 
   beat:
     build: ./backend
+    user: "0:0"
     restart: unless-stopped
     # O relógio do sistema: dispara o sincronismo automático de todas as
     # empresas e a retomada dos XMLs que vieram só como resumo. Rode UMA única
     # instância (escalar o beat duplica os disparos).
     command: celery -A app.worker.celery_app beat --loglevel=info
     env_file: ./backend/.env
+    environment:
+      BACKUP_DIR: /backups
     depends_on:
       db:
         condition: service_healthy
@@ -96,6 +111,7 @@ services:
       - ./backend:/app
       - certificados:/data/certificados
       - xml_saida:/data/xml
+      - backups_local:/backups
 
   frontend:
     build:
@@ -128,3 +144,5 @@ volumes:
   db_data:
   certificados:
   xml_saida:
+  # Dados de recuperação ficam em volume separado de XML/certificados.
+  backups_local:

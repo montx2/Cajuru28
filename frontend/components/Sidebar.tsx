@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { limparToken } from "@/lib/auth";
 import { limparCachePapel, usePapel } from "@/lib/papel";
 import { api } from "@/lib/api";
 import { Icone, Logomarca } from "./icons";
@@ -121,10 +120,13 @@ export function Sidebar({ aberto, aoFechar }: { aberto: boolean; aoFechar: () =>
   const ativo = (href: string, exato?: boolean) =>
     exato ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
 
-  function sair() {
-    limparToken();
-    limparCachePapel();
-    router.push("/login");
+  async function sair() {
+    try {
+      await api.logout();
+    } finally {
+      limparCachePapel();
+      router.push("/login");
+    }
   }
 
   return (

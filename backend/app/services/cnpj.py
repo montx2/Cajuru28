@@ -1,23 +1,19 @@
-"""
-Consulta pública de CNPJ para completar cadastro de empresas.
+"""Consulta pública de CNPJ para completar cadastros numéricos legados.
 
-A UF da empresa é necessária para NFe/CT-e (cUFAutor). Antes o operador
-precisava escolher isso manualmente; agora o sistema tenta buscar a UF no
-cadastro público do CNPJ e só pede preenchimento manual se a consulta externa
-não responder.
-
-A consulta é sempre *melhor esforço*: indisponibilidade, 404, timeout ou campo
-faltando não derrubam a tela — apenas voltam como "não encontrado" para a API
-poder pedir a UF manualmente.
+A BrasilAPI documenta a rota pública atual somente para CNPJ numérico. CNPJ
+alfanumérico continua sendo um identificador local perfeitamente válido, mas
+não pode ser convertido por remoção de letras nem enviado a uma fonte cujo
+contrato ainda não confirma esse formato.
 """
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from functools import lru_cache
 
 import httpx
+
+from app.core.documentos import eh_cnpj_numerico, normalizar_cnpj
 
 
 @dataclass(frozen=True)
@@ -30,26 +26,24 @@ class DadosCNPJ:
     fonte: str = "BrasilAPI"
 
 
-def apenas_digitos(valor: str | None) -> str:
-    return re.sub(r"\D", "", valor or "")
-
-
 @lru_cache(maxsize=2048)
 def consultar_cnpj(cnpj: str) -> DadosCNPJ | None:
-    """
-    Retorna dados cadastrais básicos do CNPJ ou ``None``.
+    """Consulta a BrasilAPI apenas quando o contrato numérico é aplicável.
 
-    Usa BrasilAPI porque é pública e não exige chave. O timeout curto evita que
-    um serviço externo instável deixe o cadastro lento; o operador ainda pode
-    informar a UF manualmente quando a busca não estiver disponível.
+    Retorna ``None`` para valor inválido, CPF ou CNPJ alfanumérico. Assim a UI
+    pede razão social/UF manualmente em vez de transformar uma empresa em outra
+    por um suposto "só dígitos".
     """
-    documento = apenas_digitos(cnpj)
-    if len(documento) != 14:
+    try:
+        documento = normalizar_cnpj(cnpj)
+    except ValueError:
+        return None
+    if not eh_cnpj_numerico(documento):
         return None
 
     url = f"https://brasilapi.com.br/api/cnpj/v1/{documento}"
     try:
-        with httpx.Client(timeout=5.0) as client:
+        with httpx.Client(timeout=5.0, follow_redirects=False) as client:
             resposta = client.get(url, headers={"Accept": "application/json"})
         if resposta.status_code == 404:
             return None

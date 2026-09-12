@@ -36,6 +36,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.documentos import normalizar_cnpj, normalizar_documento
 from app.models import (
     DirecaoDocumento,
     DocumentoFiscal,
@@ -78,7 +79,30 @@ def _texto(valor: object, limite: int = 255) -> str:
 
 
 def _digitos(valor: object) -> str:
+    """Usado somente em campos que o contrato define como numéricos (ex. IBGE)."""
     return "".join(caractere for caractere in str(valor or "") if caractere.isdigit())
+
+
+def _cnpj_jettax(valor: object) -> str:
+    """Evita transmitir CNPJ alfa a um contrato Morfeu ainda não verificado."""
+    try:
+        cnpj = normalizar_cnpj(str(valor or ""))
+    except ValueError as exc:
+        raise JettaxErro("CNPJ inválido para a integração Jettax.", categoria="cadastro") from exc
+    if not cnpj.isdigit():
+        raise JettaxErro(
+            "O suporte da Jettax a CNPJ alfanumérico ainda não foi confirmado no contrato público; "
+            "a empresa foi preservada localmente e não será transmitida até essa validação.",
+            categoria="contrato",
+        )
+    return cnpj
+
+
+def _documento_preservado(valor: object) -> str:
+    try:
+        return normalizar_documento(str(valor or ""))
+    except ValueError:
+        return ""
 
 
 def _campo(item: dict[str, Any], *nomes: str, padrao: Any = None) -> Any:
@@ -241,7 +265,7 @@ class ClienteJettax:
         return self._requisitar("POST", "/api/clients", json=dados)
 
     def atualizar_cliente(self, cnpj: str, dados: dict[str, Any]) -> Any:
-        return self._requisitar("PUT", f"/api/clients/{_digitos(cnpj)}", json=dados)
+        return self._requisitar("PUT", f"/api/clients/{_cnpj_jettax(cnpj)}", json=dados)
 
     def verificar_conexao(self, codigo_ibge: str | None = None) -> Any:
         # GET /api/nfse/cities é um endpoint documentado, de leitura e que
@@ -289,7 +313,7 @@ class ClienteJettax:
 
     def listar_nfse(self, cnpj: str, *, last_id: str | None = None, numero: str | None = None, nota_situacao: str | None = None, tipo_nota: str | None = None, period: str | None = None) -> list[dict[str, Any]]:
         return self._listar_paginas(
-            f"/api/nfse/invoices/{_digitos(cnpj)}",
+            f"/api/nfse/invoices/{_cnpj_jettax(cnpj)}",
             {"lastId": last_id, "numero": numero, "notaSituacao": nota_situacao, "tipoNota": tipo_nota, "period": period},
         )
 
@@ -297,20 +321,22 @@ class ClienteJettax:
         if fluxo not in _FLUXOS_DFE:
             raise JettaxErro("Fluxo NF-e não suportado pela integração.", categoria="configuracao")
         return self._listar_paginas(
-            f"/api/nfes/clients/{_digitos(cnpj)}/{fluxo}/",
+            f"/api/nfes/clients/{_cnpj_jettax(cnpj)}/{fluxo}/",
             {
                 "ultimoId": ultimo_id,
                 "chave": chave,
                 "dataInicial": data_inicial.isoformat() if data_inicial else None,
                 "dataFinal": data_final.isoformat() if data_final else None,
-                "cnpjDestinario": cnpj_destinatario,
-                "cnpjEmitente": cnpj_emitente,
+                # O filtro também chega a uma rota Morfeu documentada somente
+                # para CNPJ numérico. Não deixar letras virarem outro CNPJ.
+                "cnpjDestinario": _cnpj_jettax(cnpj_destinatario) if cnpj_destinatario else None,
+                "cnpjEmitente": _cnpj_jettax(cnpj_emitente) if cnpj_emitente else None,
             },
         )
 
 def carga_cliente(empresa: Empresa, configuracao: JettaxConfiguracaoEmpresa, *, certificado_base64: str | None = None, senha_certificado: str | None = None) -> dict[str, Any]:
     """Monta o corpo publicado para Client sem jamais gravar/retornar segredos."""
-    cnpj = _digitos(empresa.cnpj_cpf)
+    cnpj = _cnpj_jettax(empresa.cnpj_cpf)
     codigo_ibge = _digitos(empresa.codigo_ibge)
     ccm = _texto(empresa.inscricao_municipal, 100)
     faltantes = []
@@ -461,7 +487,7 @@ def _direcao_nfse(item: dict[str, Any], empresa: Empresa) -> str:
         return "tomada"
     prestador = _dicionario(_campo(item, "prestadorServico", "prestador_servico"))
     identificacao = _dicionario(_campo(prestador, "identificacaoPrestador", "identificacao_prestador"))
-    if _digitos(_campo(identificacao, "cnpj", "cpfCnpj")) == _digitos(empresa.cnpj_cpf):
+    if _documento_preservado(_campo(identificacao, "cnpj", "cpfCnpj")) == _documento_preservado(empresa.cnpj_cpf):
         return "prestada"
     return "tomada"
 
@@ -498,9 +524,9 @@ def _persistir_nfse_metadados(db: Session, empresa: Empresa, item: dict[str, Any
             "leiaute": "metadados",
             "numero": _texto(_campo(item, "numero"), 20) or None,
             "serie": _texto(_campo(item, "notaSerie", "serie"), 10) or None,
-            "emitente_documento": _digitos(_campo(prestador_id, "cnpj", "cpfCnpj"))[:18] or None,
+            "emitente_documento": _documento_preservado(_campo(prestador_id, "cnpj", "cpfCnpj"))[:18] or None,
             "emitente_nome": _texto(_campo(prestador, "razaoSocial", "razao_social"), 255) or None,
-            "destinatario_documento": _digitos(_campo(tomador_id, "cpfCnpj", "cnpj", "cpf"))[:18] or None,
+            "destinatario_documento": _documento_preservado(_campo(tomador_id, "cpfCnpj", "cnpj", "cpf"))[:18] or None,
             "destinatario_nome": _texto(_campo(tomador, "razaoSocial", "razao_social"), 255) or None,
             "situacao": situacao or None,
             "origem": ORIGEM_JETTAX,

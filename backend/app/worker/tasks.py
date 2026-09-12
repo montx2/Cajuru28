@@ -49,6 +49,7 @@ from app.models import (
 )
 from app.services import batimento, fila, sincronizacao
 from app.services.jettax import executar_importacao as executar_importacao_jettax, registrar_proveniencia
+from app.services.certificados import ler_pfx_protegido
 from app.services.importadores.base import (
     AmbienteIndisponivel,
     ConsumoIndevido,
@@ -174,8 +175,7 @@ def importar_documentos(
 
         ultimo_nsu = _resolver_nsu_inicial(db, empresa_id, tipo_doc, execucao, estado)
         senha = decifrar_segredo(certificado.senha_cifrada)
-        with open(certificado.arquivo_path, "rb") as f:
-            pfx_bytes = f.read()
+        pfx_bytes = ler_pfx_protegido(certificado.arquivo_path)
 
         importador = obter_importador(tipo_doc)
         total_importado = execucao.documentos_importados or 0
@@ -850,8 +850,7 @@ def completar_xmls_pendentes(self, empresa_id: int | None = None, limite: int | 
                 db.commit()
                 importador = obter_importador(TipoDocumentoFiscal.NFE)
                 senha = decifrar_segredo(certificado.senha_cifrada)
-                with open(certificado.arquivo_path, "rb") as f:
-                    pfx_bytes = f.read()
+                pfx_bytes = ler_pfx_protegido(certificado.arquivo_path)
 
                 with sessao_mtls(pfx_bytes, senha) as (cert_path, key_path):
                     for documento in documentos_pendentes:

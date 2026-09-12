@@ -2,6 +2,7 @@
 
 import io
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 from cryptography import x509
@@ -170,7 +171,10 @@ def test_lote_cria_empresas_e_vincula_certificado(cliente, tmp_path):
     assert db.query(Certificado).count() == 2
     for certificado in db.query(Certificado).all():
         assert SENHA not in certificado.senha_cifrada
-        assert (tmp_path / "certificados" / str(certificado.empresa_id)).exists()
+        # O arquivo no volume não contém a chave privada em claro.
+        bruto = Path(certificado.arquivo_path).read_bytes()
+        assert bruto.startswith(b"NOTASFLOW-PFX-FERNET-V1\n")
+        assert SENHA.encode() not in bruto
 
 
 def test_lote_senha_errada_reporta_erro_e_continua(cliente):

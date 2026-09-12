@@ -55,6 +55,10 @@ class Usuario(Base):
     # | leitura (só vê e baixa). Usuários antigos assumem admin na migração.
     papel: Mapped[str] = mapped_column(String(20), default="admin")
     ativo: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Incrementada ao trocar senha, desligar o usuário ou realizar logout.
+    # O JWT carrega esta versão, então sessões antigas deixam de valer sem
+    # armazenar o token inteiro no banco.
+    versao_sessao: Mapped[int] = mapped_column(Integer, default=1)
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     escritorio: Mapped["Escritorio"] = relationship(back_populates="usuarios")
@@ -523,6 +527,9 @@ class BackupRegistro(Base):
     )
     tamanho_bytes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     caminho: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    checksum_sha256: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    objeto_remoto: Mapped[Optional[str]] = mapped_column(String(700), nullable=True)
+    arquivos_incluidos: Mapped[int] = mapped_column(Integer, default=0)
     empresas: Mapped[int] = mapped_column(Integer, default=0)
     documentos: Mapped[int] = mapped_column(Integer, default=0)
     execucoes: Mapped[int] = mapped_column(Integer, default=0)

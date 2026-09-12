@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
+from app.core.documentos import normalizar_cnpj, normalizar_documento
 from app.models import (
     DirecaoDocumento,
     StatusDocumentoFiscal,
@@ -42,8 +43,10 @@ class LoginRequest(BaseModel):
 
 
 class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
+    """Resposta de login sem expor a sessão ao JavaScript do navegador."""
+
+    autenticado: bool = True
+    token_type: str = "cookie"
 
 
 class UsuarioAtual(BaseModel):
@@ -72,10 +75,10 @@ class EmpresaCriar(BaseModel):
     @field_validator("cnpj_cpf")
     @classmethod
     def normalizar_documento(cls, v: str) -> str:
-        digitos = re.sub(r"\D", "", v or "")
-        if len(digitos) not in (11, 14):
-            raise ValueError("CNPJ deve ter 14 dígitos ou CPF 11 dígitos")
-        return digitos
+        try:
+            return normalizar_documento(v)
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
 
     @field_validator("uf")
     @classmethod
@@ -301,12 +304,24 @@ class JettaxImportarNFe(BaseModel):
     cnpj_destinatario: str | None = None
     cnpj_emitente: str | None = None
 
-    @field_validator("chave", "cnpj_destinatario", "cnpj_emitente")
+    @field_validator("chave")
     @classmethod
-    def somente_digitos_opcionais(cls, v: str | None) -> str | None:
+    def chave_numerica_opcional(cls, v: str | None) -> str | None:
+        # Chave de acesso é um campo contratualmente numérico; sua máscara não
+        # identifica pessoa/empresa e pode ser removida sem perda semântica.
         if v is None or not v.strip():
             return None
         return re.sub(r"\D", "", v)
+
+    @field_validator("cnpj_destinatario", "cnpj_emitente")
+    @classmethod
+    def documento_jettax_preservado(cls, v: str | None) -> str | None:
+        if v is None or not v.strip():
+            return None
+        try:
+            return normalizar_cnpj(v)
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
 
     @property
     def tem_filtros(self) -> bool:
@@ -829,8 +844,8 @@ class UsuarioCriar(BaseModel):
     @field_validator("senha")
     @classmethod
     def senha_minima(cls, v: str) -> str:
-        if len(v or "") < 6:
-            raise ValueError("A senha precisa de ao menos 6 caracteres.")
+        if len(v or "") < 12:
+            raise ValueError("A senha precisa de ao menos 12 caracteres.")
         return v
 
     @field_validator("papel")
@@ -871,8 +886,8 @@ class UsuarioAtualizar(BaseModel):
     @field_validator("senha")
     @classmethod
     def senha_ok(cls, v: str | None) -> str | None:
-        if v is not None and len(v) < 6:
-            raise ValueError("A senha precisa de ao menos 6 caracteres.")
+        if v is not None and len(v) < 12:
+            raise ValueError("A senha precisa de ao menos 12 caracteres.")
         return v
 
 
@@ -1037,6 +1052,9 @@ class BackupRegistroResposta(BaseModel):
     iniciado_em: datetime
     finalizado_em: datetime | None = None
     tamanho_bytes: int | None = None
+    checksum_sha256: str | None = None
+    objeto_remoto: str | None = None
+    arquivos_incluidos: int = 0
     empresas: int = 0
     documentos: int = 0
     execucoes: int = 0

@@ -86,3 +86,13 @@ def test_validadores_de_documento():
     assert validar_cpf("529.982.247-25")
     assert not validar_cpf("111.111.111-11")
     assert validar_documento("11222333000181")
+
+
+def test_certificado_com_cnpj_alfanumerico_preserva_identidade():
+    # CNPJ alfanumérico com DVs válidos pela regra RFB (A=17, B=18 etc.).
+    cnpj_alfa = "ABCDEF12345680"
+    identidade = extrair_identidade(_pfx_com_identidade(cnpj_alfa), SENHA)
+    assert identidade.documento == cnpj_alfa
+    assert validar_cnpj(identidade.documento)
+    # Barra não é válida em nome de arquivo; pontos/hífens são preservados como máscara.
+    assert cnpj_de_nome_arquivo("certificado-AB.CD-EF12345680.pfx") == cnpj_alfa

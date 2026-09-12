@@ -40,6 +40,7 @@ from app.schemas import (
     JettaxWebhookEventoResposta,
 )
 from app.services import auditoria
+from app.services.certificados import ler_pfx_protegido
 from app.services.jettax import ClienteJettax, JettaxErro, carga_cliente, cursor_para
 
 router = APIRouter(prefix="/integracoes/jettax", tags=["integrações · Jettax"])
@@ -107,10 +108,9 @@ def _certificado_para_jettax(db: Session, empresa_id: int) -> tuple[str, str]:
     except (SegredoIndecifravelError, RuntimeError) as exc:
         raise HTTPException(status_code=422, detail="Não foi possível abrir o certificado A1 no cofre do servidor.") from exc
     try:
-        with open(certificado.arquivo_path, "rb") as arquivo:
-            conteudo = arquivo.read()
-    except OSError as exc:
-        raise HTTPException(status_code=422, detail="Não foi possível ler o certificado A1 no volume seguro.") from exc
+        conteudo = ler_pfx_protegido(certificado.arquivo_path)
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="Não foi possível abrir o certificado A1 no volume seguro.") from exc
     if not conteudo:
         raise HTTPException(status_code=422, detail="O arquivo do certificado A1 está vazio.")
     # Retorno existe somente na memória desta chamada. Não logue nem adicione

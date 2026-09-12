@@ -42,7 +42,11 @@ JETTAX_WEBHOOK_SECRET=valor-longo-aleatorio
 Cadastre na Jettax a URL completa:
 
 ```text
-https://SEU-DOMINIO/integracoes/jettax/webhooks/VALOR-DO-SEGREDO
+https://SEU-DOMINIO/api/integracoes/jettax/webhooks/VALOR-DO-SEGREDO
+
+> No Compose de desenvolvimento, sem o proxy `/api`, a rota é
+> `http://localhost:8000/integracoes/jettax/webhooks/...`. Não cadastre uma
+> URL HTTP/local na Jettax de produção.
 ```
 
 A documentação pública descreve o payload (`type`, `ticket`, `status`,

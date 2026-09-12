@@ -16,8 +16,13 @@ const ROTAS_API = [
 
 const nextConfig = {
   output: "standalone",
-  // Permite hosts do proxy de desenvolvimento e da pré-visualização.
-  allowedDevOrigins: ["*"],
+  // Next só aceita hosts de desenvolvimento explicitamente autorizados. Em
+  // preview informe NEXT_ALLOWED_DEV_ORIGINS=host-do-preview; produção não
+  // aceita wildcard de origem para o canal de desenvolvimento.
+  allowedDevOrigins: (process.env.NEXT_ALLOWED_DEV_ORIGINS ?? "")
+    .split(",")
+    .map((origem) => origem.trim())
+    .filter(Boolean),
   async rewrites() {
     // Preview local sem Docker: com PREVIEW_PROXY=1 o próprio Next
     // encaminha as chamadas da API ao backend, então o navegador só fala

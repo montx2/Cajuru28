@@ -57,16 +57,20 @@ def cifrar_segredo(texto_puro: str) -> str:
 
 
 def decifrar_segredo(texto_cifrado: str) -> str:
-    """
-    Decifra a senha do certificado no momento de abrir o .pfx para mTLS.
-    Nunca use o retorno para exibir, registrar em log ou responder pela API.
-    """
+    """Decifra a senha somente no instante em que ela é necessária."""
+    return decifrar_bytes(texto_cifrado.encode()).decode()
+
+
+def cifrar_bytes(conteudo: bytes) -> bytes:
+    """Cifra conteúdo sensível persistido (como o PFX A1) com a chave atual."""
+    return _obter_fernets()[0].encrypt(conteudo)
+
+
+def decifrar_bytes(conteudo_cifrado: bytes) -> bytes:
+    """Tenta chave atual e chaves anteriores sem expor material secreto."""
     for fernet in _obter_fernets():
         try:
-            return fernet.decrypt(texto_cifrado.encode()).decode()
+            return fernet.decrypt(conteudo_cifrado)
         except InvalidToken:
-            # É normal uma cifra antiga não abrir com a chave atual durante
-            # uma rotação; tenta as chaves anteriores antes de falhar.
             continue
-
     raise SegredoIndecifravelError(_MENSAGEM_SEGREDO_INDECIFRAVEL)

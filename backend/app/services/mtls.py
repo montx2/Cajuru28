@@ -37,21 +37,18 @@ def obter_validade_certificado(pfx_bytes: bytes, senha: str) -> datetime:
 
 
 def obter_cnpj_do_certificado(pfx_bytes: bytes, senha: str) -> str:
+    """Lê CNPJ do A1 sem remover letras de identificadores alfanuméricos.
+
+    O parser de identidade conhece os OIDs ICP-Brasil e somente devolve um
+    CNPJ validado. CPF é um certificado válido para outros usos, mas não é
+    um CNPJ utilizável nas integrações fiscais desta função.
     """
-    O CNPJ usado para consultar a API deve SEMPRE ser o de dentro do
-    certificado (no Subject, campo específico ICP-Brasil), nunca o nome do
-    arquivo — arquivo pode estar com nome errado, o X.509 não mente.
-    """
-    _, cert, _ = pkcs12.load_key_and_certificates(pfx_bytes, senha.encode())
-    if cert is None:
-        raise ValueError("Certificado não encontrado dentro do .pfx")
-    # Certificados ICP-Brasil e-CNPJ trazem o CNPJ no OtherName do
-    # SubjectAlternativeName (OID 2.16.76.1.3.3) — extração completa fica
-    # marcada para quando ligarmos o parser ICP-Brasil real (Fase 1.1);
-    # por ora, fallback: extrai dígitos do CN do subject.
-    subject = cert.subject.rfc4514_string()
-    digitos = "".join(c for c in subject if c.isdigit())
-    return digitos[:14] if digitos else ""
+    # Import tardio evita acoplamento no caminho quente de criação do contexto
+    # mTLS e mantém um único parser da identidade do certificado.
+    from app.services.certificados import extrair_identidade
+
+    identidade = extrair_identidade(pfx_bytes, senha)
+    return identidade.documento if len(identidade.documento) == 14 else ""
 
 
 @contextmanager
