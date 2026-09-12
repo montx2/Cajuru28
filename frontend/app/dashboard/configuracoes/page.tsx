@@ -17,11 +17,21 @@ export default function ConfiguracoesPage() {
   const [certificados, setCertificados] = useState<ResumoCertificado[]>([]);
   const [saude, setSaude] = useState<{ problemas: string[]; disco_livre_bytes: number | null } | null>(null);
   const [testando, setTestando] = useState(false);
+  const [jettax, setJettax] = useState<{ configurado: boolean; base_url: string; saude: string; mensagem?: string; empresas_registradas: number; empresas_ativas: number } | null>(null);
+  const [jettaxToken, setJettaxToken] = useState("");
+  const [jettaxUrl, setJettaxUrl] = useState("https://morfeu-api.jettax.com.br");
+  const [salvandoJettax, setSalvandoJettax] = useState(false);
+  const [acessorias, setAcessorias] = useState<{ configurado: boolean; base_url: string; ultima_sincronizacao_em: string | null } | null>(null);
+  const [acessoriasToken, setAcessoriasToken] = useState("");
+  const [acessoriasUrl, setAcessoriasUrl] = useState("https://api.acessorias.com");
+  const [ocupadoAcessorias, setOcupadoAcessorias] = useState(false);
 
   const carregar = useCallback(() => {
     api.infoSistema().then(setInfo).catch(() => setInfo(null));
     api.resumoCertificados().then(setCertificados).catch(() => setCertificados([]));
     api.saudeDetalhada().then(setSaude).catch(() => setSaude(null));
+    api.statusJettax().then((r) => { setJettax(r); if (r.base_url) setJettaxUrl(r.base_url); }).catch(() => setJettax(null));
+    api.statusAcessorias().then((r) => { setAcessorias(r); if (r.base_url) setAcessoriasUrl(r.base_url); }).catch(() => setAcessorias(null));
   }, []);
 
   useEffect(() => {
@@ -41,6 +51,41 @@ export default function ConfiguracoesPage() {
     } finally {
       setTestando(false);
     }
+  }
+
+  async function salvarJettax() {
+    if (!jettaxToken.trim()) return toast.erro("Informe o token da API Jettax.");
+    setSalvandoJettax(true);
+    try {
+      await api.salvarCredencialJettax(jettaxToken, jettaxUrl);
+      setJettaxToken("");
+      const teste = await api.testarJettax();
+      toast.sucesso(teste.mensagem || "Jettax conectada com sucesso.");
+      carregar();
+    } catch (e) { toast.erro(e instanceof ApiError ? e.message : "Não foi possível conectar à Jettax."); }
+    finally { setSalvandoJettax(false); }
+  }
+
+  async function testarJettax() {
+    setSalvandoJettax(true);
+    try { const r = await api.testarJettax(); toast.sucesso(r.mensagem); carregar(); }
+    catch (e) { toast.erro(e instanceof ApiError ? e.message : "Falha no teste da Jettax."); }
+    finally { setSalvandoJettax(false); }
+  }
+
+  async function salvarAcessorias() {
+    if (!acessoriasToken.trim()) return toast.erro("Informe o token da API Acessórias.");
+    setOcupadoAcessorias(true);
+    try { await api.salvarCredencialAcessorias(acessoriasToken, acessoriasUrl); setAcessoriasToken(""); toast.sucesso("Acessórias conectado com sucesso."); carregar(); }
+    catch (e) { toast.erro(e instanceof ApiError ? e.message : "Falha ao conectar ao Acessórias."); }
+    finally { setOcupadoAcessorias(false); }
+  }
+
+  async function sincronizarAcessorias() {
+    setOcupadoAcessorias(true);
+    try { const r = await api.sincronizarEmpresasAcessorias(); toast.sucesso(`${r.criadas} empresas cadastradas e ${r.atualizadas} atualizadas.`); carregar(); }
+    catch (e) { toast.erro(e instanceof ApiError ? e.message : "Falha ao sincronizar empresas."); }
+    finally { setOcupadoAcessorias(false); }
   }
 
   const vencidos = certificados.filter((item) => item.vencido);
@@ -122,6 +167,45 @@ export default function ConfiguracoesPage() {
           Atualizações, logs e backups são administrados no servidor com Docker Compose. Proteja os
           volumes <code>db_data</code>, <code>certificados</code> e <code>xml_saida</code>.
         </p>
+      </section>
+
+      <section className="card-pad mt-4">
+        <TituloSecao titulo="Sistema Acessórias" subtitulo="Cadastre automaticamente as empresas existentes no Acessórias" />
+        <div className="mb-4 flex flex-wrap items-center gap-3 text-sm">
+          <span className={acessorias?.configurado ? "badge-ok" : "badge-neutral"}>{acessorias?.configurado ? "Configurado" : "Não configurado"}</span>
+          {acessorias?.ultima_sincronizacao_em && <span className="text-ink-muted">Última sincronização: {new Date(acessorias.ultima_sincronizacao_em).toLocaleString("pt-BR")}</span>}
+        </div>
+        {ehAdmin && <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
+          <label className="text-xs font-semibold text-ink-muted">URL da API
+            <input className="input mt-1 w-full" value={acessoriasUrl} onChange={(e) => setAcessoriasUrl(e.target.value)} />
+          </label>
+          <label className="text-xs font-semibold text-ink-muted">API Token
+            <input type="password" autoComplete="new-password" className="input mt-1 w-full" value={acessoriasToken} onChange={(e) => setAcessoriasToken(e.target.value)} placeholder={acessorias?.configurado ? "•••••••• (digite para substituir)" : "Cole o token gerado no Acessórias"} />
+          </label>
+          <button type="button" className="btn-primary self-end" disabled={ocupadoAcessorias} onClick={salvarAcessorias}>{ocupadoAcessorias ? "Aguarde…" : "Salvar e testar"}</button>
+        </div>}
+        {ehAdmin && acessorias?.configurado && <button type="button" className="btn-primary mt-4" disabled={ocupadoAcessorias} onClick={sincronizarAcessorias}>{ocupadoAcessorias ? "Sincronizando…" : "Buscar e cadastrar todas as empresas ativas"}</button>}
+        <p className="mt-3 text-xs leading-relaxed text-ink-muted">A sincronização consulta <code>/companies/ListAll</code> página por página, compara pelo CNPJ/CPF e evita duplicidades. Empresas existentes recebem razão social, UF e situação atualizadas. O token fica cifrado e não é exibido novamente.</p>
+      </section>
+
+      <section className="card-pad mt-4">
+        <TituloSecao titulo="Jettax 360" subtitulo="Conecte a API sem editar arquivos do servidor" />
+        <div className="mb-4 flex flex-wrap items-center gap-3 text-sm">
+          <span className={jettax?.configurado ? "badge-ok" : "badge-neutral"}>{jettax?.configurado ? "Configurada" : "Não configurada"}</span>
+          {jettax?.configurado && <span className="text-ink-muted">{jettax.empresas_registradas} empresas vinculadas · {jettax.empresas_ativas} ativas</span>}
+          {jettax?.mensagem && <span className="text-ink-muted">{jettax.mensagem}</span>}
+        </div>
+        {ehAdmin ? <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
+          <label className="text-xs font-semibold text-ink-muted">URL da API
+            <input className="input mt-1 w-full" value={jettaxUrl} onChange={(e) => setJettaxUrl(e.target.value)} />
+          </label>
+          <label className="text-xs font-semibold text-ink-muted">Token da API
+            <input type="password" autoComplete="new-password" className="input mt-1 w-full" value={jettaxToken} onChange={(e) => setJettaxToken(e.target.value)} placeholder={jettax?.configurado ? "•••••••• (digite para substituir)" : "Cole o token aqui"} />
+          </label>
+          <button type="button" className="btn-primary self-end" disabled={salvandoJettax} onClick={salvarJettax}>{salvandoJettax ? "Verificando…" : "Salvar e testar"}</button>
+        </div> : <p className="text-sm text-ink-muted">Somente administradores podem alterar a credencial.</p>}
+        {ehAdmin && jettax?.configurado && <button type="button" className="btn-ghost btn-sm mt-3" disabled={salvandoJettax} onClick={testarJettax}>Testar conexão novamente</button>}
+        <p className="mt-3 text-xs leading-relaxed text-ink-muted">O token é cifrado no cofre do servidor e nunca é exibido novamente. Nesta etapa, o sistema não tenta adivinhar uma rota de listagem de clientes que não consta na documentação pública. As empresas podem ser cadastradas em lote pela tela Empresas e depois vinculadas à Jettax pelo CNPJ.</p>
       </section>
 
       {/* webhook */}

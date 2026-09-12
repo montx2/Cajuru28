@@ -252,6 +252,20 @@ class JettaxConfiguracaoResposta(BaseModel):
     atualizado_em: datetime | None = None
 
 
+class JettaxCredencialAtualizar(BaseModel):
+    token: str
+    base_url: str = "https://morfeu-api.jettax.com.br"
+
+    @field_validator("token")
+    @classmethod
+    def token_obrigatorio(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("Informe o token da API Jettax")
+        if len(v) > 4096:
+            raise ValueError("Token muito longo")
+        return v.strip()
+
+
 class JettaxStatusResposta(BaseModel):
     configurado: bool
     base_url: str
