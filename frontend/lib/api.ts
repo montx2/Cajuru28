@@ -407,6 +407,15 @@ export const api = {
 
   acoesAuditoria: () => chamar<string[]>("/auditoria/acoes"),
 
+  // Integração Jettax (o token enviado nunca volta ao navegador).
+  statusJettax: () => chamar<{ configurado: boolean; base_url: string; saude: string; mensagem?: string; empresas_registradas: number; empresas_ativas: number }>("/integracoes/jettax"),
+  salvarCredencialJettax: (token: string, base_url: string) =>
+    chamar<{ configurado: boolean; base_url: string }>("/integracoes/jettax/credencial", {
+      method: "PUT", body: JSON.stringify({ token, base_url }),
+    }),
+  removerCredencialJettax: () => chamar<void>("/integracoes/jettax/credencial", { method: "DELETE" }),
+  testarJettax: () => chamar<{ status: string; mensagem: string }>("/integracoes/jettax/testar", { method: "POST" }),
+
   // ---------------------------------------------------------------
   // Webhook (teste manual, só admin)
   // ---------------------------------------------------------------

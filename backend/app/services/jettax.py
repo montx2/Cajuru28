@@ -184,6 +184,17 @@ def _normalizar_chave(chave: str) -> str:
     return _texto(chave, 60)
 
 
+def cliente_jettax_para(db: Session, escritorio_id: int) -> "ClienteJettax":
+    """Usa a credencial cifrada do painel; mantém variável de ambiente como fallback."""
+    from app.core.vault import decifrar_segredo
+    from app.models import JettaxCredencial
+
+    credencial = db.query(JettaxCredencial).filter_by(escritorio_id=escritorio_id).first()
+    if credencial is None:
+        return ClienteJettax()
+    return ClienteJettax(base_url=credencial.base_url, token=decifrar_segredo(credencial.token_cifrado))
+
+
 class ClienteJettax:
     """Cliente HTTP síncrono com timeout, paginação limitada e logs redigidos."""
 
@@ -615,7 +626,7 @@ def executar_importacao(db: Session, execucao_id: int, filtros: dict[str, Any] |
     try:
         cursor = cursor_para(configuracao, execucao.tipo, execucao.fluxo)
         execucao.cursor_antes = cursor
-        itens = _itens_para_execucao(ClienteJettax(), empresa, execucao, filtros or {}, cursor)
+        itens = _itens_para_execucao(cliente_jettax_para(db, empresa.escritorio_id), empresa, execucao, filtros or {}, cursor)
         proximo_cursor = _maior_cursor(itens, cursor)
         erros: list[str] = []
         criados = duplicados = ignorados = 0

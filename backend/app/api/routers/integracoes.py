@@ -14,13 +14,14 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import escritorio_id_atual, requer_escrita, requer_papel
 from app.core.config import settings
-from app.core.vault import SegredoIndecifravelError, decifrar_segredo
+from app.core.vault import SegredoIndecifravelError, cifrar_segredo, decifrar_segredo
 from app.db.session import get_db
 from app.models import (
     Certificado,
     Empresa,
     Escritorio,
     JettaxConfiguracaoEmpresa,
+    JettaxCredencial,
     JettaxExecucao,
     JettaxSaudeConector,
     JettaxWebhookEvento,
@@ -29,6 +30,7 @@ from app.models import (
 )
 from app.schemas import (
     JettaxConfiguracaoAtualizar,
+    JettaxCredencialAtualizar,
     JettaxConfiguracaoResposta,
     JettaxExecucaoResposta,
     JettaxImportarNFe,
@@ -41,7 +43,7 @@ from app.schemas import (
 )
 from app.services import auditoria
 from app.services.certificados import ler_pfx_protegido
-from app.services.jettax import ClienteJettax, JettaxErro, carga_cliente, cursor_para
+from app.services.jettax import JettaxErro, carga_cliente, cliente_jettax_para, cursor_para
 
 router = APIRouter(prefix="/integracoes/jettax", tags=["integrações · Jettax"])
 
@@ -137,11 +139,12 @@ def status_jettax(
 ):
     """Estado seguro do conector; o token nunca faz parte desta resposta."""
     saude = db.query(JettaxSaudeConector).filter_by(escritorio_id=escritorio_id).first()
-    base = urlparse(settings.jettax_api_base_url)
+    credencial = db.query(JettaxCredencial).filter_by(escritorio_id=escritorio_id).first()
+    base = urlparse(credencial.base_url if credencial else settings.jettax_api_base_url)
     base_segura = f"{base.scheme}://{base.netloc}" if base.scheme and base.netloc else ""
     base_query = db.query(JettaxConfiguracaoEmpresa).join(Empresa).filter(Empresa.escritorio_id == escritorio_id)
     return JettaxStatusResposta(
-        configurado=bool((settings.jettax_api_token or "").strip()),
+        configurado=credencial is not None or bool((settings.jettax_api_token or "").strip()),
         base_url=base_segura,
         webhook_configurado=bool((settings.jettax_webhook_secret or "").strip()),
         saude=saude.status if saude else "desconhecido",
@@ -150,6 +153,40 @@ def status_jettax(
         empresas_registradas=base_query.filter(JettaxConfiguracaoEmpresa.status.in_(["registrada", "atualizada"])).count(),
         empresas_ativas=base_query.filter(JettaxConfiguracaoEmpresa.ativa.is_(True)).count(),
     )
+
+
+@router.put("/credencial", response_model=JettaxStatusResposta)
+def salvar_credencial_jettax(
+    dados: JettaxCredencialAtualizar,
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+    usuario: Usuario = _ADMIN,
+):
+    """Guarda o token cifrado; o valor nunca é devolvido pela API."""
+    base = urlparse(dados.base_url.strip())
+    if base.scheme != "https" or not base.netloc or base.username or base.password:
+        raise HTTPException(status_code=422, detail="A URL da Jettax deve ser HTTPS e não conter credenciais.")
+    credencial = db.query(JettaxCredencial).filter_by(escritorio_id=escritorio_id).first()
+    if credencial is None:
+        credencial = JettaxCredencial(escritorio_id=escritorio_id, base_url=dados.base_url.strip(), token_cifrado="")
+        db.add(credencial)
+    credencial.base_url = dados.base_url.strip().rstrip("/")
+    credencial.token_cifrado = cifrar_segredo(dados.token)
+    auditoria.registrar(db, usuario, "jettax_credencial_atualizada", entidade="integracao", detalhe="Credencial Jettax atualizada no cofre")
+    db.commit()
+    return status_jettax(db=db, escritorio_id=escritorio_id)
+
+
+@router.delete("/credencial", status_code=204)
+def remover_credencial_jettax(
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+    usuario: Usuario = _ADMIN,
+):
+    db.query(JettaxCredencial).filter_by(escritorio_id=escritorio_id).delete()
+    auditoria.registrar(db, usuario, "jettax_credencial_removida", entidade="integracao", detalhe="Credencial do painel removida")
+    db.commit()
+    return Response(status_code=204)
 
 
 @router.post("/testar", response_model=JettaxTesteConexaoResposta)
@@ -165,7 +202,7 @@ def testar_conexao_jettax(
         db.add(saude)
     agora = _agora()
     try:
-        ClienteJettax().verificar_conexao()
+        cliente_jettax_para(db, escritorio_id).verificar_conexao()
     except JettaxErro as exc:
         saude.status = "erro"
         saude.verificado_em = agora
@@ -226,7 +263,7 @@ def registrar_cliente_jettax(
     empresa = _empresa_do_escritorio(db, empresa_id, escritorio_id)
     configuracao = _configuracao(db, empresa_id, criar=True)
     try:
-        ClienteJettax().criar_cliente(_corpo_cliente(db, empresa, configuracao, dados.enviar_certificado))
+        cliente_jettax_para(db, escritorio_id).criar_cliente(_corpo_cliente(db, empresa, configuracao, dados.enviar_certificado))
     except JettaxErro as exc:
         _marcar_falha_registro(db, configuracao, str(exc))
         auditoria.registrar(db, usuario, "jettax_cliente_criacao_falhou", entidade="empresa", entidade_id=empresa_id, detalhe="Cadastro remoto rejeitado ou indisponível")
@@ -257,7 +294,7 @@ def atualizar_cliente_jettax(
     empresa = _empresa_do_escritorio(db, empresa_id, escritorio_id)
     configuracao = _configuracao(db, empresa_id, criar=True)
     try:
-        ClienteJettax().atualizar_cliente(
+        cliente_jettax_para(db, escritorio_id).atualizar_cliente(
             empresa.cnpj_cpf, _corpo_cliente(db, empresa, configuracao, dados.enviar_certificado)
         )
     except JettaxErro as exc:

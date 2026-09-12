@@ -40,6 +40,19 @@ class Escritorio(Base):
     empresas: Mapped[list["Empresa"]] = relationship(back_populates="escritorio")
 
 
+class JettaxCredencial(Base):
+    """Credencial Jettax do escritório, cifrada pelo mesmo cofre dos A1."""
+
+    __tablename__ = "jettax_credenciais"
+    __table_args__ = (UniqueConstraint("escritorio_id", name="uq_jettax_credencial_escritorio"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    escritorio_id: Mapped[int] = mapped_column(ForeignKey("escritorios.id"), index=True)
+    base_url: Mapped[str] = mapped_column(String(500))
+    token_cifrado: Mapped[str] = mapped_column(Text)
+    atualizado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class Usuario(Base):
     """Pessoa do escritório que acessa o sistema (login)."""
 
