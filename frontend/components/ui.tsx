@@ -58,22 +58,27 @@ export function KpiCard({
 }) {
   const conteudo = (
     <>
-      <div className="flex items-center justify-between gap-3">
-        <span className={`inline-flex h-9 w-9 items-center justify-center rounded-xl ${COR_TOM[tom]}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-extrabold uppercase tracking-[.13em] text-ink-muted">{rotulo}</p>
+          <p className="mt-3 font-display text-[1.9rem] font-extrabold leading-none tracking-tight tabular-nums text-ink">{valor}</p>
+        </div>
+        <span className={`inline-flex h-9 w-9 items-center justify-center rounded-[10px] ${COR_TOM[tom]}`}>
           <Icone nome={icone} className="h-[18px] w-[18px]" />
         </span>
+      </div>
+      <div className="mt-4 flex min-h-5 items-center justify-between gap-2 border-t border-line/70 pt-3">
+        {detalhe ? <p className="text-xs leading-5 text-ink-faint">{detalhe}</p> : <span />}
         {variacao !== undefined && variacao !== null && (
-          <span className={`rounded-pill px-2 py-1 font-mono text-[10px] font-semibold ${variacao >= 0 ? "bg-accent-soft text-accent-deep" : "bg-danger-soft text-danger"}`}>
+          <span className={`flex-none rounded-pill px-2 py-1 font-mono text-[10px] font-semibold ${variacao >= 0 ? "bg-accent-soft text-accent-deep" : "bg-danger-soft text-danger"}`}>
             {variacao >= 0 ? "▲" : "▼"} {Math.abs(variacao).toLocaleString("pt-BR")}%
           </span>
         )}
+        {href && <Icone nome="setaDireita" className="h-3.5 w-3.5 flex-none text-ink-faint transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-accent" />}
       </div>
-      <p className="mt-5 font-display text-[1.8rem] font-extrabold leading-none tracking-tight tabular-nums text-ink">{valor}</p>
-      <p className="mt-2 text-[10px] font-bold uppercase tracking-[.13em] text-ink-muted">{rotulo}</p>
-      {detalhe && <p className="mt-1.5 text-xs leading-5 text-ink-faint">{detalhe}</p>}
     </>
   );
-  const classe = `card-pad card-hover block min-h-[150px] text-left ${href ? "cursor-pointer" : ""}`;
+  const classe = `card card-hover group block min-h-[142px] p-5 text-left ${href ? "cursor-pointer" : ""}`;
   if (href) {
     return (
       <Link href={href} className={classe}>

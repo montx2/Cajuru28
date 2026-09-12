@@ -138,19 +138,24 @@ export function Sidebar({ aberto, aoFechar }: { aberto: boolean; aoFechar: () =>
         }`}
       />
       <aside
-        className={`no-print fixed inset-y-0 left-0 z-40 flex w-[248px] flex-none flex-col overflow-hidden border-r border-sidebar-line bg-sidebar transition-transform duration-300 ease-out lg:sticky lg:top-0 lg:h-screen lg:translate-x-0 ${
+        className={`no-print fixed inset-y-0 left-0 z-40 flex w-[256px] flex-none flex-col overflow-hidden border-r border-sidebar-line bg-sidebar transition-transform duration-300 ease-out lg:sticky lg:top-0 lg:h-screen lg:translate-x-0 ${
           aberto ? "translate-x-0" : "-translate-x-full"
         }`}
       >
         <div className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-[radial-gradient(ellipse_at_top,rgba(91,197,148,.16),transparent_68%)]" />
 
-        <Link href="/dashboard" onClick={aoFechar} className="relative flex items-center gap-3 px-5 pb-7 pt-6">
+        <Link href="/dashboard" onClick={aoFechar} className="relative flex items-center gap-3 px-5 pb-6 pt-6">
           <Logomarca className="h-10 w-10 rounded-[14px] text-lg" />
           <span>
-            <span className="block font-display text-[17px] font-extrabold leading-tight tracking-tight text-white">NotasFlow</span>
+            <span className="block font-display text-[18px] font-extrabold leading-tight tracking-tight text-white">NotasFlow</span>
             <span className="mt-0.5 block text-[10px] font-bold uppercase tracking-[.14em] text-white/42">Operação fiscal</span>
           </span>
         </Link>
+
+        <div className="relative mx-3 mb-5 flex items-center gap-2 rounded-[10px] border border-white/[.07] bg-white/[.035] px-3 py-2 text-[10px] font-bold uppercase tracking-[.1em] text-white/48">
+          <span className="h-1.5 w-1.5 rounded-full bg-accent-bright" />
+          Ambiente privado
+        </div>
 
         <nav className="relative flex-1 overflow-y-auto px-3 pb-5">
           <GrupoNav titulo="Visão geral" itens={NAV_VISAO_GERAL} ativo={ativo} aoFechar={aoFechar} papel={papel} criticos={criticos} total={total} />
