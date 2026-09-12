@@ -40,6 +40,20 @@ class Escritorio(Base):
     empresas: Mapped[list["Empresa"]] = relationship(back_populates="escritorio")
 
 
+class AcessoriasCredencial(Base):
+    """Token da API Acessórias, isolado por escritório e cifrado no cofre."""
+
+    __tablename__ = "acessorias_credenciais"
+    __table_args__ = (UniqueConstraint("escritorio_id", name="uq_acessorias_credencial_escritorio"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    escritorio_id: Mapped[int] = mapped_column(ForeignKey("escritorios.id"), index=True)
+    base_url: Mapped[str] = mapped_column(String(500), default="https://api.acessorias.com")
+    token_cifrado: Mapped[str] = mapped_column(Text)
+    ultima_sincronizacao_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    atualizado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class JettaxCredencial(Base):
     """Credencial Jettax do escritório, cifrada pelo mesmo cofre dos A1."""
 

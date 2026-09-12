@@ -407,6 +407,12 @@ export const api = {
 
   acoesAuditoria: () => chamar<string[]>("/auditoria/acoes"),
 
+  // Integração Acessórias: credencial cifrada e cadastro por CNPJ.
+  statusAcessorias: () => chamar<{ configurado: boolean; base_url: string; ultima_sincronizacao_em: string | null }>("/integracoes/acessorias"),
+  salvarCredencialAcessorias: (token: string, base_url: string) => chamar<{ configurado: boolean }>("/integracoes/acessorias/credencial", { method: "PUT", body: JSON.stringify({ token, base_url }) }),
+  testarAcessorias: () => chamar<{ ok: boolean; mensagem: string }>("/integracoes/acessorias/testar", { method: "POST" }),
+  sincronizarEmpresasAcessorias: () => chamar<{ recebidas: number; criadas: number; atualizadas: number; ignoradas: number; invalidas: number }>("/integracoes/acessorias/sincronizar-empresas", { method: "POST", body: JSON.stringify({ atualizar_existentes: true, somente_ativas: true }) }),
+
   // Integração Jettax (o token enviado nunca volta ao navegador).
   statusJettax: () => chamar<{ configurado: boolean; base_url: string; saude: string; mensagem?: string; empresas_registradas: number; empresas_ativas: number }>("/integracoes/jettax"),
   salvarCredencialJettax: (token: string, base_url: string) =>

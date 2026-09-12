@@ -10,6 +10,7 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.routers import (
+    acessorias,
     alertas,
     auditoria,
     auth,
@@ -125,6 +126,7 @@ async def protecoes_http(request: Request, call_next):
 
 
 app.include_router(auth.router)
+app.include_router(acessorias.router)
 app.include_router(usuarios.router)
 app.include_router(auditoria.router)
 app.include_router(metricas.router)
