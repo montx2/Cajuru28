@@ -32,6 +32,8 @@ from dataclasses import dataclass, field
 
 import httpx
 
+from app.core.documentos import normalizar_documento
+
 _MAX_TENTATIVAS = 3
 _ESPERA_BASE_SEGUNDOS = 5
 
@@ -125,8 +127,8 @@ def montar_envelope(
 
     Sem assinatura XML: autenticação é só mTLS do certificado A1.
     """
-    digitos = "".join(c for c in cnpj if c.isdigit())
-    tag_pessoa = f"<CNPJ>{digitos}</CNPJ>" if len(digitos) == 14 else f"<CPF>{digitos}</CPF>"
+    documento = normalizar_documento(cnpj)
+    tag_pessoa = f"<CNPJ>{documento}</CNPJ>" if len(documento) == 14 else f"<CPF>{documento}</CPF>"
 
     if consulta_especifica is None:
         ultimo_nsu_preenchido = str(ultimo_nsu or "0").zfill(15)

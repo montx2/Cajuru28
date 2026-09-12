@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
-import { limparToken } from "@/lib/auth";
 import { limparCachePapel } from "@/lib/papel";
 import { iniciais } from "@/lib/format";
 import type { AlertasResposta, UsuarioAtual } from "@/lib/types";
@@ -83,15 +82,15 @@ export function Topbar({ aoAbrirMenu }: { aoAbrirMenu: () => void }) {
   const titulo = TITULOS[pathname] ?? "NotasFlow";
 
   return (
-    <header className="no-print sticky top-0 z-20 border-b border-white/65 bg-bg/70 backdrop-blur-xl backdrop-saturate-150">
-      <div className="mx-auto flex h-16 max-w-[1440px] items-center gap-3 px-4 sm:px-7 lg:px-10">
+    <header className="no-print sticky top-0 z-20 border-b border-white/65 bg-bg/85 backdrop-blur-xl backdrop-saturate-150">
+      <div className="mx-auto flex h-16 max-w-[1600px] items-center gap-3 px-4 sm:px-7 lg:px-9 xl:px-11">
         <button type="button" onClick={aoAbrirMenu} className="btn-icon lg:hidden" aria-label="Abrir menu">
           <Icone nome="menu" className="h-5 w-5" />
         </button>
 
-        <div className="hidden min-w-[140px] lg:block">
-          <p className="text-[10px] font-bold uppercase tracking-[.13em] text-ink-faint">NotasFlow</p>
-          <p className="truncate text-sm font-bold text-ink">{titulo}</p>
+        <div className="hidden min-w-[148px] lg:block">
+          <p className="text-[10px] font-extrabold uppercase tracking-[.13em] text-ink-faint">Operação fiscal</p>
+          <p className="truncate text-sm font-extrabold text-ink">{titulo}</p>
         </div>
 
         <form onSubmit={pesquisar} className="relative hidden max-w-[520px] flex-1 sm:block">
@@ -108,6 +107,11 @@ export function Topbar({ aoAbrirMenu }: { aoAbrirMenu: () => void }) {
         </form>
         <div className="flex-1 sm:hidden">
           <p className="truncate text-sm font-bold text-ink">{titulo}</p>
+        </div>
+
+        <div className="hidden xl:flex items-center gap-2 border-r border-line pr-4 text-[11px] font-semibold text-ink-muted">
+          <span className="pulso-andamento h-1.5 w-1.5 rounded-full bg-accent" />
+          Automação ativa
         </div>
 
         <div ref={menuRef} className="relative flex items-center gap-1.5">
@@ -193,10 +197,13 @@ export function Topbar({ aoAbrirMenu }: { aoAbrirMenu: () => void }) {
               </Link>
               <button
                 type="button"
-                onClick={() => {
-                  limparToken();
-                  limparCachePapel();
-                  router.push("/login");
+                onClick={async () => {
+                  try {
+                    await api.logout();
+                  } finally {
+                    limparCachePapel();
+                    router.push("/login");
+                  }
                 }}
                 className="flex w-full items-center gap-2.5 border-t border-line px-4 py-3 text-sm font-bold text-danger transition-colors hover:bg-danger-soft/60"
               >

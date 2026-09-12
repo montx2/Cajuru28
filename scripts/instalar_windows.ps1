@@ -392,22 +392,28 @@ if (Test-Path "backend\.env") {
             return [Convert]::ToBase64String($b).Replace("+", "-").Replace("/", "_")
         }
         $dados = @{
-            SECRET_KEY       = Nova-Chave 48   # 64 chars, igual token_urlsafe(48)
-            VAULT_MASTER_KEY = Nova-Chave 32   # 44 chars COM "=" (formato Fernet)
-            BOOTSTRAP_SENHA  = (Nova-Chave 16).TrimEnd("=")  # 22 chars, igual token_urlsafe(16)
+            SECRET_KEY            = Nova-Chave 48   # 64 chars, igual token_urlsafe(48)
+            VAULT_MASTER_KEY      = Nova-Chave 32   # 44 chars COM "=" (formato Fernet)
+            BACKUP_ENCRYPTION_KEY = Nova-Chave 32   # chave distinta: abre backups históricos
+            BOOTSTRAP_SENHA       = (Nova-Chave 16).TrimEnd("=")  # 22 chars, igual token_urlsafe(16)
         }
         New-Item -ItemType Directory -Force -Path "backend" | Out-Null
         $envBackend = @"
 # NotasFlow - gerado por scripts/instalar_windows.ps1 (NAO versionar)
+APP_ENV=development
 DATABASE_URL=postgresql://notasflow:notasflow@db:5432/notasflow
 REDIS_URL=redis://redis:6379/0
 SECRET_KEY=$($dados.SECRET_KEY)
 VAULT_MASTER_KEY=$($dados.VAULT_MASTER_KEY)
+BACKUP_ENCRYPTION_KEY=$($dados.BACKUP_ENCRYPTION_KEY)
+BACKUP_PREVIOUS_ENCRYPTION_KEYS=
 # Use apenas durante uma rotação temporária; separe chaves antigas por vírgula.
 VAULT_PREVIOUS_MASTER_KEYS=
 DADOS_DIR=/data
-ACCESS_TOKEN_EXPIRE_MINUTES=480
-CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,*
+BACKUP_DIR=/backups
+ACCESS_TOKEN_EXPIRE_MINUTES=20
+CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+TRUSTED_HOSTS=localhost,127.0.0.1,testserver
 AMBIENTE_FISCAL=producao
 BOOTSTRAP_ESCRITORIO=Escritorio Cajuru
 BOOTSTRAP_NOME=Administrador

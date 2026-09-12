@@ -37,8 +37,14 @@ No Windows, os atalhos equivalentes são `INICIAR.bat`, `PARAR.bat` e
 
 ## 5. Backup
 
-Faça backup regular dos volumes Docker `db_data`, `certificados` e `xml_saida`.
-Não copie apenas o código-fonte: os dados persistentes estão nesses volumes.
+No ambiente local, configure `BACKUP_ENCRYPTION_KEY` (o `SETUP` a gera) e o
+job diário grava pacotes cifrados no volume `backups_local`; cada um já inclui
+banco, XMLs e certificados cifrados. Ainda é prudente preservar os volumes
+Docker `db_data`, `certificados`, `xml_saida` e `backups_local` antes de uma
+operação destrutiva. Não copie apenas o código-fonte.
+
+Para servidor exposto ou dados fiscais reais, use a pilha e o S3 obrigatório de
+[`docs/DEPLOY_PRODUCAO.md`](docs/DEPLOY_PRODUCAO.md).
 
 ## Atualizar
 

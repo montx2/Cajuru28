@@ -1,121 +1,256 @@
-import os
+"""Configuração central e validação de segurança por ambiente.
 
+Configurações de desenvolvimento são convenientes; configurações de produção
+precisam falhar fechadas. Este módulo mantém os dois cenários explícitos para
+que um `.env` local nunca vire, por acidente, a configuração de um servidor
+com dados fiscais reais.
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from typing import Literal
+from urllib.parse import unquote, urlparse
+
+from cryptography.fernet import Fernet
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Endereço do PostgreSQL na rede interna do Docker Compose.
-_URL_BANCO_SERVIDOR = "postgresql://notasflow:notasflow@db:5432/notasflow"
-
-# Permite indicar outro arquivo de ambiente em automações.
+# Endereços locais de desenvolvimento. A validação de produção abaixo rejeita
+# todos eles; eles nunca são uma alternativa silenciosa para um deploy real.
+_URL_BANCO_DESENVOLVIMENTO = "postgresql://notasflow:notasflow@db:5432/notasflow"
+_URL_REDIS_DESENVOLVIMENTO = "redis://redis:6379/0"
+_CHAVE_PADRAO_INSEGURA = "troque-esta-chave-em-producao"
 _ARQUIVO_ENV = os.environ.get("NOTASFLOW_ENV_FILE", ".env")
 
 
-class Settings(BaseSettings):
-    """
-    Configuração central. Tudo vem do .env — nenhum segredo fica hardcoded
-    ou versionado no código.
+class ErroConfiguracaoProducao(RuntimeError):
+    """A implantação tentou iniciar sem os controles mínimos de produção."""
 
-    As variáveis de ambiente do processo têm prioridade sobre o `.env`, o que
-    permite indicar configurações diferentes para automações e testes.
-    """
+
+def _senha_da_url(url: str) -> str:
+    try:
+        return unquote(urlparse(url).password or "")
+    except ValueError:
+        return ""
+
+
+class Settings(BaseSettings):
+    """Tudo vem do ambiente/secret manager; nenhuma credencial é versionada."""
 
     model_config = SettingsConfigDict(
         env_file=_ARQUIVO_ENV, case_sensitive=False, extra="ignore"
     )
 
-    database_url: str = _URL_BANCO_SERVIDOR
-    redis_url: str = "redis://redis:6379/0"
+    # development = máquina local; test = suíte; production = servidor exposto.
+    app_env: Literal["development", "test", "production"] = "development"
 
-    secret_key: str = "troque-esta-chave-em-producao"
-    access_token_expire_minutes: int = 480
+    database_url: str = _URL_BANCO_DESENVOLVIMENTO
+    redis_url: str = _URL_REDIS_DESENVOLVIMENTO
+
+    secret_key: str = _CHAVE_PADRAO_INSEGURA
+    access_token_expire_minutes: int = 20
     algorithm: str = "HS256"
+    jwt_issuer: str = "notasflow"
+    jwt_audience: str = "notasflow-web"
+    session_cookie_name: str = "notasflow_session"
+    session_cookie_samesite: Literal["lax", "strict"] = "lax"
 
     vault_master_key: str = ""
     # Chaves usadas antes de uma rotação, separadas por vírgula. São aceitas
-    # somente para decifrar certificados já gravados; novas senhas sempre
-    # usam `vault_master_key`.
+    # somente para decifrar dados já gravados; novas gravações usam a atual.
     vault_previous_master_keys: str = ""
 
     dados_dir: str = "/data"
 
-    # Origens permitidas no CORS (separadas por vírgula).
+    # Origens permitidas, separadas por vírgula. Não existe modo wildcard.
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
+    # Hosts HTTP aceitos pela API (separados por vírgula). Em produção informe
+    # o domínio público e o nome interno do serviço usado pelo proxy.
+    trusted_hosts: str = "localhost,127.0.0.1,testserver"
+
+    # Limites de abuso. Em produção o Redis é obrigatório para que o contador
+    # seja compartilhado pelo processo da API; em dev/test há fallback local.
+    rate_limit_ativo: bool = True
+    rate_limit_login_por_minuto: int = 8
+    rate_limit_login_por_hora: int = 30
+    rate_limit_mutacoes_por_minuto: int = 120
 
     # Ambiente fiscal dos importadores: "producao" | "homologacao"
     ambiente_fiscal: str = "producao"
 
+    # ---------------- Jettax 360 / Morfeu ----------------
+    jettax_api_base_url: str = "https://morfeu-api.jettax.com.br"
+    jettax_api_token: str = ""
+    jettax_timeout_segundos: float = 30.0
+    jettax_max_paginas_por_execucao: int = 50
+    jettax_webhook_secret: str = ""
+
     # ---------------- Consumo consciente (regras SEFAZ/ADN) ----------------
-    # Regra oficial: depois de "nada novo" (cStat 137), aguardar 1 hora.
     cooldown_horas: int = 1
-    # Margem extra: o relógio do ambiente nunca bate com o nosso e chegar
-    # adiantado vale um novo bloqueio de 1h.
     margem_cooldown_minutos: int = 6
-    # Consultas pontuais (consChNFe/consNSU): teto oficial de 20 por hora.
     limite_consultas_pontuais_por_hora: int = 20
-    # Intervalo mínimo entre páginas do mesmo lote (recomendação sped-nfe: 2s).
     espera_entre_lotes_segundos: float = 2.0
-    # Trava de segurança por varredura (o próprio sped-nfe recomenda 50).
     max_lotes_por_execucao: int = 50
-    # Falha de rede/5xx: tentar de novo já (não queima cota), com teto.
     max_tentativas_transporte: int = 4
-    # Documentos ficam disponíveis na distribuição por ~90 dias.
     dias_disponiveis_na_distribuicao: int = 90
 
     # ---------------- Automação (Celery Beat) ----------------
-    # Com isso ligado ninguém precisa apertar botão: o agendador varre as
-    # empresas dentro das janelas de consumo, sozinha, para sempre.
     sincronismo_automatico: bool = True
     sincronismo_intervalo_minutos: int = 5
-    # Quantas empresas o agendador libera por varredura (dilui a carga e o
-    # risco de bater no limite de consultas do certificado ao mesmo tempo).
     sincronismo_lote_empresas: int = 20
-    # Recuperação dos XMLs que chegaram só em resumo (consChNFe): a cada quantas
-    # horas o sistema gasta a cota de 20 consultas pontuais por CNPJ.
     completar_xmls_a_cada_horas: int = 6
 
     # ---------------- Celery ----------------
-    # O broker Redis reentrega mensagens "em voo" mais velhas que isto. Precisa
-    # ser maior que o maior countdown usado (bloqueio de ~1h + margem), senão o
-    # reagendamento vira execução duplicada — e duplicata é 656 na certa.
     broker_visibility_timeout_segundos: int = 21600
     limite_tempo_task_segundos: int = 1800
 
     # ---------------- Download em massa ----------------
     limite_documentos_por_exportacao: int = 25000
 
-    # ---------------- Alertas externos (webhook) ----------------
-    # Com URL configurada, o agendador envia os alertas (a partir do nível
-    # mínimo) como JSON via POST — funciona com Slack, Discord, n8n ou
-    # qualquer gateway (ex.: WhatsApp). Vazio = desligado.
+    # ---------------- Alertas externos ----------------
     alerta_webhook_url: str = ""
-    alerta_webhook_min_nivel: str = "atencao"  # critico | atencao | info
-    # Mesmo alerta não é reenviado dentro desta janela (deduplicação).
+    alerta_webhook_min_nivel: str = "atencao"
     alerta_webhook_cooldown_minutos: int = 120
-    # Frequência da varredura que alimenta o webhook (Celery Beat).
     alerta_webhook_intervalo_minutos: int = 15
 
-    # Bootstrap do primeiro usuário (opcional). Se BOOTSTRAP_EMAIL e
-    # BOOTSTRAP_SENHA estiverem preenchidos e não existir nenhum usuário,
-    # a API cria o escritório + admin no startup.
+    # Bootstrap só é útil para primeira instalação. Em produção deve ser uma
+    # senha forte entregue por secret manager e removida depois do primeiro boot.
     bootstrap_escritorio: str = "Escritorio Cajuru"
     bootstrap_nome: str = "Administrador"
     bootstrap_email: str = ""
     bootstrap_senha: str = ""
 
-    # ---------------- Backup (operação de um operador só) ----------------
-    # O sistema é a memória fiscal de dezenas de empresas — sem backup real
-    # (banco + XMLs + possibilidade de restaurar), um disco perdido apaga
-    # anos de trabalho. O job roda dentro da própria API, sem depender do
-    # worker, e o agendamento via Celery Beat é só o gatilho das 03:00.
+    # ---------------- Backup recuperável ----------------
     backup_ativo: bool = True
-    backup_hora: int = 3  # hora local do dia do backup agendado
-    backup_retencao: int = 14  # quantos backups manter no disco
-    # Horas sem backup ok que viram alerta no painel (26h = 1 dia + margem).
+    backup_hora: int = 3
+    backup_retencao: int = 14
     backup_alerta_horas: int = 26
-
+    # Não fica sob DADOS_DIR: o compose de produção monta este caminho em
+    # volume próprio. Mesmo assim, o S3 compatível é obrigatório em produção.
+    # Vazio usa DADOS_DIR/backups no modo local. Produção deve apontar para o
+    # volume dedicado /backups configurado no compose de produção.
+    backup_dir: str = ""
+    # Chave Fernet distinta do cofre dos certificados. É obrigatória para
+    # toda execução de backup: o pacote inteiro é cifrado antes de persistir.
+    backup_encryption_key: str = ""
+    # Chaves anteriores só decifram pacotes já existentes; novas gravações
+    # usam sempre BACKUP_ENCRYPTION_KEY. Separe por vírgula durante rotação.
+    backup_previous_encryption_keys: str = ""
+    backup_s3_bucket: str = ""
+    backup_s3_prefix: str = "notasflow"
+    backup_s3_region: str = "us-east-1"
+    backup_s3_endpoint_url: str = ""
+    backup_s3_access_key_id: str = ""
+    backup_s3_secret_access_key: str = ""
+    # AWS KMS ou equivalente S3 compatível. Vazio usa SSE-S3 além da cifra local.
+    backup_s3_kms_key_id: str = ""
 
     @property
     def usando_sqlite(self) -> bool:
         return self.database_url.strip().lower().startswith("sqlite")
 
+    @property
+    def em_producao(self) -> bool:
+        return self.app_env == "production"
+
+    @property
+    def cors_origens_lista(self) -> list[str]:
+        return [origem.strip().rstrip("/") for origem in self.cors_origins.split(",") if origem.strip()]
+
+    @property
+    def cookie_secure(self) -> bool:
+        return self.em_producao
+
+    @property
+    def pasta_backup(self) -> Path:
+        return Path(self.backup_dir) if self.backup_dir.strip() else Path(self.dados_dir) / "backups"
+
+    def validar_producao(self) -> None:
+        """Recusa deploy inseguro com mensagens acionáveis e sem segredos."""
+        if not self.em_producao:
+            return
+
+        problemas: list[str] = []
+        chave = (self.secret_key or "").strip()
+        if len(chave) < 32 or chave == _CHAVE_PADRAO_INSEGURA or "troque" in chave.lower():
+            problemas.append("SECRET_KEY ausente, previsível ou curta")
+
+        try:
+            Fernet((self.vault_master_key or "").strip().encode())
+            for chave_anterior in self.vault_previous_master_keys.split(","):
+                if chave_anterior.strip():
+                    Fernet(chave_anterior.strip().encode())
+        except (TypeError, ValueError):
+            problemas.append("VAULT_MASTER_KEY ou VAULT_PREVIOUS_MASTER_KEYS inválida")
+        if self.backup_ativo:
+            try:
+                Fernet((self.backup_encryption_key or "").strip().encode())
+                for chave_anterior in self.backup_previous_encryption_keys.split(","):
+                    if chave_anterior.strip():
+                        Fernet(chave_anterior.strip().encode())
+            except (TypeError, ValueError):
+                problemas.append("BACKUP_ENCRYPTION_KEY ou BACKUP_PREVIOUS_ENCRYPTION_KEYS inválida")
+
+        banco = (self.database_url or "").strip()
+        senha_banco = _senha_da_url(banco)
+        if not banco.startswith(("postgresql://", "postgresql+psycopg2://")):
+            problemas.append("DATABASE_URL deve apontar para PostgreSQL em produção")
+        if len(senha_banco) < 16 or senha_banco.lower() in {"notasflow", "postgres", "password", "senha"}:
+            problemas.append("DATABASE_URL usa senha ausente, fraca ou de exemplo")
+
+        redis_url = (self.redis_url or "").strip()
+        senha_redis = _senha_da_url(redis_url)
+        if not redis_url.startswith(("redis://", "rediss://")) or len(senha_redis) < 16:
+            problemas.append("REDIS_URL deve ter autenticação forte em produção")
+
+        origens = self.cors_origens_lista
+        if not origens or any("*" in origem for origem in origens):
+            problemas.append("CORS_ORIGINS não pode ser vazio nem conter wildcard")
+        elif any(not origem.startswith("https://") for origem in origens):
+            problemas.append("CORS_ORIGINS deve conter somente origens HTTPS exatas")
+        hosts = [host.strip().lower() for host in self.trusted_hosts.split(",") if host.strip()]
+        if not hosts or any(host == "*" for host in hosts):
+            problemas.append("TRUSTED_HOSTS não pode ser vazio nem conter wildcard")
+        elif any(host in {"localhost", "127.0.0.1", "testserver"} for host in hosts):
+            problemas.append("TRUSTED_HOSTS não pode conter hosts de desenvolvimento")
+
+        if self.algorithm != "HS256":
+            problemas.append("ALGORITHM deve ser HS256 em produção")
+        if not 1 <= self.access_token_expire_minutes <= 60:
+            problemas.append("ACCESS_TOKEN_EXPIRE_MINUTES deve ficar entre 1 e 60 em produção")
+        if not self.rate_limit_ativo:
+            problemas.append("RATE_LIMIT_ATIVO não pode ser desativado em produção")
+        if not 0 <= self.backup_hora <= 23 or self.backup_retencao < 1:
+            problemas.append("BACKUP_HORA ou BACKUP_RETENCAO inválidos")
+        if self.backup_ativo:
+            if not self.backup_s3_bucket.strip():
+                problemas.append("BACKUP_S3_BUCKET é obrigatório para backup externo em produção")
+            if not self.backup_dir.strip():
+                problemas.append("BACKUP_DIR deve apontar para volume dedicado em produção")
+            else:
+                pasta_dados = Path(self.dados_dir).resolve()
+                pasta_backup = self.pasta_backup.resolve()
+                if not Path(self.backup_dir).is_absolute() or pasta_backup == pasta_dados or pasta_dados in pasta_backup.parents:
+                    problemas.append("BACKUP_DIR deve ser absoluto e separado de DADOS_DIR")
+        if self.backup_s3_endpoint_url and not self.backup_s3_endpoint_url.startswith("https://"):
+            problemas.append("BACKUP_S3_ENDPOINT_URL deve usar HTTPS em produção")
+        if self.jettax_webhook_secret and len(self.jettax_webhook_secret) < 32:
+            problemas.append("JETTAX_WEBHOOK_SECRET deve ter ao menos 32 caracteres")
+        if not (self.jettax_api_base_url or "").startswith("https://"):
+            problemas.append("JETTAX_API_BASE_URL deve usar HTTPS")
+        if self.alerta_webhook_url and not self.alerta_webhook_url.startswith("https://"):
+            problemas.append("ALERTA_WEBHOOK_URL deve usar HTTPS")
+        if self.bootstrap_senha and (len(self.bootstrap_senha) < 14 or self.bootstrap_senha == "troque-esta-senha"):
+            problemas.append("BOOTSTRAP_SENHA configurada é fraca")
+
+        if problemas:
+            raise ErroConfiguracaoProducao(
+                "Configuração de produção recusada: " + "; ".join(problemas) + "."
+            )
+
 
 settings = Settings()
+# Também protege worker/beat: não basta a API recusar a configuração enquanto
+# processos assíncronos continuariam manipulando certificados e documentos.
+settings.validar_producao()

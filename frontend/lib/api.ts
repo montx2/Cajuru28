@@ -1,4 +1,3 @@
-import { limparToken, obterToken } from "./auth";
 import type {
   AlertaItem,
   AlertasResposta,
@@ -63,12 +62,10 @@ export class ApiError extends Error {
 }
 
 async function chamar<T>(caminho: string, opcoes: RequestInit = {}): Promise<T> {
-  const token = obterToken();
   const cabecalhos: Record<string, string> = {
     ...(opcoes.body && !(opcoes.body instanceof FormData)
       ? { "Content-Type": "application/json" }
       : {}),
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 
   // O próprio login é público: um 401 aqui significa "senha errada", não
@@ -78,7 +75,11 @@ async function chamar<T>(caminho: string, opcoes: RequestInit = {}): Promise<T> 
 
   let resposta: Response;
   try {
-    resposta = await fetch(`${BASE_URL}${caminho}`, { ...opcoes, headers: cabecalhos });
+    resposta = await fetch(`${BASE_URL}${caminho}`, {
+      ...opcoes,
+      credentials: "include",
+      headers: cabecalhos,
+    });
   } catch {
     // fetch só lança em falha de rede/CORS — a API não respondeu. Sem este
     // catch a tela dizia apenas "tente novamente", escondendo que o
@@ -93,7 +94,6 @@ async function chamar<T>(caminho: string, opcoes: RequestInit = {}): Promise<T> 
   }
 
   if (resposta.status === 401 && !ehLogin) {
-    limparToken();
     if (typeof window !== "undefined") window.location.href = "/login";
     throw new ApiError(401, "Sessão expirada");
   }
@@ -147,10 +147,7 @@ export interface FiltrosExportacao extends Omit<FiltrosDocumentos, "limit" | "of
 }
 
 async function baixarArquivo(caminho: string, nomePadrao: string): Promise<void> {
-  const token = obterToken();
-  const resposta = await fetch(`${BASE_URL}${caminho}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+  const resposta = await fetch(`${BASE_URL}${caminho}`, { credentials: "include" });
   if (!resposta.ok) {
     const corpo = await resposta.json().catch(() => ({}));
     throw new ApiError(
@@ -170,10 +167,12 @@ async function baixarArquivo(caminho: string, nomePadrao: string): Promise<void>
 
 export const api = {
   login: (email: string, senha: string) =>
-    chamar<{ access_token: string }>("/auth/login", {
+    chamar<{ autenticado: boolean }>("/auth/login", {
       method: "POST",
       body: JSON.stringify({ email, senha }),
     }),
+
+  logout: () => chamar<void>("/auth/logout", { method: "POST" }),
 
   quemSouEu: () => chamar<UsuarioAtual>("/auth/me"),
 
@@ -241,8 +240,8 @@ export const api = {
     chamar<ResumoDocumentos>(`/documentos/resumo${montarParams(filtros)}`),
 
   urlXmlDocumento: (documentoId: number) => {
-    // O browser precisa do token no header — para download simples abrimos
-    // via fetch + blob em `baixarXmlDocumento`. Esta helper só monta a URL.
+    // A sessão fica no cookie HttpOnly. Downloads autenticados devem usar
+    // `baixarXmlDocumento`, que envia credentials: include via fetch.
     return `${BASE_URL}/documentos/${documentoId}/xml`;
   },
 
@@ -422,9 +421,8 @@ export const api = {
   detalheDocumento: (id: number) => chamar<DocumentoDetalhe>(`/documentos/detalhe/${id}`),
 
   obterXmlTexto: async (id: number): Promise<string> => {
-    const token = obterToken();
     const resposta = await fetch(`${BASE_URL}/documentos/${id}/xml`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: "include",
     });
     if (!resposta.ok) throw new ApiError(resposta.status, "Não foi possível ler o XML.");
     return resposta.text();

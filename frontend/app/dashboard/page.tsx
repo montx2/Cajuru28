@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { dataHora, moedaCompacta, numero, saudacao, tempoRelativo } from "@/lib/format";
+import { dataHora, moedaCompacta, numero, tempoRelativo } from "@/lib/format";
 import type {
   AlertasResposta,
   CentralExecucoes,
@@ -60,18 +60,21 @@ function BannerStatus({ painel }: { painel: PainelOperacional }) {
 
   return (
     <div className={`card flex flex-wrap items-center gap-4 border p-4 sm:p-5 ${visual.cor}`}>
-      <span className={`inline-flex h-11 w-11 flex-none items-center justify-center rounded-[14px] bg-surface shadow-sm ${visual.iconeCor}`}>
+      <span className={`inline-flex h-11 w-11 flex-none items-center justify-center rounded-[13px] border border-white/70 bg-surface shadow-sm ${visual.iconeCor}`}>
         <Icone nome={visual.icone} className="h-5 w-5" />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="flex items-center gap-2 font-display text-base font-extrabold tracking-tight text-ink">
-          <span className={`inline-block h-2 w-2 rounded-full ${visual.ponto}`} />
-          {painel.status_geral === "operando"
-            ? "Operação estável"
-            : painel.status_geral === "atencao"
-              ? "Operação estável, com pendências"
-              : "Uma ação precisa de você"}
-        </p>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <p className="flex items-center gap-2 font-display text-base font-extrabold tracking-tight text-ink">
+            <span className={`inline-block h-2 w-2 rounded-full ${visual.ponto}`} />
+            {painel.status_geral === "operando"
+              ? "Operação estável"
+              : painel.status_geral === "atencao"
+                ? "Operação estável, com pendências"
+                : "Uma ação precisa de você"}
+          </p>
+          <span className="hidden text-[10px] font-extrabold uppercase tracking-[.1em] text-ink-muted lg:inline">Monitoramento contínuo</span>
+        </div>
         <p className="mt-1 text-sm leading-6 text-ink-muted">{painel.mensagem}</p>
       </div>
       {painel.alertas.criticos + painel.alertas.atencao > 0 && (
@@ -412,11 +415,16 @@ export default function PainelPage() {
     <div className="animate-fade-up space-y-5">
       <div className="page-header mb-1">
         <div>
-          <p className="page-kicker">Centro de controle</p>
-          <h1 className="page-title">{saudacao()}</h1>
-          <p className="page-description capitalize">{hora}. Veja o que exige decisão e deixe o resto com a automação.</p>
+          <p className="page-kicker">Centro de operações</p>
+          <h1 className="page-title">Sua operação, sob controle.</h1>
+          <p className="page-description capitalize">{hora}. Veja o que exige decisão e deixe o restante com a automação.</p>
         </div>
-        <div className="chip"><span className="pulso-andamento h-1.5 w-1.5 rounded-full bg-accent" />Atualiza a cada 30 s</div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="chip"><span className="pulso-andamento h-1.5 w-1.5 rounded-full bg-accent" />Atualiza a cada 30 s</div>
+          <Link href="/dashboard/importacoes" className="btn-primary no-print">
+            Ver importações <Icone nome="setaDireita" className="h-4 w-4" />
+          </Link>
+        </div>
       </div>
 
       <BannerStatus painel={painel} />

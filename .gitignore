@@ -3,6 +3,7 @@
 .env.local
 backend/.env
 frontend/.env.local
+deploy/*.env
 CREDENCIAIS.txt
 CREDENCIAIS.local.txt
 *.local.md

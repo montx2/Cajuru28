@@ -44,14 +44,10 @@ def criar_usuario(
     admin: Usuario = SoAdmin,
     db: Session = Depends(get_db),
 ):
-    ja_existe = (
-        db.query(Usuario)
-        .filter(
-            Usuario.escritorio_id == admin.escritorio_id,
-            Usuario.email == dados.email,
-        )
-        .first()
-    )
+    # Uma identidade de acesso não pode apontar para dois tenants. O modelo
+    # legado tinha unicidade apenas por escritório; mantemos compatibilidade
+    # com esses dados, mas novos cadastros passam a ser globais.
+    ja_existe = db.query(Usuario).filter(Usuario.email == dados.email).first()
     if ja_existe:
         raise HTTPException(status_code=409, detail="Já existe um usuário com esse email.")
 
@@ -94,8 +90,10 @@ def atualizar_usuario(
         raise HTTPException(status_code=404, detail="Usuário não encontrado.")
 
     mudancas = dados.model_dump(exclude_unset=True)
+    sessao_precisa_revogar = False
     if "senha" in mudancas and mudancas["senha"]:
         usuario.senha_hash = gerar_hash_senha(mudancas.pop("senha"))
+        sessao_precisa_revogar = True
     if "nome" in mudancas and mudancas["nome"] is not None:
         nome = (mudancas["nome"] or "").strip()
         if not nome:
@@ -131,6 +129,12 @@ def atualizar_usuario(
         usuario.papel = novo_papel
     if novo_ativo is not None:
         usuario.ativo = novo_ativo
+        # Desativar ou reativar não deve preservar um cookie emitido antes.
+        sessao_precisa_revogar = True
+    if novo_papel is not None:
+        sessao_precisa_revogar = True
+    if sessao_precisa_revogar:
+        usuario.versao_sessao = (usuario.versao_sessao or 0) + 1
 
     auditoria.registrar(
         db, admin, "usuario_atualizado",

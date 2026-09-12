@@ -64,9 +64,9 @@ operador não entra.
 7. **Certificado é ativo crítico:** o centro de certificados mostra validade,
    dias restantes, última utilização real e o último erro de autenticação —
    a senha jamais aparece.
-8. **Backup é plano, não esperança:** pacote diário (banco + manifesto +
-   espelho de XMLs) com retenção, e **teste de restauração** com data visível
-   na Saúde do sistema.
+8. **Backup é plano, não esperança:** pacote diário cifrado (banco + XMLs +
+   certificados + manifesto SHA-256), cópia externa, retenção e **teste de
+   restauração** com data visível na Saúde do sistema.
 9. **Segurança sem exceção:** sem SECRET_KEY padrão, sem segredo em código ou
    log, cofre para senhas de certificado, endpoints protegidos.
 10. **"Privado" não significa "mal feito":** domínios separados, filas

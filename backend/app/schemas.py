@@ -1,8 +1,10 @@
 from datetime import date, datetime
 import re
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
+from app.core.documentos import normalizar_cnpj, normalizar_documento
 from app.models import (
     DirecaoDocumento,
     StatusDocumentoFiscal,
@@ -41,8 +43,10 @@ class LoginRequest(BaseModel):
 
 
 class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
+    """Resposta de login sem expor a sessão ao JavaScript do navegador."""
+
+    autenticado: bool = True
+    token_type: str = "cookie"
 
 
 class UsuarioAtual(BaseModel):
@@ -64,14 +68,17 @@ class EmpresaCriar(BaseModel):
     # UF pode vir vazia: a rota tenta descobrir automaticamente pelo CNPJ.
     # Se não conseguir, aí sim devolve erro pedindo preenchimento manual.
     uf: str | None = ""
+    # Preenchidos apenas se a empresa também for usar o conector Jettax.
+    codigo_ibge: str | None = None
+    inscricao_municipal: str | None = None
 
     @field_validator("cnpj_cpf")
     @classmethod
     def normalizar_documento(cls, v: str) -> str:
-        digitos = re.sub(r"\D", "", v or "")
-        if len(digitos) not in (11, 14):
-            raise ValueError("CNPJ deve ter 14 dígitos ou CPF 11 dígitos")
-        return digitos
+        try:
+            return normalizar_documento(v)
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
 
     @field_validator("uf")
     @classmethod
@@ -87,6 +94,26 @@ class EmpresaCriar(BaseModel):
     @classmethod
     def razao_normalizada(cls, v: str) -> str:
         return (v or "").strip()
+
+    @field_validator("codigo_ibge")
+    @classmethod
+    def codigo_ibge_valido(cls, v: str | None) -> str | None:
+        if v is None or not str(v).strip():
+            return None
+        digitos = re.sub(r"\D", "", str(v))
+        if len(digitos) != 7:
+            raise ValueError("Código IBGE deve ter 7 dígitos")
+        return digitos
+
+    @field_validator("inscricao_municipal")
+    @classmethod
+    def inscricao_municipal_valida(cls, v: str | None) -> str | None:
+        valor = (v or "").strip()
+        if not valor:
+            return None
+        if len(valor) > 100:
+            raise ValueError("Inscrição municipal deve ter no máximo 100 caracteres")
+        return valor
 
 
 class ConsultaCNPJResposta(BaseModel):
@@ -111,6 +138,8 @@ class EmpresaResposta(BaseModel):
     criado_em: datetime
     sincronizar_automaticamente: bool = True
     quais_tipos_sincronizar: str = "nfse,nfe,cte"
+    codigo_ibge: str | None = None
+    inscricao_municipal: str | None = None
 
 
 class EmpresaAtualizar(BaseModel):
@@ -121,6 +150,8 @@ class EmpresaAtualizar(BaseModel):
     ativa: bool | None = None
     sincronizar_automaticamente: bool | None = None
     quais_tipos_sincronizar: list[TipoDocumentoFiscal] | None = None
+    codigo_ibge: str | None = None
+    inscricao_municipal: str | None = None
 
     @field_validator("uf")
     @classmethod
@@ -141,6 +172,26 @@ class EmpresaAtualizar(BaseModel):
         if not v:
             raise ValueError("Razão social não pode ficar vazia.")
         return v
+
+    @field_validator("codigo_ibge")
+    @classmethod
+    def codigo_ibge_atualizado(cls, v: str | None) -> str | None:
+        if v is None or not str(v).strip():
+            return None
+        digitos = re.sub(r"\D", "", str(v))
+        if len(digitos) != 7:
+            raise ValueError("Código IBGE deve ter 7 dígitos")
+        return digitos
+
+    @field_validator("inscricao_municipal")
+    @classmethod
+    def inscricao_municipal_atualizada(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        valor = v.strip()
+        if valor and len(valor) > 100:
+            raise ValueError("Inscrição municipal deve ter no máximo 100 caracteres")
+        return valor or None
 
 
 class ItemLoteEmpresas(BaseModel):
@@ -164,6 +215,159 @@ class LoteEmpresasResposta(BaseModel):
     ja_existiam: int
     erros: int
     itens: list[ItemLoteEmpresas]
+
+
+# ---------- Integração Jettax 360 / Morfeu ----------
+
+class JettaxConfiguracaoAtualizar(BaseModel):
+    """Preferências locais; não aceita token, senha ou certificado."""
+
+    ativa: bool | None = None
+    baixar_nfes: bool | None = None
+    baixar_nfes_enviadas: bool | None = None
+
+
+class JettaxRegistroEmpresa(BaseModel):
+    """Ação explícita que cria/atualiza o cliente remoto."""
+
+    enviar_certificado: bool = False
+
+
+class JettaxConfiguracaoResposta(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    empresa_id: int
+    status: str = "nao_registrada"
+    ativa: bool = False
+    baixar_nfes: bool = False
+    baixar_nfes_enviadas: bool = False
+    ultimo_id_nfse: str | None = None
+    ultimo_id_nfe_saida: str | None = None
+    ultimo_id_nfe_entrada: str | None = None
+    ultimo_registro_em: datetime | None = None
+    ultima_sincronizacao_em: datetime | None = None
+    ultimo_erro: str | None = None
+    falhas_seguidas: int = 0
+    travado_em: datetime | None = None
+    atualizado_em: datetime | None = None
+
+
+class JettaxStatusResposta(BaseModel):
+    configurado: bool
+    base_url: str
+    webhook_configurado: bool
+    saude: str = "desconhecido"
+    verificado_em: datetime | None = None
+    mensagem: str | None = None
+    empresas_registradas: int = 0
+    empresas_ativas: int = 0
+
+
+class JettaxTesteConexaoResposta(BaseModel):
+    status: str
+    verificado_em: datetime
+    mensagem: str
+
+
+class JettaxImportarNFSe(BaseModel):
+    """Filtros documentados para `GET /api/nfse/invoices/{cnpj}`.
+
+    Ao informar filtro, a execução é pontual e não move o cursor incremental,
+    para que uma consulta seletiva jamais pule notas na próxima captura.
+    """
+
+    numero: str | None = None
+    nota_situacao: Literal["autorizada", "cancelada"] | None = None
+    tipo_nota: Literal["enviada", "recebida", "nfts"] | None = None
+    period: str | None = None
+
+    @field_validator("period")
+    @classmethod
+    def periodo_morfeu(cls, v: str | None) -> str | None:
+        if v is None or not v.strip():
+            return None
+        valor = v.strip()
+        if not re.fullmatch(r"(?:[1-9]|1[0-2])-\d{4}", valor):
+            raise ValueError("period deve usar m-AAAA, por exemplo 8-2026")
+        return valor
+
+    @property
+    def tem_filtros(self) -> bool:
+        return any((self.numero, self.nota_situacao, self.tipo_nota, self.period))
+
+
+class JettaxImportarNFe(BaseModel):
+    direcao: Literal["sales", "purchases"]
+    chave: str | None = None
+    data_inicial: date | None = None
+    data_final: date | None = None
+    cnpj_destinatario: str | None = None
+    cnpj_emitente: str | None = None
+
+    @field_validator("chave")
+    @classmethod
+    def chave_numerica_opcional(cls, v: str | None) -> str | None:
+        # Chave de acesso é um campo contratualmente numérico; sua máscara não
+        # identifica pessoa/empresa e pode ser removida sem perda semântica.
+        if v is None or not v.strip():
+            return None
+        return re.sub(r"\D", "", v)
+
+    @field_validator("cnpj_destinatario", "cnpj_emitente")
+    @classmethod
+    def documento_jettax_preservado(cls, v: str | None) -> str | None:
+        if v is None or not v.strip():
+            return None
+        try:
+            return normalizar_cnpj(v)
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+
+    @property
+    def tem_filtros(self) -> bool:
+        return any((self.chave, self.data_inicial, self.data_final, self.cnpj_destinatario, self.cnpj_emitente))
+
+
+class JettaxExecucaoResposta(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    empresa_id: int
+    tipo: TipoDocumentoFiscal
+    fluxo: str
+    status: str
+    avancar_cursor: bool
+    cursor_antes: str | None = None
+    cursor_depois: str | None = None
+    documentos_importados: int = 0
+    documentos_duplicados: int = 0
+    documentos_ignorados: int = 0
+    mensagem_erro: str | None = None
+    aviso: str | None = None
+    ticket: str | None = None
+    origem: str = "manual"
+    iniciado_em: datetime | None = None
+    finalizado_em: datetime | None = None
+
+
+class JettaxWebhookEntrada(BaseModel):
+    """Contrato público documentado pela Jettax para a entrega de webhook."""
+
+    type: str
+    ticket: str
+    status: Literal["SUCCESS", "ERROR"]
+    message: str | None = None
+
+
+class JettaxWebhookEventoResposta(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    tipo: str
+    ticket: str
+    status: str
+    mensagem: str | None = None
+    recebido_em: datetime | None = None
 
 
 # ---------- Certificado ----------
@@ -232,6 +436,7 @@ class DocumentoFiscalResposta(BaseModel):
     destinatario_nome: str | None = None
     destinatario_documento: str | None = None
     nsu: str | None = None
+    origem: str | None = None
 
 
 class EmpresaResumoDocumentos(BaseModel):
@@ -470,6 +675,14 @@ class ResumoDocumentos(BaseModel):
     por_tipo: dict[str, int]
 
 
+class DocumentoFonteResposta(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    origem: str
+    identificador_externo: str
+    registrado_em: datetime | None = None
+
+
 class DocumentoDetalhe(DocumentoFiscalResposta):
     """Tudo que o painel de detalhes precisa numa única chamada."""
 
@@ -480,6 +693,7 @@ class DocumentoDetalhe(DocumentoFiscalResposta):
     xml_disponivel: bool = False
     xml_bytes: int | None = None
     execucao_id: int | None = None
+    fontes: list[DocumentoFonteResposta] = []
 
 
 # ---------- Dashboard ----------
@@ -630,8 +844,8 @@ class UsuarioCriar(BaseModel):
     @field_validator("senha")
     @classmethod
     def senha_minima(cls, v: str) -> str:
-        if len(v or "") < 6:
-            raise ValueError("A senha precisa de ao menos 6 caracteres.")
+        if len(v or "") < 12:
+            raise ValueError("A senha precisa de ao menos 12 caracteres.")
         return v
 
     @field_validator("papel")
@@ -672,8 +886,8 @@ class UsuarioAtualizar(BaseModel):
     @field_validator("senha")
     @classmethod
     def senha_ok(cls, v: str | None) -> str | None:
-        if v is not None and len(v) < 6:
-            raise ValueError("A senha precisa de ao menos 6 caracteres.")
+        if v is not None and len(v) < 12:
+            raise ValueError("A senha precisa de ao menos 12 caracteres.")
         return v
 
 
@@ -838,6 +1052,9 @@ class BackupRegistroResposta(BaseModel):
     iniciado_em: datetime
     finalizado_em: datetime | None = None
     tamanho_bytes: int | None = None
+    checksum_sha256: str | None = None
+    objeto_remoto: str | None = None
+    arquivos_incluidos: int = 0
     empresas: int = 0
     documentos: int = 0
     execucoes: int = 0

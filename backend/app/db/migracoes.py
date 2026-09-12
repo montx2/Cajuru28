@@ -60,15 +60,23 @@ _COLUNAS_POR_TABELA: dict[str, list[tuple[str, str]]] = {
     "empresas": [
         ("sincronizar_automaticamente", "BOOLEAN NOT NULL DEFAULT TRUE"),
         ("quais_tipos_sincronizar", "VARCHAR(30) NOT NULL DEFAULT 'nfse,nfe,cte'"),
+        ("codigo_ibge", "VARCHAR(7)"),
+        ("inscricao_municipal", "VARCHAR(100)"),
     ],
     "usuarios": [
         ("papel", "VARCHAR(20) NOT NULL DEFAULT 'admin'"),
+        ("versao_sessao", "INTEGER NOT NULL DEFAULT 1"),
     ],
     "certificados": [
         # Telemetria de uso do A1 — alimenta o centro de certificados.
         ("ultima_utilizacao_em", "TIMESTAMP WITH TIME ZONE"),
         ("ultima_validacao_em", "TIMESTAMP WITH TIME ZONE"),
         ("ultimo_erro", "TEXT"),
+    ],
+    "backups": [
+        ("checksum_sha256", "VARCHAR(64)"),
+        ("objeto_remoto", "VARCHAR(700)"),
+        ("arquivos_incluidos", "INTEGER NOT NULL DEFAULT 0"),
     ],
 }
 
@@ -81,6 +89,8 @@ _INDICES: list[tuple[str, str]] = [
     ("ix_documentos_emitente", "CREATE INDEX IF NOT EXISTS ix_documentos_emitente ON documentos_fiscais (emitente_documento)"),
     ("ix_execucoes_empresa_tipo_status", "CREATE INDEX IF NOT EXISTS ix_execucoes_empresa_tipo_status ON execucoes_importacao (empresa_id, tipo, status)"),
     ("ix_sincronizacao_empresa_tipo", "CREATE UNIQUE INDEX IF NOT EXISTS ix_sincronizacao_empresa_tipo ON sincronizacoes_dfe (empresa_id, tipo)"),
+    ("ix_jettax_execucao_empresa_status", "CREATE INDEX IF NOT EXISTS ix_jettax_execucao_empresa_status ON jettax_execucoes (empresa_id, status)"),
+    ("ix_jettax_webhook_ticket", "CREATE INDEX IF NOT EXISTS ix_jettax_webhook_ticket ON jettax_webhook_eventos (ticket)"),
 ]
 
 # `ALTER TYPE` só faz sentido no PostgreSQL (SQLite guarda enum como texto).

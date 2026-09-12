@@ -30,6 +30,9 @@ def test_adiciona_colunas_faltantes_e_e_idempotente(monkeypatch):
                 "id INTEGER PRIMARY KEY, documentos_importados INTEGER)"
             )
         )
+        conexao.execute(
+            text("CREATE TABLE empresas (id INTEGER PRIMARY KEY, razao_social TEXT)")
+        )
 
     monkeypatch.setattr(migracoes, "engine", engine)
     migracoes.aplicar_migracoes()
@@ -43,6 +46,8 @@ def test_adiciona_colunas_faltantes_e_e_idempotente(monkeypatch):
         "eventos_nao_reconhecidos",
         "aviso",
     } <= colunas_exec
+    colunas_empresas = {c["name"] for c in inspect(engine).get_columns("empresas")}
+    assert {"codigo_ibge", "inscricao_municipal"} <= colunas_empresas
 
     # Rodar de novo não quebra nem duplica
     migracoes.aplicar_migracoes()

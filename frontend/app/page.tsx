@@ -2,13 +2,15 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { obterToken } from "@/lib/auth";
+import { api } from "@/lib/api";
 
 export default function Home() {
   const router = useRouter();
 
   useEffect(() => {
-    router.replace(obterToken() ? "/dashboard" : "/login");
+    api.quemSouEu()
+      .then(() => router.replace("/dashboard"))
+      .catch(() => router.replace("/login"));
   }, [router]);
 
   return null;

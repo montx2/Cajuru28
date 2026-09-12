@@ -22,14 +22,18 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import escritorio_id_atual, requer_escrita
 from app.core.config import settings
+from app.core.documentos import eh_cnpj_numerico, normalizar_documento
 from app.core.vault import cifrar_segredo
 from app.db.session import get_db
 from app.models import (
     Certificado,
     DocumentoFiscal,
+    DocumentoFiscalFonte,
     Empresa,
     EventoFiscalPendente,
     ExecucaoImportacao,
+    JettaxConfiguracaoEmpresa,
+    JettaxExecucao,
     SincronizacaoDFe,
     StatusExecucao,
     Usuario,
@@ -47,9 +51,9 @@ from app.schemas import (
 from app.api.routers.importacoes import estados_do_escritorio
 from app.services.cnpj import consultar_cnpj
 from app.services.certificados import (
-    apenas_digitos,
     cnpj_de_nome_arquivo,
     extrair_identidade,
+    guardar_pfx_protegido,
     validar_documento,
 )
 
@@ -85,8 +89,8 @@ def _validar_uf_ou_vazio(valor: str | None) -> str:
 
 
 def _consulta_publica(cnpj_cpf: str):
-    """Busca externa opcional; nunca levanta erro para o fluxo principal."""
-    if len(apenas_digitos(cnpj_cpf)) != 14:
+    """Consulta BrasilAPI somente para CNPJ numérico; alfa segue manualmente."""
+    if not eh_cnpj_numerico(cnpj_cpf):
         return None
     return consultar_cnpj(cnpj_cpf)
 
@@ -99,11 +103,11 @@ def _completar_dados_empresa(dados: EmpresaCriar) -> dict:
     diferença é que agora o sistema tenta descobri-la antes de pedir que o
     operador escolha manualmente.
     """
-    documento = apenas_digitos(dados.cnpj_cpf)
+    documento = normalizar_documento(dados.cnpj_cpf)
     uf = _validar_uf_ou_vazio(dados.uf)
     razao = (dados.razao_social or "").strip()
 
-    consulta = _consulta_publica(documento) if (len(documento) == 14 and (not uf or not razao)) else None
+    consulta = _consulta_publica(documento) if (eh_cnpj_numerico(documento) and (not uf or not razao)) else None
     if consulta is not None:
         uf = uf or _validar_uf_ou_vazio(consulta.uf)
         razao = razao or consulta.razao_social or consulta.nome_fantasia
@@ -119,7 +123,13 @@ def _completar_dados_empresa(dados: EmpresaCriar) -> dict:
             detail="Não foi possível identificar a UF automaticamente. Informe a UF manualmente.",
         )
 
-    return {"razao_social": razao[:255], "cnpj_cpf": documento, "uf": uf}
+    return {
+        "razao_social": razao[:255],
+        "cnpj_cpf": documento,
+        "uf": uf,
+        "codigo_ibge": dados.codigo_ibge,
+        "inscricao_municipal": dados.inscricao_municipal,
+    }
 
 
 @router.get("", response_model=list[EmpresaResposta])
@@ -166,9 +176,16 @@ def consultar_cadastro_publico_cnpj(
 ):
     """Pré-preenche razão social e UF pelo CNPJ para deixar o cadastro simples."""
     del escritorio_id  # mantém o endpoint protegido pelo tenant/autenticação
-    documento = apenas_digitos(cnpj)
-    if len(documento) != 14:
-        raise HTTPException(status_code=422, detail="Informe um CNPJ com 14 dígitos.")
+    try:
+        documento = normalizar_documento(cnpj)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not eh_cnpj_numerico(documento):
+        return ConsultaCNPJResposta(
+            documento=documento,
+            encontrado=False,
+            mensagem="CNPJ alfanumérico: informe razão social e UF manualmente até a fonte pública confirmar suporte.",
+        )
     dados = consultar_cnpj(documento)
     if dados is None:
         return ConsultaCNPJResposta(
@@ -272,7 +289,14 @@ def excluir_empresa(
     # Ordem explícita para funcionar igualmente em SQLite e PostgreSQL, sem
     # depender de cascatas configuradas no banco instalado.
     db.query(EventoFiscalPendente).filter_by(empresa_id=empresa.id).delete(synchronize_session=False)
+    # Exclusão local jamais chama DELETE /api/clients: a Jettax documenta que
+    # esse DELETE também apaga as notas remotas, então só o operador pode fazer
+    # isso conscientemente fora deste fluxo.
+    ids_documentos = db.query(DocumentoFiscal.id).filter_by(empresa_id=empresa.id).subquery()
+    db.query(DocumentoFiscalFonte).filter(DocumentoFiscalFonte.documento_id.in_(ids_documentos)).delete(synchronize_session=False)
     db.query(DocumentoFiscal).filter_by(empresa_id=empresa.id).delete(synchronize_session=False)
+    db.query(JettaxExecucao).filter_by(empresa_id=empresa.id).delete(synchronize_session=False)
+    db.query(JettaxConfiguracaoEmpresa).filter_by(empresa_id=empresa.id).delete(synchronize_session=False)
     db.query(ExecucaoImportacao).filter_by(empresa_id=empresa.id).delete(synchronize_session=False)
     db.query(SincronizacaoDFe).filter_by(empresa_id=empresa.id).delete(synchronize_session=False)
     db.query(Certificado).filter_by(empresa_id=empresa.id).delete(synchronize_session=False)
@@ -404,7 +428,7 @@ async def _processar_pfx(
             origem=nome, status="erro", mensagem="Extensão não suportada (use .pfx ou .p12)."
         )
 
-    conteudo = await arquivo.read()
+    conteudo = await arquivo.read(_LIMITE_BYTES_PFX + 1)
     if len(conteudo) > _LIMITE_BYTES_PFX:
         return ItemLoteEmpresas(
             origem=nome,
@@ -466,13 +490,10 @@ async def _processar_pfx(
         db, escritorio_id, cnpj, razao, uf, vistos
     )
 
-    # Grava/atualiza o certificado (senha cifrada, arquivo com 0600)
+    # Arquivo e senha ficam cifrados; o PFX em claro só existe nesta requisição.
     pasta = os.path.join(settings.dados_dir, "certificados", str(empresa.id))
-    os.makedirs(pasta, exist_ok=True)
-    caminho = os.path.join(pasta, f"{cnpj}.pfx")
-    with open(caminho, "wb") as f:
-        f.write(conteudo)
-    os.chmod(caminho, 0o600)
+    caminho = os.path.join(pasta, f"{cnpj}.pfx.enc")
+    guardar_pfx_protegido(caminho, conteudo)
 
     db.query(Certificado).filter(
         Certificado.empresa_id == empresa.id, Certificado.ativo.is_(True)
@@ -507,9 +528,11 @@ async def _processar_pfx(
 async def _ler_csv(arquivo: UploadFile | None) -> dict[str, dict]:
     if arquivo is None:
         return {}
-    conteudo = await arquivo.read()
+    # Limite na leitura, não depois: multipart grande não deve ocupar memória
+    # da API só para descobrir que ultrapassou a regra do lote.
+    conteudo = await arquivo.read(_LIMITE_BYTES_CSV + 1)
     if len(conteudo) > _LIMITE_BYTES_CSV:
-        raise HTTPException(status_code=400, detail="CSV maior que 5 MB.")
+        raise HTTPException(status_code=413, detail="CSV maior que 5 MB.")
     try:
         texto = conteudo.decode("utf-8-sig")
     except UnicodeDecodeError:
@@ -536,8 +559,11 @@ async def _ler_csv(arquivo: UploadFile | None) -> dict[str, dict]:
             i = indice[chave]
             return linha[i].strip() if i is not None and i < len(linha) else ""
 
-        cnpj = apenas_digitos(valor("cnpj"))
-        if not cnpj or not validar_documento(cnpj) or cnpj in resultado:
+        try:
+            cnpj = normalizar_documento(valor("cnpj"))
+        except ValueError:
+            continue
+        if not validar_documento(cnpj) or cnpj in resultado:
             continue
         resultado[cnpj] = {
             "cnpj": cnpj,

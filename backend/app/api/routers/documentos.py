@@ -30,6 +30,7 @@ from app.db.session import get_db
 from app.models import (
     DirecaoDocumento,
     DocumentoFiscal,
+    DocumentoFiscalFonte,
     Empresa,
     ExecucaoImportacao,
     StatusDocumentoFiscal,
@@ -39,6 +40,7 @@ from app.models import (
 from app.services import auditoria
 from app.schemas import (
     DocumentoDetalhe,
+    DocumentoFonteResposta,
     DocumentoFiscalResposta,
     EmpresaResumoDocumentos,
     EstimativaExportacao,
@@ -809,6 +811,12 @@ def detalhe_documento(
         .order_by(ExecucaoImportacao.id.desc())
         .first()
     )
+    fontes = (
+        db.query(DocumentoFiscalFonte)
+        .filter(DocumentoFiscalFonte.documento_id == documento.id)
+        .order_by(DocumentoFiscalFonte.registrado_em.asc(), DocumentoFiscalFonte.id.asc())
+        .all()
+    )
     return DocumentoDetalhe(
         **DocumentoFiscalResposta.model_validate(documento).model_dump(),
         empresa_razao_social=empresa.razao_social if empresa else "",
@@ -818,6 +826,7 @@ def detalhe_documento(
         xml_disponivel=xml_disponivel,
         xml_bytes=tamanho,
         execucao_id=execucao.id if execucao else None,
+        fontes=[DocumentoFonteResposta.model_validate(fonte) for fonte in fontes],
     )
 
 

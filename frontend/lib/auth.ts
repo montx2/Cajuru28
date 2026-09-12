@@ -1,14 +1,10 @@
-const CHAVE_TOKEN = "notasflow_token";
+"use client";
 
-export function salvarToken(token: string): void {
-  localStorage.setItem(CHAVE_TOKEN, token);
-}
-
-export function obterToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(CHAVE_TOKEN);
-}
-
+/**
+ * A sessão é um cookie HttpOnly emitido pela API. Este módulo existe apenas
+ * para compatibilidade de imports antigos: nenhum token é acessível ao
+ * JavaScript, ao localStorage ou ao sessionStorage.
+ */
 export function limparToken(): void {
-  localStorage.removeItem(CHAVE_TOKEN);
+  // Não há token no browser para apagar. O logout real chama /auth/logout.
 }

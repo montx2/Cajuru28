@@ -25,7 +25,8 @@ uma **ferramenta de operação fiscal para um único operador**:
 - **Certificados** — centro de certificados: validade, dias restantes,
   **última utilização real** e **último erro de autenticação** de cada A1.
 - **Saúde do sistema** — componentes + **backup de verdade**: pacote diário
-  (dump do banco + manifesto + espelho de XMLs) e **teste de restauração**
+  (dump + XMLs/certificados integrais + manifesto SHA-256, cifrado e com cópia
+  externa) e **teste de restauração**
   que recria o schema num banco de prova e confere as contagens.
 - **Menu enxuto** — Visão geral · Fiscal · Sistema. Sem gestão de equipe,
   planos ou qualquer ruído de SaaS na experiência principal (a arquitetura
@@ -47,6 +48,11 @@ uma **ferramenta de operação fiscal para um único operador**:
 - **Alertas externos:** webhook JSON para Slack, Discord, n8n ou gateway
   WhatsApp.
 - **Trilha de auditoria** e **métricas Prometheus** (`GET /metricas`).
+- **Jettax 360/Morfeu (opcional):** conector backend-first, com token em
+  segredo de deploy, registro explícito de clientes, saúde/auditoria,
+  deduplicação por fonte e captura de NFS-e/NF-e pelos contratos públicos
+  verificados (CT-e permanece protegido por contrato ainda incompleto). Veja
+  [`docs/JETTAX.md`](docs/JETTAX.md).
 
 ## Arquitetura
 
@@ -111,8 +117,10 @@ make build    # constrói as imagens
 ## Serviços e dados
 
 O `docker-compose.yml` inicia `db`, `redis`, `api`, `worker`, `beat` e
-`frontend`. Os dados persistentes ficam nos volumes `db_data`, `certificados`
-e `xml_saida` — e o job de backup diário gera pacotes restauráveis dentro do
-volume de dados (tela **Saúde do sistema** para acompanhar e testar).
+`frontend` para desenvolvimento local. Os dados persistentes ficam nos volumes
+`db_data`, `certificados`, `xml_saida` e `backups_local`. Para produção, use
+`docker-compose.production.yml`: ele expõe somente Caddy/TLS e exige S3,
+segredos fortes e um volume dedicado de backup. Veja
+[`docs/DEPLOY_PRODUCAO.md`](docs/DEPLOY_PRODUCAO.md).
 
 Consulte `docs/ARQUITETURA.md` e `docs/SINCRONIZACAO.md` para detalhes técnicos.

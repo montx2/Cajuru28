@@ -48,6 +48,8 @@ from app.models import (
     TipoDocumentoFiscal,
 )
 from app.services import batimento, fila, sincronizacao
+from app.services.jettax import executar_importacao as executar_importacao_jettax, registrar_proveniencia
+from app.services.certificados import ler_pfx_protegido
 from app.services.importadores.base import (
     AmbienteIndisponivel,
     ConsumoIndevido,
@@ -173,8 +175,7 @@ def importar_documentos(
 
         ultimo_nsu = _resolver_nsu_inicial(db, empresa_id, tipo_doc, execucao, estado)
         senha = decifrar_segredo(certificado.senha_cifrada)
-        with open(certificado.arquivo_path, "rb") as f:
-            pfx_bytes = f.read()
+        pfx_bytes = ler_pfx_protegido(certificado.arquivo_path)
 
         importador = obter_importador(tipo_doc)
         total_importado = execucao.documentos_importados or 0
@@ -525,7 +526,17 @@ def _gravar_documento(db, empresa_id: int, tipo: TipoDocumentoFiscal, doc) -> bo
         "situacao": texto("status_autorizacao", 255),
         "origem": "adn" if tipo == TipoDocumentoFiscal.NFSE else "sefaz",
     }
-    if not _inserir_documento_sem_duplicar(db, valores):
+    criado = _inserir_documento_sem_duplicar(db, valores)
+    documento = (
+        db.query(DocumentoFiscal)
+        .filter(DocumentoFiscal.empresa_id == empresa_id, DocumentoFiscal.chave_acesso == chave)
+        .first()
+    )
+    if documento is not None:
+        # A nota é única, mas cada confirmação de origem fica rastreável. Não
+        # muda o XML quando a mesma chave reaparece por outra fonte.
+        registrar_proveniencia(db, documento.id, valores["origem"] or "desconhecida", str(doc.nsu))
+    if not criado:
         return False
 
     # Só grava o XML depois de vencer a disputa no banco. Assim uma
@@ -683,6 +694,21 @@ def _marcar_erro(db, execucao: ExecucaoImportacao | None, mensagem: str) -> None
     db.commit()
 
 
+@celery_app.task(name="importar_documentos_jettax", bind=True, max_retries=0)
+def importar_documentos_jettax(self, execucao_id: int, filtros: dict | None = None) -> None:
+    """Executa uma captura Morfeu já criada pela rota protegida.
+
+    Não reaproveita a fila/estado da SEFAZ: a Jettax tem ``lastId`` próprio e
+    disponibilidade assíncrona distinta. O serviço libera a trava e grava o
+    resultado mesmo quando a chamada externa falha.
+    """
+    db = SessionLocal()
+    try:
+        executar_importacao_jettax(db, execucao_id, filtros or {})
+    finally:
+        db.close()
+
+
 # ---------------------------------------------------------------------------
 # Agendador (Celery Beat): o "quase 100% automático" de verdade
 # ---------------------------------------------------------------------------
@@ -824,8 +850,7 @@ def completar_xmls_pendentes(self, empresa_id: int | None = None, limite: int | 
                 db.commit()
                 importador = obter_importador(TipoDocumentoFiscal.NFE)
                 senha = decifrar_segredo(certificado.senha_cifrada)
-                with open(certificado.arquivo_path, "rb") as f:
-                    pfx_bytes = f.read()
+                pfx_bytes = ler_pfx_protegido(certificado.arquivo_path)
 
                 with sessao_mtls(pfx_bytes, senha) as (cert_path, key_path):
                     for documento in documentos_pendentes:

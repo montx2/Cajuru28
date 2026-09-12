@@ -11,7 +11,9 @@ from app.db.session import get_db
 from app.models import Certificado, Empresa, Usuario
 from app.schemas import CertificadoResposta, ResumoCertificado, ResumoCertificadoPainel
 from app.services import auditoria
-from app.services.mtls import obter_validade_certificado
+from app.services.certificados import extrair_identidade, guardar_pfx_protegido
+
+_LIMITE_BYTES_PFX = 30 * 1024 * 1024
 
 router = APIRouter(prefix="/certificados", tags=["certificados"])
 
@@ -38,19 +40,28 @@ async def enviar_certificado(
     if empresa is None:
         raise HTTPException(status_code=404, detail="Empresa não encontrada")
 
-    pfx_bytes = await arquivo.read()
+    # Leitura limitada: um upload autenticado não pode esgotar a memória da API.
+    pfx_bytes = await arquivo.read(_LIMITE_BYTES_PFX + 1)
+    if len(pfx_bytes) > _LIMITE_BYTES_PFX:
+        raise HTTPException(status_code=413, detail="O certificado excede o limite de 30 MB.")
 
     try:
-        validade = obter_validade_certificado(pfx_bytes, senha)
+        identidade = extrair_identidade(pfx_bytes, senha)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if identidade.documento != empresa.cnpj_cpf:
+        # Um A1 é uma credencial fiscal: aceitar o de outra empresa permitiria
+        # consultas e captura sob uma identidade diferente da cadastrada.
+        raise HTTPException(
+            status_code=422,
+            detail="O CNPJ/CPF do certificado não corresponde à empresa selecionada.",
+        )
+    validade = identidade.validade_utc
 
     pasta_empresa = os.path.join(settings.dados_dir, "certificados", str(empresa_id))
     os.makedirs(pasta_empresa, exist_ok=True)
-    caminho_arquivo = os.path.join(pasta_empresa, f"{empresa.cnpj_cpf}.pfx")
-    with open(caminho_arquivo, "wb") as f:
-        f.write(pfx_bytes)
-    os.chmod(caminho_arquivo, 0o600)
+    caminho_arquivo = os.path.join(pasta_empresa, f"{empresa.cnpj_cpf}.pfx.enc")
+    guardar_pfx_protegido(caminho_arquivo, pfx_bytes)
 
     # Desativa certificados anteriores desta empresa — só um ativo por vez
     db.query(Certificado).filter(

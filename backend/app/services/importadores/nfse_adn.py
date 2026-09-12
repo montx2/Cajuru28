@@ -39,6 +39,7 @@ from typing import Any
 
 import httpx
 
+from app.core.documentos import normalizar_documento
 from app.services.importadores._distribuicao_dfe import competencia_de_texto
 from app.services.importadores.base import (
     AmbienteIndisponivel,
@@ -69,6 +70,13 @@ def _campo(dicionario: dict, *nomes: str) -> Any:
         if nome.lower() in minusculos:
             return minusculos[nome.lower()]
     return None
+
+
+def _documento_xml(valor: object) -> str:
+    try:
+        return normalizar_documento(str(valor or ""))
+    except ValueError:
+        return ""
 
 
 def _local(tag: str) -> str:
@@ -335,14 +343,14 @@ class ImportadorNFSeADN(ImportadorFiscal):
         404 é resposta de negócio (nada novo) — devolve sem retentar.
         401/403 sobem na hora (certificado sem permissão).
         """
-        digitos = "".join(c for c in cnpj if c.isdigit())
+        documento = normalizar_documento(cnpj)
         # `lote=true` = distribuição em lote a partir do NSU; `lote=false` = o
         # DF-e daquele NSU (manual dos contribuintes, GET /DFe/{NSU}).
         flag_lote = "true" if lote else "false"
-        if len(digitos) == 11:
-            params = {"cpfConsulta": digitos, "lote": flag_lote}
+        if len(documento) == 11:
+            params = {"cpfConsulta": documento, "lote": flag_lote}
         else:
-            params = {"cnpjConsulta": digitos, "lote": flag_lote}
+            params = {"cnpjConsulta": documento, "lote": flag_lote}
 
         ultimo_erro: Exception | None = None
         for tentativa in range(1, _MAX_TENTATIVAS + 1):
@@ -504,26 +512,22 @@ class ImportadorNFSeADN(ImportadorFiscal):
         for caminho, conteudo in planos.items():
             if caminho.startswith("prest/") or "/prest/" in f"/{caminho}/":
                 if caminho.endswith("/CNPJ") or caminho.endswith("/CPF"):
-                    digitos = "".join(c for c in conteudo if c.isdigit())
-                    if digitos:
-                        prestador = digitos
+                    prestador = _documento_xml(conteudo)
+                    if prestador:
                         break
         if not prestador:
-            prestador = "".join(
-                c for c in (valor("prest/CNPJ", "prest/CPF", "emit/CNPJ", "emit/CPF") or "") if c.isdigit()
-            )
+            prestador = _documento_xml(valor("prest/CNPJ", "prest/CPF", "emit/CNPJ", "emit/CPF"))
 
         tomador = ""
         for caminho, conteudo in planos.items():
             if caminho.startswith("toma/") or "/toma/" in f"/{caminho}/":
                 if caminho.endswith("/CNPJ") or caminho.endswith("/CPF"):
-                    digitos = "".join(c for c in conteudo if c.isdigit())
-                    if digitos:
-                        tomador = digitos
+                    tomador = _documento_xml(conteudo)
+                    if tomador:
                         break
 
-        cnpj_limpo = "".join(c for c in cnpj_consultado if c.isdigit())
-        direcao = "prestada" if prestador and prestador == cnpj_limpo else "tomada"
+        cnpj_canonico = _documento_xml(cnpj_consultado)
+        direcao = "prestada" if prestador and prestador == cnpj_canonico else "tomada"
 
         chave = ""
         for elemento in raiz.iter():
