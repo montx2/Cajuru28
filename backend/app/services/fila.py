@@ -40,6 +40,12 @@ from app.services.periodo import Periodo
 TIPOS_COM_UF = {TipoDocumentoFiscal.NFE, TipoDocumentoFiscal.CTE}
 
 
+def _aware(valor: datetime | None) -> datetime | None:
+    if valor is None:
+        return None
+    return valor if valor.tzinfo else valor.replace(tzinfo=timezone.utc)
+
+
 @dataclass
 class ResultadoEnfileiramento:
     """`status` vira texto no painel — por isso cada um traz a mensagem pronta."""
@@ -208,7 +214,14 @@ def enfileirar(
     )
 
 
-def reagendar(db: Session, execucao: ExecucaoImportacao, quando: datetime, *, motivo: str) -> bool:
+def reagendar(
+    db: Session,
+    execucao: ExecucaoImportacao,
+    quando: datetime,
+    *,
+    motivo: str,
+    tentativa: int | None = None,
+) -> bool:
     """
     Marca a execução como "aguardando" e programa a continuação.
 
@@ -217,25 +230,39 @@ def reagendar(db: Session, execucao: ExecucaoImportacao, quando: datetime, *, mo
     `aguardando` vencidas — o processo não depende de um único mecanismo.
     """
     agora = datetime.now(timezone.utc)
-    quando_com_tz = quando if quando.tzinfo else quando.replace(tzinfo=timezone.utc)
+    quando_com_tz = _aware(quando) or agora
     atraso = max(60, int((quando_com_tz - agora).total_seconds()))
-    execucao.status = StatusExecucao.AGUARDANDO
-    execucao.bloqueado_ate = quando
-    execucao.tentativas = (execucao.tentativas or 0) + 1
-    execucao.aviso = _acrescentar_aviso(execucao.aviso, motivo)
-    db.commit()
+
+    anterior = _aware(execucao.bloqueado_ate)
+    ja_marcada = (
+        execucao.status == StatusExecucao.AGUARDANDO
+        and anterior is not None
+        and abs((anterior - quando_com_tz).total_seconds()) < 1
+    )
+    if not ja_marcada:
+        execucao.status = StatusExecucao.AGUARDANDO
+        execucao.bloqueado_ate = quando_com_tz
+        execucao.tentativas = (execucao.tentativas or 0) + 1
+        execucao.aviso = _acrescentar_aviso(execucao.aviso, motivo)
+        db.commit()
+    else:
+        # `worker.tasks` já gravou a execução como aguardando antes de chamar
+        # aqui. Não incrementamos `tentativas` de novo — isso inflava contadores
+        # e fazia o painel parecer que houve várias consultas bloqueadas.
+        execucao.aviso = _acrescentar_aviso(execucao.aviso, motivo)
+        db.commit()
 
     try:
         from app.worker.tasks import importar_documentos
 
-        importar_documentos.apply_async(
-            kwargs={
-                "empresa_id": execucao.empresa_id,
-                "tipo": execucao.tipo.value,
-                "execucao_id": execucao.id,
-            },
-            countdown=atraso,
-        )
+        kwargs = {
+            "empresa_id": execucao.empresa_id,
+            "tipo": execucao.tipo.value,
+            "execucao_id": execucao.id,
+        }
+        if tentativa is not None:
+            kwargs["tentativa"] = tentativa
+        importar_documentos.apply_async(kwargs=kwargs, countdown=atraso)
         return True
     except Exception:  # noqa: BLE001 — sem broker o Beat continua o trabalho
         return False

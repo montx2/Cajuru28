@@ -139,6 +139,12 @@ def importar_documentos(
             # Redelivery do broker (acks_late) numa varredura que já terminou:
             # sair daqui é o que evita reconsultar a SEFAZ de graça.
             return
+        if execucao.status == StatusExecucao.AGUARDANDO:
+            # O ETA venceu e a task acordou: a linha deixa de parecer parada
+            # enquanto o worker valida certificado/lease/janela.
+            execucao.status = StatusExecucao.EM_ANDAMENTO
+            execucao.bloqueado_ate = None
+            execucao.mensagem_erro = None
 
         certificado = (
             db.query(Certificado)
@@ -160,6 +166,15 @@ def importar_documentos(
                 "Empresa %s/%s já está sendo varrida por outra task; sem duplicar consulta.",
                 empresa_id, tipo,
             )
+            execucao.status = StatusExecucao.CONCLUIDA
+            execucao.bloqueado_ate = None
+            execucao.mensagem_erro = None
+            execucao.aviso = _resumir_avisos(
+                execucao.aviso,
+                ["Consulta não duplicada: outra varredura deste CNPJ/tipo já estava em andamento."],
+            )
+            execucao.finalizado_em = _agora()
+            db.commit()
             return
 
         # Batimento: a API usa isto (e o ping do broker) para dizer ao
@@ -366,7 +381,13 @@ def tratar_ambiente_indisponivel(
         f"próxima em {quando:%H:%M}. ({str(erro)[:300]})",
         quando,
     )
-    fila_reagendar(db, execucao, quando, motivo="Ambiente fiscal indisponível — retentando.")
+    fila_reagendar(
+        db,
+        execucao,
+        quando,
+        motivo="Ambiente fiscal indisponível — retentando.",
+        tentativa=tentativa + 1,
+    )
 
 
 def _aguardar_janela(db, estado, execucao: ExecucaoImportacao, libertacao) -> None:
@@ -395,9 +416,11 @@ def _marcar_aguardando(
     db.commit()
 
 
-def fila_reagendar(db, execucao: ExecucaoImportacao, quando: datetime, *, motivo: str) -> bool:
+def fila_reagendar(
+    db, execucao: ExecucaoImportacao, quando: datetime, *, motivo: str, tentativa: int | None = None
+) -> bool:
     """Delegado para `app.services.fila.reagendar` (mesmo caminho do Beat)."""
-    return fila.reagendar(db, execucao, quando, motivo=motivo)
+    return fila.reagendar(db, execucao, quando, motivo=motivo, tentativa=tentativa)
 
 
 def fila_periodo(execucao: ExecucaoImportacao):
@@ -808,7 +831,13 @@ def completar_xmls_pendentes(self, empresa_id: int | None = None, limite: int | 
     task para uma empresa só.
     """
     db = SessionLocal()
-    resultado = {"completos": 0, "indisponiveis": 0, "sem_cota": 0, "empresas": 0}
+    resultado = {
+        "completos": 0,
+        "indisponiveis": 0,
+        "sem_cota": 0,
+        "aguardando_janela": 0,
+        "empresas": 0,
+    }
     limite_por_empresa = max(1, min(20, int(limite or settings.limite_consultas_pontuais_por_hora)))
     try:
         batimento.registrar(db, "worker", "completar_xmls_pendentes")
@@ -842,24 +871,40 @@ def completar_xmls_pendentes(self, empresa_id: int | None = None, limite: int | 
                 continue
 
             estado = sincronizacao.obter_estado(db, empresa.id, TipoDocumentoFiscal.NFE)
-            if estado is None or not sincronizacao.travar(db, estado):
+            if estado is None:
+                continue
+            liberacao = sincronizacao.liberacao_para(db, empresa.id, TipoDocumentoFiscal.NFE)
+            if not liberacao.pode:
+                resultado["aguardando_janela"] += len(documentos_pendentes)
+                continue
+            if not sincronizacao.travar(db, estado):
                 db.commit()
                 continue
 
             try:
                 db.commit()
+                # A task pode ter esperado pelo lease; revalida a janela antes
+                # de chamar consChNFe. Sem este preflight, o botão "completar
+                # XML" gastava cota pontual dentro da mesma 1h e reiniciava
+                # bloqueios oficiais.
+                liberacao = sincronizacao.liberacao_para(db, empresa.id, TipoDocumentoFiscal.NFE)
+                if not liberacao.pode:
+                    resultado["aguardando_janela"] += len(documentos_pendentes)
+                    continue
                 importador = obter_importador(TipoDocumentoFiscal.NFE)
                 senha = decifrar_segredo(certificado.senha_cifrada)
                 pfx_bytes = ler_pfx_protegido(certificado.arquivo_path)
 
                 with sessao_mtls(pfx_bytes, senha) as (cert_path, key_path):
                     for documento in documentos_pendentes:
+                        liberacao = sincronizacao.liberacao_para(db, empresa.id, TipoDocumentoFiscal.NFE)
+                        if not liberacao.pode:
+                            resultado["aguardando_janela"] += 1
+                            break
                         disponivel = sincronizacao.cota_pontual_disponivel(db, estado)
                         if disponivel <= 0:
                             resultado["sem_cota"] += 1
                             break
-                        sincronizacao.consumir_cota_pontual(db, estado)
-                        db.commit()
                         try:
                             completo = importador.buscar_por_chave(
                                 cnpj=empresa.cnpj_cpf,
@@ -869,20 +914,29 @@ def completar_xmls_pendentes(self, empresa_id: int | None = None, limite: int | 
                                 uf=empresa.uf,
                             )
                         except ConsumoIndevido as exc:
+                            sincronizacao.consumir_cota_pontual(db, estado)
+                            if exc.ultimo_nsu:
+                                sincronizacao.realinhar_cursor(
+                                    db, estado, ultimo_nsu=exc.ultimo_nsu, max_nsu=exc.max_nsu
+                                )
                             sincronizacao.marcar_consumo_indevido(
-                                db, estado, motivo=f"consChNFe: {exc.motivo}"
+                                db, estado, motivo=f"consChNFe: {exc.motivo}", bloqueio=getattr(exc, "bloqueio", None)
                             )
                             db.commit()
                             break
                         except AmbienteIndisponivel:
+                            # 5xx/rede não consome a cota oficial; mantém a
+                            # consulta pontual disponível para a próxima rodada.
                             break
 
+                        sincronizacao.consumir_cota_pontual(db, estado)
                         if completo is None or not completo.xml:
                             resultado["indisponiveis"] += 1
                             db.commit()
                             continue
 
                         _sobrescrever_xml(documento, completo)
+                        sincronizacao.marcar_consulta_ok(db, estado)
                         resultado["completos"] += 1
                         db.commit()
                         time.sleep(ESPERA_ENTRE_LOTES)

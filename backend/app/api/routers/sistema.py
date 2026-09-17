@@ -5,14 +5,31 @@ from pathlib import Path
 import shutil
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from app.db.session import get_db
 
 from app.api.deps import requer_escrita, usuario_atual
 from app.core.config import settings
-from app.models import BackupRegistro, Usuario
-from app.schemas import BackupRegistroResposta, SaudeBackupResposta
+from app.models import (
+    AcessoriasCredencial,
+    BackupRegistro,
+    Certificado,
+    DocumentoFiscal,
+    DocumentoFiscalFonte,
+    Empresa,
+    EventoFiscalPendente,
+    ExecucaoImportacao,
+    JettaxConfiguracaoEmpresa,
+    JettaxCredencial,
+    JettaxExecucao,
+    JettaxSaudeConector,
+    JettaxWebhookEvento,
+    SincronizacaoDFe,
+    StatusExecucao,
+    Usuario,
+)
+from app.schemas import BackupRegistroResposta, ResetGeralResposta, SaudeBackupResposta
 from app.services import auditoria, backup as svc_backup
 from app.worker.celery_app import celery_app
 
@@ -121,6 +138,114 @@ def encerrar_indisponivel(_usuario=Depends(usuario_atual)):
 @router.post("/abrir-pasta")
 def abrir_pasta_indisponivel(_usuario=Depends(usuario_atual)):
     _somente_docker()
+
+
+@router.post("/reset-geral", response_model=ResetGeralResposta)
+def reset_geral(
+    confirmar: str,
+    remover_integracoes: bool = False,
+    forcar: bool = False,
+    db=Depends(get_db),
+    usuario: Usuario = Depends(requer_escrita),
+):
+    """
+    Limpa o escritório logado para começar do zero: empresas, certificados,
+    XMLs, execuções, cursores/bloqueios e pendências locais.
+
+    Mantém o usuário, o escritório, auditoria e backups. Para evitar clique
+    acidental a tela/API precisa enviar `confirmar=LIMPAR`. Se houver importação
+    realmente em andamento, bloqueia por padrão; `forcar=true` existe para
+    recuperar um ambiente que ficou preso e precisa ser zerado.
+    """
+    if confirmar.strip().upper() != "LIMPAR":
+        raise HTTPException(status_code=422, detail="Digite/enviar confirmar=LIMPAR para executar a limpeza geral.")
+
+    escritorio_id = usuario.escritorio_id
+    empresa_ids = [linha[0] for linha in db.query(Empresa.id).filter(Empresa.escritorio_id == escritorio_id).all()]
+    if empresa_ids and not forcar:
+        em_andamento = (
+            db.query(ExecucaoImportacao.id)
+            .filter(
+                ExecucaoImportacao.empresa_id.in_(empresa_ids),
+                ExecucaoImportacao.status == StatusExecucao.EM_ANDAMENTO,
+            )
+            .first()
+        )
+        if em_andamento:
+            raise HTTPException(
+                status_code=409,
+                detail="Há importação em andamento. Aguarde terminar ou repita com forcar=true para zerar mesmo assim.",
+            )
+
+    caminhos_xml = [linha[0] for linha in db.query(DocumentoFiscal.xml_path).filter(DocumentoFiscal.empresa_id.in_(empresa_ids or [-1])).all()]
+    caminhos_cert = [linha[0] for linha in db.query(Certificado.arquivo_path).filter(Certificado.empresa_id.in_(empresa_ids or [-1])).all()]
+
+    documentos = db.query(DocumentoFiscal).filter(DocumentoFiscal.empresa_id.in_(empresa_ids or [-1])).count()
+    certificados = db.query(Certificado).filter(Certificado.empresa_id.in_(empresa_ids or [-1])).count()
+    execucoes = db.query(ExecucaoImportacao).filter(ExecucaoImportacao.empresa_id.in_(empresa_ids or [-1])).count()
+    sincronizacoes = db.query(SincronizacaoDFe).filter(SincronizacaoDFe.empresa_id.in_(empresa_ids or [-1])).count()
+    empresas = len(empresa_ids)
+
+    if empresa_ids:
+        ids_documentos = select(DocumentoFiscal.id).where(DocumentoFiscal.empresa_id.in_(empresa_ids))
+        db.query(EventoFiscalPendente).filter(EventoFiscalPendente.empresa_id.in_(empresa_ids)).delete(synchronize_session=False)
+        db.query(DocumentoFiscalFonte).filter(DocumentoFiscalFonte.documento_id.in_(ids_documentos)).delete(synchronize_session=False)
+        db.query(DocumentoFiscal).filter(DocumentoFiscal.empresa_id.in_(empresa_ids)).delete(synchronize_session=False)
+        db.query(JettaxExecucao).filter(JettaxExecucao.empresa_id.in_(empresa_ids)).delete(synchronize_session=False)
+        db.query(JettaxConfiguracaoEmpresa).filter(JettaxConfiguracaoEmpresa.empresa_id.in_(empresa_ids)).delete(synchronize_session=False)
+        db.query(ExecucaoImportacao).filter(ExecucaoImportacao.empresa_id.in_(empresa_ids)).delete(synchronize_session=False)
+        db.query(SincronizacaoDFe).filter(SincronizacaoDFe.empresa_id.in_(empresa_ids)).delete(synchronize_session=False)
+        db.query(Certificado).filter(Certificado.empresa_id.in_(empresa_ids)).delete(synchronize_session=False)
+        db.query(Empresa).filter(Empresa.id.in_(empresa_ids), Empresa.escritorio_id == escritorio_id).delete(synchronize_session=False)
+
+    integracoes = 0
+    if remover_integracoes:
+        integracoes += db.query(AcessoriasCredencial).filter(AcessoriasCredencial.escritorio_id == escritorio_id).delete(synchronize_session=False)
+        integracoes += db.query(JettaxCredencial).filter(JettaxCredencial.escritorio_id == escritorio_id).delete(synchronize_session=False)
+        integracoes += db.query(JettaxSaudeConector).filter(JettaxSaudeConector.escritorio_id == escritorio_id).delete(synchronize_session=False)
+        integracoes += db.query(JettaxWebhookEvento).filter(JettaxWebhookEvento.escritorio_id == escritorio_id).delete(synchronize_session=False)
+
+    auditoria.registrar(
+        db,
+        usuario,
+        "reset_geral",
+        detalhe=(
+            f"{empresas} empresa(s), {documentos} documento(s), {certificados} certificado(s), "
+            f"{execucoes} execução(ões), {sincronizacoes} sincronização(ões); "
+            f"integracoes_removidas={integracoes}"
+        ),
+    )
+    db.commit()
+
+    arquivos_removidos = _remover_arquivos_locais(caminhos_xml + caminhos_cert)
+    return ResetGeralResposta(
+        empresas=empresas,
+        documentos=documentos,
+        certificados=certificados,
+        execucoes=execucoes,
+        sincronizacoes=sincronizacoes,
+        arquivos_removidos=arquivos_removidos,
+        integracoes=integracoes,
+    )
+
+
+def _remover_arquivos_locais(caminhos: list[str | None]) -> int:
+    removidos = 0
+    vistos: set[str] = set()
+    for caminho in caminhos:
+        if not caminho or caminho in vistos:
+            continue
+        vistos.add(caminho)
+        try:
+            arquivo = Path(caminho)
+            if arquivo.is_file():
+                arquivo.unlink()
+                removidos += 1
+        except OSError:
+            # A limpeza do banco é a parte crítica; arquivo ausente/travado fica
+            # para remoção manual ou próxima limpeza do volume.
+            continue
+    return removidos
 
 
 @router.post("/backup", response_model=BackupRegistroResposta, status_code=202)

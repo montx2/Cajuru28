@@ -15,6 +15,7 @@ Cobre os três pedidos que motivaram esta versão:
 import base64
 import gzip
 import io
+import os
 import zipfile
 from datetime import date, datetime, timedelta, timezone
 
@@ -669,3 +670,134 @@ def test_patch_de_empresa_controla_autosync(cliente):
 
     invalido = client.patch(f"/empresas/{empresa_id}", json={"uf": "XX"})
     assert invalido.status_code == 422
+
+
+def test_export_empresa_id_nao_ignora_filtro(cliente, tmp_path):
+    """Regressão: a tela enviava empresa_id e o ZIP/estimativa ignoravam."""
+    client, db = cliente["client"], cliente["db"]
+    escritorio_id = cliente["escritorio_id"]
+    empresa_principal = cliente["empresa_id"]
+
+    outra = Empresa(
+        escritorio_id=escritorio_id,
+        razao_social="BETA SERVICOS LTDA",
+        cnpj_cpf="22222222000122",
+        uf="SP",
+    )
+    db.add(outra)
+    db.flush()
+    chave = "35260822222222000122550010000000044444444444"
+    pasta = tmp_path / "xml" / str(outra.id) / "nfse"
+    pasta.mkdir(parents=True)
+    caminho = pasta / f"{chave}.xml"
+    caminho.write_bytes(_xml_nfse(chave, "08-12", prestador="22222222000122"))
+    db.add(
+        DocumentoFiscal(
+            empresa_id=outra.id,
+            tipo=TipoDocumentoFiscal.NFSE,
+            direcao="prestada",
+            chave_acesso=chave,
+            nsu="44",
+            data_emissao=datetime(2026, 8, 12, tzinfo=timezone.utc),
+            competencia=date(2026, 8, 12),
+            valor_total=99.9,
+            xml_path=str(caminho),
+            leiaute="completo",
+            emitente_nome="BETA SERVICOS LTDA",
+            emitente_documento="22222222000122",
+        )
+    )
+    db.commit()
+
+    estimativa = client.get(
+        "/documentos/exportar/estimativa",
+        params={"empresa_id": empresa_principal, "competencia": "08/2026"},
+    ).json()
+    assert estimativa["documentos"] == 2
+    assert estimativa["empresas"] == 1
+
+    resposta = client.get(
+        "/documentos/exportar",
+        params={"empresa_id": empresa_principal, "competencia": "08/2026"},
+    )
+    assert resposta.status_code == 200, resposta.text
+    pacote = zipfile.ZipFile(io.BytesIO(resposta.content))
+    xmls = [n for n in pacote.namelist() if n.endswith(".xml")]
+    assert len(xmls) == 2
+    assert all(chave not in pacote.read(nome).decode("utf-8", "ignore") for nome in xmls)
+
+
+def test_export_csv_e_filtros_profissionais(cliente):
+    client, empresa_id = cliente["client"], cliente["empresa_id"]
+    resposta = client.get(
+        "/documentos/exportar/csv",
+        params={
+            "empresa_id": empresa_id,
+            "competencia": "08/2026",
+            "status": "cancelada",
+            "direcao": "tomada",
+            "busca": "Fornecedor Teste",
+        },
+    )
+    assert resposta.status_code == 200, resposta.text
+    conteudo = resposta.content.decode("utf-8-sig")
+    linhas = [linha for linha in conteudo.splitlines() if linha.strip()]
+    assert linhas[0].startswith("empresa;cnpj;tipo;direcao")
+    assert len(linhas) == 2  # cabeçalho + a nota cancelada de agosto
+    assert "CANCELADA" in linhas[1]
+    assert ";tomada;" in linhas[1]
+
+
+def test_resumo_por_empresa_calcula_canceladas_e_valor_com_tipo(cliente):
+    corpo = cliente["client"].get(
+        "/documentos/por-empresa", params={"competencia": "08/2026", "tipo": "nfse"}
+    ).json()
+    linha = next(item for item in corpo if item["empresa_id"] == cliente["empresa_id"])
+    assert linha["total"] == 2
+    assert linha["canceladas"] == 1
+    assert linha["normais"] == 1
+    assert linha["valor_total"] == 250.75  # cancelada não soma no total útil
+
+
+def test_excluir_documento_remove_registro_e_arquivo(cliente):
+    client, db = cliente["client"], cliente["db"]
+    documento = db.query(DocumentoFiscal).filter_by(empresa_id=cliente["empresa_id"]).first()
+    caminho = documento.xml_path
+    assert os.path.isfile(caminho)
+
+    resposta = client.delete(f"/documentos/{documento.id}")
+    assert resposta.status_code == 200, resposta.text
+    corpo = resposta.json()
+    assert corpo["excluidos"] == 1
+    assert corpo["ids"] == [documento.id]
+    assert corpo["arquivos_removidos"] == 1
+    db.expire_all()
+    assert db.get(DocumentoFiscal, documento.id) is None
+    assert not os.path.exists(caminho)
+
+
+def test_excluir_lote_nao_aceita_documento_de_outro_escritorio(cliente):
+    client, db = cliente["client"], cliente["db"]
+    proprio = db.query(DocumentoFiscal).filter_by(empresa_id=cliente["empresa_id"]).first().id
+    estranho = db.query(DocumentoFiscal).filter_by(empresa_id=cliente["estranha_id"]).first().id
+
+    resposta = client.post("/documentos/excluir-lote", json={"ids": [proprio, estranho]})
+    assert resposta.status_code == 404
+    db.expire_all()
+    assert db.get(DocumentoFiscal, proprio) is not None
+    assert db.get(DocumentoFiscal, estranho) is not None
+
+
+def test_reset_geral_deixa_o_escritorio_sem_empresas(cliente):
+    client, db = cliente["client"], cliente["db"]
+    assert client.get("/empresas").json()
+    resposta = client.post("/sistema/reset-geral", params={"confirmar": "LIMPAR", "forcar": "true"})
+    assert resposta.status_code == 200, resposta.text
+    corpo = resposta.json()
+    assert corpo["empresas"] == 1
+    assert corpo["documentos"] == 3
+    assert corpo["arquivos_removidos"] >= 1
+    db.expire_all()
+    assert client.get("/empresas").json() == []
+    assert client.get("/documentos").json() == []
+    assert db.query(DocumentoFiscal).filter_by(empresa_id=cliente["empresa_id"]).count() == 0

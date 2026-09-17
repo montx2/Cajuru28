@@ -191,10 +191,10 @@ def ambiente(tmp_path, monkeypatch):
         "app.services.importadores._distribuicao_dfe.time.sleep", lambda _: None
     )
 
-    reagendamentos: list[tuple[int, datetime]] = []
+    reagendamentos: list[tuple[int, datetime, int | None]] = []
 
-    def _falso_reagendar(db, execucao, quando, *, motivo):
-        reagendamentos.append((execucao.id, quando))
+    def _falso_reagendar(db, execucao, quando, *, motivo, tentativa=None):
+        reagendamentos.append((execucao.id, quando, tentativa))
         return True
 
     monkeypatch.setattr(tasks, "fila_reagendar", _falso_reagendar)
@@ -369,3 +369,4 @@ def test_5xx_retenta_cedo_e_nao_finge_bloqueio(ambiente):
     # primeira retomada em minutos, não em 1h
     quando = ambiente["reagendamentos"][0][1]
     assert (quando - datetime.now(timezone.utc)).total_seconds() < 10 * 60
+    assert ambiente["reagendamentos"][0][2] == 1

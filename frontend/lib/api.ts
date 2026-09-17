@@ -26,6 +26,8 @@ import type {
   PainelOperacional,
   CentralExecucoes,
   RegistroAuditoria,
+  ResetGeralResposta,
+  ResultadoExclusaoDocumentos,
   ResultadoImportacaoSelecionada,
   ResumoCertificado,
   ResumoDocumentos,
@@ -133,13 +135,23 @@ export interface FiltrosDocumentos {
   status?: StatusDocumentoFiscal;
   /** MM/AAAA (o que a tela chama de "competência") */
   competencia?: string;
+  /** Período livre em YYYY-MM-DD; alternativa à competência fechada. */
+  data_inicio?: string;
+  data_fim?: string;
   leiaute?: "completo" | "resumo";
   busca?: string;
+  numero?: string;
+  serie?: string;
+  emitente_documento?: string;
+  destinatario_documento?: string;
+  origem?: string;
+  valor_min?: number | string;
+  valor_max?: number | string;
   limit?: number;
   offset?: number;
 }
 
-export interface FiltrosExportacao extends Omit<FiltrosDocumentos, "limit" | "offset" | "busca"> {
+export interface FiltrosExportacao extends Omit<FiltrosDocumentos, "limit" | "offset"> {
   incluir_canceladas?: boolean;
   incluir_relatorio?: boolean;
   /** seleção da tela ("baixar só estes"): ids separados por vírgula */
@@ -233,10 +245,10 @@ export const api = {
   listarDocumentos: (filtros: FiltrosDocumentos = {}) =>
     chamar<DocumentoFiscal[]>(`/documentos${montarParams(filtros)}`),
 
-  resumoPorEmpresa: (filtros: { competencia?: string; tipo?: TipoDocumentoFiscal } = {}) =>
+  resumoPorEmpresa: (filtros: Omit<FiltrosDocumentos, "limit" | "offset" | "empresa_id" | "empresa_ids"> = {}) =>
     chamar<EmpresaResumoDocumentos[]>(`/documentos/por-empresa${montarParams(filtros)}`),
 
-  resumoDocumentos: (filtros: { empresa_id?: number | null; competencia?: string } = {}) =>
+  resumoDocumentos: (filtros: Omit<FiltrosDocumentos, "limit" | "offset"> = {}) =>
     chamar<ResumoDocumentos>(`/documentos/resumo${montarParams(filtros)}`),
 
   urlXmlDocumento: (documentoId: number) => {
@@ -248,6 +260,15 @@ export const api = {
   baixarXmlDocumento: (documentoId: number, nomeArquivo: string) =>
     baixarArquivo(`/documentos/${documentoId}/xml`, nomeArquivo),
 
+  excluirDocumento: (documentoId: number) =>
+    chamar<ResultadoExclusaoDocumentos>(`/documentos/${documentoId}`, { method: "DELETE" }),
+
+  excluirDocumentos: (ids: number[]) =>
+    chamar<ResultadoExclusaoDocumentos>("/documentos/excluir-lote", {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    }),
+
   /** Quantos arquivos e quantos MB o "baixar tudo" vai dar, antes de baixar. */
   estimarExportacao: (filtros: FiltrosExportacao = {}) =>
     chamar<EstimativaExportacao>(`/documentos/exportar/estimativa${montarParams(filtros)}`),
@@ -256,7 +277,13 @@ export const api = {
   baixarZip: (filtros: FiltrosExportacao = {}, nome?: string) =>
     baixarArquivo(
       `/documentos/exportar${montarParams(filtros)}`,
-      nome ?? `NotasFlow_${filtros.competencia ?? "todos"}.zip`
+      nome ?? `NotasFlow_${filtros.competencia ?? filtros.data_inicio ?? "todos"}.zip`
+    ),
+
+  baixarCsvDocumentos: (filtros: FiltrosExportacao = {}, nome?: string) =>
+    baixarArquivo(
+      `/documentos/exportar/csv${montarParams(filtros)}`,
+      nome ?? `NotasFlow_relacao_${filtros.competencia ?? filtros.data_inicio ?? "todos"}.csv`
     ),
 
   solicitarImportacao: (
@@ -445,6 +472,16 @@ export const api = {
 
   // Diagnóstico do ambiente Docker.
   infoSistema: () => chamar<InfoSistema>("/sistema/info"),
+
+  resetGeral: (opcoes: { confirmar: string; remover_integracoes?: boolean; forcar?: boolean }) =>
+    chamar<ResetGeralResposta>(
+      `/sistema/reset-geral${montarParams({
+        confirmar: opcoes.confirmar,
+        remover_integracoes: opcoes.remover_integracoes ?? false,
+        forcar: opcoes.forcar ?? false,
+      })}`,
+      { method: "POST" }
+    ),
 
   // ---------------------------------------------------------------
   // Painel operacional (a primeira tela do operador)

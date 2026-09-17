@@ -74,6 +74,23 @@ export interface DocumentoFiscal {
   destinatario_nome?: string | null;
   destinatario_documento?: string | null;
   nsu?: string | null;
+  origem?: string | null;
+}
+
+export interface ResultadoExclusaoDocumentos {
+  excluidos: number;
+  ids: number[];
+  arquivos_removidos: number;
+}
+
+export interface ResetGeralResposta {
+  empresas: number;
+  documentos: number;
+  certificados: number;
+  execucoes: number;
+  sincronizacoes: number;
+  arquivos_removidos: number;
+  integracoes: number;
 }
 
 export interface ResumoDocumentos {

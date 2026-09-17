@@ -116,7 +116,7 @@ class Settings(BaseSettings):
 
     # Bootstrap só é útil para primeira instalação. Em produção deve ser uma
     # senha forte entregue por secret manager e removida depois do primeiro boot.
-    bootstrap_escritorio: str = "Escritorio Cajuru"
+    bootstrap_escritorio: str = "Escritório Principal"
     bootstrap_nome: str = "Administrador"
     bootstrap_email: str = ""
     bootstrap_senha: str = ""

@@ -22,6 +22,8 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db.base import Base
 from app.models import (
+    Certificado,
+    DocumentoFiscal,
     Empresa,
     Escritorio,
     ExecucaoImportacao,
@@ -258,3 +260,95 @@ def test_consumo_indevido_usa_tempo_exato_quando_informado(db):
         sessao, estado, motivo="656", agora=agora
     )
     assert quando_padrao == agora + cooldown_oficial()
+
+
+def test_liberacao_respeita_o_relogio_mais_tarde(db):
+    """Se bloqueio e janela existem juntos, consultar antes do último vencer reinicia o bloqueio."""
+    sessao, empresa_id = db
+    estado = sincronizacao.obter_estado(sessao, empresa_id, TipoDocumentoFiscal.NFE)
+    agora = datetime.now(timezone.utc)
+    estado.bloqueado_ate = agora + timedelta(minutes=20)
+    estado.proxima_consulta_em = agora + timedelta(minutes=55)
+    estado.motivo_bloqueio = "656 antigo"
+    sessao.commit()
+
+    libertacao = sincronizacao.liberacao_para(sessao, empresa_id, TipoDocumentoFiscal.NFE, agora=agora)
+    assert libertacao.pode is False
+    assert libertacao.quando.replace(tzinfo=None) == estado.proxima_consulta_em
+    assert libertacao.bloqueado is False
+
+
+def test_consulta_ok_e_sem_novidade_limpam_bloqueio_antigo(db):
+    """Bloqueio vencido não pode ficar sujando painel/prévia depois de uma consulta válida."""
+    sessao, empresa_id = db
+    estado = sincronizacao.obter_estado(sessao, empresa_id, TipoDocumentoFiscal.NFE)
+    agora = datetime.now(timezone.utc)
+    estado.bloqueado_ate = agora - timedelta(minutes=5)
+    estado.motivo_bloqueio = "656 vencido"
+    estado.bloqueios_seguidos = 3
+
+    sincronizacao.marcar_consulta_ok(sessao, estado, agora=agora)
+    assert estado.bloqueado_ate is None
+    assert estado.motivo_bloqueio is None
+    assert estado.bloqueios_seguidos == 0
+
+    estado.bloqueado_ate = agora - timedelta(minutes=5)
+    estado.motivo_bloqueio = "656 vencido de novo"
+    estado.bloqueios_seguidos = 2
+    proxima = sincronizacao.marcar_sem_novidade(sessao, estado, agora=agora)
+    assert estado.proxima_consulta_em == proxima
+    assert estado.bloqueado_ate is None
+    assert estado.motivo_bloqueio is None
+    assert estado.bloqueios_seguidos == 0
+
+
+def test_completar_xml_respeita_janela_antes_de_consultar(db, tmp_path, monkeypatch):
+    """consChNFe também precisa respeitar a 1h; antes gastava cota e tomava 656."""
+    from app.worker import tasks
+
+    sessao, empresa_id = db
+    caminho_xml = tmp_path / "resumo.xml"
+    caminho_xml.write_text("<resNFe />", encoding="utf-8")
+    sessao.add(
+        Certificado(
+            empresa_id=empresa_id,
+            arquivo_path=str(tmp_path / "fake.pfx"),
+            senha_cifrada="fake",
+            validade=datetime.now(timezone.utc) + timedelta(days=30),
+            ativo=True,
+        )
+    )
+    sessao.add(
+        DocumentoFiscal(
+            empresa_id=empresa_id,
+            tipo=TipoDocumentoFiscal.NFE,
+            direcao="tomada",
+            chave_acesso="35260812345678000199550010000000055555555555",
+            nsu="55",
+            data_emissao=datetime(2026, 8, 20, tzinfo=timezone.utc),
+            competencia=datetime(2026, 8, 20, tzinfo=timezone.utc).date(),
+            valor_total=0.0,
+            xml_path=str(caminho_xml),
+            leiaute="resumo",
+        )
+    )
+    estado = sincronizacao.obter_estado(sessao, empresa_id, TipoDocumentoFiscal.NFE)
+    sincronizacao.marcar_sem_novidade(sessao, estado, agora=datetime.now(timezone.utc))
+    sessao.commit()
+
+    chamado = {"valor": False}
+
+    class ImportadorFake:
+        def buscar_por_chave(self, **kwargs):  # pragma: no cover - deveria ficar sem chamada
+            chamado["valor"] = True
+            raise AssertionError("não deveria consultar dentro da janela")
+
+    monkeypatch.setattr(tasks, "SessionLocal", sessionmaker(bind=sessao.get_bind()))
+    monkeypatch.setattr(tasks, "obter_importador", lambda tipo: ImportadorFake())
+
+    resultado = tasks.completar_xmls_pendentes()
+    sessao.expire_all()
+    estado = sincronizacao.obter_estado(sessao, empresa_id, TipoDocumentoFiscal.NFE)
+    assert resultado["aguardando_janela"] == 1
+    assert chamado["valor"] is False
+    assert (estado.consultas_pontuais or 0) == 0

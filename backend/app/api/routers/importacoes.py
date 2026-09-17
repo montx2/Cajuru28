@@ -387,13 +387,13 @@ def _tempo_para_liberar(
     A SEFAZ/ADN **não** devolve "faltam X minutos" — o prazo é regra do
     protocolo (1h). Então este valor é o que o próprio sistema agendou; para o
     ADN, quando o servidor manda o header `Retry-After`, esse tempo exato já
-    entra em `bloqueado_ate`. Escolhemos o mais cedo dos dois: é quando a
-    próxima consulta realmente pode acontecer.
+    entra em `bloqueado_ate`. Se houver dois relógios ativos, vale o mais tarde:
+    consultar antes de qualquer um deles vencer reinicia o bloqueio oficial.
     """
     candidatos = [q for q in (bloqueado_ate, proxima) if q and q > agora]
     if not candidatos:
         return None, 0, "liberado"
-    quando = min(candidatos)
+    quando = max(candidatos)
     segundos = max(0, int((quando - agora).total_seconds()))
     if segundos <= 0:
         return None, 0, "liberado"
@@ -495,7 +495,7 @@ def estados_do_escritorio(
                     pendencia=sincronizacao.pendencia_de_documentos(estado),
                     em_dia=em_dia,
                     bloqueado_ate=bloqueado_ate if bloqueado_ate and bloqueado_ate > agora else None,
-                    motivo_bloqueio=estado.motivo_bloqueio,
+                    motivo_bloqueio=estado.motivo_bloqueio if bloqueado_ate and bloqueado_ate > agora else None,
                     bloqueios_seguidos=estado.bloqueios_seguidos or 0,
                     proxima_consulta_em=proxima if proxima and proxima > agora else None,
                     ultima_consulta_em=estado.ultima_consulta_em,
