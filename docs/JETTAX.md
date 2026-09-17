@@ -36,6 +36,50 @@ configurado; ele nunca o devolve. O cliente HTTP usa o header
 recusa links de paginação que saiam do host configurado — o token não pode ser
 vazado para outro domínio.
 
+### Diagnóstico: "A Jettax recusou a autenticação do conector"
+
+O contrato público da Morfeu (coleção Postman) autentica por **API Key**: o
+header é `Authorization: <token>` com o token **puro, sem o prefixo
+`Bearer`**. A coleção documenta estas respostas de autenticação:
+
+| HTTP | Corpo documentado | Significado prático |
+| --- | --- | --- |
+| 401 | `{"message": "Dados de acesso inválidos"}` | Token recusado: valor incorreto, revogado ou emitido para outro sistema |
+| 403 | `{"message": "Token não encontrado"}` | O token não existe **na URL consultada** — provável ambiente errado |
+
+A mensagem do conector inclui o status e o host tentado
+(ex.: `[HTTP 403 · morfeu-api.jettax.com.br]`) e o log do servidor
+(`docker compose logs api`) registra método, rota e status de cada chamada
+recusada.
+
+Pontos de atenção conhecidos:
+
+1. **A Jettax mantém dois endereços de API em produção**:
+   `https://morfeu-api.jettax.com.br` (texto da coleção) e
+   `https://morfeu.jettax.com.br` (destino do link "URL produção" da própria
+   coleção). Ambos respondem como API Morfeu, e o token emitido para um
+   **não** é aceito no outro. Se o teste recusar a autenticação, troque a URL
+   no painel e teste de novo. Para confirmar fora do sistema, rode na sua
+   máquina:
+
+   ```bash
+   curl -i "https://morfeu-api.jettax.com.br/api/nfse/cities" -H "Authorization: SEU_TOKEN"
+   curl -i "https://morfeu.jettax.com.br/api/nfse/cities" -H "Authorization: SEU_TOKEN"
+   ```
+
+   O comando que responder `200` indica o ambiente correto; `403`/"Token não
+   encontrado" indica que o token é do outro ambiente (ou não existe mais).
+2. **Cole o token sem `Bearer `** — o sistema já remove automaticamente o
+   prefixo `Bearer`, aspas, espaços e quebras de linha ao salvar a credencial
+   (tokens de API não contêm espaços) e recusa colagens que ficam vazias
+   após essa limpeza.
+3. **Use o token de API, não a senha do painel** da Jettax 360. Se restar
+   dúvida sobre o token correto ou se o acesso à API está liberado para a sua
+   conta, confirme com o suporte da Jettax.
+4. O teste do conector usa `GET /api/nfse/cities` (leitura, documentada). Se
+   esse endpoint aceitar o token mas as importações falharem, o problema é
+   posterior à autenticação (permissão do cliente, CNPJ não registrado etc.).
+
 Para receber notificações, gere um valor longo e aleatório e o guarde também
 como segredo de infraestrutura:
 

@@ -283,6 +283,58 @@ def test_erro_remoto_nao_ecoha_corpo_nem_token(monkeypatch):
     assert "autenticação" in str(erro.value)
 
 
+@respx.mock
+def test_token_colado_com_bearer_aspas_e_quebras_sai_puro_no_header():
+    """A Morfeu espera API Key (token puro); colagens com 'Bearer' são limpas."""
+    rota = respx.get(f"{BASE}/api/nfse/cities").mock(return_value=httpx.Response(200, json=[]))
+
+    ClienteJettax(token='  Bearer   "tok-en\ncom quebra"\n ').verificar_conexao()
+
+    assert rota.called
+    assert rota.calls[0].request.headers["Authorization"] == "tok-encomquebra"
+
+
+@respx.mock
+def test_erro_autenticacao_indica_status_e_host_da_url_configurada():
+    respx.get(f"{BASE}/api/nfse/cities").mock(
+        return_value=httpx.Response(403, json={"message": f"{TOKEN} não encontrado"})
+    )
+    with pytest.raises(Exception) as erro:
+        ClienteJettax(token=TOKEN).verificar_conexao()
+
+    assert TOKEN not in str(erro.value)
+    assert "403" in str(erro.value)
+    assert "morfeu-api.jettax.com.br" in str(erro.value)
+
+
+@respx.mock
+def test_painel_salva_token_normalizado_e_o_teste_envia_puro(cliente_api):
+    client, _db, _empresa = cliente_api
+    rota = respx.get(f"{BASE}/api/nfse/cities").mock(return_value=httpx.Response(200, json=[]))
+
+    salvamento = client.put(
+        "/integracoes/jettax/credencial",
+        json={"token": "Bearer  token-do-painel \ncom-quebra ", "base_url": BASE},
+    )
+    assert salvamento.status_code == 200, salvamento.text
+
+    teste = client.post("/integracoes/jettax/testar")
+    assert teste.status_code == 200, teste.text
+
+    assert rota.called
+    assert rota.calls[0].request.headers["Authorization"] == "token-do-painelcom-quebra"
+
+
+def test_painel_recusa_token_que_fica_vazio_apos_limpeza(cliente_api):
+    client, _db, _empresa = cliente_api
+    resposta = client.put(
+        "/integracoes/jettax/credencial",
+        json={"token": "Bearer   ", "base_url": BASE},
+    )
+    assert resposta.status_code == 422
+    assert "limpeza" in resposta.json()["detail"]
+
+
 def test_fallback_automatico_enfileira_jettax_com_filtros_do_periodo(db, monkeypatch):
     sessao, empresa, configuracao, _ = db
     configuracao.ativa = True
