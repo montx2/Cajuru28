@@ -25,6 +25,10 @@ export default function ConfiguracoesPage() {
   const [acessoriasToken, setAcessoriasToken] = useState("");
   const [acessoriasUrl, setAcessoriasUrl] = useState("https://api.acessorias.com");
   const [ocupadoAcessorias, setOcupadoAcessorias] = useState(false);
+  const [confirmacaoReset, setConfirmacaoReset] = useState("");
+  const [resetando, setResetando] = useState(false);
+  const [removerIntegracoesReset, setRemoverIntegracoesReset] = useState(false);
+  const [forcarReset, setForcarReset] = useState(false);
 
   const carregar = useCallback(() => {
     api.infoSistema().then(setInfo).catch(() => setInfo(null));
@@ -86,6 +90,34 @@ export default function ConfiguracoesPage() {
     try { const r = await api.sincronizarEmpresasAcessorias(); toast.sucesso(`${r.criadas} empresas cadastradas e ${r.atualizadas} atualizadas.`); carregar(); }
     catch (e) { toast.erro(e instanceof ApiError ? e.message : "Falha ao sincronizar empresas."); }
     finally { setOcupadoAcessorias(false); }
+  }
+
+  async function resetarTudo() {
+    if (!ehAdmin) return toast.erro("Somente administradores podem limpar o sistema.");
+    if (confirmacaoReset.trim().toUpperCase() !== "LIMPAR") {
+      return toast.erro("Digite LIMPAR para confirmar a limpeza geral.");
+    }
+    const ok = window.confirm(
+      "Isto apaga empresas, certificados, documentos, XMLs, execuções e cursores do escritório logado. Deseja continuar?"
+    );
+    if (!ok) return;
+    setResetando(true);
+    try {
+      const r = await api.resetGeral({
+        confirmar: "LIMPAR",
+        remover_integracoes: removerIntegracoesReset,
+        forcar: forcarReset,
+      });
+      toast.sucesso(`${r.empresas} empresa(s) e ${r.documentos} documento(s) removidos. Sistema pronto para começar do zero.`);
+      setConfirmacaoReset("");
+      setRemoverIntegracoesReset(false);
+      setForcarReset(false);
+      carregar();
+    } catch (e) {
+      toast.erro(e instanceof ApiError ? e.message : "Falha ao limpar o sistema.");
+    } finally {
+      setResetando(false);
+    }
   }
 
   const vencidos = certificados.filter((item) => item.vencido);
@@ -168,6 +200,57 @@ export default function ConfiguracoesPage() {
           volumes <code>db_data</code>, <code>certificados</code> e <code>xml_saida</code>.
         </p>
       </section>
+
+      {ehAdmin && (
+        <section className="card-pad mt-4 border border-danger/25 bg-danger-soft/20">
+          <TituloSecao
+            titulo="Limpar geral / começar do zero"
+            subtitulo="Remove empresas, notas, XMLs, certificados, histórico de importação e bloqueios/cooldowns locais do escritório logado."
+          />
+          <p className="text-sm text-ink-muted">
+            Use quando quiser zerar a base para não aparecer nenhuma empresa por padrão. Usuários, auditoria e backups são preservados.
+          </p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]">
+            <label className="text-xs font-semibold uppercase text-ink-muted">
+              Digite LIMPAR para confirmar
+              <input
+                className="input mt-1 w-full"
+                value={confirmacaoReset}
+                onChange={(e) => setConfirmacaoReset(e.target.value)}
+                placeholder="LIMPAR"
+              />
+            </label>
+            <button
+              type="button"
+              className="btn-ghost self-end text-danger"
+              disabled={resetando || confirmacaoReset.trim().toUpperCase() !== "LIMPAR"}
+              onClick={resetarTudo}
+            >
+              {resetando ? "Limpando…" : "Limpar geral"}
+            </button>
+          </div>
+          <div className="mt-3 space-y-2 text-xs text-ink-muted">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={removerIntegracoesReset}
+                onChange={(e) => setRemoverIntegracoesReset(e.target.checked)}
+                className="accent-danger"
+              />
+              remover também tokens/configurações das integrações Acessórias e Jettax
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={forcarReset}
+                onChange={(e) => setForcarReset(e.target.checked)}
+                className="accent-danger"
+              />
+              forçar mesmo se houver execução marcada como em andamento
+            </label>
+          </div>
+        </section>
+      )}
 
       <section className="card-pad mt-4">
         <TituloSecao titulo="Sistema Acessórias" subtitulo="Cadastre automaticamente as empresas existentes no Acessórias" />

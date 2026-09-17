@@ -21,11 +21,15 @@ import type {
   FechamentoMensal,
   InfoSistema,
   ItemImportacaoLote,
+  JettaxConfiguracaoEmpresa,
+  JettaxExecucao,
   KpisDashboard,
   LoteEmpresasResposta,
   PainelOperacional,
   CentralExecucoes,
   RegistroAuditoria,
+  ResetGeralResposta,
+  ResultadoExclusaoDocumentos,
   ResultadoImportacaoSelecionada,
   ResumoCertificado,
   ResumoDocumentos,
@@ -133,13 +137,23 @@ export interface FiltrosDocumentos {
   status?: StatusDocumentoFiscal;
   /** MM/AAAA (o que a tela chama de "competência") */
   competencia?: string;
+  /** Período livre em YYYY-MM-DD; alternativa à competência fechada. */
+  data_inicio?: string;
+  data_fim?: string;
   leiaute?: "completo" | "resumo";
   busca?: string;
+  numero?: string;
+  serie?: string;
+  emitente_documento?: string;
+  destinatario_documento?: string;
+  origem?: string;
+  valor_min?: number | string;
+  valor_max?: number | string;
   limit?: number;
   offset?: number;
 }
 
-export interface FiltrosExportacao extends Omit<FiltrosDocumentos, "limit" | "offset" | "busca"> {
+export interface FiltrosExportacao extends Omit<FiltrosDocumentos, "limit" | "offset"> {
   incluir_canceladas?: boolean;
   incluir_relatorio?: boolean;
   /** seleção da tela ("baixar só estes"): ids separados por vírgula */
@@ -189,7 +203,15 @@ export const api = {
   atualizarEmpresa: (
     id: number,
     dados: Partial<
-      Pick<Empresa, "razao_social" | "uf" | "ativa" | "sincronizar_automaticamente"> & {
+      Pick<
+        Empresa,
+        | "razao_social"
+        | "uf"
+        | "ativa"
+        | "sincronizar_automaticamente"
+        | "codigo_ibge"
+        | "inscricao_municipal"
+      > & {
         quais_tipos_sincronizar: string[];
       }
     >
@@ -233,10 +255,10 @@ export const api = {
   listarDocumentos: (filtros: FiltrosDocumentos = {}) =>
     chamar<DocumentoFiscal[]>(`/documentos${montarParams(filtros)}`),
 
-  resumoPorEmpresa: (filtros: { competencia?: string; tipo?: TipoDocumentoFiscal } = {}) =>
+  resumoPorEmpresa: (filtros: Omit<FiltrosDocumentos, "limit" | "offset" | "empresa_id" | "empresa_ids"> = {}) =>
     chamar<EmpresaResumoDocumentos[]>(`/documentos/por-empresa${montarParams(filtros)}`),
 
-  resumoDocumentos: (filtros: { empresa_id?: number | null; competencia?: string } = {}) =>
+  resumoDocumentos: (filtros: Omit<FiltrosDocumentos, "limit" | "offset"> = {}) =>
     chamar<ResumoDocumentos>(`/documentos/resumo${montarParams(filtros)}`),
 
   urlXmlDocumento: (documentoId: number) => {
@@ -248,6 +270,15 @@ export const api = {
   baixarXmlDocumento: (documentoId: number, nomeArquivo: string) =>
     baixarArquivo(`/documentos/${documentoId}/xml`, nomeArquivo),
 
+  excluirDocumento: (documentoId: number) =>
+    chamar<ResultadoExclusaoDocumentos>(`/documentos/${documentoId}`, { method: "DELETE" }),
+
+  excluirDocumentos: (ids: number[]) =>
+    chamar<ResultadoExclusaoDocumentos>("/documentos/excluir-lote", {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    }),
+
   /** Quantos arquivos e quantos MB o "baixar tudo" vai dar, antes de baixar. */
   estimarExportacao: (filtros: FiltrosExportacao = {}) =>
     chamar<EstimativaExportacao>(`/documentos/exportar/estimativa${montarParams(filtros)}`),
@@ -256,7 +287,13 @@ export const api = {
   baixarZip: (filtros: FiltrosExportacao = {}, nome?: string) =>
     baixarArquivo(
       `/documentos/exportar${montarParams(filtros)}`,
-      nome ?? `NotasFlow_${filtros.competencia ?? "todos"}.zip`
+      nome ?? `NotasFlow_${filtros.competencia ?? filtros.data_inicio ?? "todos"}.zip`
+    ),
+
+  baixarCsvDocumentos: (filtros: FiltrosExportacao = {}, nome?: string) =>
+    baixarArquivo(
+      `/documentos/exportar/csv${montarParams(filtros)}`,
+      nome ?? `NotasFlow_relacao_${filtros.competencia ?? filtros.data_inicio ?? "todos"}.csv`
     ),
 
   solicitarImportacao: (
@@ -421,6 +458,41 @@ export const api = {
     }),
   removerCredencialJettax: () => chamar<void>("/integracoes/jettax/credencial", { method: "DELETE" }),
   testarJettax: () => chamar<{ status: string; mensagem: string }>("/integracoes/jettax/testar", { method: "POST" }),
+  obterJettaxEmpresa: (empresaId: number) =>
+    chamar<JettaxConfiguracaoEmpresa>(`/integracoes/jettax/empresas/${empresaId}`),
+  salvarJettaxEmpresa: (
+    empresaId: number,
+    dados: Partial<Pick<JettaxConfiguracaoEmpresa, "ativa" | "baixar_nfes" | "baixar_nfes_enviadas">>
+  ) =>
+    chamar<JettaxConfiguracaoEmpresa>(`/integracoes/jettax/empresas/${empresaId}`, {
+      method: "PUT",
+      body: JSON.stringify(dados),
+    }),
+  registrarJettaxEmpresa: (empresaId: number, enviar_certificado = false) =>
+    chamar<JettaxConfiguracaoEmpresa>(`/integracoes/jettax/empresas/${empresaId}/registrar`, {
+      method: "POST",
+      body: JSON.stringify({ enviar_certificado }),
+    }),
+  atualizarClienteJettaxEmpresa: (empresaId: number, enviar_certificado = false) =>
+    chamar<JettaxConfiguracaoEmpresa>(`/integracoes/jettax/empresas/${empresaId}/registrar`, {
+      method: "PUT",
+      body: JSON.stringify({ enviar_certificado }),
+    }),
+  importarNFSeJettax: (empresaId: number, filtros: { period?: string } = {}) =>
+    chamar<JettaxExecucao>(`/integracoes/jettax/empresas/${empresaId}/importar/nfse`, {
+      method: "POST",
+      body: JSON.stringify(filtros),
+    }),
+  importarNFeJettax: (
+    empresaId: number,
+    dados: { direcao: "sales" | "purchases"; data_inicial?: string; data_final?: string }
+  ) =>
+    chamar<JettaxExecucao>(`/integracoes/jettax/empresas/${empresaId}/importar/nfe`, {
+      method: "POST",
+      body: JSON.stringify(dados),
+    }),
+  listarExecucoesJettaxEmpresa: (empresaId: number, limite = 20) =>
+    chamar<JettaxExecucao[]>(`/integracoes/jettax/empresas/${empresaId}/execucoes${montarParams({ limite })}`),
 
   // ---------------------------------------------------------------
   // Webhook (teste manual, só admin)
@@ -445,6 +517,16 @@ export const api = {
 
   // Diagnóstico do ambiente Docker.
   infoSistema: () => chamar<InfoSistema>("/sistema/info"),
+
+  resetGeral: (opcoes: { confirmar: string; remover_integracoes?: boolean; forcar?: boolean }) =>
+    chamar<ResetGeralResposta>(
+      `/sistema/reset-geral${montarParams({
+        confirmar: opcoes.confirmar,
+        remover_integracoes: opcoes.remover_integracoes ?? false,
+        forcar: opcoes.forcar ?? false,
+      })}`,
+      { method: "POST" }
+    ),
 
   // ---------------------------------------------------------------
   // Painel operacional (a primeira tela do operador)

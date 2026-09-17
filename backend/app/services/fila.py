@@ -40,6 +40,12 @@ from app.services.periodo import Periodo
 TIPOS_COM_UF = {TipoDocumentoFiscal.NFE, TipoDocumentoFiscal.CTE}
 
 
+def _aware(valor: datetime | None) -> datetime | None:
+    if valor is None:
+        return None
+    return valor if valor.tzinfo else valor.replace(tzinfo=timezone.utc)
+
+
 @dataclass
 class ResultadoEnfileiramento:
     """`status` vira texto no painel — por isso cada um traz a mensagem pronta."""
@@ -115,6 +121,38 @@ def verificar_empresa(
     return ("ok", "")
 
 
+def _acionar_jettax_no_bloqueio(
+    db: Session,
+    empresa: Empresa,
+    tipo: TipoDocumentoFiscal,
+    *,
+    periodo: Periodo | None,
+    mensagem: str,
+) -> str:
+    """Ao detectar bloqueio oficial antes de enfileirar, tenta trilha Jettax."""
+    try:
+        from app.services.jettax import acionar_fallback_automatico
+
+        resultado = acionar_fallback_automatico(
+            db,
+            empresa,
+            tipo,
+            origem="fallback_cooldown",
+            motivo="pedido feito enquanto a fonte oficial está bloqueada",
+            data_inicio=periodo.inicio if periodo else None,
+            data_fim=periodo.fim if periodo else None,
+        )
+    except Exception:  # noqa: BLE001 — a fila oficial não pode falhar por causa da Jettax
+        db.rollback()
+        return mensagem
+
+    if resultado.status == "enfileirada":
+        return mensagem + f" Jettax foi acionada em paralelo para conferir (execução #{resultado.execucao_id})."
+    if resultado.status == "ja_em_andamento" and resultado.execucao_id:
+        return mensagem + f" Jettax já está conferindo esta empresa (execução #{resultado.execucao_id})."
+    return mensagem
+
+
 def enfileirar(
     db: Session,
     empresa: Empresa,
@@ -152,16 +190,21 @@ def enfileirar(
 
     libertacao = sincronizacao.liberacao_para(db, empresa.id, tipo)
     if not libertacao.pode and not forcar:
+        mensagem = (
+            ("Bloqueado pela SEFAZ (consumo indevido). " if libertacao.bloqueado else "")
+            + f"Nova tentativa automática em {libertacao.quando:%d/%m/%Y %H:%M}."
+            + (f" ({libertacao.motivo})" if libertacao.motivo else "")
+        )
+        if libertacao.bloqueado:
+            mensagem = _acionar_jettax_no_bloqueio(
+                db, empresa, tipo, periodo=periodo, mensagem=mensagem
+            )
         return ResultadoEnfileiramento(
             status="em_cooldown",
             empresa_id=empresa.id,
             tipo=tipo.value,
             disponivel_em=libertacao.quando,
-            mensagem=(
-                ("Bloqueado pela SEFAZ (consumo indevido). " if libertacao.bloqueado else "")
-                + f"Nova tentativa automática em {libertacao.quando:%d/%m/%Y %H:%M}."
-                + (f" ({libertacao.motivo})" if libertacao.motivo else "")
-            ),
+            mensagem=mensagem,
         )
 
     execucao = ExecucaoImportacao(
@@ -208,7 +251,14 @@ def enfileirar(
     )
 
 
-def reagendar(db: Session, execucao: ExecucaoImportacao, quando: datetime, *, motivo: str) -> bool:
+def reagendar(
+    db: Session,
+    execucao: ExecucaoImportacao,
+    quando: datetime,
+    *,
+    motivo: str,
+    tentativa: int | None = None,
+) -> bool:
     """
     Marca a execução como "aguardando" e programa a continuação.
 
@@ -217,25 +267,39 @@ def reagendar(db: Session, execucao: ExecucaoImportacao, quando: datetime, *, mo
     `aguardando` vencidas — o processo não depende de um único mecanismo.
     """
     agora = datetime.now(timezone.utc)
-    quando_com_tz = quando if quando.tzinfo else quando.replace(tzinfo=timezone.utc)
+    quando_com_tz = _aware(quando) or agora
     atraso = max(60, int((quando_com_tz - agora).total_seconds()))
-    execucao.status = StatusExecucao.AGUARDANDO
-    execucao.bloqueado_ate = quando
-    execucao.tentativas = (execucao.tentativas or 0) + 1
-    execucao.aviso = _acrescentar_aviso(execucao.aviso, motivo)
-    db.commit()
+
+    anterior = _aware(execucao.bloqueado_ate)
+    ja_marcada = (
+        execucao.status == StatusExecucao.AGUARDANDO
+        and anterior is not None
+        and abs((anterior - quando_com_tz).total_seconds()) < 1
+    )
+    if not ja_marcada:
+        execucao.status = StatusExecucao.AGUARDANDO
+        execucao.bloqueado_ate = quando_com_tz
+        execucao.tentativas = (execucao.tentativas or 0) + 1
+        execucao.aviso = _acrescentar_aviso(execucao.aviso, motivo)
+        db.commit()
+    else:
+        # `worker.tasks` já gravou a execução como aguardando antes de chamar
+        # aqui. Não incrementamos `tentativas` de novo — isso inflava contadores
+        # e fazia o painel parecer que houve várias consultas bloqueadas.
+        execucao.aviso = _acrescentar_aviso(execucao.aviso, motivo)
+        db.commit()
 
     try:
         from app.worker.tasks import importar_documentos
 
-        importar_documentos.apply_async(
-            kwargs={
-                "empresa_id": execucao.empresa_id,
-                "tipo": execucao.tipo.value,
-                "execucao_id": execucao.id,
-            },
-            countdown=atraso,
-        )
+        kwargs = {
+            "empresa_id": execucao.empresa_id,
+            "tipo": execucao.tipo.value,
+            "execucao_id": execucao.id,
+        }
+        if tentativa is not None:
+            kwargs["tentativa"] = tentativa
+        importar_documentos.apply_async(kwargs=kwargs, countdown=atraso)
         return True
     except Exception:  # noqa: BLE001 — sem broker o Beat continua o trabalho
         return False

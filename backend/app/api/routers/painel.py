@@ -411,7 +411,7 @@ def central_execucoes(
     for estado in estados_do_escritorio(db, escritorio_id=escritorio_id):
         if (estado.empresa_id, estado.tipo) in vivas_por_combinacao:
             continue
-        quando = estado.bloqueado_ate or estado.proxima_consulta_em
+        quando = estado.liberacao_em or estado.bloqueado_ate or estado.proxima_consulta_em
         if quando is None:
             continue
         if quando.tzinfo is None:

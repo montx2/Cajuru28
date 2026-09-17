@@ -191,10 +191,10 @@ def ambiente(tmp_path, monkeypatch):
         "app.services.importadores._distribuicao_dfe.time.sleep", lambda _: None
     )
 
-    reagendamentos: list[tuple[int, datetime]] = []
+    reagendamentos: list[tuple[int, datetime, int | None]] = []
 
-    def _falso_reagendar(db, execucao, quando, *, motivo):
-        reagendamentos.append((execucao.id, quando))
+    def _falso_reagendar(db, execucao, quando, *, motivo, tentativa=None):
+        reagendamentos.append((execucao.id, quando, tentativa))
         return True
 
     monkeypatch.setattr(tasks, "fila_reagendar", _falso_reagendar)
@@ -369,3 +369,45 @@ def test_5xx_retenta_cedo_e_nao_finge_bloqueio(ambiente):
     # primeira retomada em minutos, não em 1h
     quando = ambiente["reagendamentos"][0][1]
     assert (quando - datetime.now(timezone.utc)).total_seconds() < 10 * 60
+    assert ambiente["reagendamentos"][0][2] == 1
+
+
+@respx.mock
+def test_656_aciona_jettax_automaticamente_como_fallback(ambiente, monkeypatch):
+    sessao = ambiente["sessao"]
+    chamados: list[dict] = []
+
+    def _fallback(db, empresa, tipo, **kwargs):
+        chamados.append({"empresa_id": empresa.id, "tipo": tipo, **kwargs})
+        return tasks.ResultadoFallbackJettax(
+            status="enfileirada",
+            mensagem="Jettax acionada automaticamente para teste",
+            execucao_id=909,
+            fluxo="purchases",
+            origem=kwargs.get("origem"),
+        )
+
+    monkeypatch.setattr(tasks, "acionar_fallback_automatico", _fallback)
+    respx.post(URL_NFE).mock(
+        return_value=httpx.Response(
+            200,
+            content=_soap(
+                "656",
+                "Rejeicao: Consumo Indevido",
+                "000000000000777",
+                "000000000000800",
+            ),
+        )
+    )
+
+    tasks.importar_documentos(
+        empresa_id=ambiente["empresa_id"], tipo="nfe", execucao_id=ambiente["execucao_id"]
+    )
+    sessao.expire_all()
+
+    assert chamados
+    assert chamados[0]["origem"] == "fallback_656"
+    assert chamados[0]["tipo"] == TipoDocumentoFiscal.NFE
+    assert "bloqueio" in chamados[0]["motivo"]
+    execucao = sessao.get(ExecucaoImportacao, ambiente["execucao_id"])
+    assert "Execução Jettax #909" in (execucao.aviso or "")

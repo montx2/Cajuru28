@@ -339,8 +339,9 @@ class ImportadorNFSeADN(ImportadorFiscal):
         self, url: str, cnpj: str, cert_path: str, key_path: str, *, lote: bool = True
     ) -> tuple[int, dict]:
         """
-        Até 3 tentativas com espera crescente para 429 e 5xx.
+        Até 3 tentativas com espera crescente para 5xx/rede.
         404 é resposta de negócio (nada novo) — devolve sem retentar.
+        429 é bloqueio de consumo — também não retenta, para não renovar a espera.
         401/403 sobem na hora (certificado sem permissão).
         """
         documento = normalizar_documento(cnpj)

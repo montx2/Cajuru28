@@ -42,9 +42,11 @@ from app.schemas import (
     DocumentoDetalhe,
     DocumentoFonteResposta,
     DocumentoFiscalResposta,
+    DocumentosExcluirLote,
     EmpresaResumoDocumentos,
     EstimativaExportacao,
     ResumoDocumentos,
+    ResultadoExclusaoDocumentos,
 )
 from app.services.periodo import PeriodoInvalido, interpretar_periodo
 
@@ -85,6 +87,13 @@ def _filtrar(
     inicio: date | None = None,
     fim: date | None = None,
     busca: str | None = None,
+    numero: str | None = None,
+    serie: str | None = None,
+    emitente_documento: str | None = None,
+    destinatario_documento: str | None = None,
+    origem: str | None = None,
+    valor_min: float | None = None,
+    valor_max: float | None = None,
     apenas_nao_canceladas: bool = False,
 ):
     """
@@ -101,22 +110,50 @@ def _filtrar(
     if status is not None:
         consulta = consulta.filter(DocumentoFiscal.status == status)
     if leiaute:
+        if leiaute not in {"completo", "resumo"}:
+            raise HTTPException(status_code=422, detail="leiaute deve ser 'completo' ou 'resumo'.")
         consulta = consulta.filter(DocumentoFiscal.leiaute == leiaute)
+    if origem:
+        consulta = consulta.filter(DocumentoFiscal.origem == origem.strip().lower())
     if apenas_nao_canceladas:
         consulta = consulta.filter(DocumentoFiscal.status != StatusDocumentoFiscal.CANCELADA)
 
+    if numero and numero.strip():
+        digitos = re.sub(r"\D", "", numero)
+        alvo = digitos.lstrip("0") or digitos or numero.strip()
+        consulta = consulta.filter(or_(DocumentoFiscal.numero == alvo, DocumentoFiscal.numero == digitos))
+    if serie and serie.strip():
+        serie_limpa = serie.strip()
+        serie_sem_zeros = serie_limpa.lstrip("0") or "0"
+        consulta = consulta.filter(or_(DocumentoFiscal.serie == serie_limpa, DocumentoFiscal.serie == serie_sem_zeros))
+    if emitente_documento and emitente_documento.strip():
+        consulta = consulta.filter(DocumentoFiscal.emitente_documento.like(f"%{_somente_digitos(emitente_documento) or emitente_documento.strip()}%"))
+    if destinatario_documento and destinatario_documento.strip():
+        consulta = consulta.filter(DocumentoFiscal.destinatario_documento.like(f"%{_somente_digitos(destinatario_documento) or destinatario_documento.strip()}%"))
+    if valor_min is not None:
+        consulta = consulta.filter(DocumentoFiscal.valor_total >= valor_min)
+    if valor_max is not None:
+        consulta = consulta.filter(DocumentoFiscal.valor_total <= valor_max)
+
     if busca and busca.strip():
-        padrao = f"%{busca.strip()}%"
+        termo = busca.strip()
+        padrao = f"%{termo}%"
         condicoes = [
             DocumentoFiscal.chave_acesso.like(padrao),
+            DocumentoFiscal.nsu.like(padrao),
+            DocumentoFiscal.numero.like(padrao),
+            DocumentoFiscal.serie.like(padrao),
             DocumentoFiscal.emitente_nome.ilike(padrao),
             DocumentoFiscal.emitente_documento.like(padrao),
+            DocumentoFiscal.destinatario_nome.ilike(padrao),
+            DocumentoFiscal.destinatario_documento.like(padrao),
         ]
-        digitos = re.sub(r"\D", "", busca)
+        digitos = re.sub(r"\D", "", termo)
         if digitos:
             # "3401" em busca por número: o contador digita assim o tempo todo.
             condicoes.append(DocumentoFiscal.numero == (digitos.lstrip("0") or "0"))
             condicoes.append(DocumentoFiscal.numero == digitos)
+            condicoes.append(DocumentoFiscal.chave_acesso.like(f"%{digitos}%"))
         consulta = consulta.filter(or_(*condicoes))
 
     if inicio or fim:
@@ -148,12 +185,72 @@ def _parse_empresas(valor: str | None) -> list[int] | None:
     return _parse_ids(valor, nome="empresa_id")
 
 
+def _somente_digitos(valor: str | None) -> str:
+    return re.sub(r"\D", "", valor or "")
+
+
+def _parse_empresa_id(valor: int | str | None) -> int | None:
+    if valor is None:
+        return None
+    texto = str(valor).strip()
+    if not texto:
+        return None
+    try:
+        return int(texto)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"empresa_id inválido: {valor!r}") from exc
+
+
+def _ids_empresas_do_escritorio(
+    db: Session,
+    *,
+    escritorio_id: int,
+    empresa_id: int | str | None = None,
+    empresa_ids: str | None = None,
+) -> list[int]:
+    """Resolve empresa única/lista/todas e barra ids de outro escritório."""
+    ids = _parse_empresas(empresa_ids)
+    empresa_unica = _parse_empresa_id(empresa_id)
+    if empresa_unica is not None:
+        _empresa_do_escritorio(db, empresa_unica, escritorio_id)
+        ids = [empresa_unica]
+
+    empresas_do_escritorio = {
+        linha[0] for linha in db.query(Empresa.id).filter(Empresa.escritorio_id == escritorio_id).all()
+    }
+    if ids is None:
+        return sorted(empresas_do_escritorio)
+
+    invalidos = set(ids) - empresas_do_escritorio
+    if invalidos:
+        raise HTTPException(status_code=403, detail=f"Empresa(s) fora deste escritório: {sorted(invalidos)}")
+    # Deduplica preservando a ordem que veio da tela.
+    vistos: list[int] = []
+    for item in ids:
+        if item not in vistos:
+            vistos.append(item)
+    return vistos
+
+
 @router.get("/resumo", response_model=ResumoDocumentos)
 def resumo_documentos(
     empresa_id: int | None = None,
+    empresa_ids: str | None = Query(default=None, description="1,2,3 — vazio = todas"),
+    tipo: TipoDocumentoFiscal | None = None,
+    direcao: DirecaoDocumento | None = None,
+    status: StatusDocumentoFiscal | None = None,
+    leiaute: str | None = Query(default=None, description="completo | resumo"),
     competencia: str | None = None,
     data_inicio: date | None = Query(default=None),
     data_fim: date | None = Query(default=None),
+    busca: str | None = Query(default=None),
+    numero: str | None = Query(default=None),
+    serie: str | None = Query(default=None),
+    emitente_documento: str | None = Query(default=None),
+    destinatario_documento: str | None = Query(default=None),
+    origem: str | None = Query(default=None),
+    valor_min: float | None = Query(default=None),
+    valor_max: float | None = Query(default=None),
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
 ):
@@ -166,13 +263,30 @@ def resumo_documentos(
     except PeriodoInvalido as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    if empresa_id is not None:
-        _empresa_do_escritorio(db, empresa_id, escritorio_id)
+    ids = _ids_empresas_do_escritorio(
+        db, escritorio_id=escritorio_id, empresa_id=empresa_id, empresa_ids=empresa_ids
+    )
+    if not ids:
+        return ResumoDocumentos(total=0, normais=0, canceladas=0, por_tipo={})
 
-    base = db.query(DocumentoFiscal).join(Empresa).filter(Empresa.escritorio_id == escritorio_id)
-    if empresa_id is not None:
-        base = base.filter(DocumentoFiscal.empresa_id == empresa_id)
-    base = _filtrar(base, inicio=periodo.inicio, fim=periodo.fim)
+    base = _filtrar(
+        db.query(DocumentoFiscal).join(Empresa).filter(Empresa.escritorio_id == escritorio_id),
+        ids=ids,
+        tipo=tipo,
+        direcao=direcao,
+        status=status,
+        leiaute=leiaute,
+        inicio=periodo.inicio,
+        fim=periodo.fim,
+        busca=busca,
+        numero=numero,
+        serie=serie,
+        emitente_documento=emitente_documento,
+        destinatario_documento=destinatario_documento,
+        origem=origem,
+        valor_min=valor_min,
+        valor_max=valor_max,
+    )
 
     total = base.count()
     normais = base.filter(DocumentoFiscal.status == StatusDocumentoFiscal.NORMAL).count()
@@ -200,7 +314,14 @@ def listar_documentos(
     competencia: str | None = Query(default=None, description="MM/AAAA, ex.: 08/2026"),
     data_inicio: date | None = Query(default=None),
     data_fim: date | None = Query(default=None),
-    busca: str | None = Query(default=None, description="chave, número ou emitente"),
+    busca: str | None = Query(default=None, description="chave, número, NSU, emitente ou destinatário"),
+    numero: str | None = Query(default=None),
+    serie: str | None = Query(default=None),
+    emitente_documento: str | None = Query(default=None),
+    destinatario_documento: str | None = Query(default=None),
+    origem: str | None = Query(default=None),
+    valor_min: float | None = Query(default=None),
+    valor_max: float | None = Query(default=None),
     limit: int = Query(default=500, le=5000),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
@@ -211,15 +332,11 @@ def listar_documentos(
     except PeriodoInvalido as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    ids = _parse_empresas(empresa_ids)
-    if empresa_id is not None:
-        _empresa_do_escritorio(db, empresa_id, escritorio_id)
-        ids = [empresa_id]
-
-    if ids is None:
-        ids = [linha[0] for linha in db.query(Empresa.id).filter(Empresa.escritorio_id == escritorio_id).all()]
-        if not ids:
-            return []
+    ids = _ids_empresas_do_escritorio(
+        db, escritorio_id=escritorio_id, empresa_id=empresa_id, empresa_ids=empresa_ids
+    )
+    if not ids:
+        return []
 
     consulta = _filtrar(
         db.query(DocumentoFiscal),
@@ -231,6 +348,13 @@ def listar_documentos(
         inicio=periodo.inicio,
         fim=periodo.fim,
         busca=busca,
+        numero=numero,
+        serie=serie,
+        emitente_documento=emitente_documento,
+        destinatario_documento=destinatario_documento,
+        origem=origem,
+        valor_min=valor_min,
+        valor_max=valor_max,
     )
     return consulta.order_by(DocumentoFiscal.data_emissao.desc(), DocumentoFiscal.id.desc()).offset(offset).limit(limit).all()
 
@@ -238,16 +362,25 @@ def listar_documentos(
 @router.get("/por-empresa", response_model=list[EmpresaResumoDocumentos])
 def resumo_por_empresa(
     competencia: str | None = None,
+    data_inicio: date | None = Query(default=None),
+    data_fim: date | None = Query(default=None),
     tipo: TipoDocumentoFiscal | None = None,
+    direcao: DirecaoDocumento | None = None,
+    status: StatusDocumentoFiscal | None = None,
+    leiaute: str | None = Query(default=None, description="completo | resumo"),
+    busca: str | None = Query(default=None),
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
 ):
     """
-    Quantas notas cada empresa tem no período — é o que a tela mostra antes do
-    download, para ninguém exportar um pacote vazio nem perder uma empresa.
+    Quantas notas cada empresa tem no período/filtro pedido.
+
+    Antes, quando só `tipo` era informado, `total` vinha filtrado mas
+    canceladas/resumos/valor ficavam zerados; agora todos os números nascem da
+    mesma consulta usada pela listagem/exportação.
     """
     try:
-        periodo = interpretar_periodo(competencia, None, None)
+        periodo = interpretar_periodo(competencia, data_inicio, data_fim)
     except PeriodoInvalido as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -257,8 +390,11 @@ def resumo_por_empresa(
         .order_by(Empresa.razao_social)
         .all()
     )
+    ids = [empresa.id for empresa in empresas]
+    if not ids:
+        return []
 
-    agregado = (
+    consulta = _filtrar(
         db.query(
             DocumentoFiscal.empresa_id,
             func.count(DocumentoFiscal.id),
@@ -273,57 +409,21 @@ def resumo_por_empresa(
                 ),
                 0.0,
             ),
-        )
-        .group_by(DocumentoFiscal.empresa_id)
-        .all()
-    )
+        ),
+        ids=ids,
+        tipo=tipo,
+        direcao=direcao,
+        status=status,
+        leiaute=leiaute,
+        inicio=periodo.inicio,
+        fim=periodo.fim,
+        busca=busca,
+    ).group_by(DocumentoFiscal.empresa_id)
+
     por_empresa = {
         empresa_id: (total or 0, canceladas or 0, resumos or 0, float(soma or 0))
-        for empresa_id, total, canceladas, resumos, soma in agregado
+        for empresa_id, total, canceladas, resumos, soma in consulta.all()
     }
-
-    # A contagem acima é "tudo"; o recorte por período precisa ser por empresa.
-    if periodo.definido:
-        por_empresa = {}
-        for empresa in empresas:
-            contagem = _filtrar(
-                db.query(
-                    func.count(DocumentoFiscal.id),
-                    func.sum(case((DocumentoFiscal.status == StatusDocumentoFiscal.CANCELADA, 1), else_=0)),
-                    func.sum(case((DocumentoFiscal.leiaute == "resumo", 1), else_=0)),
-                    func.coalesce(
-                        func.sum(
-                            case(
-                                (
-                                    DocumentoFiscal.status != StatusDocumentoFiscal.CANCELADA,
-                                    DocumentoFiscal.valor_total,
-                                ),
-                                else_=0.0,
-                            )
-                        ),
-                        0.0,
-                    ),
-                ).filter(DocumentoFiscal.empresa_id == empresa.id),
-                tipo=tipo,
-                inicio=periodo.inicio,
-                fim=periodo.fim,
-            ).one()
-            por_empresa[empresa.id] = (
-                contagem[0] or 0,
-                contagem[1] or 0,
-                contagem[2] or 0,
-                float(contagem[3] or 0),
-            )
-    elif tipo is not None:
-        por_empresa = {}
-        for empresa in empresas:
-            contagem = _filtrar(
-                db.query(func.count(DocumentoFiscal.id)).filter(
-                    DocumentoFiscal.empresa_id == empresa.id
-                ),
-                tipo=tipo,
-            ).scalar()
-            por_empresa[empresa.id] = (contagem or 0, 0, 0, 0.0)
 
     saida = []
     for empresa in empresas:
@@ -341,9 +441,9 @@ def resumo_por_empresa(
         )
     return saida
 
-
 @router.get("/exportar/estimativa", response_model=EstimativaExportacao)
 def estimativa_exportacao(
+    empresa_id: str | None = None,
     empresa_ids: str | None = None,
     tipo: TipoDocumentoFiscal | None = None,
     direcao: DirecaoDocumento | None = None,
@@ -353,8 +453,15 @@ def estimativa_exportacao(
     data_fim: date | None = None,
     incluir_canceladas: bool = True,
     documento_ids: str | None = Query(default=None, description="seleção da tela: 12,34,56"),
-    busca: str | None = Query(default=None, description="mesma busca da tela (chave/número/emitente)"),
+    busca: str | None = Query(default=None, description="mesma busca da tela"),
     leiaute: str | None = Query(default=None, description="completo | resumo"),
+    numero: str | None = Query(default=None),
+    serie: str | None = Query(default=None),
+    emitente_documento: str | None = Query(default=None),
+    destinatario_documento: str | None = Query(default=None),
+    origem: str | None = Query(default=None),
+    valor_min: float | None = Query(default=None),
+    valor_max: float | None = Query(default=None),
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
 ):
@@ -367,6 +474,7 @@ def estimativa_exportacao(
     ids, periodo, apenas_nao_canceladas, selecionados = _params_export(
         db,
         escritorio_id=escritorio_id,
+        empresa_id=empresa_id,
         empresa_ids=empresa_ids,
         competencia=competencia,
         data_inicio=data_inicio,
@@ -386,6 +494,13 @@ def estimativa_exportacao(
         documento_ids=selecionados,
         busca=busca,
         leiaute=leiaute,
+        numero=numero,
+        serie=serie,
+        emitente_documento=emitente_documento,
+        destinatario_documento=destinatario_documento,
+        origem=origem,
+        valor_min=valor_min,
+        valor_max=valor_max,
     )
     total = consulta.count()
     return EstimativaExportacao(
@@ -397,8 +512,9 @@ def estimativa_exportacao(
     )
 
 
-@router.get("/exportar")
-def exportar_xmls(
+@router.get("/exportar/csv")
+def exportar_relacao_csv(
+    empresa_id: str | None = None,
     empresa_ids: str | None = None,
     tipo: TipoDocumentoFiscal | None = None,
     direcao: DirecaoDocumento | None = None,
@@ -408,8 +524,98 @@ def exportar_xmls(
     data_fim: date | None = None,
     incluir_canceladas: bool = True,
     documento_ids: str | None = Query(default=None, description="seleção da tela: 12,34,56"),
-    busca: str | None = Query(default=None, description="mesma busca da tela (chave/número/emitente)"),
+    busca: str | None = Query(default=None, description="mesma busca da tela"),
     leiaute: str | None = Query(default=None, description="completo | resumo"),
+    numero: str | None = Query(default=None),
+    serie: str | None = Query(default=None),
+    emitente_documento: str | None = Query(default=None),
+    destinatario_documento: str | None = Query(default=None),
+    origem: str | None = Query(default=None),
+    valor_min: float | None = Query(default=None),
+    valor_max: float | None = Query(default=None),
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+    usuario: Usuario = Depends(usuario_atual),
+):
+    """Relação CSV do mesmo filtro do ZIP, sem baixar os XMLs."""
+    ids, periodo, apenas_nao_canceladas, selecionados = _params_export(
+        db,
+        escritorio_id=escritorio_id,
+        empresa_id=empresa_id,
+        empresa_ids=empresa_ids,
+        competencia=competencia,
+        data_inicio=data_inicio,
+        data_fim=data_fim,
+        incluir_canceladas=incluir_canceladas,
+        documento_ids=documento_ids,
+    )
+    consulta = _consulta_export(
+        db,
+        ids=ids,
+        tipo=tipo,
+        direcao=direcao,
+        status=status,
+        inicio=periodo.inicio,
+        fim=periodo.fim,
+        apenas_nao_canceladas=apenas_nao_canceladas,
+        documento_ids=selecionados,
+        busca=busca,
+        leiaute=leiaute,
+        numero=numero,
+        serie=serie,
+        emitente_documento=emitente_documento,
+        destinatario_documento=destinatario_documento,
+        origem=origem,
+        valor_min=valor_min,
+        valor_max=valor_max,
+    ).order_by(Empresa.razao_social, DocumentoFiscal.data_emissao.desc())
+
+    total = consulta.count()
+    auditoria.registrar(
+        db, usuario, "exportacao_csv",
+        detalhe=f"{total} documento(s) · {periodo.rotulo()}" + (f" · tipo {tipo.value}" if tipo else ""),
+    )
+    db.commit()
+    if total == 0:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Nenhum documento no filtro escolhido ({periodo.rotulo()}).",
+        )
+
+    caminho, _linhas = _montar_csv_arquivo(consulta)
+    nome = "NotasFlow_relacao_" + re.sub(r"[^0-9A-Za-z_.-]+", "_", periodo.rotulo()) + ".csv"
+    from starlette.background import BackgroundTask
+
+    return FileResponse(
+        caminho,
+        media_type="text/csv; charset=utf-8",
+        filename=nome,
+        content_disposition_type="attachment",
+        background=BackgroundTask(_apagar, caminho),
+    )
+
+
+@router.get("/exportar")
+def exportar_xmls(
+    empresa_id: str | None = None,
+    empresa_ids: str | None = None,
+    tipo: TipoDocumentoFiscal | None = None,
+    direcao: DirecaoDocumento | None = None,
+    status: StatusDocumentoFiscal | None = None,
+    competencia: str | None = None,
+    data_inicio: date | None = None,
+    data_fim: date | None = None,
+    incluir_canceladas: bool = True,
+    documento_ids: str | None = Query(default=None, description="seleção da tela: 12,34,56"),
+    busca: str | None = Query(default=None, description="mesma busca da tela"),
+    leiaute: str | None = Query(default=None, description="completo | resumo"),
+    numero: str | None = Query(default=None),
+    serie: str | None = Query(default=None),
+    emitente_documento: str | None = Query(default=None),
+    destinatario_documento: str | None = Query(default=None),
+    origem: str | None = Query(default=None),
+    valor_min: float | None = Query(default=None),
+    valor_max: float | None = Query(default=None),
     incluir_relatorio: bool = Query(default=True, description="CSV com a relação, pronto para o Excel"),
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
@@ -428,6 +634,7 @@ def exportar_xmls(
     ids, periodo, apenas_nao_canceladas, selecionados = _params_export(
         db,
         escritorio_id=escritorio_id,
+        empresa_id=empresa_id,
         empresa_ids=empresa_ids,
         competencia=competencia,
         data_inicio=data_inicio,
@@ -447,6 +654,13 @@ def exportar_xmls(
         documento_ids=selecionados,
         busca=busca,
         leiaute=leiaute,
+        numero=numero,
+        serie=serie,
+        emitente_documento=emitente_documento,
+        destinatario_documento=destinatario_documento,
+        origem=origem,
+        valor_min=valor_min,
+        valor_max=valor_max,
     )
 
     limite = settings.limite_documentos_por_exportacao
@@ -495,6 +709,7 @@ def _params_export(
     db: Session,
     *,
     escritorio_id: int,
+    empresa_id: int | str | None,
     empresa_ids: str | None,
     competencia: str | None,
     data_inicio: date | None,
@@ -507,19 +722,9 @@ def _params_export(
     except PeriodoInvalido as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    ids = _parse_empresas(empresa_ids)
-    empresas_do_escritorio = [
-        linha[0] for linha in db.query(Empresa.id).filter(Empresa.escritorio_id == escritorio_id).all()
-    ]
-    if ids is None:
-        ids = empresas_do_escritorio
-    else:
-        invalidos = set(ids) - set(empresas_do_escritorio)
-        if invalidos:
-            raise HTTPException(
-                status_code=403,
-                detail=f"Empresa(s) fora deste escritório: {sorted(invalidos)}",
-            )
+    ids = _ids_empresas_do_escritorio(
+        db, escritorio_id=escritorio_id, empresa_id=empresa_id, empresa_ids=empresa_ids
+    )
     selecionados = _parse_ids(documento_ids, nome="documento_id")
     return ids, periodo, (not incluir_canceladas), selecionados
 
@@ -537,6 +742,13 @@ def _consulta_export(
     documento_ids: list[int] | None = None,
     busca: str | None = None,
     leiaute: str | None = None,
+    numero: str | None = None,
+    serie: str | None = None,
+    emitente_documento: str | None = None,
+    destinatario_documento: str | None = None,
+    origem: str | None = None,
+    valor_min: float | None = None,
+    valor_max: float | None = None,
 ):
     """
     `documento_ids` é a seleção da tela ("baixar estes 12 XMLs"). O resto do
@@ -555,6 +767,13 @@ def _consulta_export(
         fim=fim,
         busca=busca,
         leiaute=leiaute,
+        numero=numero,
+        serie=serie,
+        emitente_documento=emitente_documento,
+        destinatario_documento=destinatario_documento,
+        origem=origem,
+        valor_min=valor_min,
+        valor_max=valor_max,
         apenas_nao_canceladas=apenas_nao_canceladas,
     )
     if documento_ids:
@@ -595,6 +814,67 @@ def _slug(texto: str) -> str:
     return limpo[:60] or "empresa"
 
 
+def _cabecalho_relatorio() -> list[str]:
+    return [
+        "empresa",
+        "cnpj",
+        "tipo",
+        "direcao",
+        "competencia",
+        "data_emissao",
+        "numero",
+        "serie",
+        "chave_acesso",
+        "emitente_cnpj_cpf",
+        "emitente_razao_social",
+        "destinatario_cnpj_cpf",
+        "destinatario_razao_social",
+        "valor_total",
+        "situacao",
+        "xml_completo",
+        "origem",
+        "nsu",
+        "arquivo",
+    ]
+
+
+def _linha_relatorio(documento: DocumentoFiscal, empresa: Empresa, arquivo_zip: str) -> list[str]:
+    return [
+        empresa.razao_social,
+        empresa.cnpj_cpf,
+        documento.tipo.value if hasattr(documento.tipo, "value") else str(documento.tipo),
+        documento.direcao.value if hasattr(documento.direcao, "value") else str(documento.direcao),
+        documento.competencia.strftime("%m/%Y") if documento.competencia else "",
+        documento.data_emissao.strftime("%d/%m/%Y") if documento.data_emissao else "",
+        documento.numero or "",
+        documento.serie or "",
+        documento.chave_acesso,
+        documento.emitente_documento or "",
+        documento.emitente_nome or "",
+        documento.destinatario_documento or "",
+        documento.destinatario_nome or "",
+        f"{documento.valor_total:.2f}".replace(".", ","),
+        "CANCELADA" if documento.status == StatusDocumentoFiscal.CANCELADA else "NORMAL",
+        "sim" if documento.leiaute != "resumo" else "so-resumo",
+        documento.origem or "",
+        documento.nsu or "",
+        arquivo_zip,
+    ]
+
+
+def _montar_csv_arquivo(consulta) -> tuple[str, int]:
+    fd, caminho = tempfile.mkstemp(prefix="notasflow-relacao-", suffix=".csv")
+    os.close(fd)
+    linhas = 0
+    with open(caminho, "w", encoding="utf-8-sig", newline="") as arquivo:
+        escritor = csv.writer(arquivo, delimiter=";", lineterminator="\r\n")
+        escritor.writerow(_cabecalho_relatorio())
+        for documento, empresa in consulta.yield_per(500):
+            escritor.writerow(_linha_relatorio(documento, empresa, ""))
+            linhas += 1
+    return caminho, linhas
+
+
 def _montar_zip(consulta, periodo, *, incluir_relatorio: bool) -> str:
     """
     Escreve o ZIP num arquivo temporário e devolve o caminho. O chamador serve
@@ -605,25 +885,7 @@ def _montar_zip(consulta, periodo, *, incluir_relatorio: bool) -> str:
 
     relatorio = io.StringIO()
     escritor = csv.writer(relatorio, delimiter=";", lineterminator="\r\n")
-    escritor.writerow(
-        [
-            "empresa",
-            "cnpj",
-            "tipo",
-            "direcao",
-            "competencia",
-            "data_emissao",
-            "numero",
-            "serie",
-            "chave_acesso",
-            "emitente_cnpj_cpf",
-            "emitente_razao_social",
-            "valor_total",
-            "situacao",
-            "xml_completo",
-            "arquivo",
-        ]
-    )
+    escritor.writerow(_cabecalho_relatorio())
 
     usados: set[str] = set()
     with zipfile.ZipFile(caminho, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as pacote:
@@ -633,7 +895,6 @@ def _montar_zip(consulta, periodo, *, incluir_relatorio: bool) -> str:
             endereco = f"{pasta}/{nome_arquivo}"
             if endereco in usados:  # chave repetida entre empresas diferentes já tem pasta própria
                 endereco = f"{pasta}/{documento.id}_{nome_arquivo}"
-            usados.add(endereco)
 
             conteudo = b""
             if documento.xml_path and os.path.isfile(documento.xml_path):
@@ -642,35 +903,17 @@ def _montar_zip(consulta, periodo, *, incluir_relatorio: bool) -> str:
                         conteudo = arquivo.read()
                 except OSError:
                     conteudo = b""
-            if not conteudo:
-                # Sem arquivo não dá para inventar XML; o CSV continua listando
-                # a nota, com a coluna "xml_completo" marcando o buraco.
-                continue
 
-            pacote.writestr(endereco, conteudo)
-            escritor.writerow(
-                [
-                    empresa.razao_social,
-                    empresa.cnpj_cpf,
-                    documento.tipo.value,
-                    documento.direcao.value,
-                    documento.competencia.strftime("%m/%Y") if documento.competencia else "",
-                    documento.data_emissao.strftime("%d/%m/%Y") if documento.data_emissao else "",
-                    documento.numero or "",
-                    documento.serie or "",
-                    documento.chave_acesso,
-                    documento.emitente_documento or "",
-                    documento.emitente_nome or "",
-                    f"{documento.valor_total:.2f}".replace(".", ","),
-                    (
-                        "CANCELADA"
-                        if documento.status == StatusDocumentoFiscal.CANCELADA
-                        else "NORMAL"
-                    ),
-                    "sim" if documento.leiaute != "resumo" else "so-resumo",
-                    endereco,
-                ]
-            )
+            if conteudo:
+                pacote.writestr(endereco, conteudo)
+                usados.add(endereco)
+                arquivo_relatorio = endereco
+            else:
+                # Sem arquivo não dá para inventar XML; a relação continua
+                # listando a nota, com o caminho em branco para revisão.
+                arquivo_relatorio = ""
+
+            escritor.writerow(_linha_relatorio(documento, empresa, arquivo_relatorio))
 
         if incluir_relatorio:
             # BOM: sem ele o Excel pt-BR abre "empresa;razao" numa coluna só.
@@ -680,7 +923,6 @@ def _montar_zip(consulta, periodo, *, incluir_relatorio: bool) -> str:
                 _leia_me(periodo, len(usados)),
             )
     return caminho
-
 
 def _leia_me(periodo, quantidade: int) -> str:
     return (
@@ -755,6 +997,64 @@ def completar_xmls(
             "fica para a próxima rodada automática."
         ),
     }
+
+
+@router.delete("/{documento_id}", response_model=ResultadoExclusaoDocumentos)
+def excluir_documento(
+    documento_id: int,
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+    usuario: Usuario = Depends(requer_escrita),
+):
+    """Exclui uma nota/documento do escritório logado e remove o XML arquivado."""
+    documento = _documento_do_escritorio(db, documento_id, escritorio_id)
+    arquivos = _arquivos_exclusivos(db, [documento])
+    auditoria.registrar(
+        db,
+        usuario,
+        "documento_excluir",
+        entidade="documento_fiscal",
+        entidade_id=documento.id,
+        detalhe=f"{documento.tipo.value} {documento.chave_acesso}",
+    )
+    db.delete(documento)
+    db.commit()
+    removidos = _remover_arquivos(arquivos)
+    return ResultadoExclusaoDocumentos(excluidos=1, ids=[documento_id], arquivos_removidos=removidos)
+
+
+@router.post("/excluir-lote", response_model=ResultadoExclusaoDocumentos)
+def excluir_documentos_lote(
+    payload: DocumentosExcluirLote,
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+    usuario: Usuario = Depends(requer_escrita),
+):
+    """Exclui as notas marcadas na tela; ids fora do escritório não são aceitos."""
+    documentos = (
+        db.query(DocumentoFiscal)
+        .join(Empresa)
+        .filter(DocumentoFiscal.id.in_(payload.ids), Empresa.escritorio_id == escritorio_id)
+        .all()
+    )
+    encontrados = {doc.id for doc in documentos}
+    faltando = [item for item in payload.ids if item not in encontrados]
+    if faltando:
+        raise HTTPException(status_code=404, detail=f"Documento(s) não encontrado(s): {faltando}")
+
+    arquivos = _arquivos_exclusivos(db, documentos)
+    tipos = ", ".join(sorted({doc.tipo.value for doc in documentos}))
+    auditoria.registrar(
+        db,
+        usuario,
+        "documentos_excluir_lote",
+        detalhe=f"{len(documentos)} documento(s) · tipos: {tipos or 'n/a'}",
+    )
+    for documento in documentos:
+        db.delete(documento)
+    db.commit()
+    removidos = _remover_arquivos(arquivos)
+    return ResultadoExclusaoDocumentos(excluidos=len(documentos), ids=payload.ids, arquivos_removidos=removidos)
 
 
 @router.get("/lote/{documento_id}/recibo")
@@ -840,3 +1140,35 @@ def _documento_do_escritorio(db: Session, documento_id: int, escritorio_id: int)
     if documento is None:
         raise HTTPException(status_code=404, detail="Documento não encontrado")
     return documento
+
+
+
+def _arquivos_exclusivos(db: Session, documentos: list[DocumentoFiscal]) -> list[str]:
+    """Arquivos XML que podem ser apagados sem deixar outro documento órfão."""
+    ids = {doc.id for doc in documentos}
+    caminhos: list[str] = []
+    for documento in documentos:
+        caminho = (documento.xml_path or "").strip()
+        if not caminho or caminho in caminhos:
+            continue
+        compartilhado = (
+            db.query(DocumentoFiscal.id)
+            .filter(DocumentoFiscal.xml_path == caminho, DocumentoFiscal.id.notin_(ids))
+            .first()
+        )
+        if not compartilhado:
+            caminhos.append(caminho)
+    return caminhos
+
+
+def _remover_arquivos(caminhos: list[str]) -> int:
+    removidos = 0
+    for caminho in caminhos:
+        try:
+            if caminho and os.path.isfile(caminho):
+                os.unlink(caminho)
+                removidos += 1
+        except OSError:
+            # O banco já registrou a intenção; falha no disco não deve ressuscitar nota.
+            continue
+    return removidos

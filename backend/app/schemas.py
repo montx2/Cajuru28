@@ -453,6 +453,31 @@ class DocumentoFiscalResposta(BaseModel):
     origem: str | None = None
 
 
+class DocumentosExcluirLote(BaseModel):
+    """Exclusão manual das notas marcadas na tela."""
+
+    ids: list[int]
+
+    @field_validator("ids")
+    @classmethod
+    def ids_validos(cls, v: list[int]) -> list[int]:
+        vistos: list[int] = []
+        for item in v or []:
+            if item <= 0:
+                raise ValueError("IDs de documentos devem ser positivos")
+            if item not in vistos:
+                vistos.append(item)
+        if not vistos:
+            raise ValueError("Selecione ao menos uma nota/documento para excluir.")
+        return vistos
+
+
+class ResultadoExclusaoDocumentos(BaseModel):
+    excluidos: int
+    ids: list[int]
+    arquivos_removidos: int = 0
+
+
 class EmpresaResumoDocumentos(BaseModel):
     """Por empresa: quantas notas há no período pedido (alimenta o 'baixar tudo')."""
 
@@ -585,7 +610,7 @@ class EstadoSincronizacaoResposta(BaseModel):
     bloqueios_seguidos: int = 0
     proxima_consulta_em: datetime | None = None
     ultima_consulta_em: datetime | None = None
-    # Quando a próxima consulta desta empresa+tipo fica liberada (o mais cedo
+    # Quando a próxima consulta desta empresa+tipo fica liberada (o mais tarde
     # entre "fim do bloqueio 656" e "fim da janela de 1h"). É o campo que a
     # tela usa para o cronômetro regressivo — já vem calculado pela API, sem o
     # front precisar fazer conta com fuso horário.
@@ -687,6 +712,18 @@ class ResumoDocumentos(BaseModel):
     normais: int
     canceladas: int
     por_tipo: dict[str, int]
+
+
+class ResetGeralResposta(BaseModel):
+    """Resultado da limpeza geral do escritório logado."""
+
+    empresas: int = 0
+    documentos: int = 0
+    certificados: int = 0
+    execucoes: int = 0
+    sincronizacoes: int = 0
+    arquivos_removidos: int = 0
+    integracoes: int = 0
 
 
 class DocumentoFonteResposta(BaseModel):

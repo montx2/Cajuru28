@@ -109,21 +109,15 @@ def liberacao_para(
         return Liberacao(pode=True, quando=agora)
 
     bloqueado_ate = _aware(estado.bloqueado_ate)
-    if bloqueado_ate and bloqueado_ate > agora:
-        return Liberacao(
-            pode=False,
-            quando=bloqueado_ate,
-            motivo=estado.motivo_bloqueio or "Bloqueado por consumo indevido",
-            bloqueado=True,
-        )
-
     proxima = _aware(estado.proxima_consulta_em)
+    janelas: list[tuple[datetime, str, bool]] = []
+    if bloqueado_ate and bloqueado_ate > agora:
+        janelas.append((bloqueado_ate, estado.motivo_bloqueio or "Bloqueado por consumo indevido", True))
     if proxima and proxima > agora:
-        return Liberacao(
-            pode=False,
-            quando=proxima,
-            motivo="Sem documentos novos na última consulta — o ambiente pede 1 hora de espera.",
-        )
+        janelas.append((proxima, "Sem documentos novos na última consulta — o ambiente pede 1 hora de espera.", False))
+    if janelas:
+        quando, motivo, bloqueado = max(janelas, key=lambda item: item[0])
+        return Liberacao(pode=False, quando=quando, motivo=motivo, bloqueado=bloqueado)
 
     return Liberacao(pode=True, quando=agora)
 
@@ -186,6 +180,12 @@ def marcar_sem_novidade(db: Session, estado: SincronizacaoDFe, *, agora: datetim
     agora = agora or _agora()
     quando = agora + cooldown_oficial()
     estado.proxima_consulta_em = quando
+    # Se acabou de consultar e a resposta oficial foi 137, qualquer bloqueio
+    # antigo já venceu; manter `bloqueado_ate` no passado fazia painéis e
+    # prévias continuarem mostrando a empresa como bloqueada.
+    estado.bloqueado_ate = None
+    estado.motivo_bloqueio = None
+    estado.bloqueios_seguidos = 0
     estado.atualizado_em = agora
     return quando
 
@@ -194,6 +194,8 @@ def marcar_consulta_ok(db: Session, estado: SincronizacaoDFe, *, agora: datetime
     """Trouxe documento? Então existe fila de distribuição: não há motivo para esperar."""
     agora = agora or _agora()
     estado.proxima_consulta_em = None
+    estado.bloqueado_ate = None
+    estado.motivo_bloqueio = None
     estado.bloqueios_seguidos = 0
     estado.atualizado_em = agora
 

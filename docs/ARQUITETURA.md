@@ -31,13 +31,10 @@ a senha do certificado em texto puro; ela e o PFX são protegidos pelo cofre
 Fernet. Cada pacote de backup é cifrado com uma chave Fernet **separada** e
 replicado para storage S3 configurado em produção.
 
-A Jettax/Morfeu é um adaptador complementar, com token somente no ambiente do
-servidor e cursores próprios: ele não divide estado NSU com ADN/SEFAZ. A
-operação e os limites do conector estão em [`JETTAX.md`](JETTAX.md).
-
-A Jettax/Morfeu é um adaptador complementar, com token somente no ambiente do
-servidor e cursores próprios: ele não divide estado NSU com ADN/SEFAZ. A
-operação e os limites do conector estão em [`JETTAX.md`](JETTAX.md).
+A Jettax/Morfeu é um adaptador complementar e uma trilha de fallback/conferência
+automática para empresas ativadas, com token somente no ambiente do servidor e
+cursores próprios: ele não divide estado NSU com ADN/SEFAZ. A operação e os
+limites do conector estão em [`JETTAX.md`](JETTAX.md).
 
 ## Operação
 

@@ -48,7 +48,12 @@ from app.models import (
     TipoDocumentoFiscal,
 )
 from app.services import batimento, fila, sincronizacao
-from app.services.jettax import executar_importacao as executar_importacao_jettax, registrar_proveniencia
+from app.services.jettax import (
+    ResultadoFallbackJettax,
+    acionar_fallback_automatico,
+    executar_importacao as executar_importacao_jettax,
+    registrar_proveniencia,
+)
 from app.services.certificados import ler_pfx_protegido
 from app.services.importadores.base import (
     AmbienteIndisponivel,
@@ -139,6 +144,12 @@ def importar_documentos(
             # Redelivery do broker (acks_late) numa varredura que já terminou:
             # sair daqui é o que evita reconsultar a SEFAZ de graça.
             return
+        if execucao.status == StatusExecucao.AGUARDANDO:
+            # O ETA venceu e a task acordou: a linha deixa de parecer parada
+            # enquanto o worker valida certificado/lease/janela.
+            execucao.status = StatusExecucao.EM_ANDAMENTO
+            execucao.bloqueado_ate = None
+            execucao.mensagem_erro = None
 
         certificado = (
             db.query(Certificado)
@@ -160,6 +171,15 @@ def importar_documentos(
                 "Empresa %s/%s já está sendo varrida por outra task; sem duplicar consulta.",
                 empresa_id, tipo,
             )
+            execucao.status = StatusExecucao.CONCLUIDA
+            execucao.bloqueado_ate = None
+            execucao.mensagem_erro = None
+            execucao.aviso = _resumir_avisos(
+                execucao.aviso,
+                ["Consulta não duplicada: outra varredura deste CNPJ/tipo já estava em andamento."],
+            )
+            execucao.finalizado_em = _agora()
+            db.commit()
             return
 
         # Batimento: a API usa isto (e o ping do broker) para dizer ao
@@ -279,12 +299,29 @@ def importar_documentos(
         execucao.bloqueado_ate = None
         execucao.finalizado_em = _agora()
         db.commit()
+        _acionar_jettax_para_execucao(
+            db,
+            empresa,
+            execucao,
+            origem="fallback_check",
+            motivo="conferência pós-consulta oficial SEFAZ/ADN",
+        )
 
     except Exception as exc:  # noqa: BLE001 — task de background: captura, registra, não derruba o worker
         log.exception("Importação %s/%s falhou", empresa_id, tipo)
         db.rollback()
         execucao = db.get(ExecucaoImportacao, execucao_id)
         _marcar_erro(db, execucao, str(exc))
+        if execucao is not None:
+            empresa_fallback = db.get(Empresa, execucao.empresa_id)
+            if empresa_fallback is not None:
+                _acionar_jettax_para_execucao(
+                    db,
+                    empresa_fallback,
+                    execucao,
+                    origem="fallback_erro",
+                    motivo="erro interno na importação oficial antes de concluir",
+                )
     finally:
         if estado is not None and travado:
             try:
@@ -340,6 +377,15 @@ def tratar_consumo_indevido(
         mensagem += " O cursor foi realinhado com o NSU informado pelo próprio ambiente."
     _marcar_aguardando(db, execucao, mensagem, quando)
     fila_reagendar(db, execucao, quando, motivo=mensagem)
+    empresa = db.get(Empresa, execucao.empresa_id)
+    if empresa is not None:
+        _acionar_jettax_para_execucao(
+            db,
+            empresa,
+            execucao,
+            origem="fallback_656",
+            motivo="bloqueio por consumo indevido na fonte oficial",
+        )
 
 
 def tratar_ambiente_indisponivel(
@@ -351,12 +397,21 @@ def tratar_ambiente_indisponivel(
     sozinho nas próximas varreduras.
     """
     limite = max(1, int(settings.max_tentativas_transporte))
+    empresa = db.get(Empresa, execucao.empresa_id)
     if tentativa >= limite:
         _marcar_erro(
             db,
             execucao,
             f"Ambiente fiscal indisponível após {tentativa + 1} tentativas: {erro}",
         )
+        if empresa is not None:
+            _acionar_jettax_para_execucao(
+                db,
+                empresa,
+                execucao,
+                origem="fallback_erro",
+                motivo="ambiente oficial indisponível após o limite de tentativas",
+            )
         return
     quando = _agora() + erro.tentativa_recomendada * (2**tentativa)
     _marcar_aguardando(
@@ -366,7 +421,21 @@ def tratar_ambiente_indisponivel(
         f"próxima em {quando:%H:%M}. ({str(erro)[:300]})",
         quando,
     )
-    fila_reagendar(db, execucao, quando, motivo="Ambiente fiscal indisponível — retentando.")
+    fila_reagendar(
+        db,
+        execucao,
+        quando,
+        motivo="Ambiente fiscal indisponível — retentando.",
+        tentativa=tentativa + 1,
+    )
+    if empresa is not None and tentativa == 0:
+        _acionar_jettax_para_execucao(
+            db,
+            empresa,
+            execucao,
+            origem="fallback_erro",
+            motivo="ambiente oficial indisponível; retentativa direta já agendada",
+        )
 
 
 def _aguardar_janela(db, estado, execucao: ExecucaoImportacao, libertacao) -> None:
@@ -382,6 +451,16 @@ def _aguardar_janela(db, estado, execucao: ExecucaoImportacao, libertacao) -> No
         libertacao.quando,
     )
     fila_reagendar(db, execucao, libertacao.quando, motivo="Aguardando janela de consumo.")
+    if getattr(libertacao, "bloqueado", False):
+        empresa = db.get(Empresa, execucao.empresa_id)
+        if empresa is not None:
+            _acionar_jettax_para_execucao(
+                db,
+                empresa,
+                execucao,
+                origem="fallback_cooldown",
+                motivo="fonte oficial ainda bloqueada; aguardando janela de consumo",
+            )
 
 
 def _marcar_aguardando(
@@ -395,15 +474,73 @@ def _marcar_aguardando(
     db.commit()
 
 
-def fila_reagendar(db, execucao: ExecucaoImportacao, quando: datetime, *, motivo: str) -> bool:
+def fila_reagendar(
+    db, execucao: ExecucaoImportacao, quando: datetime, *, motivo: str, tentativa: int | None = None
+) -> bool:
     """Delegado para `app.services.fila.reagendar` (mesmo caminho do Beat)."""
-    return fila.reagendar(db, execucao, quando, motivo=motivo)
+    return fila.reagendar(db, execucao, quando, motivo=motivo, tentativa=tentativa)
 
 
 def fila_periodo(execucao: ExecucaoImportacao):
     from app.services.periodo import Periodo
 
     return Periodo(inicio=execucao.data_inicio, fim=execucao.data_fim)
+
+
+def _aviso_jettax(resultado: ResultadoFallbackJettax) -> str | None:
+    if resultado.status == "enfileirada":
+        return f"{resultado.mensagem} Execução Jettax #{resultado.execucao_id}."
+    if resultado.status == "ja_em_andamento" and resultado.execucao_id:
+        return f"Jettax já estava verificando esta empresa (execução #{resultado.execucao_id})."
+    if resultado.status == "fila_indisponivel":
+        return resultado.mensagem
+    return None
+
+
+def _acionar_jettax_para_execucao(
+    db,
+    empresa: Empresa,
+    execucao: ExecucaoImportacao,
+    *,
+    origem: str,
+    motivo: str,
+) -> None:
+    """Aciona Jettax como trilha paralela; nunca derruba a consulta oficial."""
+    try:
+        resultado = acionar_fallback_automatico(
+            db,
+            empresa,
+            execucao.tipo,
+            origem=origem,
+            motivo=motivo,
+            data_inicio=execucao.data_inicio,
+            data_fim=execucao.data_fim,
+        )
+    except Exception as exc:  # noqa: BLE001 — fallback não pode mascarar erro oficial
+        log.warning("Não foi possível acionar fallback Jettax para execução %s: %s", execucao.id, exc)
+        db.rollback()
+        return
+
+    aviso = _aviso_jettax(resultado)
+    if aviso:
+        execucao.aviso = _resumir_avisos(execucao.aviso, [aviso])
+        db.commit()
+
+
+def _acionar_jettax_para_empresa(
+    db,
+    empresa: Empresa,
+    tipo: TipoDocumentoFiscal,
+    *,
+    origem: str,
+    motivo: str,
+) -> None:
+    """Versão sem ExecucaoImportacao, usada por ações pontuais de XML."""
+    try:
+        acionar_fallback_automatico(db, empresa, tipo, origem=origem, motivo=motivo)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Não foi possível acionar fallback Jettax para empresa %s/%s: %s", empresa.id, tipo.value, exc)
+        db.rollback()
 
 
 # ---------------------------------------------------------------------------
@@ -808,7 +945,13 @@ def completar_xmls_pendentes(self, empresa_id: int | None = None, limite: int | 
     task para uma empresa só.
     """
     db = SessionLocal()
-    resultado = {"completos": 0, "indisponiveis": 0, "sem_cota": 0, "empresas": 0}
+    resultado = {
+        "completos": 0,
+        "indisponiveis": 0,
+        "sem_cota": 0,
+        "aguardando_janela": 0,
+        "empresas": 0,
+    }
     limite_por_empresa = max(1, min(20, int(limite or settings.limite_consultas_pontuais_por_hora)))
     try:
         batimento.registrar(db, "worker", "completar_xmls_pendentes")
@@ -842,24 +985,64 @@ def completar_xmls_pendentes(self, empresa_id: int | None = None, limite: int | 
                 continue
 
             estado = sincronizacao.obter_estado(db, empresa.id, TipoDocumentoFiscal.NFE)
-            if estado is None or not sincronizacao.travar(db, estado):
+            if estado is None:
+                continue
+            liberacao = sincronizacao.liberacao_para(db, empresa.id, TipoDocumentoFiscal.NFE)
+            if not liberacao.pode:
+                resultado["aguardando_janela"] += len(documentos_pendentes)
+                if getattr(liberacao, "bloqueado", False):
+                    _acionar_jettax_para_empresa(
+                        db,
+                        empresa,
+                        TipoDocumentoFiscal.NFE,
+                        origem="fallback_cooldown",
+                        motivo="completar XML bloqueado pela janela oficial",
+                    )
+                continue
+            if not sincronizacao.travar(db, estado):
                 db.commit()
                 continue
 
             try:
                 db.commit()
+                # A task pode ter esperado pelo lease; revalida a janela antes
+                # de chamar consChNFe. Sem este preflight, o botão "completar
+                # XML" gastava cota pontual dentro da mesma 1h e reiniciava
+                # bloqueios oficiais.
+                liberacao = sincronizacao.liberacao_para(db, empresa.id, TipoDocumentoFiscal.NFE)
+                if not liberacao.pode:
+                    resultado["aguardando_janela"] += len(documentos_pendentes)
+                    if getattr(liberacao, "bloqueado", False):
+                        _acionar_jettax_para_empresa(
+                            db,
+                            empresa,
+                            TipoDocumentoFiscal.NFE,
+                            origem="fallback_cooldown",
+                            motivo="completar XML bloqueado pela janela oficial",
+                        )
+                    continue
                 importador = obter_importador(TipoDocumentoFiscal.NFE)
                 senha = decifrar_segredo(certificado.senha_cifrada)
                 pfx_bytes = ler_pfx_protegido(certificado.arquivo_path)
 
                 with sessao_mtls(pfx_bytes, senha) as (cert_path, key_path):
                     for documento in documentos_pendentes:
+                        liberacao = sincronizacao.liberacao_para(db, empresa.id, TipoDocumentoFiscal.NFE)
+                        if not liberacao.pode:
+                            resultado["aguardando_janela"] += 1
+                            if getattr(liberacao, "bloqueado", False):
+                                _acionar_jettax_para_empresa(
+                                    db,
+                                    empresa,
+                                    TipoDocumentoFiscal.NFE,
+                                    origem="fallback_cooldown",
+                                    motivo="consulta pontual de XML bloqueada pela janela oficial",
+                                )
+                            break
                         disponivel = sincronizacao.cota_pontual_disponivel(db, estado)
                         if disponivel <= 0:
                             resultado["sem_cota"] += 1
                             break
-                        sincronizacao.consumir_cota_pontual(db, estado)
-                        db.commit()
                         try:
                             completo = importador.buscar_por_chave(
                                 cnpj=empresa.cnpj_cpf,
@@ -869,20 +1052,43 @@ def completar_xmls_pendentes(self, empresa_id: int | None = None, limite: int | 
                                 uf=empresa.uf,
                             )
                         except ConsumoIndevido as exc:
+                            sincronizacao.consumir_cota_pontual(db, estado)
+                            if exc.ultimo_nsu:
+                                sincronizacao.realinhar_cursor(
+                                    db, estado, ultimo_nsu=exc.ultimo_nsu, max_nsu=exc.max_nsu
+                                )
                             sincronizacao.marcar_consumo_indevido(
-                                db, estado, motivo=f"consChNFe: {exc.motivo}"
+                                db, estado, motivo=f"consChNFe: {exc.motivo}", bloqueio=getattr(exc, "bloqueio", None)
                             )
                             db.commit()
+                            _acionar_jettax_para_empresa(
+                                db,
+                                empresa,
+                                TipoDocumentoFiscal.NFE,
+                                origem="fallback_656",
+                                motivo="consulta pontual consChNFe bloqueada por consumo indevido",
+                            )
                             break
                         except AmbienteIndisponivel:
+                            # 5xx/rede não consome a cota oficial; mantém a
+                            # consulta pontual disponível para a próxima rodada.
+                            _acionar_jettax_para_empresa(
+                                db,
+                                empresa,
+                                TipoDocumentoFiscal.NFE,
+                                origem="fallback_erro",
+                                motivo="ambiente oficial indisponível ao completar XML",
+                            )
                             break
 
+                        sincronizacao.consumir_cota_pontual(db, estado)
                         if completo is None or not completo.xml:
                             resultado["indisponiveis"] += 1
                             db.commit()
                             continue
 
                         _sobrescrever_xml(documento, completo)
+                        sincronizacao.marcar_consulta_ok(db, estado)
                         resultado["completos"] += 1
                         db.commit()
                         time.sleep(ESPERA_ENTRE_LOTES)
