@@ -43,7 +43,7 @@ from app.schemas import (
 )
 from app.services import auditoria
 from app.services.certificados import ler_pfx_protegido
-from app.services.jettax import JettaxErro, carga_cliente, cliente_jettax_para, cursor_para
+from app.services.jettax import JettaxErro, carga_cliente, cliente_jettax_para, cursor_para, normalizar_token
 
 router = APIRouter(prefix="/integracoes/jettax", tags=["integrações · Jettax"])
 
@@ -166,13 +166,25 @@ def salvar_credencial_jettax(
     base = urlparse(dados.base_url.strip())
     if base.scheme != "https" or not base.netloc or base.username or base.password:
         raise HTTPException(status_code=422, detail="A URL da Jettax deve ser HTTPS e não conter credenciais.")
+    # A Morfeu espera o token puro no header Authorization (API Key, sem
+    # "Bearer"). A limpeza aqui evita que uma colagem com prefixo/quebras de
+    # linha produza 401/403 silencioso em todas as chamadas do conector.
+    token = normalizar_token(dados.token)
+    if len(token) < 8:
+        raise HTTPException(
+            status_code=422,
+            detail="Token Jettax inválido após a limpeza automática (prefixo 'Bearer', aspas, espaços e quebras de linha). Cole apenas o token de API emitido pela Jettax.",
+        )
     credencial = db.query(JettaxCredencial).filter_by(escritorio_id=escritorio_id).first()
     if credencial is None:
         credencial = JettaxCredencial(escritorio_id=escritorio_id, base_url=dados.base_url.strip(), token_cifrado="")
         db.add(credencial)
     credencial.base_url = dados.base_url.strip().rstrip("/")
-    credencial.token_cifrado = cifrar_segredo(dados.token)
-    auditoria.registrar(db, usuario, "jettax_credencial_atualizada", entidade="integracao", detalhe="Credencial Jettax atualizada no cofre")
+    credencial.token_cifrado = cifrar_segredo(token)
+    detalhe = "Credencial Jettax atualizada no cofre"
+    if token != dados.token.strip():
+        detalhe += "; token normalizado (prefixo/espaços removidos antes de cifrar)"
+    auditoria.registrar(db, usuario, "jettax_credencial_atualizada", entidade="integracao", detalhe=detalhe)
     db.commit()
     return status_jettax(db=db, escritorio_id=escritorio_id)
 

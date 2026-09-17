@@ -288,7 +288,7 @@ export default function ConfiguracoesPage() {
           <button type="button" className="btn-primary self-end" disabled={salvandoJettax} onClick={salvarJettax}>{salvandoJettax ? "Verificando…" : "Salvar e testar"}</button>
         </div> : <p className="text-sm text-ink-muted">Somente administradores podem alterar a credencial.</p>}
         {ehAdmin && jettax?.configurado && <button type="button" className="btn-ghost btn-sm mt-3" disabled={salvandoJettax} onClick={testarJettax}>Testar conexão novamente</button>}
-        <p className="mt-3 text-xs leading-relaxed text-ink-muted">O token é cifrado no cofre do servidor e nunca é exibido novamente. Nesta etapa, o sistema não tenta adivinhar uma rota de listagem de clientes que não consta na documentação pública. As empresas podem ser cadastradas em lote pela tela Empresas e depois vinculadas à Jettax pelo CNPJ.</p>
+        <p className="mt-3 text-xs leading-relaxed text-ink-muted">O token é cifrado no cofre do servidor e nunca é exibido novamente. Ele é enviado no header <code>Authorization</code> sem o prefixo &quot;Bearer&quot; (padrão da API Morfeu); ao salvar, o sistema remove automaticamente prefixo, aspas, espaços e quebras de linha. A Jettax mantém dois endereços de API (<code>morfeu-api.jettax.com.br</code> e <code>morfeu.jettax.com.br</code>) e o token só é aceito no ambiente para o qual foi emitido — se o teste recusar a autenticação, experimente o outro endereço no campo URL. As empresas podem ser cadastradas em lote pela tela Empresas e depois vinculadas à Jettax pelo CNPJ.</p>
       </section>
 
       {/* webhook */}

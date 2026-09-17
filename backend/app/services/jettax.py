@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import base64
 import gzip
+import logging
 import os
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -53,6 +54,30 @@ from app.services.importadores.nfe_sefaz import ImportadorNFeSEFAZ
 
 
 ORIGEM_JETTAX = "jettax"
+
+_logger = logging.getLogger("notasflow.jettax")
+
+
+def normalizar_token(valor: object) -> str:
+    """Deixa o token pronto para o header ``Authorization`` da Morfeu.
+
+    A coleção pública usa autenticação por API Key: o valor do header é o
+    próprio token, **sem** o prefixo ``Bearer``. Colagens vindas de e-mail,
+    PDF ou do próprio Postman costumam trazer ``Bearer `` na frente, aspas
+    ou quebras de linha no meio; tudo isso é removido para o header sair
+    exatamente como o fornecedor emitiu. Tokens de API não contêm espaço.
+    """
+    texto = str(valor or "").strip()
+    if not texto:
+        return ""
+    for _ in range(2):  # cobre "Bearer Bearer <token>" de dupla colagem
+        minusculo = texto.lower()
+        if minusculo.startswith("bearer "):
+            texto = texto[7:].strip()
+        else:
+            break
+    texto = texto.strip("\"'").strip()
+    return "".join(texto.split())  # remove espaços/tabs/quebras internos
 _FLUXO_NFSE = "nfse"
 _FLUXO_NFE_SAIDA = "sales"
 _FLUXO_NFE_ENTRADA = "purchases"
@@ -85,6 +110,26 @@ class JettaxErro(RuntimeError):
         super().__init__(mensagem)
         self.categoria = categoria
         self.status_code = status_code
+
+    def anexar_contexto(self, *, host: str, status_code: int | None = None) -> None:
+        """Acrescenta status HTTP e host tentado à mensagem, uma única vez.
+
+        Sem isso é impossível distinguir, na UI, um 401 de um 403, nem saber
+        para qual endereço da Jettax o token foi de fato enviado.
+        """
+        if getattr(self, "_contexto_anexado", False):
+            return
+        self._contexto_anexado = True
+        if status_code:
+            self.status_code = status_code
+        mensagem = str(self.args[0]) if self.args else ""
+        partes: list[str] = []
+        if status_code and f"HTTP {status_code}" not in mensagem:
+            partes.append(f"HTTP {status_code}")
+        if host and host not in mensagem:
+            partes.append(host)
+        if partes:
+            self.args = (mensagem + " [" + " · ".join(partes) + "]",)
 
 
 class JettaxNaoConfigurada(JettaxErro):
@@ -228,7 +273,7 @@ class ClienteJettax:
         client: httpx.Client | None = None,
     ) -> None:
         self.base_url = (base_url or settings.jettax_api_base_url).strip().rstrip("/")
-        self.token = (token if token is not None else settings.jettax_api_token).strip()
+        self.token = normalizar_token(token if token is not None else settings.jettax_api_token)
         self.timeout = max(1.0, float(timeout if timeout is not None else settings.jettax_timeout_segundos))
         self._client = client
         if not self.token:
@@ -236,6 +281,10 @@ class ClienteJettax:
         partes = urlparse(self.base_url)
         if partes.scheme not in {"http", "https"} or not partes.netloc:
             raise JettaxErro("JETTAX_API_BASE_URL inválida.", categoria="configuracao")
+
+    @property
+    def host(self) -> str:
+        return urlparse(self.base_url).netloc
 
     @property
     def configurado(self) -> bool:
@@ -253,23 +302,35 @@ class ClienteJettax:
 
     def _requisitar(self, metodo: str, rota_ou_url: str, *, params: dict[str, Any] | None = None, json: dict[str, Any] | None = None) -> Any:
         cabecalhos = {
+            # A coleção pública Morfeu autentica por API Key: o valor do
+            # header é o próprio token, sem o prefixo "Bearer".
             "Authorization": self.token,
             # A coleção Morfeu não publica media type versionado. Pedir um
             # "application/vnd.morfeu.v2+json" inexistente pode render 406.
             "Accept": "application/json",
         }
         if self._client is not None:
-            return self._tratar_resposta(self._client.request(metodo, self._url_segura(rota_ou_url), params=params, json=json, headers=cabecalhos))
+            resposta = self._client.request(metodo, self._url_segura(rota_ou_url), params=params, json=json, headers=cabecalhos)
+        else:
+            try:
+                with httpx.Client(timeout=self.timeout, follow_redirects=False) as client:
+                    resposta = client.request(
+                        metodo, self._url_segura(rota_ou_url), params=params, json=json, headers=cabecalhos
+                    )
+            except httpx.TimeoutException as exc:
+                raise JettaxErro(f"Tempo esgotado ao comunicar com a Jettax ({self.host}).") from exc
+            except httpx.TransportError as exc:
+                raise JettaxErro(
+                    f"Não foi possível comunicar com a Jettax ({self.host}); confirme a URL configurada, o DNS e a saída de internet do servidor."
+                ) from exc
         try:
-            with httpx.Client(timeout=self.timeout, follow_redirects=False) as client:
-                resposta = client.request(
-                    metodo, self._url_segura(rota_ou_url), params=params, json=json, headers=cabecalhos
-                )
-        except httpx.TimeoutException as exc:
-            raise JettaxErro("Tempo esgotado ao comunicar com a Jettax.") from exc
-        except httpx.TransportError as exc:
-            raise JettaxErro("Não foi possível comunicar com a Jettax.") from exc
-        return self._tratar_resposta(resposta)
+            return self._tratar_resposta(resposta)
+        except JettaxErro as exc:
+            # Contexto de diagnóstico (status + host) sem propagar corpo
+            # remoto nem segredo: o log do servidor é o lugar do detalhe.
+            exc.anexar_contexto(host=self.host, status_code=resposta.status_code)
+            _logger.warning("Jettax %s %s -> HTTP %s (%s)", metodo, rota_ou_url, resposta.status_code, exc.categoria)
+            raise
 
     @staticmethod
     def _tratar_resposta(resposta: httpx.Response) -> Any:
