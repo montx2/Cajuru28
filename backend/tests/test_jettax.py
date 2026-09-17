@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import gzip
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import httpx
 import pytest
@@ -30,7 +30,8 @@ from app.models import (
     Usuario,
     TipoDocumentoFiscal,
 )
-from app.services.jettax import ClienteJettax, executar_importacao
+from app.services.jettax import ClienteJettax, acionar_fallback_automatico, executar_importacao
+from app.worker import tasks as worker_tasks
 
 BASE = "https://morfeu-api.jettax.com.br"
 TOKEN = "token-autorizado-somente-teste"
@@ -280,3 +281,95 @@ def test_erro_remoto_nao_ecoha_corpo_nem_token(monkeypatch):
         ClienteJettax(token=TOKEN).verificar_conexao()
     assert TOKEN not in str(erro.value)
     assert "autenticação" in str(erro.value)
+
+
+def test_fallback_automatico_enfileira_jettax_com_filtros_do_periodo(db, monkeypatch):
+    sessao, empresa, configuracao, _ = db
+    configuracao.ativa = True
+    configuracao.baixar_nfes = True
+    configuracao.status = "registrada"
+    sessao.commit()
+    chamadas: list[dict] = []
+
+    def _delay(**kwargs):
+        chamadas.append(kwargs)
+
+    monkeypatch.setattr(worker_tasks.importar_documentos_jettax, "delay", _delay)
+
+    resultado = acionar_fallback_automatico(
+        sessao,
+        empresa,
+        TipoDocumentoFiscal.NFE,
+        origem="fallback_656",
+        motivo="cStat 656 na SEFAZ",
+        data_inicio=date(2026, 8, 1),
+        data_fim=date(2026, 8, 31),
+    )
+
+    assert resultado.status == "enfileirada"
+    assert resultado.fluxo == "purchases"
+    assert chamadas == [
+        {
+            "execucao_id": resultado.execucao_id,
+            "filtros": {"data_inicial": "2026-08-01", "data_final": "2026-08-31"},
+        }
+    ]
+    execucao = sessao.get(JettaxExecucao, resultado.execucao_id)
+    assert execucao.origem == "fallback_656"
+    assert execucao.avancar_cursor is False
+    assert execucao.aviso == "Acionada automaticamente: cStat 656 na SEFAZ"
+    assert configuracao.travado_em is not None
+
+
+def test_fallback_automatico_nao_exige_importacao_manual_e_nao_duplica(db, monkeypatch):
+    sessao, empresa, configuracao, _ = db
+    configuracao.ativa = True
+    configuracao.status = "registrada"
+    sessao.commit()
+    chamadas: list[dict] = []
+    monkeypatch.setattr(worker_tasks.importar_documentos_jettax, "delay", lambda **kwargs: chamadas.append(kwargs))
+
+    primeiro = acionar_fallback_automatico(
+        sessao,
+        empresa,
+        TipoDocumentoFiscal.NFSE,
+        origem="fallback_check",
+        motivo="conferência pós-consulta oficial",
+    )
+    segundo = acionar_fallback_automatico(
+        sessao,
+        empresa,
+        TipoDocumentoFiscal.NFSE,
+        origem="fallback_check",
+        motivo="conferência pós-consulta oficial",
+    )
+
+    assert primeiro.status == "enfileirada"
+    assert segundo.status == "ja_em_andamento"
+    assert segundo.execucao_id == primeiro.execucao_id
+    assert len(chamadas) == 1
+    execucao = sessao.get(JettaxExecucao, primeiro.execucao_id)
+    assert execucao.fluxo == "nfse"
+    assert execucao.origem == "fallback_check"
+    assert execucao.avancar_cursor is True
+
+
+def test_fallback_automatico_respeita_configuracao_desativada(db, monkeypatch):
+    sessao, empresa, configuracao, _ = db
+    configuracao.ativa = False
+    configuracao.status = "registrada"
+    sessao.commit()
+    chamadas: list[dict] = []
+    monkeypatch.setattr(worker_tasks.importar_documentos_jettax, "delay", lambda **kwargs: chamadas.append(kwargs))
+
+    resultado = acionar_fallback_automatico(
+        sessao,
+        empresa,
+        TipoDocumentoFiscal.NFE,
+        origem="fallback_656",
+        motivo="teste",
+    )
+
+    assert resultado.status == "desativada"
+    assert chamadas == []
+    assert sessao.query(JettaxExecucao).count() == 0

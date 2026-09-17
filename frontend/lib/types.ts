@@ -19,6 +19,48 @@ export interface Empresa {
   sincronizar_automaticamente?: boolean;
   /** comma-separated: "nfse,nfe,cte" */
   quais_tipos_sincronizar?: string | null;
+  /** Código IBGE municipal de 7 dígitos, usado pelo cadastro Jettax/Morfeu. */
+  codigo_ibge?: string | null;
+  /** Inscrição municipal/CCM, usada pelo cadastro Jettax/Morfeu. */
+  inscricao_municipal?: string | null;
+}
+
+export interface JettaxConfiguracaoEmpresa {
+  id?: number | null;
+  empresa_id: number;
+  status: string;
+  ativa: boolean;
+  baixar_nfes: boolean;
+  baixar_nfes_enviadas: boolean;
+  ultimo_id_nfse?: string | null;
+  ultimo_id_nfe_saida?: string | null;
+  ultimo_id_nfe_entrada?: string | null;
+  ultimo_registro_em?: string | null;
+  ultima_sincronizacao_em?: string | null;
+  ultimo_erro?: string | null;
+  falhas_seguidas?: number;
+  travado_em?: string | null;
+  atualizado_em?: string | null;
+}
+
+export interface JettaxExecucao {
+  id: number;
+  empresa_id: number;
+  tipo: "nfse" | "nfe";
+  fluxo: "nfse" | "sales" | "purchases" | string;
+  status: string;
+  avancar_cursor: boolean;
+  cursor_antes?: string | null;
+  cursor_depois?: string | null;
+  documentos_importados: number;
+  documentos_duplicados: number;
+  documentos_ignorados: number;
+  mensagem_erro?: string | null;
+  aviso?: string | null;
+  ticket?: string | null;
+  origem: string;
+  iniciado_em?: string | null;
+  finalizado_em?: string | null;
 }
 
 export interface ConsultaCNPJ {

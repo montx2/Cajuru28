@@ -21,6 +21,8 @@ import type {
   FechamentoMensal,
   InfoSistema,
   ItemImportacaoLote,
+  JettaxConfiguracaoEmpresa,
+  JettaxExecucao,
   KpisDashboard,
   LoteEmpresasResposta,
   PainelOperacional,
@@ -201,7 +203,15 @@ export const api = {
   atualizarEmpresa: (
     id: number,
     dados: Partial<
-      Pick<Empresa, "razao_social" | "uf" | "ativa" | "sincronizar_automaticamente"> & {
+      Pick<
+        Empresa,
+        | "razao_social"
+        | "uf"
+        | "ativa"
+        | "sincronizar_automaticamente"
+        | "codigo_ibge"
+        | "inscricao_municipal"
+      > & {
         quais_tipos_sincronizar: string[];
       }
     >
@@ -448,6 +458,41 @@ export const api = {
     }),
   removerCredencialJettax: () => chamar<void>("/integracoes/jettax/credencial", { method: "DELETE" }),
   testarJettax: () => chamar<{ status: string; mensagem: string }>("/integracoes/jettax/testar", { method: "POST" }),
+  obterJettaxEmpresa: (empresaId: number) =>
+    chamar<JettaxConfiguracaoEmpresa>(`/integracoes/jettax/empresas/${empresaId}`),
+  salvarJettaxEmpresa: (
+    empresaId: number,
+    dados: Partial<Pick<JettaxConfiguracaoEmpresa, "ativa" | "baixar_nfes" | "baixar_nfes_enviadas">>
+  ) =>
+    chamar<JettaxConfiguracaoEmpresa>(`/integracoes/jettax/empresas/${empresaId}`, {
+      method: "PUT",
+      body: JSON.stringify(dados),
+    }),
+  registrarJettaxEmpresa: (empresaId: number, enviar_certificado = false) =>
+    chamar<JettaxConfiguracaoEmpresa>(`/integracoes/jettax/empresas/${empresaId}/registrar`, {
+      method: "POST",
+      body: JSON.stringify({ enviar_certificado }),
+    }),
+  atualizarClienteJettaxEmpresa: (empresaId: number, enviar_certificado = false) =>
+    chamar<JettaxConfiguracaoEmpresa>(`/integracoes/jettax/empresas/${empresaId}/registrar`, {
+      method: "PUT",
+      body: JSON.stringify({ enviar_certificado }),
+    }),
+  importarNFSeJettax: (empresaId: number, filtros: { period?: string } = {}) =>
+    chamar<JettaxExecucao>(`/integracoes/jettax/empresas/${empresaId}/importar/nfse`, {
+      method: "POST",
+      body: JSON.stringify(filtros),
+    }),
+  importarNFeJettax: (
+    empresaId: number,
+    dados: { direcao: "sales" | "purchases"; data_inicial?: string; data_final?: string }
+  ) =>
+    chamar<JettaxExecucao>(`/integracoes/jettax/empresas/${empresaId}/importar/nfe`, {
+      method: "POST",
+      body: JSON.stringify(dados),
+    }),
+  listarExecucoesJettaxEmpresa: (empresaId: number, limite = 20) =>
+    chamar<JettaxExecucao[]>(`/integracoes/jettax/empresas/${empresaId}/execucoes${montarParams({ limite })}`),
 
   // ---------------------------------------------------------------
   // Webhook (teste manual, só admin)

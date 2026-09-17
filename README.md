@@ -51,8 +51,9 @@ uma **ferramenta de operação fiscal para um único operador**:
 - **Jettax 360/Morfeu (opcional):** conector backend-first, com token em
   segredo de deploy, registro explícito de clientes, saúde/auditoria,
   deduplicação por fonte e captura de NFS-e/NF-e pelos contratos públicos
-  verificados (CT-e permanece protegido por contrato ainda incompleto). Veja
-  [`docs/JETTAX.md`](docs/JETTAX.md).
+  verificados. Quando habilitada por empresa, a Jettax vira fallback/conferência
+  automática em bloqueios, falhas e pós-consulta oficial (CT-e permanece
+  protegido por contrato ainda incompleto). Veja [`docs/JETTAX.md`](docs/JETTAX.md).
 
 ## Arquitetura
 

@@ -24,7 +24,8 @@ from __future__ import annotations
 import base64
 import gzip
 import os
-from datetime import date, datetime, timezone
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Iterable
 from urllib.parse import urljoin, urlparse
@@ -53,8 +54,28 @@ from app.services.importadores.nfe_sefaz import ImportadorNFeSEFAZ
 
 ORIGEM_JETTAX = "jettax"
 _FLUXO_NFSE = "nfse"
-_FLUXOS_DFE = {"sales", "purchases"}
+_FLUXO_NFE_SAIDA = "sales"
+_FLUXO_NFE_ENTRADA = "purchases"
+_FLUXOS_DFE = {_FLUXO_NFE_SAIDA, _FLUXO_NFE_ENTRADA}
 _MAX_TEXTO_ERRO = 500
+# Evita que um clique repetido, um tick do agendador e a retomada pós-656
+# criem várias consultas iguais na Jettax antes da primeira terminar/aparecer.
+_JANELA_REPETICAO_AUTOMATICA = timedelta(minutes=30)
+
+
+@dataclass(slots=True)
+class ResultadoFallbackJettax:
+    """Resultado seguro de uma tentativa automática de acionar a Jettax."""
+
+    status: str
+    mensagem: str
+    execucao_id: int | None = None
+    fluxo: str | None = None
+    origem: str | None = None
+
+    @property
+    def enfileirada(self) -> bool:
+        return self.status == "enfileirada"
 
 
 class JettaxErro(RuntimeError):
@@ -447,6 +468,280 @@ def registrar_proveniencia(db: Session, documento_id: int, origem: str, identifi
         },
         constraint="uq_documento_fonte_identificador",
         index_elements=("documento_id", "origem", "identificador_externo"),
+    )
+
+
+def _aware(valor: datetime | None) -> datetime | None:
+    if valor is None:
+        return None
+    return valor if valor.tzinfo else valor.replace(tzinfo=timezone.utc)
+
+
+def _credencial_disponivel(db: Session, escritorio_id: int) -> bool:
+    """Checagem barata: existe algum token sem descriptografá-lo nem chamá-lo."""
+    from app.models import JettaxCredencial
+
+    if (settings.jettax_api_token or "").strip():
+        return True
+    return db.query(JettaxCredencial.id).filter_by(escritorio_id=escritorio_id).first() is not None
+
+
+def recuperar_trava_expirada(db: Session, configuracao: JettaxConfiguracaoEmpresa) -> bool:
+    """Libera uma trava Jettax abandonada por queda do worker.
+
+    A trava é por empresa porque a Morfeu mantém cursores remotos por cliente.
+    Se a task morreu, as execuções antigas viram erro auditável e novas
+    tentativas voltam a ser possíveis.
+    """
+    inicio = _aware(configuracao.travado_em)
+    if inicio is None:
+        return False
+    limite = timedelta(seconds=max(60, int(settings.limite_tempo_task_segundos) + 60))
+    if inicio > datetime.now(timezone.utc) - limite:
+        return False
+
+    agora = datetime.now(timezone.utc)
+    pendentes = db.query(JettaxExecucao).filter(
+        JettaxExecucao.empresa_id == configuracao.empresa_id,
+        JettaxExecucao.status == "em_andamento",
+    ).all()
+    for pendente in pendentes:
+        pendente.status = "erro"
+        pendente.mensagem_erro = "Execução Jettax interrompida por timeout do worker; trava liberada."
+        pendente.finalizado_em = agora
+    configuracao.travado_em = None
+    configuracao.ultimo_erro = "Execução Jettax anterior interrompida por timeout; nova tentativa liberada."
+    return True
+
+
+def _fluxo_automatico_para(tipo: TipoDocumentoFiscal, configuracao: JettaxConfiguracaoEmpresa) -> str | None:
+    if tipo == TipoDocumentoFiscal.NFSE:
+        return _FLUXO_NFSE
+    if tipo == TipoDocumentoFiscal.NFE:
+        # `baixar_nfes` é a captura de entradas/recebidas; `baixar_nfes_enviadas`
+        # é a captura de saídas/emitidas no contrato Morfeu. Quando nenhuma das
+        # preferências antigas foi marcada, usar entradas como caminho seguro de
+        # fallback, que é o caso mais comum da distribuição DFe por destinatário.
+        if configuracao.baixar_nfes:
+            return _FLUXO_NFE_ENTRADA
+        if configuracao.baixar_nfes_enviadas:
+            return _FLUXO_NFE_SAIDA
+        return _FLUXO_NFE_ENTRADA
+    return None
+
+
+def _filtros_automaticos(tipo: TipoDocumentoFiscal, data_inicio: date | None, data_fim: date | None) -> dict[str, Any]:
+    if tipo == TipoDocumentoFiscal.NFE:
+        filtros: dict[str, Any] = {}
+        if data_inicio:
+            filtros["data_inicial"] = data_inicio.isoformat()
+        if data_fim:
+            filtros["data_final"] = data_fim.isoformat()
+        return filtros
+
+    if tipo == TipoDocumentoFiscal.NFSE and data_inicio and data_fim:
+        # A Morfeu documenta apenas filtro mensal `period=m-AAAA` para NFS-e.
+        # Usá-lo somente quando a competência pedida é um mês fechado evita
+        # inventar um contrato de data livre que o fornecedor não publicou.
+        mesmo_mes = data_inicio.year == data_fim.year and data_inicio.month == data_fim.month
+        if mesmo_mes and data_inicio.day == 1:
+            return {"period": f"{data_inicio.month}-{data_inicio.year}"}
+    return {}
+
+
+def _ja_existe_automatico_recente(
+    db: Session,
+    *,
+    empresa_id: int,
+    tipo: TipoDocumentoFiscal,
+    fluxo: str,
+    origem: str,
+    agora: datetime,
+    janela: timedelta,
+) -> JettaxExecucao | None:
+    limite = agora - janela
+    return (
+        db.query(JettaxExecucao)
+        .filter(
+            JettaxExecucao.empresa_id == empresa_id,
+            JettaxExecucao.tipo == tipo,
+            JettaxExecucao.fluxo == fluxo,
+            JettaxExecucao.origem == _texto(origem, 20),
+            JettaxExecucao.status != "erro",
+            JettaxExecucao.iniciado_em >= limite,
+        )
+        .order_by(JettaxExecucao.id.desc())
+        .first()
+    )
+
+
+def acionar_fallback_automatico(
+    db: Session,
+    empresa: Empresa,
+    tipo: TipoDocumentoFiscal | str,
+    *,
+    motivo: str,
+    origem: str,
+    data_inicio: date | None = None,
+    data_fim: date | None = None,
+    janela_repeticao: timedelta | None = _JANELA_REPETICAO_AUTOMATICA,
+) -> ResultadoFallbackJettax:
+    """Enfileira Jettax como conferência/fallback sem quebrar o fluxo oficial.
+
+    A função é deliberadamente *best effort*: se a Jettax não estiver pronta,
+    retornamos o motivo para eventual log/aviso, mas nunca levantamos erro para
+    uma importação SEFAZ/ADN. O uso automático só acontece para empresas já
+    ativadas e registradas na Jettax; cadastrar cliente remoto continua sendo
+    uma decisão explícita do administrador.
+    """
+    tipo_doc = tipo if isinstance(tipo, TipoDocumentoFiscal) else TipoDocumentoFiscal(tipo)
+    origem_segura = _texto(origem, 20) or "fallback"
+    motivo_seguro = _texto(motivo, 350) or "verificação automática"
+
+    if tipo_doc == TipoDocumentoFiscal.CTE:
+        return ResultadoFallbackJettax(
+            status="nao_suportado",
+            mensagem="Jettax automática ignorada: CT-e ainda não tem contrato público seguro no conector.",
+            origem=origem_segura,
+        )
+    if not _credencial_disponivel(db, empresa.escritorio_id):
+        return ResultadoFallbackJettax(
+            status="nao_configurada",
+            mensagem="Jettax não configurada para este escritório.",
+            origem=origem_segura,
+        )
+
+    configuracao = (
+        db.query(JettaxConfiguracaoEmpresa)
+        .filter(JettaxConfiguracaoEmpresa.empresa_id == empresa.id)
+        .with_for_update()
+        .first()
+    )
+    if configuracao is None:
+        return ResultadoFallbackJettax(
+            status="nao_configurada",
+            mensagem="Empresa ainda não tem configuração Jettax.",
+            origem=origem_segura,
+        )
+    if configuracao.status not in {"registrada", "atualizada"}:
+        return ResultadoFallbackJettax(
+            status="desativada",
+            mensagem="Empresa ainda não foi registrada/atualizada na Jettax.",
+            origem=origem_segura,
+        )
+    if not configuracao.ativa:
+        return ResultadoFallbackJettax(
+            status="desativada",
+            mensagem="Integração Jettax desta empresa está desativada.",
+            origem=origem_segura,
+        )
+
+    if recuperar_trava_expirada(db, configuracao):
+        db.commit()
+
+    andamento = (
+        db.query(JettaxExecucao)
+        .filter(
+            JettaxExecucao.empresa_id == empresa.id,
+            JettaxExecucao.status == "em_andamento",
+        )
+        .order_by(JettaxExecucao.id.desc())
+        .first()
+    )
+    if andamento is not None or configuracao.travado_em is not None:
+        return ResultadoFallbackJettax(
+            status="ja_em_andamento",
+            mensagem="Jettax já está verificando esta empresa; não foi criada uma segunda execução.",
+            execucao_id=andamento.id if andamento else None,
+            fluxo=andamento.fluxo if andamento else None,
+            origem=origem_segura,
+        )
+
+    fluxo = _fluxo_automatico_para(tipo_doc, configuracao)
+    if fluxo is None:
+        return ResultadoFallbackJettax(
+            status="nao_suportado",
+            mensagem="Tipo fiscal sem fluxo Jettax automático.",
+            origem=origem_segura,
+        )
+
+    agora = datetime.now(timezone.utc)
+    if janela_repeticao:
+        recente = _ja_existe_automatico_recente(
+            db,
+            empresa_id=empresa.id,
+            tipo=tipo_doc,
+            fluxo=fluxo,
+            origem=origem_segura,
+            agora=agora,
+            janela=janela_repeticao,
+        )
+        if recente is not None:
+            return ResultadoFallbackJettax(
+                status="recente",
+                mensagem="Jettax automática já foi acionada recentemente para este mesmo motivo.",
+                execucao_id=recente.id,
+                fluxo=fluxo,
+                origem=origem_segura,
+            )
+
+    filtros = _filtros_automaticos(tipo_doc, data_inicio, data_fim)
+    avancar_cursor = not bool(filtros)
+    cursor = cursor_para(configuracao, tipo_doc, fluxo)
+    execucao = JettaxExecucao(
+        empresa_id=empresa.id,
+        tipo=tipo_doc,
+        fluxo=fluxo,
+        status="em_andamento",
+        avancar_cursor=avancar_cursor,
+        cursor_antes=cursor,
+        aviso=f"Acionada automaticamente: {motivo_seguro}",
+        origem=origem_segura,
+        iniciado_em=agora,
+    )
+    db.add(execucao)
+    configuracao.travado_em = agora
+    configuracao.ultimo_erro = None
+    from app.services import auditoria
+
+    auditoria.registrar(
+        db,
+        None,
+        "jettax_fallback_automatico",
+        entidade="empresa",
+        entidade_id=empresa.id,
+        escritorio_id=empresa.escritorio_id,
+        email="sistema",
+        detalhe=f"{tipo_doc.value}/{fluxo}; {motivo_seguro}; origem={origem_segura}",
+    )
+    db.commit()
+    db.refresh(execucao)
+
+    try:
+        from app.worker.tasks import importar_documentos_jettax
+
+        importar_documentos_jettax.delay(execucao_id=execucao.id, filtros=filtros)
+    except Exception:  # noqa: BLE001 -- broker fora do ar não pode deixar trava zumbi
+        execucao.status = "erro"
+        execucao.mensagem_erro = "Não foi possível enfileirar a verificação automática Jettax."
+        execucao.finalizado_em = datetime.now(timezone.utc)
+        configuracao.travado_em = None
+        configuracao.ultimo_erro = execucao.mensagem_erro
+        db.commit()
+        return ResultadoFallbackJettax(
+            status="fila_indisponivel",
+            mensagem=execucao.mensagem_erro,
+            execucao_id=execucao.id,
+            fluxo=fluxo,
+            origem=origem_segura,
+        )
+
+    return ResultadoFallbackJettax(
+        status="enfileirada",
+        mensagem=f"Jettax acionada automaticamente ({tipo_doc.value}/{fluxo}) para conferir: {motivo_seguro}.",
+        execucao_id=execucao.id,
+        fluxo=fluxo,
+        origem=origem_segura,
     )
 
 

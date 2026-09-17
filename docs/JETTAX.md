@@ -1,10 +1,14 @@
 # Integração Jettax 360 / Morfeu
 
-A Jettax é uma fonte complementar de captura. O NotasFlow continua sendo a
+A Jettax é uma fonte complementar de captura e agora também funciona como
+trilha automática de **fallback/conferência**. O NotasFlow continua sendo a
 camada operacional que guarda, deduplica, audita e exporta os documentos;
-ADN/SEFAZ diretos não são substituídos nem recebem os cursores da Jettax.
-A primeira vertical implementa NFS-e e NF-e; CT-e permanece separado até que
-a resposta do endpoint público seja documentada, em vez de assumir que ela é
+ADN/SEFAZ diretos não são substituídos nem recebem os cursores da Jettax. Quando
+a fonte oficial bloqueia o CNPJ, fica indisponível, falha antes de concluir ou
+conclui uma varredura, a empresa marcada como ativa/registrada na Jettax ganha
+uma execução paralela para verificar/importar o que a Morfeu entregar. A
+primeira vertical implementa NFS-e e NF-e; CT-e permanece separado até que a
+resposta do endpoint público seja documentada, em vez de assumir que ela é
 idêntica à resposta de NF-e.
 
 ## Contrato pesquisado
@@ -69,8 +73,11 @@ dígitos e `inscricao_municipal` (CCM).
    já guardado no volume protegido e sua senha cifrada são usados somente em
    memória para a requisição de registro; senha, PFX e base64 nunca aparecem
    na API, na auditoria ou no banco de integração.
-5. Dispare a importação necessária e acompanhe
-   `GET /integracoes/jettax/empresas/{empresa_id}/execucoes`.
+5. Dispare a importação necessária pela fonte oficial. A partir daí a Jettax é
+   acionada automaticamente como conferência/fallback nos eventos relevantes;
+   importações manuais continuam disponíveis para teste ou operação assistida.
+6. Acompanhe `GET /integracoes/jettax/empresas/{empresa_id}/execucoes` ou o
+   cartão “Jettax 360 como fallback” no cadastro da empresa.
 
 Excluir uma empresa **localmente não chama** `DELETE /api/clients/{cnpj}`. A
 API pública avisa que esse DELETE também remove as notas remotas; essa decisão
@@ -96,6 +103,28 @@ analogia o decoder de NF-e. Também não há contrato público de download XML/P
 da NFS-e: ela é salva como **metadados normalizados**, com
 `leiaute=metadados`, sem criar um arquivo que pareça ser XML. Um XML só é
 exportado quando a fonte entregou XML de fato.
+
+## Acionamento automático
+
+A integração deixa de depender apenas do botão manual quando a empresa está
+`ativa` e com `status` `registrada`/`atualizada`:
+
+- `fallback_656` — cStat 656/HTTP 429/consumo indevido na fonte oficial. A
+  execução oficial fica aguardando a janela correta e uma execução Jettax roda
+  em paralelo.
+- `fallback_cooldown` — o operador ou o agendador encontra a empresa ainda
+  bloqueada pela fonte oficial. A fila oficial não força a SEFAZ/ADN, mas pede
+  uma conferência Jettax se não houver outra recente.
+- `fallback_erro` — queda de ambiente/rede ou erro antes da conclusão da
+  importação oficial; a retentativa direta continua agendada.
+- `fallback_check` — varredura oficial concluída; a Jettax confere como segunda
+  fonte sem alterar NSU/cooldown oficial.
+
+Para evitar duplicidade operacional, o acionamento automático reaproveita a
+execução Jettax em andamento e não repete o mesmo motivo/fluxo dentro de uma
+janela curta. NF-e automática usa o fluxo recebido (`purchases`) quando
+`baixar_nfes` está habilitado ou quando nenhuma direção foi marcada; se somente
+`baixar_nfes_enviadas` estiver habilitado, usa o fluxo emitido (`sales`).
 
 ## Deduplicação e cursores
 
