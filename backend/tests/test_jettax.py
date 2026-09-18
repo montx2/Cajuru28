@@ -33,9 +33,12 @@ from app.models import (
 )
 from app.services.jettax import (
     ClienteJettax,
+    TentativaJettax,
     acionar_fallback_automatico,
     diagnosticar_credencial,
     executar_importacao,
+    explicar_diagnostico,
+    token_parece_hash_armazenado,
 )
 from app.worker import tasks as worker_tasks
 
@@ -568,3 +571,70 @@ def test_teste_do_painel_corrige_endereco_e_passa_a_funcionar(cliente_api):
     assert teste.status_code == 200, teste.text
     credencial = db.query(JettaxCredencial).first()
     assert credencial.base_url == BASE_ALTERNATIVA
+
+
+# --------------------------------------------------------------------------
+# Chave com cara de hash e a resposta "Dados de acesso inválidos." (2026-09):
+# a caixa "API Token Jettax" do Jettax 360 exibe a chave como "$2y$10$..." e
+# esse valor autentica de verdade nas APIs da Jettax — o sistema não pode
+# barrá-lo. Na Morfeu, a mesma chave recebeu "Dados de acesso inválidos." no
+# formato puro e "Token inválido." com Bearer: a recusa é do cadastro da
+# credencial no serviço Morfeu, não do transporte. Estes testes travam isso.
+# --------------------------------------------------------------------------
+
+HASH_DO_PAINEL = "$2y$10$lXqjk7RTQBkDSmugm4MkIuMTdEe6KLWItnOU7J2JUMp2ILGcPcnj6"
+
+
+def test_token_parece_hash_armazenado_reconhece_so_o_formato_do_painel():
+    assert token_parece_hash_armazenado(HASH_DO_PAINEL)
+    assert token_parece_hash_armazenado("$2a$12$" + "a" * 53)
+    assert token_parece_hash_armazenado("$argon2id$v=19$m=65536,t=2,p=1$c2FsdA$xyz")
+    # Tokens comuns (aleatórios, hex, JWT) não têm cara de hash de painel.
+    assert not token_parece_hash_armazenado(TOKEN)
+    assert not token_parece_hash_armazenado("f3aa0c" + "1" * 54)
+    assert not token_parece_hash_armazenado("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9." + "e" * 43)
+    assert not token_parece_hash_armazenado("")
+    assert not token_parece_hash_armazenado(None)
+    assert not token_parece_hash_armazenado("$2y$10$curto")  # estrutura incompleta não conta
+
+
+@respx.mock
+def test_painel_aceita_chave_no_formato_da_jettax_e_diagnostico_aponta_a_morfeu(cliente_api):
+    """A Jettax emite chaves "$2y$10$..." válidas; quem a recusa pode ser só a Morfeu."""
+    client, db, _empresa = cliente_api
+    for url in (BASE, BASE_ALTERNATIVA):
+        respx.get(f"{url}/api/nfse/cities").mock(
+            return_value=httpx.Response(401, json={"message": "Dados de acesso inválidos."})
+        )
+
+    resposta = client.put(
+        "/integracoes/jettax/credencial",
+        json={"token": HASH_DO_PAINEL, "base_url": BASE},
+    )
+    assert resposta.status_code == 200, resposta.text  # formato do painel nunca é vetado
+    assert db.query(JettaxCredencial).first() is not None
+
+    teste = client.post("/integracoes/jettax/testar")
+    assert teste.status_code == 502
+    detalhe = teste.json()["detail"]
+    assert "Dados de acesso inválidos." in detalhe
+    assert "Morfeu" in detalhe and "habilitar" in detalhe
+    assert "outro programa" in detalhe  # a chave pode servir a outra API da Jettax
+    assert "transmite exatamente" in detalhe  # a chave com cara de hash sai como colada
+    assert HASH_DO_PAINEL not in detalhe  # o valor nunca é ecoado
+
+
+def test_explicacao_distingue_recusa_da_aplicacao_da_recusa_do_middleware():
+    mista = [
+        TentativaJettax(base_url=BASE, esquema="puro", status_code=401, ok=False, mensagem="Dados de acesso inválidos."),
+        TentativaJettax(base_url=BASE, esquema="bearer", status_code=401, ok=False, mensagem="Token inválido."),
+    ]
+    texto = explicar_diagnostico(mista)
+    assert "Morfeu" in texto
+    assert "outro programa" in texto
+    assert "está na credencial" not in texto  # transporte provado OK: não culpar o conector
+
+    generica = explicar_diagnostico(
+        [TentativaJettax(base_url=BASE, esquema="puro", status_code=401, ok=False, mensagem="Token inválido.")]
+    )
+    assert "está na credencial" in generica  # sem o padrão, mantém a explicação genérica

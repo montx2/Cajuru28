@@ -25,6 +25,7 @@ import base64
 import gzip
 import logging
 import os
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -78,6 +79,31 @@ def normalizar_token(valor: object) -> str:
             break
     texto = texto.strip("\"'").strip()
     return "".join(texto.split())  # remove espaços/tabs/quebras internos
+
+
+# Formato de chave exibido pelo painel Jettax. Caso real confirmado em
+# 2026-09: a caixa "API Token Jettax" do Jettax 360 mostra a credencial como
+# ``$2y$10$`` + 53 caracteres — visual idêntico a um hash bcrypt de
+# armazenamento — e **esse mesmo valor é aceito como chave nas integrações da
+# Jettax** (outro sistema do cliente autenticou com ele). Ou seja, embora
+# nenhum fornecedor conhecido emita tokens com estrutura de KDF por
+# coincidência, para a Jettax esse valor PODE ser a credencial legítima. A
+# detecção abaixo, portanto, existe apenas para *anotar* mensagens de
+# diagnóstico (confirmar que o conector transmite o token exatamente como
+# colado); ela nunca pode impedir o cadastro da credencial.
+_PADRAO_HASH_BCRYPT = re.compile(r"^\$2[abxy]\$\d{2}\$[./A-Za-z0-9]{53}$")
+
+
+def token_parece_hash_armazenado(valor: object) -> bool:
+    """Verdadeiro se o valor tem o formato com cara de hash que o painel mostra.
+
+    Uso exclusivo para contexto em mensagens de diagnóstico — jamais para
+    recusar ou alterar a credencial, que para a Jettax pode ser legítima.
+    """
+    texto = str(valor or "").strip()
+    if not texto:
+        return False
+    return bool(_PADRAO_HASH_BCRYPT.match(texto)) or texto.startswith("$argon2")
 
 
 # A coleção Postman da Morfeu descreve "API Key": header ``Authorization`` com
@@ -388,6 +414,29 @@ def explicar_diagnostico(tentativas: list[TentativaJettax]) -> str:
         + (f' "{t.mensagem}"' if t.mensagem and t.status_code else "")
         for t in tentativas
     )
+
+    # "Dados de acesso inválidos." só aparece quando a requisição atravessa o
+    # middleware e a aplicação consulta a credencial — com o formato documentado
+    # (token puro), enquanto o formato Bearer cai no middleware com "Token
+    # inválido.". Ou seja: endereço e formato estão certos, e quem recusou foi
+    # o cadastro da credencial no serviço Morfeu. Caso observado (2026-09): a
+    # chave exibida no painel do Jettax 360 funcionava em outro programa da
+    # contabilidade, mas não era reconhecida pela Morfeu — serviço separado,
+    # com autorização própria.
+    recusada_pela_aplicacao = any(
+        t.status_code == 401 and "dados de acesso inválidos" in t.mensagem.lower()
+        for t in tentativas
+    )
+    if recusada_pela_aplicacao:
+        return (
+            "A Jettax recebeu a requisição e consultou a credencial, mas não a reconhece como "
+            'válida para a API Morfeu ("Dados de acesso inválidos."). Endereço e formato de '
+            "envio estão corretos: o que falta é a credencial servir à Morfeu. Se este mesmo "
+            "token funciona em outro programa, ele está autorizado em outra API da Jettax "
+            "(Jettax 360, Box J etc.), que são serviços separados da Morfeu. Peça ao suporte "
+            "da Jettax para habilitar a API Morfeu para este token ou emitir o token "
+            f"específico da Morfeu. Tentativas: {resumo}."
+        )
 
     if status <= {401, 403}:
         return (
