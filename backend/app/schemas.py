@@ -496,15 +496,19 @@ class ImportacaoSolicitar(BaseModel):
     empresa_id: int
     tipo: TipoDocumentoFiscal
     forcar: bool = False  # pula a janela de consumo de 1h — usar com consciência
-    # Competência desejada, ex.: "08/2026". Alternativa: data_inicio/data_fim.
-    # Opcional de propósito: ela NÃO corta a descarga (a API oficial anda por
-    # NSU, não por data), então exigir competência só empurraria o operador a
-    # clicar mais — e clicar antes da janela de 1h é o que zera o cronômetro do
-    # 656. Quando informada, registra o mês na execução, conta quantas notas
-    # caíram nele e pré-seleciona o download.
+    # Período da importação: **obrigatório** (a rota recusa com 422 se as duas
+    # formas vierem vazias). Ou a competência ("08/2026", que vira o mês
+    # inteiro), ou o intervalo explícito — que é o que o operador digita:
+    # "01/08/2026" a "31/08/2026". Aceita DD/MM/AAAA e AAAA-MM-DD; a validação
+    # e a conversão ficam em `app/services/periodo.py`, uma regra só para todo
+    # o sistema.
+    #
+    # A descarga na origem continua por NSU (a SEFAZ/ADN não filtra por data),
+    # mas o período decide o que é gravado: o que estiver fora dele é
+    # descartado pelo worker em vez de entulhar o acervo.
     competencia: str | None = None
-    data_inicio: date | None = None
-    data_fim: date | None = None
+    data_inicio: str | None = None
+    data_fim: str | None = None
 
 
 class ItemImportacaoLote(BaseModel):
@@ -531,9 +535,11 @@ class ImportacaoSelecionadas(BaseModel):
     empresa_ids: list[int]
     # Tipos a puxar para cada empresa marcada. Vazio = os três.
     tipos: list[TipoDocumentoFiscal] = []
-    competencia: str
-    data_inicio: date | None = None
-    data_fim: date | None = None
+    # Período obrigatório — competência (mês inteiro) OU intervalo explícito
+    # em DD/MM/AAAA / AAAA-MM-DD. A rota valida e recusa o pedido sem período.
+    competencia: str | None = None
+    data_inicio: str | None = None
+    data_fim: str | None = None
     # Ignora a janela de 1 hora da SEFAZ. Só sob consciência explícita.
     forcar: bool = False
 
@@ -581,6 +587,9 @@ class ExecucaoImportacaoResposta(BaseModel):
     documentos_cancelados: int
     eventos_nao_reconhecidos: int
     documentos_no_periodo: int = 0
+    # Quantas notas a distribuição entregou fora do período pedido e foram
+    # descartadas. É o número que explica "baixou 500, guardou 12".
+    documentos_fora_do_periodo: int = 0
     iniciado_em: datetime
     finalizado_em: datetime | None
     mensagem_erro: str | None = None

@@ -43,7 +43,12 @@ from app.models import (
     Usuario,
 )
 from app.services import sincronizacao
-from app.services.periodo import PeriodoInvalido, interpretar_competencia
+from app.services.periodo import (
+    PeriodoInvalido,
+    interpretar_competencia,
+    interpretar_periodo,
+    interpretar_periodo_obrigatorio,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -80,6 +85,49 @@ def test_competencia_invalida_da_erro_claro(entrada):
         interpretar_competencia(entrada)
 
 
+@pytest.mark.parametrize(
+    "inicio,fim,esperado",
+    [
+        ("01/08/2026", "31/08/2026", (date(2026, 8, 1), date(2026, 8, 31))),
+        ("2026-08-01", "2026-08-31", (date(2026, 8, 1), date(2026, 8, 31))),
+        ("1/8/2026", "9/8/2026", (date(2026, 8, 1), date(2026, 8, 9))),
+        ("29/02/2024", "01/03/2024", (date(2024, 2, 29), date(2024, 3, 1))),
+    ],
+)
+def test_intervalo_aceita_o_formato_que_o_operador_digita(inicio, fim, esperado):
+    """01/08/2026 é o que a pessoa escreve; AAAA-MM-DD é o que o navegador manda."""
+    periodo = interpretar_periodo(None, inicio, fim)
+    assert (periodo.inicio, periodo.fim) == esperado
+
+
+def test_intervalo_explicito_vence_a_competencia():
+    """
+    Quando a tela manda os dois, o intervalo digitado é o mais específico e tem
+    de vencer — antes a competência vencia e o recorte fino era ignorado em
+    silêncio, que é exatamente o "filtro que não funciona".
+    """
+    periodo = interpretar_periodo("08/2026", "05/08/2026", "10/08/2026")
+    assert (periodo.inicio, periodo.fim) == (date(2026, 8, 5), date(2026, 8, 10))
+
+
+@pytest.mark.parametrize("inicio,fim", [(None, None), ("", ""), (None, "31/08/2026")])
+def test_periodo_obrigatorio_exige_as_duas_pontas(inicio, fim):
+    with pytest.raises(PeriodoInvalido) as erro:
+        interpretar_periodo_obrigatorio(None, inicio, fim)
+    assert "01/08/2026 a 31/08/2026" in str(erro.value)
+
+
+def test_periodo_obrigatorio_aceita_competencia_como_atalho():
+    periodo = interpretar_periodo_obrigatorio("08/2026")
+    assert (periodo.inicio, periodo.fim) == (date(2026, 8, 1), date(2026, 8, 31))
+
+
+@pytest.mark.parametrize("entrada", ["31/13/2026", "32/08/2026", "ontem", "08-2026"])
+def test_data_invalida_no_intervalo_da_erro_legivel(entrada):
+    with pytest.raises(PeriodoInvalido):
+        interpretar_periodo(None, entrada, "31/08/2026")
+
+
 def test_periodo_contem_usa_a_data_de_referencia():
     periodo = interpretar_competencia("08/2026")
     assert periodo.contem(date(2026, 8, 31)) is True
@@ -90,6 +138,13 @@ def test_periodo_contem_usa_a_data_de_referencia():
 # ---------------------------------------------------------------------------
 # fixture da API
 # ---------------------------------------------------------------------------
+
+
+# O período virou obrigatório em toda leitura do acervo. Quando um teste quer
+# dizer "sem recorte, me dá tudo que existe no fixture", ele passa este
+# intervalo largo explicitamente — o que também documenta que não existe mais
+# um caminho implícito de "trazer tudo".
+TUDO = {"data_inicio": "01/01/2020", "data_fim": "31/12/2030"}
 
 
 def _xml_nfse(chave: str, dia: str, prestador: str = "99999999000188") -> bytes:
@@ -230,7 +285,7 @@ def test_listagem_filtra_por_competencia(cliente):
     client = cliente["client"]
     empresa_id = cliente["empresa_id"]
 
-    todas = client.get("/documentos", params={"empresa_id": empresa_id}).json()
+    todas = client.get("/documentos", params={"empresa_id": empresa_id, **TUDO}).json()
     agosto = client.get(
         "/documentos", params={"empresa_id": empresa_id, "competencia": "08/2026"}
     ).json()
@@ -243,6 +298,75 @@ def test_listagem_filtra_por_competencia(cliente):
     assert len(setembro) == 1
     assert {d["chave_acesso"] for d in agosto} == set(list(cliente["chaves"])[:2])
     assert all(d["competencia"].startswith("2026-08") for d in agosto)
+
+
+def test_listagem_sem_periodo_e_recusada_com_instrucao(cliente):
+    """
+    O filtro de período é obrigatório.
+
+    Sem isto a tela abria despejando o acervo inteiro — meses que ninguém
+    pediu — e o operador tinha de filtrar depois. A recusa precisa dizer o que
+    digitar, senão vira só um erro na cara de quem abriu a página.
+    """
+    resposta = cliente["client"].get(
+        "/documentos", params={"empresa_id": cliente["empresa_id"]}
+    )
+    assert resposta.status_code == 422
+    detalhe = resposta.json()["detail"]
+    assert "01/08/2026 a 31/08/2026" in detalhe
+    assert "MM/AAAA" in detalhe
+
+    for rota in ("/documentos/resumo", "/documentos/por-empresa", "/documentos/exportar"):
+        assert cliente["client"].get(rota).status_code == 422, rota
+
+
+def test_intervalo_de_datas_do_operador_recorta_dentro_do_mes(cliente):
+    """
+    01/08/2026 a 10/08/2026 tem de trazer só a nota do dia 05 — o intervalo
+    digitado vence a competência do mês inteiro, e aceita DD/MM/AAAA.
+    """
+    client, empresa_id = cliente["client"], cliente["empresa_id"]
+
+    recorte = client.get(
+        "/documentos",
+        params={
+            "empresa_id": empresa_id,
+            "data_inicio": "01/08/2026",
+            "data_fim": "10/08/2026",
+        },
+    ).json()
+    assert [d["chave_acesso"] for d in recorte] == [list(cliente["chaves"])[0]]
+
+    # o mesmo intervalo em ISO devolve exatamente o mesmo recorte
+    iso = client.get(
+        "/documentos",
+        params={
+            "empresa_id": empresa_id,
+            "data_inicio": "2026-08-01",
+            "data_fim": "2026-08-10",
+        },
+    ).json()
+    assert [d["id"] for d in iso] == [d["id"] for d in recorte]
+
+    # e o resumo/estimativa concordam com a lista (o número da tela = o do ZIP)
+    resumo = client.get(
+        "/documentos/resumo",
+        params={"empresa_id": empresa_id, "data_inicio": "01/08/2026", "data_fim": "10/08/2026"},
+    ).json()
+    assert resumo["total"] == 1
+
+
+def test_data_inicial_depois_da_final_explica_o_erro(cliente):
+    resposta = cliente["client"].get(
+        "/documentos",
+        params={
+            "empresa_id": cliente["empresa_id"],
+            "data_inicio": "31/08/2026",
+            "data_fim": "01/08/2026",
+        },
+    )
+    assert resposta.status_code == 422
+    assert "depois da data final" in resposta.json()["detail"]
 
 
 def test_resumo_bate_com_a_lista_no_mesmo_filtro(cliente):
@@ -321,7 +445,7 @@ def test_export_sem_empresa_especifica_puxa_todas_do_escritorio(cliente):
 def test_download_so_da_selecao_da_tela(cliente):
     """'Baixar selecionados' usa os ids visíveis na tabela, sem depender do filtro."""
     client = cliente["client"]
-    lista = client.get("/documentos", params={"empresa_id": cliente["empresa_id"]}).json()
+    lista = client.get("/documentos", params={"empresa_id": cliente["empresa_id"], **TUDO}).json()
     escolhidos = [d["id"] for d in lista[:1]]
 
     resposta = client.get(
@@ -355,23 +479,23 @@ def test_zip_obedece_a_mesma_busca_da_tela(cliente):
 
     so_setembro = client.get(
         "/documentos/exportar",
-        params={"empresa_id": empresa_id, "busca": "352609"},
+        params={"empresa_id": empresa_id, "busca": "352609", **TUDO},
     )
     assert so_setembro.status_code == 200
     xmls = [n for n in zipfile.ZipFile(io.BytesIO(so_setembro.content)).namelist() if n.endswith(".xml")]
     assert len(xmls) == 1
 
     # tudo que está na tela (3) == tudo que o ZIP entrega
-    tela = client.get("/documentos", params={"empresa_id": empresa_id}).json()
+    tela = client.get("/documentos", params={"empresa_id": empresa_id, **TUDO}).json()
     estimativa = client.get(
-        "/documentos/exportar/estimativa", params={"empresa_id": empresa_id}
+        "/documentos/exportar/estimativa", params={"empresa_id": empresa_id, **TUDO}
     ).json()
     assert estimativa["documentos"] == len(tela) == 3
 
     # 'completo' tira o que só veio em resumo
     completo = client.get(
         "/documentos/exportar/estimativa",
-        params={"empresa_id": empresa_id, "leiaute": "completo"},
+        params={"empresa_id": empresa_id, "leiaute": "completo", **TUDO},
     ).json()
     assert completo["documentos"] == 3  # o fixture gravou todos como completo
 
@@ -405,11 +529,13 @@ def test_busca_por_chave_e_numero(cliente):
     uma = list(cliente["chaves"])[0]
     client, empresa_id = cliente["client"], cliente["empresa_id"]
 
-    por_chave = client.get("/documentos", params={"empresa_id": empresa_id, "busca": uma[:12]}).json()
+    por_chave = client.get(
+        "/documentos", params={"empresa_id": empresa_id, "busca": uma[:12], **TUDO}
+    ).json()
     assert {d["chave_acesso"] for d in por_chave} >= {uma}
 
     por_emitente = client.get(
-        "/documentos", params={"empresa_id": empresa_id, "busca": "Fornecedor Teste"}
+        "/documentos", params={"empresa_id": empresa_id, "busca": "Fornecedor Teste", **TUDO}
     ).json()
     assert len(por_emitente) == 3
 
@@ -429,13 +555,26 @@ def test_importacao_respeita_a_janela_de_consumo(cliente, tmp_path):
     )
     db.commit()
 
-    resposta = client.post("/importacoes", json={"empresa_id": empresa_id, "tipo": "nfse"})
+    pedido = {"empresa_id": empresa_id, "tipo": "nfse", "competencia": "08/2026"}
+
+    # sem período a importação nem começa: é ele que define o que será gravado
+    sem_periodo = client.post(
+        "/importacoes", json={"empresa_id": empresa_id, "tipo": "nfse"}
+    )
+    assert sem_periodo.status_code == 422
+    assert "01/08/2026 a 31/08/2026" in sem_periodo.json()["detail"]
+    assert cliente["disparos"] == []
+
+    resposta = client.post("/importacoes", json=pedido)
     assert resposta.status_code == 202, resposta.text
     execucao_id = resposta.json()["id"]
     assert len(cliente["disparos"]) == 1
+    # o período pedido fica gravado na execução — é o filtro que o worker aplica
+    assert resposta.json()["data_inicio"] == "2026-08-01"
+    assert resposta.json()["data_fim"] == "2026-08-31"
 
     # a execução em andamento bloqueia duplicata — e é idempotente: mesmo id
-    duplicada = client.post("/importacoes", json={"empresa_id": empresa_id, "tipo": "nfse"})
+    duplicada = client.post("/importacoes", json=pedido)
     assert duplicada.status_code == 202
     assert duplicada.json()["id"] == execucao_id
     assert len(cliente["disparos"]) == 1  # nada foi enfileirado de novo
@@ -446,7 +585,7 @@ def test_importacao_respeita_a_janela_de_consumo(cliente, tmp_path):
     sincronizacao.marcar_sem_novidade(db, estado)
     db.commit()
 
-    bloqueado = client.post("/importacoes", json={"empresa_id": empresa_id, "tipo": "nfse"})
+    bloqueado = client.post("/importacoes", json=pedido)
     assert bloqueado.status_code == 429
     detalhe = bloqueado.json()["detail"]
     # a mensagem tem de explicar a regra oficial (1h) e o risco de clicar de novo
@@ -469,9 +608,7 @@ def test_importacao_respeita_a_janela_de_consumo(cliente, tmp_path):
     assert corpo["data_fim"] == "2026-08-31"
 
     # forcar=true atravessa a janela — e fica registrado na execução
-    forcado = client.post(
-        "/importacoes", json={"empresa_id": empresa_id, "tipo": "nfse", "forcar": True}
-    )
+    forcado = client.post("/importacoes", json={**pedido, "forcar": True})
     assert forcado.status_code == 202
     assert forcado.json()["forcar"] is True
 
@@ -508,7 +645,9 @@ def test_lote_reporta_cooldown_e_sem_certificado(cliente):
         )
     )
     db.commit()
-    segundo = client.post("/importacoes/lote", params={"tipo": "nfse"}).json()
+    segundo = client.post(
+        "/importacoes/lote", params={"tipo": "nfse", "competencia": "08/2026"}
+    ).json()
     assert segundo[0]["status"] in ("enfileirada", "em_cooldown")
 
 
@@ -799,5 +938,5 @@ def test_reset_geral_deixa_o_escritorio_sem_empresas(cliente):
     assert corpo["arquivos_removidos"] >= 1
     db.expire_all()
     assert client.get("/empresas").json() == []
-    assert client.get("/documentos").json() == []
+    assert client.get("/documentos", params=TUDO).json() == []
     assert db.query(DocumentoFiscal).filter_by(empresa_id=cliente["empresa_id"]).count() == 0

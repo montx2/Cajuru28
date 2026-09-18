@@ -27,6 +27,7 @@ from app.models import (
 )
 from app.schemas import FechamentoEmpresa, FechamentoMensal, FechamentoTipo, FechamentoTotais
 from app.services.periodo import PeriodoInvalido, interpretar_competencia
+from app.services.referencia import data_referencia_sql
 
 router = APIRouter(prefix="/relatorios", tags=["relatórios"])
 
@@ -40,13 +41,6 @@ def _periodo(competencia: str | None):
         return interpretar_competencia(texto)
     except PeriodoInvalido as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-
-def _competencia_efetiva():
-    return func.coalesce(
-        DocumentoFiscal.competencia,
-        func.date(DocumentoFiscal.data_emissao),
-    )
 
 
 def _valor_liquido():
@@ -66,7 +60,7 @@ def _valor_liquido():
 
 def _linhas_fechamento(db: Session, escritorio_id: int, competencia: str | None):
     periodo = _periodo(competencia)
-    comp = _competencia_efetiva()
+    comp = data_referencia_sql()
     linhas = (
         db.query(
             Empresa.id,

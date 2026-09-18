@@ -4,9 +4,17 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
 import { usePapel } from "@/lib/papel";
-import { CompetenciaPicker } from "@/components/CompetenciaPicker";
+import { PeriodoPicker } from "@/components/PeriodoPicker";
 import { SeletorEmpresas, useSelecaoEmpresas } from "@/components/SeletorEmpresas";
-import { horaLocal, mesAtual, paraAPI } from "@/lib/competencia";
+import { horaLocal } from "@/lib/competencia";
+import {
+  erroDoPeriodo,
+  paraFiltro,
+  periodoPadrao,
+  periodoValido,
+  rotuloPeriodo,
+  type Periodo,
+} from "@/lib/periodo";
 import {
   ROTULO_STATUS_SELECAO,
   ROTULO_TIPO,
@@ -32,18 +40,18 @@ import {
 export function PainelImportacao({
   aoDisparar,
   titulo = "Importar notas",
-  competenciaInicial,
-  aoMudarCompetencia,
+  periodoInicial,
+  aoMudarPeriodo,
 }: {
   /** Avisa a página para recarregar os contadores depois de um disparo. */
   aoDisparar?: () => void;
   titulo?: string;
-  competenciaInicial?: string | null;
-  aoMudarCompetencia?: (valor: string | null) => void;
+  periodoInicial?: Periodo;
+  aoMudarPeriodo?: (valor: Periodo) => void;
 }) {
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
   const [tipo, setTipo] = useState<TipoDocumentoFiscal | "todos">("todos");
-  const [competencia, setCompetencia] = useState<string | null>(competenciaInicial ?? mesAtual());
+  const [periodo, setPeriodo] = useState<Periodo>(periodoInicial ?? periodoPadrao());
   const [estados, setEstados] = useState<EstadoSincronizacao[]>([]);
   const [certificados, setCertificados] = useState<ResumoCertificado[]>([]);
   const [previa, setPrevia] = useState<ResultadoImportacaoSelecionada | null>(null);
@@ -66,19 +74,24 @@ export function PainelImportacao({
     carregar();
   }, [carregar]);
 
+  const inicioExterno = periodoInicial?.inicio;
+  const fimExterno = periodoInicial?.fim;
   useEffect(() => {
-    if (competenciaInicial !== undefined) setCompetencia(competenciaInicial);
-  }, [competenciaInicial]);
+    if (inicioExterno && fimExterno) setPeriodo({ inicio: inicioExterno, fim: fimExterno });
+  }, [inicioExterno, fimExterno]);
 
-  function mudarCompetencia(valor: string | null) {
-    setCompetencia(valor);
-    aoMudarCompetencia?.(valor);
+  function mudarPeriodo(valor: Periodo) {
+    setPeriodo(valor);
+    aoMudarPeriodo?.(valor);
   }
+
+  const periodoOk = periodoValido(periodo);
+  const avisoPeriodo = erroDoPeriodo(periodo);
 
   // Prévia automática, com atraso curto para não fazer uma chamada por clique.
   const tiposChave = tiposDoPedido.join(",");
   useEffect(() => {
-    if (idsSelecionados.length === 0) {
+    if (idsSelecionados.length === 0 || !periodoOk) {
       setPrevia(null);
       return;
     }
@@ -88,7 +101,7 @@ export function PainelImportacao({
         const resposta = await api.previaImportacaoSelecionadas({
           empresa_ids: idsSelecionados,
           tipos: tiposChave.split(",") as TipoDocumentoFiscal[],
-          competencia: paraAPI(competencia),
+          ...paraFiltro(periodo),
         });
         if (!cancelado) setPrevia(resposta);
       } catch {
@@ -99,11 +112,13 @@ export function PainelImportacao({
       cancelado = true;
       clearTimeout(temporizador);
     };
-  }, [idsSelecionados, tiposChave, competencia]);
+  }, [idsSelecionados, tiposChave, periodo.inicio, periodo.fim, periodoOk]);
 
   async function disparar(forcar = false) {
-    if (idsSelecionados.length === 0 || !competencia) {
-      setErro("Informe a competência antes de importar.");
+    if (idsSelecionados.length === 0 || !periodoOk) {
+      // O período define o que será gravado; sem ele a importação despejaria
+      // no acervo tudo o que a SEFAZ devolvesse por NSU.
+      setErro(avisoPeriodo ?? "Marque ao menos uma empresa antes de importar.");
       return;
     }
     setDisparando(true);
@@ -113,7 +128,7 @@ export function PainelImportacao({
       const resposta = await api.importarSelecionadas({
         empresa_ids: idsSelecionados,
         tipos: tiposDoPedido,
-        competencia: paraAPI(competencia),
+        ...paraFiltro(periodo),
         forcar,
       });
       setResultado(resposta);
@@ -174,14 +189,18 @@ export function PainelImportacao({
       <section className="card-pad">
         <p className="mb-1 text-base font-semibold text-ink">{titulo}</p>
         <p className="mb-5 text-sm text-ink-muted">
-          Escolha o mês, marque as empresas e clique em importar. O sistema varre por NSU para não
-          deixar nenhuma nota para trás.
+          Escolha o período, marque as empresas e clique em importar. A varredura na SEFAZ continua
+          sendo por NSU — é o único jeito que ela aceita —, mas só entram no acervo as notas
+          emitidas dentro do período pedido.
         </p>
 
         <div className="mb-5 flex flex-wrap items-end gap-x-6 gap-y-4">
           <div>
-            <p className="mb-2 text-xs uppercase text-ink-muted">Competência</p>
-            <CompetenciaPicker valor={competencia} aoMudar={mudarCompetencia} permitirVazio={false} />
+            <p className="mb-2 text-xs uppercase text-ink-muted">
+              Período <span className="text-danger">*</span>
+            </p>
+            <PeriodoPicker valor={periodo} aoMudar={mudarPeriodo} idPrefixo="importacao" />
+            {avisoPeriodo && <p className="mt-1 text-xs text-danger">{avisoPeriodo}</p>}
           </div>
           <div>
             <p className="mb-2 text-xs uppercase text-ink-muted">O que puxar</p>
@@ -213,13 +232,17 @@ export function PainelImportacao({
           <button
             type="button"
             onClick={() => disparar(false)}
-            disabled={disparando || idsSelecionados.length === 0 || !competencia || somenteLeitura}
-            title={somenteLeitura ? "Seu perfil é somente leitura." : undefined}
+            disabled={disparando || idsSelecionados.length === 0 || !periodoOk || somenteLeitura}
+            title={
+              somenteLeitura
+                ? "Seu perfil é somente leitura."
+                : (avisoPeriodo ?? undefined)
+            }
             className="btn-primary"
           >
             {disparando
               ? "Disparando…"
-              : `Importar ${selecionadas.size} empresa${selecionadas.size === 1 ? "" : "s"}`}
+              : `Importar ${selecionadas.size} empresa${selecionadas.size === 1 ? "" : "s"} · ${rotuloPeriodo(periodo)}`}
           </button>
           {somenteLeitura && <p className="badge-neutral">perfil somente leitura</p>}
 
@@ -248,15 +271,16 @@ export function PainelImportacao({
             <button
               type="button"
               onClick={() => disparar(true)}
-              disabled={disparando || idsSelecionados.length === 0 || !competencia || somenteLeitura}
+              disabled={disparando || idsSelecionados.length === 0 || !periodoOk || somenteLeitura}
               title="Atravessa a janela de 1 hora. Use só quando tiver certeza."
               className="btn-ghost btn-sm"
             >
               Forçar janela
             </button>
             <span>
-              A competência não limita o download: a varredura por NSU traz tudo e o mês só organiza
-              contagem e ZIP.
+              A varredura na origem continua sendo por NSU (a SEFAZ não aceita recorte por data),
+              então tudo o que estiver na fila é baixado — mas o que estiver fora do período é
+              descartado antes de entrar no acervo, e a execução informa quantas notas foram.
             </span>
           </div>
         </details>

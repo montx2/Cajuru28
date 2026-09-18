@@ -1,8 +1,13 @@
 """
 API de importações: disparar, acompanhar e inspecionar as janelas de consumo.
 
-Três princípios de projeto:
+Quatro princípios de projeto:
 
+- **período obrigatório**: toda importação declara o intervalo que interessa
+  (01/08/2026 a 31/08/2026, ou a competência 08/2026). A distribuição oficial
+  continua andando por NSU — não dá para pedir "só agosto" à SEFAZ —, mas o
+  que chega fora do intervalo é **descartado** na gravação, e não entulha o
+  acervo. Sem período, nada é enfileirado;
 - o `POST` responde 202 e vai embora. Nada de requisição longa esperando SEFAZ:
   o processamento é fila, e o painel acompanha por polling;
 - cooldown **nunca** é surpresa: a resposta diz até quando e por quê;
@@ -43,7 +48,13 @@ from app.schemas import (
     ResumoSincronizacao,
 )
 from app.services import fila, sincronizacao
-from app.services.periodo import Periodo, PeriodoInvalido, interpretar_periodo
+from app.services.periodo import (
+    Periodo,
+    PeriodoInvalido,
+    interpretar_periodo,
+    interpretar_periodo_obrigatorio,
+)
+from app.services.referencia import data_referencia_sql
 
 router = APIRouter(prefix="/importacoes", tags=["importações"])
 
@@ -57,11 +68,33 @@ def _periodo(
     data_inicio=None,
     data_fim=None,
 ) -> Periodo | None:
+    """Período opcional (consulta/leitura). Devolve None quando não veio."""
     try:
         periodo = interpretar_periodo(competencia, data_inicio, data_fim)
     except PeriodoInvalido as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return periodo if periodo.definido else None
+
+
+def _periodo_da_importacao(
+    competencia: str | None = None,
+    data_inicio=None,
+    data_fim=None,
+) -> Periodo:
+    """
+    Período **obrigatório** de uma importação.
+
+    É o filtro que decide o que será gravado: tudo que a distribuição entregar
+    fora deste intervalo é descartado pelo worker. Por isso ele não pode ser
+    deduzido nem assumido — sem intervalo explícito, a importação é recusada
+    com 422 e a tela explica o que digitar.
+    """
+    try:
+        return interpretar_periodo_obrigatorio(
+            competencia, data_inicio, data_fim, onde="da importação"
+        )
+    except PeriodoInvalido as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("", response_model=ExecucaoImportacaoResposta, status_code=202)
@@ -76,10 +109,11 @@ def solicitar_importacao(
     processamento roda no worker. Para as 30 empresas de uma vez, use
     POST /importacoes/lote.
 
-    `competencia` (ex.: "08/2026") **não** filtra o que é baixado: a
-    distribuição oficial só anda por NSU, então baixar tudo é o que garante
-    que nenhuma nota se perca. O período é registrado na execução (para contar
-    o que caiu naquele mês) e pré-selecionado no download dos XMLs.
+    O período é **obrigatório**: `data_inicio`/`data_fim` (01/08/2026 a
+    31/08/2026) ou `competencia` (08/2026). A varredura na origem continua
+    sendo por NSU — a SEFAZ/ADN não aceita filtro de data —, mas só as notas
+    emitidas dentro do intervalo são gravadas; o resto é descartado e contado
+    no aviso da execução.
     """
     empresa = (
         db.query(Empresa)
@@ -89,12 +123,15 @@ def solicitar_importacao(
     if empresa is None:
         raise HTTPException(status_code=404, detail="Empresa não encontrada")
 
+    periodo = _periodo_da_importacao(
+        dados.competencia, dados.data_inicio, dados.data_fim
+    )
     resultado = fila.enfileirar(
         db,
         empresa,
         dados.tipo,
         forcar=dados.forcar,
-        periodo=_periodo(dados.competencia, dados.data_inicio, dados.data_fim),
+        periodo=periodo,
         origem="manual",
     )
 
@@ -127,8 +164,14 @@ def solicitar_importacao_em_lote(
     tipo: TipoDocumentoFiscal,
     competencia: str | None = Query(
         default=None,
-        description="Opcional — MM/AAAA, ex.: 08/2026. Não filtra a descarga (a "
-        "distribuição anda por NSU); só registra o mês na execução.",
+        description="Mês inteiro: MM/AAAA, ex.: 08/2026. Obrigatório quando "
+        "data_inicio/data_fim não forem informadas.",
+    ),
+    data_inicio: str | None = Query(
+        default=None, description="Data inicial — 01/08/2026 ou 2026-08-01"
+    ),
+    data_fim: str | None = Query(
+        default=None, description="Data final — 31/08/2026 ou 2026-08-31"
     ),
     forcar: bool = False,
     db: Session = Depends(get_db),
@@ -141,8 +184,11 @@ def solicitar_importacao_em_lote(
     Cada empresa vira uma task independente na fila: uma travar ou falhar
     não afeta as outras. Empresas sem certificado, sem UF ou dentro da janela
     de consumo são reportadas, não enfileiradas.
+
+    O período é obrigatório e vale para todas as empresas do lote: só entram no
+    acervo as notas emitidas dentro dele.
     """
-    periodo = _periodo(competencia)
+    periodo = _periodo_da_importacao(competencia, data_inicio, data_fim)
 
     empresas = (
         db.query(Empresa)
@@ -328,8 +374,12 @@ def importar_selecionadas(
     Uma empresa que não pode entrar agora **não impede as outras**: o resultado
     volta item a item, com o motivo de cada uma — mesmo formato da prévia, para
     a tela poder só trocar "vai rodar" por "está rodando".
+
+    O período é obrigatório: é ele que define quais notas serão guardadas.
     """
-    periodo = _periodo(dados.competencia, dados.data_inicio, dados.data_fim)
+    periodo = _periodo_da_importacao(
+        dados.competencia, dados.data_inicio, dados.data_fim
+    )
     empresas, _ = _empresas_selecionadas(db, escritorio_id, dados.empresa_ids)
     tipos = _tipos_do_pedido(dados.tipos)
 
@@ -564,10 +614,6 @@ def resumo_sincronizacao(
     )
 
 
-def _competencia_efetiva():
-    return func.coalesce(DocumentoFiscal.competencia, func.date(DocumentoFiscal.data_emissao))
-
-
 def _parse_ids_csv(valor: str | None, *, nome: str) -> list[int] | None:
     if not valor or not valor.strip():
         return None
@@ -616,7 +662,7 @@ def _contagens_por_empresa_tipo(
     inicio: date,
     fim: date,
 ) -> dict[tuple[int, TipoDocumentoFiscal], tuple[int, int, int]]:
-    comp = _competencia_efetiva()
+    comp = data_referencia_sql()
     linhas = (
         db.query(
             DocumentoFiscal.empresa_id,
