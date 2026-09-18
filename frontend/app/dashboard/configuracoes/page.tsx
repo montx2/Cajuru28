@@ -272,7 +272,7 @@ export default function ConfiguracoesPage() {
       </section>
 
       <section className="card-pad mt-4">
-        <TituloSecao titulo="Jettax 360" subtitulo="Conecte a API sem editar arquivos do servidor" />
+        <TituloSecao titulo="Jettax / Morfeu" subtitulo="Conecte o token da API Morfeu sem editar arquivos do servidor" />
         <div className="mb-4 flex flex-wrap items-center gap-3 text-sm">
           <span className={jettax?.configurado ? "badge-ok" : "badge-neutral"}>{jettax?.configurado ? "Configurada" : "Não configurada"}</span>
           {jettax?.configurado && <span className="text-ink-muted">{jettax.empresas_registradas} empresas vinculadas · {jettax.empresas_ativas} ativas</span>}
@@ -282,14 +282,14 @@ export default function ConfiguracoesPage() {
           <label className="text-xs font-semibold text-ink-muted">URL da API
             <input className="input mt-1 w-full" value={jettaxUrl} onChange={(e) => setJettaxUrl(e.target.value)} />
           </label>
-          <label className="text-xs font-semibold text-ink-muted">Token da API
-            <input type="password" autoComplete="new-password" className="input mt-1 w-full" value={jettaxToken} onChange={(e) => setJettaxToken(e.target.value)} placeholder={jettax?.configurado ? "•••••••• (digite para substituir)" : "Cole o token aqui"} />
+          <label className="text-xs font-semibold text-ink-muted">Token da API Morfeu
+            <input type="password" autoComplete="new-password" className="input mt-1 w-full" value={jettaxToken} onChange={(e) => setJettaxToken(e.target.value)} placeholder={jettax?.configurado ? "•••••••• (digite para substituir)" : "Cole o token Morfeu fornecido pela Jettax"} />
           </label>
           <button type="button" className="btn-primary self-end" disabled={salvandoJettax} onClick={salvarJettax}>{salvandoJettax ? "Verificando…" : "Salvar e testar"}</button>
         </div> : <p className="text-sm text-ink-muted">Somente administradores podem alterar a credencial.</p>}
         {ehAdmin && jettax?.configurado && <button type="button" className="btn-ghost btn-sm mt-3" disabled={salvandoJettax} onClick={testarJettax}>Testar conexão novamente</button>}
-        <p className="mt-3 text-xs leading-relaxed text-ink-muted">O token é cifrado no cofre do servidor e nunca é exibido novamente; ao salvar, prefixo &quot;Bearer&quot;, aspas, espaços e quebras de linha são removidos automaticamente. Ao salvar e ao testar, o sistema <strong>descobre sozinho</strong> qual endereço da Jettax (<code>morfeu-api.jettax.com.br</code> ou <code>morfeu.jettax.com.br</code>) e qual formato de header aceitam o token, e passa a usar a combinação correta — você não precisa mais adivinhar a URL. Se mesmo assim a Jettax recusar, a mensagem exibida traz a resposta literal dela (ex.: <code>&quot;Token inválido.&quot;</code>), o que indica token revogado, de outro ambiente ou conta sem acesso liberado à API Morfeu: nesse caso o ajuste é com o suporte da Jettax. As empresas podem ser cadastradas em lote pela tela Empresas e depois vinculadas à Jettax pelo CNPJ.</p>
-        <p className="mt-2 text-xs leading-relaxed text-ink-muted"><strong>Formato da chave:</strong> a Jettax pode exibir a chave no formato <code>$2y$10$…</code> — cole-a exatamente como aparece no painel (o sistema a transmite sem alterar nada). Se a Jettax responder &quot;Dados de acesso inválidos.&quot; mesmo com a chave certa, a credencial não foi reconhecida pela API Morfeu, que é um serviço separado das outras APIs da Jettax (Jettax 360, Box J…): peça ao suporte da Jettax a liberação da API Morfeu para o seu token ou um token específico da Morfeu.</p>
+        <p className="mt-3 text-xs leading-relaxed text-ink-muted">O token é cifrado no cofre do servidor e nunca é exibido novamente. O contrato público Morfeu usa <code>Authorization: token</code>, sem o prefixo <code>Bearer</code>; colagens com esse prefixo, aspas, espaços ou quebras de linha são normalizadas ao salvar. O teste consulta um endpoint de leitura nos endereços oficiais e mostra a resposta segura da Jettax, sem expor a credencial.</p>
+        <p className="mt-2 text-xs leading-relaxed text-ink-muted"><strong>Use o token emitido para a API Morfeu.</strong> Uma senha, hash ou chave obtida em outro produto/integração da Jettax — por exemplo, Jettax 360 ou Domínio/Onvio — não é comprovadamente compatível. Se o teste retornar 401 ou 403, peça à Jettax a confirmação do token Morfeu ativo e das permissões contratadas. Depois do teste bem-sucedido, cadastre cada empresa por CNPJ na tela Empresas.</p>
       </section>
 
       {/* webhook */}
