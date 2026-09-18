@@ -78,6 +78,10 @@ _COLUNAS_POR_TABELA: dict[str, list[tuple[str, str]]] = {
         ("objeto_remoto", "VARCHAR(700)"),
         ("arquivos_incluidos", "INTEGER NOT NULL DEFAULT 0"),
     ],
+    "jettax_credenciais": [
+        # Formato do header Authorization aceito pela instância Morfeu.
+        ("esquema_autenticacao", "VARCHAR(10) NOT NULL DEFAULT 'puro'"),
+    ],
 }
 
 # Índices que as telas de filtro por competência/download em massa usam.

@@ -43,7 +43,15 @@ from app.schemas import (
 )
 from app.services import auditoria
 from app.services.certificados import ler_pfx_protegido
-from app.services.jettax import JettaxErro, carga_cliente, cliente_jettax_para, cursor_para, normalizar_token
+from app.services.jettax import (
+    JettaxErro,
+    carga_cliente,
+    cliente_jettax_para,
+    cursor_para,
+    diagnosticar_credencial,
+    explicar_diagnostico,
+    normalizar_token,
+)
 
 router = APIRouter(prefix="/integracoes/jettax", tags=["integrações · Jettax"])
 
@@ -86,6 +94,36 @@ def _erro_http(exc: JettaxErro) -> HTTPException:
     if exc.categoria == "autenticacao":
         codigo = 502
     return HTTPException(status_code=codigo, detail=str(exc))
+
+
+def _resolver_autenticacao(db: Session, escritorio_id: int, erro: JettaxErro) -> JettaxErro | None:
+    """Sonda endereços/formatos da Jettax e corrige a credencial se achar um que funcione.
+
+    Devolve ``None`` quando a conexão passou a funcionar (credencial ajustada e
+    persistida) ou um ``JettaxErro`` com a explicação objetiva do que testar.
+    """
+    credencial = db.query(JettaxCredencial).filter_by(escritorio_id=escritorio_id).first()
+    if credencial is None:
+        return erro  # token vindo do ambiente: nada a corrigir no banco
+    try:
+        token = decifrar_segredo(credencial.token_cifrado)
+    except SegredoIndecifravelError:
+        return JettaxErro(
+            "A credencial Jettax guardada não pôde ser aberta com a chave do cofre atual "
+            "(VAULT_MASTER_KEY mudou). Salve o token novamente.",
+            categoria="configuracao",
+        )
+    try:
+        sucesso, tentativas = diagnosticar_credencial(token, credencial.base_url)
+    except JettaxErro:
+        return erro
+    if sucesso is None:
+        return JettaxErro(explicar_diagnostico(tentativas), categoria="autenticacao", status_code=erro.status_code)
+
+    credencial.base_url = sucesso.base_url
+    credencial.esquema_autenticacao = sucesso.esquema
+    db.flush()
+    return None
 
 
 def _marcar_falha_registro(db: Session, configuracao: JettaxConfiguracaoEmpresa, mensagem: str) -> None:
@@ -184,6 +222,18 @@ def salvar_credencial_jettax(
     detalhe = "Credencial Jettax atualizada no cofre"
     if token != dados.token.strip():
         detalhe += "; token normalizado (prefixo/espaços removidos antes de cifrar)"
+
+    # Descobre no ato qual endereço/formato a Jettax aceita e já grava o certo,
+    # em vez de salvar uma configuração que só vai falhar no primeiro uso.
+    try:
+        sucesso, _tentativas = diagnosticar_credencial(token, credencial.base_url)
+    except JettaxErro:
+        sucesso = None
+    if sucesso is not None:
+        if sucesso.base_url != credencial.base_url:
+            detalhe += f"; endereço ajustado para {sucesso.host} (o token é aceito lá)"
+        credencial.base_url = sucesso.base_url
+        credencial.esquema_autenticacao = sucesso.esquema
     auditoria.registrar(db, usuario, "jettax_credencial_atualizada", entidade="integracao", detalhe=detalhe)
     db.commit()
     return status_jettax(db=db, escritorio_id=escritorio_id)
@@ -216,12 +266,18 @@ def testar_conexao_jettax(
     try:
         cliente_jettax_para(db, escritorio_id).verificar_conexao()
     except JettaxErro as exc:
-        saude.status = "erro"
-        saude.verificado_em = agora
-        saude.mensagem = str(exc)[:500]
-        auditoria.registrar(db, usuario, "jettax_teste_falhou", entidade="integracao", detalhe="Teste autenticado do conector falhou")
-        db.commit()
-        raise _erro_http(exc)
+        if exc.categoria == "autenticacao":
+            # Antes de devolver "recusou a autenticação", descobrimos se
+            # alguma combinação endereço + formato de header funciona. Isso
+            # separa de vez "credencial inválida" de "conector mal apontado".
+            exc = _resolver_autenticacao(db, escritorio_id, exc)
+        if exc is not None:
+            saude.status = "erro"
+            saude.verificado_em = agora
+            saude.mensagem = str(exc)[:500]
+            auditoria.registrar(db, usuario, "jettax_teste_falhou", entidade="integracao", detalhe="Teste autenticado do conector falhou")
+            db.commit()
+            raise _erro_http(exc)
     saude.status = "ok"
     saude.verificado_em = agora
     saude.mensagem = "Conexão autenticada verificada."

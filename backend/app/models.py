@@ -64,6 +64,10 @@ class JettaxCredencial(Base):
     escritorio_id: Mapped[int] = mapped_column(ForeignKey("escritorios.id"), index=True)
     base_url: Mapped[str] = mapped_column(String(500))
     token_cifrado: Mapped[str] = mapped_column(Text)
+    # Formato do header Authorization que esta instância Morfeu aceitou
+    # ("puro" ou "bearer"). Guardado para não repetir a descoberta — e o 401
+    # extra que ela custa — a cada chamada do conector.
+    esquema_autenticacao: Mapped[str] = mapped_column(String(10), default="puro", server_default="puro")
     atualizado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 

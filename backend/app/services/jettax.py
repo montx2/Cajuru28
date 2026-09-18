@@ -78,6 +78,29 @@ def normalizar_token(valor: object) -> str:
             break
     texto = texto.strip("\"'").strip()
     return "".join(texto.split())  # remove espaços/tabs/quebras internos
+
+
+# A coleção Postman da Morfeu descreve "API Key": header ``Authorization`` com
+# o token puro. Na prática a API responde ``{"message":"Token inválido."}`` a
+# qualquer credencial que o middleware não aceite, sem dizer se o problema é o
+# valor ou o *formato* do header. Como existem instalações Morfeu atrás de
+# middleware estilo Laravel/Passport (que exige ``Bearer``), o conector tenta o
+# formato documentado primeiro e, só diante de 401/403, repete a mesma
+# requisição com o prefixo ``Bearer`` no mesmo host HTTPS. Um 401 significa que
+# nada foi executado do outro lado, então a repetição é segura inclusive em
+# POST/PUT.
+ESQUEMA_PURO = "puro"
+ESQUEMA_BEARER = "bearer"
+ESQUEMAS_AUTENTICACAO = (ESQUEMA_PURO, ESQUEMA_BEARER)
+
+# Hosts oficiais da Morfeu. O token só pode ser enviado para a Jettax: qualquer
+# diagnóstico automático fica restrito a este domínio.
+_DOMINIO_JETTAX = ".jettax.com.br"
+HOSTS_OFICIAIS_JETTAX = (
+    "https://morfeu-api.jettax.com.br",
+    "https://morfeu.jettax.com.br",
+)
+
 _FLUXO_NFSE = "nfse"
 _FLUXO_NFE_SAIDA = "sales"
 _FLUXO_NFE_ENTRADA = "purchases"
@@ -86,6 +109,25 @@ _MAX_TEXTO_ERRO = 500
 # Evita que um clique repetido, um tick do agendador e a retomada pós-656
 # criem várias consultas iguais na Jettax antes da primeira terminar/aparecer.
 _JANELA_REPETICAO_AUTOMATICA = timedelta(minutes=30)
+
+
+@dataclass(slots=True)
+class TentativaJettax:
+    """Resultado de uma sondagem endereço + formato de header."""
+
+    base_url: str
+    esquema: str
+    status_code: int | None
+    ok: bool
+    mensagem: str
+
+    @property
+    def host(self) -> str:
+        return urlparse(self.base_url).netloc
+
+    @property
+    def rotulo_esquema(self) -> str:
+        return "Bearer <token>" if self.esquema == ESQUEMA_BEARER else "token puro"
 
 
 @dataclass(slots=True)
@@ -250,6 +292,31 @@ def _normalizar_chave(chave: str) -> str:
     return _texto(chave, 60)
 
 
+def _mensagem_remota(resposta: httpx.Response, limite: int = 160) -> str:
+    """Extrai a mensagem curta de erro do fornecedor, sem vazar segredo.
+
+    A Morfeu responde ``{"message": "..."}``. Esse texto é essencial para o
+    diagnóstico, mas pode ecoar o próprio token enviado; por isso qualquer
+    palavra longa demais para ser linguagem natural é redigida antes de a
+    mensagem chegar à UI/auditoria.
+    """
+    try:
+        corpo = resposta.json()
+    except ValueError:
+        return ""
+    if not isinstance(corpo, dict):
+        return ""
+    bruto = corpo.get("message") or corpo.get("error") or corpo.get("detail") or ""
+    if isinstance(bruto, dict):
+        bruto = bruto.get("message") or ""
+    texto = " ".join(str(bruto or "").split())
+    if not texto:
+        return ""
+    # Redige qualquer sequência longa sem espaço (formato típico de token/JWT).
+    seguro = " ".join("[redigido]" if len(palavra.strip(".,;:\"'")) > 24 else palavra for palavra in texto.split())
+    return seguro[:limite]
+
+
 def cliente_jettax_para(db: Session, escritorio_id: int) -> "ClienteJettax":
     """Usa a credencial cifrada do painel; mantém variável de ambiente como fallback."""
     from app.core.vault import decifrar_segredo
@@ -258,7 +325,78 @@ def cliente_jettax_para(db: Session, escritorio_id: int) -> "ClienteJettax":
     credencial = db.query(JettaxCredencial).filter_by(escritorio_id=escritorio_id).first()
     if credencial is None:
         return ClienteJettax()
-    return ClienteJettax(base_url=credencial.base_url, token=decifrar_segredo(credencial.token_cifrado))
+    return ClienteJettax(
+        base_url=credencial.base_url,
+        token=decifrar_segredo(credencial.token_cifrado),
+        esquema_autenticacao=getattr(credencial, "esquema_autenticacao", None) or ESQUEMA_PURO,
+    )
+
+
+def diagnosticar_credencial(token: str, base_url: str) -> tuple[TentativaJettax | None, list[TentativaJettax]]:
+    """Descobre qual endereço + formato de header a Jettax aceita para o token.
+
+    A Morfeu publica dois endereços de produção e responde a mesma mensagem
+    genérica ("Token inválido.") para credencial errada e para formato de
+    header inesperado. Em vez de deixar o operador adivinhando, sondamos as
+    combinações plausíveis — sempre com GET de leitura, sempre dentro do
+    domínio da Jettax — e devolvemos a que funcionou (ou o mapa das recusas).
+    """
+    token_limpo = normalizar_token(token)
+    if not token_limpo:
+        raise JettaxNaoConfigurada()
+
+    candidatos: list[str] = []
+    for url in [base_url, *HOSTS_OFICIAIS_JETTAX]:
+        normalizada = (url or "").strip().rstrip("/")
+        partes = urlparse(normalizada)
+        # O token nunca é oferecido a um host fora da Jettax.
+        if not normalizada or partes.scheme != "https" or not partes.hostname:
+            continue
+        if not partes.hostname.endswith(_DOMINIO_JETTAX):
+            continue
+        if normalizada not in candidatos:
+            candidatos.append(normalizada)
+
+    tentativas: list[TentativaJettax] = []
+    for url in candidatos:
+        for esquema in ESQUEMAS_AUTENTICACAO:
+            cliente = ClienteJettax(base_url=url, token=token_limpo, esquema_autenticacao=esquema)
+            tentativa = cliente.sondar(esquema)
+            tentativas.append(tentativa)
+            if tentativa.ok:
+                return tentativa, tentativas
+    return None, tentativas
+
+
+def explicar_diagnostico(tentativas: list[TentativaJettax]) -> str:
+    """Transforma as sondagens em uma orientação objetiva para o operador."""
+    if not tentativas:
+        return "Não foi possível testar a credencial Jettax."
+
+    status = {t.status_code for t in tentativas if t.status_code is not None}
+    hosts = sorted({t.host for t in tentativas})
+    detalhe = next((t.mensagem for t in tentativas if t.mensagem), "")
+
+    if not status:
+        return (
+            "Nenhum endereço da Jettax respondeu ao servidor. Verifique a saída de internet/DNS do "
+            f"servidor (tentado: {', '.join(hosts)}). Detalhe: {detalhe}"
+        )
+
+    resumo = "; ".join(
+        f"{t.host} com {t.rotulo_esquema} → {('HTTP ' + str(t.status_code)) if t.status_code else 'sem resposta'}"
+        + (f' "{t.mensagem}"' if t.mensagem and t.status_code else "")
+        for t in tentativas
+    )
+
+    if status <= {401, 403}:
+        return (
+            "A Jettax recusou este token em todos os endereços e formatos testados, ou seja, o problema "
+            "está na credencial e não no conector: o token não existe, foi revogado, pertence a outro "
+            "ambiente ou a conta não tem a API liberada. Peça à Jettax um token de API ativo para a URL "
+            f"em uso e confirme se o acesso à API Morfeu está habilitado. Tentativas: {resumo}."
+        )
+    return f"A Jettax não concluiu o teste de leitura. Tentativas: {resumo}."
 
 
 class ClienteJettax:
@@ -271,11 +409,15 @@ class ClienteJettax:
         token: str | None = None,
         timeout: float | None = None,
         client: httpx.Client | None = None,
+        esquema_autenticacao: str = ESQUEMA_PURO,
     ) -> None:
         self.base_url = (base_url or settings.jettax_api_base_url).strip().rstrip("/")
         self.token = normalizar_token(token if token is not None else settings.jettax_api_token)
         self.timeout = max(1.0, float(timeout if timeout is not None else settings.jettax_timeout_segundos))
         self._client = client
+        # Formato do header que será tentado primeiro. Começa no documentado
+        # (token puro) e passa a refletir o que a instância de fato aceitou.
+        self.esquema_autenticacao = esquema_autenticacao if esquema_autenticacao in ESQUEMAS_AUTENTICACAO else ESQUEMA_PURO
         if not self.token:
             raise JettaxNaoConfigurada()
         partes = urlparse(self.base_url)
@@ -290,6 +432,28 @@ class ClienteJettax:
     def configurado(self) -> bool:
         return bool(self.token)
 
+    def sondar(self, esquema: str) -> "TentativaJettax":
+        """Uma única chamada de leitura com exatamente um formato de header.
+
+        Diferente de ``verificar_conexao``, não tenta o formato alternativo:
+        é a peça usada pelo diagnóstico para dizer qual combinação de
+        endereço + formato a Jettax realmente aceita.
+        """
+        try:
+            resposta = self._enviar("GET", self._url_segura("/api/nfse/cities"), params=None, json=None, esquema=esquema)
+        except JettaxErro as exc:
+            return TentativaJettax(base_url=self.base_url, esquema=esquema, status_code=None, ok=False, mensagem=str(exc))
+        detalhe = _mensagem_remota(resposta)
+        if resposta.status_code < 300:
+            return TentativaJettax(
+                base_url=self.base_url, esquema=esquema, status_code=resposta.status_code, ok=True,
+                mensagem="Token aceito.",
+            )
+        return TentativaJettax(
+            base_url=self.base_url, esquema=esquema, status_code=resposta.status_code, ok=False,
+            mensagem=detalhe or f"HTTP {resposta.status_code}",
+        )
+
     def _url_segura(self, rota_ou_url: str) -> str:
         url = rota_ou_url if rota_ou_url.startswith(("http://", "https://")) else urljoin(self.base_url + "/", rota_ou_url.lstrip("/"))
         base = urlparse(self.base_url)
@@ -300,42 +464,71 @@ class ClienteJettax:
             raise JettaxErro("A Jettax retornou uma paginação fora do domínio configurado.", categoria="protocolo")
         return url
 
-    def _requisitar(self, metodo: str, rota_ou_url: str, *, params: dict[str, Any] | None = None, json: dict[str, Any] | None = None) -> Any:
+    def _valor_authorization(self, esquema: str) -> str:
+        return f"Bearer {self.token}" if esquema == ESQUEMA_BEARER else self.token
+
+    def _enviar(self, metodo: str, url: str, *, params: dict[str, Any] | None, json: dict[str, Any] | None, esquema: str) -> httpx.Response:
         cabecalhos = {
-            # A coleção pública Morfeu autentica por API Key: o valor do
-            # header é o próprio token, sem o prefixo "Bearer".
-            "Authorization": self.token,
+            "Authorization": self._valor_authorization(esquema),
             # A coleção Morfeu não publica media type versionado. Pedir um
             # "application/vnd.morfeu.v2+json" inexistente pode render 406.
             "Accept": "application/json",
         }
         if self._client is not None:
-            resposta = self._client.request(metodo, self._url_segura(rota_ou_url), params=params, json=json, headers=cabecalhos)
-        else:
-            try:
-                with httpx.Client(timeout=self.timeout, follow_redirects=False) as client:
-                    resposta = client.request(
-                        metodo, self._url_segura(rota_ou_url), params=params, json=json, headers=cabecalhos
-                    )
-            except httpx.TimeoutException as exc:
-                raise JettaxErro(f"Tempo esgotado ao comunicar com a Jettax ({self.host}).") from exc
-            except httpx.TransportError as exc:
-                raise JettaxErro(
-                    f"Não foi possível comunicar com a Jettax ({self.host}); confirme a URL configurada, o DNS e a saída de internet do servidor."
-                ) from exc
+            return self._client.request(metodo, url, params=params, json=json, headers=cabecalhos)
         try:
-            return self._tratar_resposta(resposta)
-        except JettaxErro as exc:
-            # Contexto de diagnóstico (status + host) sem propagar corpo
-            # remoto nem segredo: o log do servidor é o lugar do detalhe.
-            exc.anexar_contexto(host=self.host, status_code=resposta.status_code)
-            _logger.warning("Jettax %s %s -> HTTP %s (%s)", metodo, rota_ou_url, resposta.status_code, exc.categoria)
-            raise
+            with httpx.Client(timeout=self.timeout, follow_redirects=False) as client:
+                return client.request(metodo, url, params=params, json=json, headers=cabecalhos)
+        except httpx.TimeoutException as exc:
+            raise JettaxErro(f"Tempo esgotado ao comunicar com a Jettax ({self.host}).") from exc
+        except httpx.TransportError as exc:
+            raise JettaxErro(
+                f"Não foi possível comunicar com a Jettax ({self.host}); confirme a URL configurada, o DNS e a saída de internet do servidor."
+            ) from exc
+
+    def _requisitar(self, metodo: str, rota_ou_url: str, *, params: dict[str, Any] | None = None, json: dict[str, Any] | None = None) -> Any:
+        url = self._url_segura(rota_ou_url)
+        # Ordem: o formato que já funcionou nesta instância primeiro (evita um
+        # 401 extra por chamada), depois o alternativo.
+        esquemas = [self.esquema_autenticacao] + [e for e in ESQUEMAS_AUTENTICACAO if e != self.esquema_autenticacao]
+        erro_final: JettaxErro | None = None
+        for posicao, esquema in enumerate(esquemas):
+            resposta = self._enviar(metodo, url, params=params, json=json, esquema=esquema)
+            try:
+                dados = self._tratar_resposta(resposta)
+            except JettaxErro as exc:
+                exc.anexar_contexto(host=self.host, status_code=resposta.status_code)
+                _logger.warning(
+                    "Jettax %s %s [auth=%s] -> HTTP %s (%s) %s",
+                    metodo, rota_ou_url, esquema, resposta.status_code, exc.categoria,
+                    _mensagem_remota(resposta) or "",
+                )
+                erro_final = exc
+                # Só vale repetir quando o servidor recusou a credencial: um
+                # 401/403 garante que a operação não foi aplicada do outro lado.
+                if exc.categoria == "autenticacao" and posicao + 1 < len(esquemas):
+                    continue
+                raise
+            if esquema != self.esquema_autenticacao:
+                _logger.info(
+                    "Jettax aceitou o token no formato '%s' em %s; formato memorizado para as próximas chamadas.",
+                    esquema, self.host,
+                )
+                self.esquema_autenticacao = esquema
+            return dados
+        raise erro_final or JettaxErro("A Jettax recusou a autenticação do conector.", categoria="autenticacao")
 
     @staticmethod
     def _tratar_resposta(resposta: httpx.Response) -> Any:
         if resposta.status_code in (401, 403):
-            raise JettaxErro("A Jettax recusou a autenticação do conector.", categoria="autenticacao", status_code=resposta.status_code)
+            # A mensagem curta do fornecedor é o dado mais valioso do
+            # diagnóstico ("Token inválido." x "Token não encontrado") e não
+            # contém segredo — o token é redigido por _mensagem_remota().
+            detalhe = _mensagem_remota(resposta)
+            texto = "A Jettax recusou a autenticação do conector."
+            if detalhe:
+                texto += f' Resposta da Jettax: "{detalhe}".'
+            raise JettaxErro(texto, categoria="autenticacao", status_code=resposta.status_code)
         if resposta.status_code == 429 or resposta.status_code >= 500:
             raise JettaxErro("A Jettax está indisponível ou limitou temporariamente a consulta.", status_code=resposta.status_code)
         if 300 <= resposta.status_code < 400:

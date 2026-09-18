@@ -26,11 +26,17 @@ from app.models import (
     Empresa,
     Escritorio,
     JettaxConfiguracaoEmpresa,
+    JettaxCredencial,
     JettaxExecucao,
     Usuario,
     TipoDocumentoFiscal,
 )
-from app.services.jettax import ClienteJettax, acionar_fallback_automatico, executar_importacao
+from app.services.jettax import (
+    ClienteJettax,
+    acionar_fallback_automatico,
+    diagnosticar_credencial,
+    executar_importacao,
+)
 from app.worker import tasks as worker_tasks
 
 BASE = "https://morfeu-api.jettax.com.br"
@@ -425,3 +431,140 @@ def test_fallback_automatico_respeita_configuracao_desativada(db, monkeypatch):
     assert resultado.status == "desativada"
     assert chamadas == []
     assert sessao.query(JettaxExecucao).count() == 0
+
+
+# --------------------------------------------------------------------------
+# Autenticação: formato do header, mensagem do fornecedor e autodiagnóstico.
+#
+# A Morfeu responde a MESMA mensagem genérica ("Token inválido.") para token
+# errado e para header em formato inesperado, e mantém dois endereços de
+# produção. Estes testes travam o comportamento que torna esse cenário
+# diagnosticável em vez de um 502 mudo.
+# --------------------------------------------------------------------------
+
+BASE_ALTERNATIVA = "https://morfeu.jettax.com.br"
+
+
+@respx.mock
+def test_401_no_formato_documentado_repete_com_bearer_e_conclui():
+    """Instâncias atrás de middleware Bearer não podem derrubar a integração."""
+    rota = respx.get(f"{BASE}/api/nfse/cities").mock(
+        side_effect=[
+            httpx.Response(401, json={"message": "Token inválido."}),
+            httpx.Response(200, json=[{"id": 1}]),
+        ]
+    )
+
+    cliente = ClienteJettax(token=TOKEN)
+    assert cliente.verificar_conexao() == [{"id": 1}]
+
+    assert rota.call_count == 2
+    assert rota.calls[0].request.headers["Authorization"] == TOKEN
+    assert rota.calls[1].request.headers["Authorization"] == f"Bearer {TOKEN}"
+    # O formato que funcionou é memorizado: a chamada seguinte não paga outro 401.
+    assert cliente.esquema_autenticacao == "bearer"
+
+
+@respx.mock
+def test_mensagem_da_jettax_chega_ao_operador_sem_vazar_token():
+    """Sem o texto do fornecedor, o operador fica sem diagnóstico."""
+    respx.get(f"{BASE}/api/nfse/cities").mock(
+        return_value=httpx.Response(401, json={"message": "Token inválido."})
+    )
+
+    with pytest.raises(Exception) as erro:
+        ClienteJettax(token=TOKEN).verificar_conexao()
+
+    assert "Token inválido." in str(erro.value)
+    assert TOKEN not in str(erro.value)
+
+
+@respx.mock
+def test_mensagem_remota_que_ecoa_o_token_e_redigida():
+    """O fornecedor pode devolver o token na mensagem; ele não pode vazar."""
+    respx.get(f"{BASE}/api/nfse/cities").mock(
+        return_value=httpx.Response(403, json={"message": f"Token {TOKEN} não encontrado"})
+    )
+
+    with pytest.raises(Exception) as erro:
+        ClienteJettax(token=TOKEN).verificar_conexao()
+
+    assert TOKEN not in str(erro.value)
+    assert "[redigido]" in str(erro.value)
+
+
+@respx.mock
+def test_diagnostico_encontra_o_endereco_correto_da_jettax():
+    """O token emitido para o outro host é a causa clássica do 401 eterno."""
+    respx.get(f"{BASE}/api/nfse/cities").mock(
+        return_value=httpx.Response(401, json={"message": "Token inválido."})
+    )
+    respx.get(f"{BASE_ALTERNATIVA}/api/nfse/cities").mock(return_value=httpx.Response(200, json=[]))
+
+    sucesso, tentativas = diagnosticar_credencial(TOKEN, BASE)
+
+    assert sucesso is not None
+    assert sucesso.base_url == BASE_ALTERNATIVA
+    assert len(tentativas) >= 2
+
+
+@respx.mock
+def test_diagnostico_nunca_envia_o_token_para_fora_do_dominio_jettax():
+    externo = respx.get("https://exemplo-invasor.test/api/nfse/cities").mock(
+        return_value=httpx.Response(200, json=[])
+    )
+    respx.get(f"{BASE}/api/nfse/cities").mock(
+        return_value=httpx.Response(401, json={"message": "Token inválido."})
+    )
+    respx.get(f"{BASE_ALTERNATIVA}/api/nfse/cities").mock(
+        return_value=httpx.Response(401, json={"message": "Token inválido."})
+    )
+
+    sucesso, _tentativas = diagnosticar_credencial(TOKEN, "https://exemplo-invasor.test")
+
+    assert sucesso is None
+    assert not externo.called
+
+
+@respx.mock
+def test_credencial_invalida_recebe_explicacao_acionavel(cliente_api):
+    """Token recusado em tudo: a UI precisa dizer que o problema é a credencial."""
+    client, _db, _empresa = cliente_api
+    for url in (BASE, BASE_ALTERNATIVA):
+        respx.get(f"{url}/api/nfse/cities").mock(
+            return_value=httpx.Response(401, json={"message": "Token inválido."})
+        )
+
+    assert client.put(
+        "/integracoes/jettax/credencial",
+        json={"token": "token-recusado-em-todo-lugar", "base_url": BASE},
+    ).status_code == 200
+
+    resposta = client.post("/integracoes/jettax/testar")
+
+    assert resposta.status_code == 502
+    detalhe = resposta.json()["detail"]
+    assert "está na credencial" in detalhe
+    assert "morfeu-api.jettax.com.br" in detalhe and "morfeu.jettax.com.br" in detalhe
+    assert "token-recusado-em-todo-lugar" not in detalhe
+
+
+@respx.mock
+def test_teste_do_painel_corrige_endereco_e_passa_a_funcionar(cliente_api):
+    """Salvar com o host errado não pode condenar a integração a falhar sempre."""
+    client, db, _empresa = cliente_api
+    respx.get(f"{BASE}/api/nfse/cities").mock(
+        return_value=httpx.Response(401, json={"message": "Token inválido."})
+    )
+    respx.get(f"{BASE_ALTERNATIVA}/api/nfse/cities").mock(return_value=httpx.Response(200, json=[]))
+
+    assert client.put(
+        "/integracoes/jettax/credencial",
+        json={"token": "token-do-outro-ambiente", "base_url": BASE},
+    ).status_code == 200
+
+    teste = client.post("/integracoes/jettax/testar")
+
+    assert teste.status_code == 200, teste.text
+    credencial = db.query(JettaxCredencial).first()
+    assert credencial.base_url == BASE_ALTERNATIVA
