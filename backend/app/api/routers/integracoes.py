@@ -51,7 +51,6 @@ from app.services.jettax import (
     diagnosticar_credencial,
     explicar_diagnostico,
     normalizar_token,
-    token_parece_hash_armazenado,
 )
 
 router = APIRouter(prefix="/integracoes/jettax", tags=["integrações · Jettax"])
@@ -119,17 +118,11 @@ def _resolver_autenticacao(db: Session, escritorio_id: int, erro: JettaxErro) ->
     except JettaxErro:
         return erro
     if sucesso is None:
-        explicacao = explicar_diagnostico(tentativas)
-        if token_parece_hash_armazenado(token):
-            # Esclarecimento, nunca recusa: a Jettax emite/exibe chaves com cara
-            # de hash ("$2y$10$...") e elas funcionam nas APIs dela. Só vale
-            # garantir ao operador que o sistema transmitiu o valor como colado.
-            explicacao += (
-                " O valor guardado tem o formato exibido no painel da Jettax ('$2y$10$...'): "
-                "o conector o transmite exatamente como foi colado, então a recusa não vem de "
-                "alteração do token pelo sistema."
-            )
-        return JettaxErro(explicacao, categoria="autenticacao", status_code=erro.status_code)
+        return JettaxErro(
+            explicar_diagnostico(tentativas),
+            categoria="autenticacao",
+            status_code=erro.status_code,
+        )
 
     credencial.base_url = sucesso.base_url
     credencial.esquema_autenticacao = sucesso.esquema
@@ -224,10 +217,10 @@ def salvar_credencial_jettax(
             status_code=422,
             detail="Token Jettax inválido após a limpeza automática (prefixo 'Bearer', aspas, espaços e quebras de linha). Cole apenas o token de API emitido pela Jettax.",
         )
-    # Sem veto por formato: a Jettax emite chaves com cara de hash bcrypt
-    # ("$2y$10$...") e elas autenticam de verdade nas APIs dela — quem decide
-    # se a credencial serve para a Morfeu é o teste de conexão, que roda já no
-    # diagnóstico abaixo e grava host/formato aceitos.
+    # O formato visual não prova que o valor pertence à Morfeu (nem que é
+    # token, senha ou hash de outro produto). Não inferimos nem bloqueamos por
+    # aparência: somente o teste autenticado no contrato público pode validar
+    # a credencial para esta integração.
     credencial = db.query(JettaxCredencial).filter_by(escritorio_id=escritorio_id).first()
     if credencial is None:
         credencial = JettaxCredencial(escritorio_id=escritorio_id, base_url=dados.base_url.strip(), token_cifrado="")
@@ -334,6 +327,80 @@ def atualizar_configuracao_empresa(
     return configuracao
 
 
+def _sincronizar_cliente_jettax(
+    empresa_id: int,
+    dados: JettaxRegistroEmpresa,
+    db: Session,
+    escritorio_id: int,
+    usuario: Usuario,
+) -> JettaxConfiguracaoEmpresa:
+    """Reconcilia o cadastro local com o cliente remoto identificado pelo CNPJ.
+
+    O estado local não é fonte de verdade para decidir POST/PUT: um restore do
+    banco ou a primeira vinculação a uma conta que já usava a Jettax deixaria o
+    CNPJ remoto existente. O adaptador consulta o cliente primeiro e escolhe a
+    operação segura; ambas as rotas públicas do NotasFlow usam essa rotina para
+    preservar compatibilidade com a interface já publicada.
+    """
+    empresa = _empresa_do_escritorio(db, empresa_id, escritorio_id)
+    configuracao = _configuracao(db, empresa_id, criar=True)
+    corpo = _corpo_cliente(db, empresa, configuracao, dados.enviar_certificado)
+    erro: JettaxErro | None = None
+    try:
+        criado = cliente_jettax_para(db, escritorio_id).sincronizar_cliente(empresa.cnpj_cpf, corpo)
+    except JettaxErro as exc:
+        erro = exc
+
+    # Uma credencial salva antes da descoberta de host/formato não deve deixar
+    # o cadastro falhar até alguém abrir a tela de teste. A sincronização sempre
+    # começa com GET, portanto uma nova tentativa só ocorre após uma recusa de
+    # autenticação (antes de POST/PUT) e depois de o diagnóstico achar uma
+    # combinação segura que realmente respondeu.
+    if erro is not None and erro.categoria == "autenticacao":
+        erro_corrigido = _resolver_autenticacao(db, escritorio_id, erro)
+        if erro_corrigido is None:
+            try:
+                criado = cliente_jettax_para(db, escritorio_id).sincronizar_cliente(empresa.cnpj_cpf, corpo)
+                erro = None
+            except JettaxErro as exc:
+                erro = exc
+        else:
+            erro = erro_corrigido
+
+    if erro is not None:
+        _marcar_falha_registro(db, configuracao, str(erro))
+        auditoria.registrar(
+            db,
+            usuario,
+            "jettax_cliente_sincronizacao_falhou",
+            entidade="empresa",
+            entidade_id=empresa_id,
+            detalhe="Reconciliação do cadastro remoto rejeitada ou indisponível",
+        )
+        db.commit()
+        raise _erro_http(erro)
+
+    configuracao.status = "registrada" if criado else "atualizada"
+    configuracao.ultimo_registro_em = _agora()
+    configuracao.ultimo_erro = None
+    configuracao.falhas_seguidas = 0
+    acao = "criado" if criado else "atualizado"
+    auditoria.registrar(
+        db,
+        usuario,
+        f"jettax_cliente_{acao}",
+        entidade="empresa",
+        entidade_id=empresa_id,
+        detalhe=(
+            f"Cliente {acao} na Jettax após reconciliação por CNPJ"
+            + (" com certificado A1" if dados.enviar_certificado else " sem transferir certificado")
+        ),
+    )
+    db.commit()
+    db.refresh(configuracao)
+    return configuracao
+
+
 @router.post("/empresas/{empresa_id}/registrar", response_model=JettaxConfiguracaoResposta)
 def registrar_cliente_jettax(
     empresa_id: int,
@@ -342,27 +409,8 @@ def registrar_cliente_jettax(
     escritorio_id: int = Depends(escritorio_id_atual),
     usuario: Usuario = _ADMIN,
 ):
-    """Cria explicitamente o cliente Jettax; nunca faz DELETE remoto."""
-    empresa = _empresa_do_escritorio(db, empresa_id, escritorio_id)
-    configuracao = _configuracao(db, empresa_id, criar=True)
-    try:
-        cliente_jettax_para(db, escritorio_id).criar_cliente(_corpo_cliente(db, empresa, configuracao, dados.enviar_certificado))
-    except JettaxErro as exc:
-        _marcar_falha_registro(db, configuracao, str(exc))
-        auditoria.registrar(db, usuario, "jettax_cliente_criacao_falhou", entidade="empresa", entidade_id=empresa_id, detalhe="Cadastro remoto rejeitado ou indisponível")
-        db.commit()
-        raise _erro_http(exc)
-    configuracao.status = "registrada"
-    configuracao.ultimo_registro_em = _agora()
-    configuracao.ultimo_erro = None
-    configuracao.falhas_seguidas = 0
-    auditoria.registrar(
-        db, usuario, "jettax_cliente_criado", entidade="empresa", entidade_id=empresa_id,
-        detalhe="Cliente criado na Jettax" + (" com certificado A1" if dados.enviar_certificado else " sem transferir certificado"),
-    )
-    db.commit()
-    db.refresh(configuracao)
-    return configuracao
+    """Cria ou reconcilia o cliente Jettax pelo CNPJ; nunca faz DELETE remoto."""
+    return _sincronizar_cliente_jettax(empresa_id, dados, db, escritorio_id, usuario)
 
 
 @router.put("/empresas/{empresa_id}/registrar", response_model=JettaxConfiguracaoResposta)
@@ -373,29 +421,8 @@ def atualizar_cliente_jettax(
     escritorio_id: int = Depends(escritorio_id_atual),
     usuario: Usuario = _ADMIN,
 ):
-    """Atualiza explicitamente o cliente remoto pelo contrato PUT documentado."""
-    empresa = _empresa_do_escritorio(db, empresa_id, escritorio_id)
-    configuracao = _configuracao(db, empresa_id, criar=True)
-    try:
-        cliente_jettax_para(db, escritorio_id).atualizar_cliente(
-            empresa.cnpj_cpf, _corpo_cliente(db, empresa, configuracao, dados.enviar_certificado)
-        )
-    except JettaxErro as exc:
-        _marcar_falha_registro(db, configuracao, str(exc))
-        auditoria.registrar(db, usuario, "jettax_cliente_atualizacao_falhou", entidade="empresa", entidade_id=empresa_id, detalhe="Atualização remota rejeitada ou indisponível")
-        db.commit()
-        raise _erro_http(exc)
-    configuracao.status = "atualizada"
-    configuracao.ultimo_registro_em = _agora()
-    configuracao.ultimo_erro = None
-    configuracao.falhas_seguidas = 0
-    auditoria.registrar(
-        db, usuario, "jettax_cliente_atualizado", entidade="empresa", entidade_id=empresa_id,
-        detalhe="Cliente atualizado na Jettax" + (" com certificado A1" if dados.enviar_certificado else " sem transferir certificado"),
-    )
-    db.commit()
-    db.refresh(configuracao)
-    return configuracao
+    """Reconciliação idempotente mantida para clientes da rota de atualização."""
+    return _sincronizar_cliente_jettax(empresa_id, dados, db, escritorio_id, usuario)
 
 
 def _recuperar_trava_expirada(db: Session, configuracao: JettaxConfiguracaoEmpresa) -> None:

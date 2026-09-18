@@ -38,7 +38,6 @@ from app.services.jettax import (
     diagnosticar_credencial,
     executar_importacao,
     explicar_diagnostico,
-    token_parece_hash_armazenado,
 )
 from app.worker import tasks as worker_tasks
 
@@ -205,6 +204,58 @@ def test_execucao_nfe_descompacta_xml_gzip_base64_e_preserva_proveniencia(db):
     assert sessao.query(DocumentoFiscalFonte).one().identificador_externo == "600"
 
 
+@respx.mock
+def test_cliente_nfe_usa_nomes_de_filtros_exatos_da_colecao_publica():
+    rota = respx.get(f"{BASE}/api/nfes/clients/{CNPJ}/purchases/").mock(
+        return_value=httpx.Response(200, json={"data": []})
+    )
+
+    assert ClienteJettax(token=TOKEN).listar_nfes(
+        CNPJ,
+        "purchases",
+        ultimo_id="81",
+        chave="351234",
+        data_inicial=date(2026, 8, 1),
+        data_final=date(2026, 8, 31),
+        cnpj_destinatario="99888777000166",
+        cnpj_emitente=CNPJ,
+    ) == []
+
+    requisicao = rota.calls[0].request
+    assert requisicao.headers["Authorization"] == TOKEN
+    assert requisicao.headers["Content-Type"] == "application/json"
+    assert requisicao.url.params["ultimoId"] == "81"
+    assert requisicao.url.params["dataInicial"] == "2026-08-01"
+    assert requisicao.url.params["dataFinal"] == "2026-08-31"
+    assert requisicao.url.params["cnpjDestinario"] == "99888777000166"
+    assert requisicao.url.params["cnpjEmitente"] == CNPJ
+    assert "cnpjDestinatario" not in requisicao.url.params
+
+
+@respx.mock
+def test_execucao_vazia_informa_consulta_bem_sucedida_e_preserva_motivo_do_fallback(db):
+    sessao, empresa, _configuracao, _ = db
+    execucao = JettaxExecucao(
+        empresa_id=empresa.id,
+        tipo=TipoDocumentoFiscal.NFSE,
+        fluxo="nfse",
+        avancar_cursor=True,
+        origem="fallback_check",
+        aviso="Acionada automaticamente: conferência pós-consulta oficial",
+    )
+    sessao.add(execucao)
+    sessao.commit()
+    respx.get(f"{BASE}/api/nfse/invoices/{CNPJ}").mock(return_value=httpx.Response(200, json={"data": []}))
+
+    executar_importacao(sessao, execucao.id)
+    sessao.refresh(execucao)
+
+    assert execucao.status == "concluida"
+    assert execucao.documentos_importados == 0
+    assert "Acionada automaticamente" in (execucao.aviso or "")
+    assert "sem documentos novos" in (execucao.aviso or "")
+
+
 @pytest.fixture
 def cliente_api(monkeypatch):
     monkeypatch.setattr(config.settings, "jettax_api_base_url", BASE)
@@ -258,13 +309,17 @@ def test_registro_remoto_tem_corpo_documentado_sem_revelar_segredo(cliente_api):
         f"/integracoes/jettax/empresas/{empresa.id}",
         json={"ativa": True, "baixar_nfes": True},
     ).status_code == 200
+    consulta = respx.get(f"{BASE}/api/clients/{CNPJ}").mock(return_value=httpx.Response(404, json={"message": "Não encontrado"}))
     rota = respx.post(f"{BASE}/api/clients").mock(return_value=httpx.Response(201, json={"id": "ok"}))
 
     resposta = client.post(f"/integracoes/jettax/empresas/{empresa.id}/registrar", json={})
 
     assert resposta.status_code == 200, resposta.text
+    assert resposta.json()["status"] == "registrada"
+    assert consulta.called
     enviado = rota.calls[0].request
     assert enviado.headers["Authorization"] == TOKEN
+    assert enviado.headers["Content-Type"] == "application/json"
     corpo_enviado = json.loads(enviado.content)
     assert corpo_enviado == {
         "razao_social": "API LTDA",
@@ -279,6 +334,109 @@ def test_registro_remoto_tem_corpo_documentado_sem_revelar_segredo(cliente_api):
     assert isinstance(corpo_enviado["baixar_nfes"], int)
     assert TOKEN not in resposta.text
     assert "digital_certificate" not in corpo_enviado
+
+
+@respx.mock
+def test_registro_reconcilia_cliente_remoto_existente_sem_repetir_post(cliente_api):
+    """Status local novo não deve causar erro de unicidade para CNPJ já remoto."""
+    client, _db, empresa = cliente_api
+    assert client.patch(
+        f"/empresas/{empresa.id}",
+        json={"codigo_ibge": "3133808", "inscricao_municipal": "CCM-42"},
+    ).status_code == 200
+    assert client.put(
+        f"/integracoes/jettax/empresas/{empresa.id}",
+        json={"ativa": True, "baixar_nfes": True},
+    ).status_code == 200
+    consulta = respx.get(f"{BASE}/api/clients/{CNPJ}").mock(
+        return_value=httpx.Response(200, json={"data": {"cnpj": CNPJ, "razao_social": "CADASTRO ANTIGO"}})
+    )
+    atualizacao = respx.put(f"{BASE}/api/clients/{CNPJ}").mock(
+        return_value=httpx.Response(200, json={"data": {"cnpj": CNPJ}})
+    )
+    criacao = respx.post(f"{BASE}/api/clients").mock(return_value=httpx.Response(409, json={"message": "Não deveria chamar"}))
+
+    resposta = client.post(f"/integracoes/jettax/empresas/{empresa.id}/registrar", json={})
+
+    assert resposta.status_code == 200, resposta.text
+    assert resposta.json()["status"] == "atualizada"
+    assert consulta.call_count == 1
+    assert atualizacao.call_count == 1
+    assert criacao.call_count == 0
+    corpo = json.loads(atualizacao.calls[0].request.content)
+    assert corpo["cnpj"] == CNPJ
+    assert corpo["baixar_nfes"] == 1
+
+
+@respx.mock
+def test_atualizacao_recria_cliente_remoto_ausente(cliente_api):
+    """Mesmo botão de atualização se recupera quando o cliente foi apagado remotamente."""
+    client, _db, empresa = cliente_api
+    assert client.patch(
+        f"/empresas/{empresa.id}",
+        json={"codigo_ibge": "3133808", "inscricao_municipal": "CCM-42"},
+    ).status_code == 200
+    assert client.put(
+        f"/integracoes/jettax/empresas/{empresa.id}",
+        json={"ativa": True},
+    ).status_code == 200
+    consulta = respx.get(f"{BASE}/api/clients/{CNPJ}").mock(return_value=httpx.Response(404, json={"message": "Não encontrado"}))
+    criacao = respx.post(f"{BASE}/api/clients").mock(return_value=httpx.Response(201, json={"data": {"cnpj": CNPJ}}))
+
+    resposta = client.put(f"/integracoes/jettax/empresas/{empresa.id}/registrar", json={})
+
+    assert resposta.status_code == 200, resposta.text
+    assert resposta.json()["status"] == "registrada"
+    assert consulta.call_count == 1
+    assert criacao.call_count == 1
+
+
+@respx.mock
+def test_registro_corrige_credencial_legada_antes_de_reconciliar_cliente(cliente_api):
+    """Falha de autenticação no GET não deve executar POST/PUT antes do diagnóstico."""
+    from app.core.vault import cifrar_segredo
+    from app.models import Escritorio
+
+    client, db, empresa = cliente_api
+    assert client.patch(
+        f"/empresas/{empresa.id}",
+        json={"codigo_ibge": "3133808", "inscricao_municipal": "CCM-42"},
+    ).status_code == 200
+    escritorio = db.query(Escritorio).one()
+    db.add(
+        JettaxCredencial(
+            escritorio_id=escritorio.id,
+            base_url=BASE,
+            token_cifrado=cifrar_segredo(TOKEN),
+            esquema_autenticacao="puro",
+        )
+    )
+    db.commit()
+
+    # A credencial antiga aponta para o primeiro host: as duas tentativas de
+    # header falham antes de qualquer alteração do cliente remoto.
+    respx.get(f"{BASE}/api/clients/{CNPJ}").mock(
+        side_effect=[
+            httpx.Response(401, json={"message": "Token inválido."}),
+            httpx.Response(401, json={"message": "Token inválido."}),
+        ]
+    )
+    respx.get(f"{BASE}/api/nfse/cities").mock(
+        side_effect=[
+            httpx.Response(401, json={"message": "Token inválido."}),
+            httpx.Response(401, json={"message": "Token inválido."}),
+        ]
+    )
+    respx.get(f"{BASE_ALTERNATIVA}/api/nfse/cities").mock(return_value=httpx.Response(200, json=[]))
+    respx.get(f"{BASE_ALTERNATIVA}/api/clients/{CNPJ}").mock(return_value=httpx.Response(404, json={"message": "Não encontrado"}))
+    criacao = respx.post(f"{BASE_ALTERNATIVA}/api/clients").mock(return_value=httpx.Response(201, json={"data": {"cnpj": CNPJ}}))
+
+    resposta = client.post(f"/integracoes/jettax/empresas/{empresa.id}/registrar", json={})
+
+    assert resposta.status_code == 200, resposta.text
+    assert resposta.json()["status"] == "registrada"
+    assert criacao.call_count == 1
+    assert db.query(JettaxCredencial).one().base_url == BASE_ALTERNATIVA
 
 
 @respx.mock
@@ -530,8 +688,8 @@ def test_diagnostico_nunca_envia_o_token_para_fora_do_dominio_jettax():
 
 
 @respx.mock
-def test_credencial_invalida_recebe_explicacao_acionavel(cliente_api):
-    """Token recusado em tudo: a UI precisa dizer que o problema é a credencial."""
+def test_credencial_recusada_recebe_explicacao_acionavel(cliente_api):
+    """Recusa em todas as tentativas deve orientar sem inferir a causa."""
     client, _db, _empresa = cliente_api
     for url in (BASE, BASE_ALTERNATIVA):
         respx.get(f"{url}/api/nfse/cities").mock(
@@ -547,7 +705,8 @@ def test_credencial_invalida_recebe_explicacao_acionavel(cliente_api):
 
     assert resposta.status_code == 502
     detalhe = resposta.json()["detail"]
-    assert "está na credencial" in detalhe
+    assert "não permite identificar a causa" in detalhe
+    assert "token emitido para a API Morfeu" in detalhe
     assert "morfeu-api.jettax.com.br" in detalhe and "morfeu.jettax.com.br" in detalhe
     assert "token-recusado-em-todo-lugar" not in detalhe
 
@@ -574,70 +733,24 @@ def test_teste_do_painel_corrige_endereco_e_passa_a_funcionar(cliente_api):
 
 
 # --------------------------------------------------------------------------
-# Chave com cara de hash e a resposta "Dados de acesso inválidos." (2026-09):
-# a caixa "API Token Jettax" do Jettax 360 exibe a chave como "$2y$10$..." e
-# esse valor autentica de verdade nas APIs da Jettax — o sistema não pode
-# barrá-lo. Na Morfeu, a mesma chave recebeu "Dados de acesso inválidos." no
-# formato puro e "Token inválido." com Bearer: a recusa é do cadastro da
-# credencial no serviço Morfeu, não do transporte. Estes testes travam isso.
+# A resposta HTTP não revela a origem nem o produto que emitiu uma chave. O
+# diagnóstico deve ser acionável, mas não pode converter suposições sobre
+# hashes, middleware ou outros produtos Jettax em fato.
 # --------------------------------------------------------------------------
 
-HASH_DO_PAINEL = "$2y$10$lXqjk7RTQBkDSmugm4MkIuMTdEe6KLWItnOU7J2JUMp2ILGcPcnj6"
 
-
-def test_token_parece_hash_armazenado_reconhece_so_o_formato_do_painel():
-    assert token_parece_hash_armazenado(HASH_DO_PAINEL)
-    assert token_parece_hash_armazenado("$2a$12$" + "a" * 53)
-    assert token_parece_hash_armazenado("$argon2id$v=19$m=65536,t=2,p=1$c2FsdA$xyz")
-    # Tokens comuns (aleatórios, hex, JWT) não têm cara de hash de painel.
-    assert not token_parece_hash_armazenado(TOKEN)
-    assert not token_parece_hash_armazenado("f3aa0c" + "1" * 54)
-    assert not token_parece_hash_armazenado("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9." + "e" * 43)
-    assert not token_parece_hash_armazenado("")
-    assert not token_parece_hash_armazenado(None)
-    assert not token_parece_hash_armazenado("$2y$10$curto")  # estrutura incompleta não conta
-
-
-@respx.mock
-def test_painel_aceita_chave_no_formato_da_jettax_e_diagnostico_aponta_a_morfeu(cliente_api):
-    """A Jettax emite chaves "$2y$10$..." válidas; quem a recusa pode ser só a Morfeu."""
-    client, db, _empresa = cliente_api
-    for url in (BASE, BASE_ALTERNATIVA):
-        respx.get(f"{url}/api/nfse/cities").mock(
-            return_value=httpx.Response(401, json={"message": "Dados de acesso inválidos."})
-        )
-
-    resposta = client.put(
-        "/integracoes/jettax/credencial",
-        json={"token": HASH_DO_PAINEL, "base_url": BASE},
-    )
-    assert resposta.status_code == 200, resposta.text  # formato do painel nunca é vetado
-    assert db.query(JettaxCredencial).first() is not None
-
-    teste = client.post("/integracoes/jettax/testar")
-    assert teste.status_code == 502
-    detalhe = teste.json()["detail"]
-    assert "Dados de acesso inválidos." in detalhe
-    assert "Morfeu" in detalhe and "habilitar" in detalhe
-    assert "outro programa" in detalhe  # a chave pode servir a outra API da Jettax
-    assert "transmite exatamente" in detalhe  # a chave com cara de hash sai como colada
-    assert HASH_DO_PAINEL not in detalhe  # o valor nunca é ecoado
-
-
-def test_explicacao_distingue_recusa_da_aplicacao_da_recusa_do_middleware():
-    mista = [
+def test_explicacao_de_recusa_nao_infere_a_origem_da_credencial():
+    tentativas = [
         TentativaJettax(base_url=BASE, esquema="puro", status_code=401, ok=False, mensagem="Dados de acesso inválidos."),
-        TentativaJettax(base_url=BASE, esquema="bearer", status_code=401, ok=False, mensagem="Token inválido."),
+        TentativaJettax(base_url=BASE, esquema="bearer", status_code=403, ok=False, mensagem="Token inválido."),
     ]
-    texto = explicar_diagnostico(mista)
-    assert "Morfeu" in texto
-    assert "outro programa" in texto
-    assert "está na credencial" not in texto  # transporte provado OK: não culpar o conector
 
-    generica = explicar_diagnostico(
-        [TentativaJettax(base_url=BASE, esquema="puro", status_code=401, ok=False, mensagem="Token inválido.")]
-    )
-    assert "está na credencial" in generica  # sem o padrão, mantém a explicação genérica
+    texto = explicar_diagnostico(tentativas)
+
+    assert "Morfeu" in texto
+    assert "não permite identificar a causa" in texto
+    assert "token emitido" in texto
+    assert "outro programa" not in texto
 
 
 @respx.mock

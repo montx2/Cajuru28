@@ -169,8 +169,12 @@ function ConteudoEmpresa() {
       setJettax(atualizado);
       setMensagemJettax(
         atualizado.status === "registrada"
-          ? "Cliente criado na Jettax. O fallback automático já pode usar esta empresa."
-          : "Cliente atualizado na Jettax. O fallback automático usará as novas preferências."
+          ? jettaxAtiva
+            ? "Cliente criado na Jettax. A integração desta empresa está pronta para consultar documentos."
+            : "Cliente criado na Jettax. Marque “Ativar integração” para liberar consultas e fallback automático."
+          : jettaxAtiva
+            ? "Cliente remoto reconciliado e atualizado na Jettax."
+            : "Cliente remoto reconciliado e atualizado. Marque “Ativar integração” para liberar consultas e fallback automático."
       );
       carregar();
     } catch (e) {
@@ -324,8 +328,8 @@ function ConteudoEmpresa() {
               className="mt-1 accent-accent"
             />
             <span>
-              <strong className="block text-ink">Ativar fallback</strong>
-              liberar verificações automáticas desta empresa
+              <strong className="block text-ink">Ativar integração</strong>
+              liberar consultas manuais e fallback automático desta empresa
             </span>
           </label>
           <label className="flex items-start gap-2 rounded-lg border border-line bg-bg p-3">
@@ -383,7 +387,7 @@ function ConteudoEmpresa() {
               <button
                 type="button"
                 onClick={sincronizarCadastroJettax}
-                disabled={ocupadoJettax || !jettaxAtiva}
+                disabled={ocupadoJettax}
                 className="btn-primary disabled:opacity-50"
               >
                 {jettaxRegistrada(jettax) ? "Atualizar cadastro remoto" : "Registrar na Jettax"}

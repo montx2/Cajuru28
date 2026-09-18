@@ -1,4 +1,4 @@
-"""Adaptador seguro para a API pública Jettax 360 / Morfeu.
+"""Adaptador seguro para a API pública Morfeu da Jettax.
 
 A Jettax é uma fonte de captura *a montante*, não uma variante do protocolo
 ADN/SEFAZ. Por isso seus cursores (`lastId`/`ultimoId`), suas execuções e seus
@@ -7,9 +7,9 @@ continua único no NotasFlow: se a mesma nota também vier da fonte direta, a
 proveniência é adicionada sem substituir o XML já guardado.
 
 Este módulo só usa contratos publicados na coleção Morfeu:
-- clientes: POST/PUT ``/api/clients``;
+- clientes: GET/POST/PUT ``/api/clients``;
 - NFS-e: GET ``/api/nfse/invoices/{cnpj}``;
-- NF-e: GET ``/api/nfes/clients/{cnpj}/sales|purchases/``;
+- NF-e: GET ``/api/nfes/clients/{cnpj}/sales|purchases/``.
 A coleção também identifica uma rota CT-e ``sales``, mas não publica uma
 estrutura de resposta suficiente para importar com segurança; ela permanece
 fora deste adaptador até a documentação estar completa.
@@ -25,7 +25,6 @@ import base64
 import gzip
 import logging
 import os
-import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -81,40 +80,16 @@ def normalizar_token(valor: object) -> str:
     return "".join(texto.split())  # remove espaços/tabs/quebras internos
 
 
-# Formato de chave exibido pelo painel Jettax. Caso real confirmado em
-# 2026-09: a caixa "API Token Jettax" do Jettax 360 mostra a credencial como
-# ``$2y$10$`` + 53 caracteres — visual idêntico a um hash bcrypt de
-# armazenamento — e **esse mesmo valor é aceito como chave nas integrações da
-# Jettax** (outro sistema do cliente autenticou com ele). Ou seja, embora
-# nenhum fornecedor conhecido emita tokens com estrutura de KDF por
-# coincidência, para a Jettax esse valor PODE ser a credencial legítima. A
-# detecção abaixo, portanto, existe apenas para *anotar* mensagens de
-# diagnóstico (confirmar que o conector transmite o token exatamente como
-# colado); ela nunca pode impedir o cadastro da credencial.
-_PADRAO_HASH_BCRYPT = re.compile(r"^\$2[abxy]\$\d{2}\$[./A-Za-z0-9]{53}$")
-
-
-def token_parece_hash_armazenado(valor: object) -> bool:
-    """Verdadeiro se o valor tem o formato com cara de hash que o painel mostra.
-
-    Uso exclusivo para contexto em mensagens de diagnóstico — jamais para
-    recusar ou alterar a credencial, que para a Jettax pode ser legítima.
-    """
-    texto = str(valor or "").strip()
-    if not texto:
-        return False
-    return bool(_PADRAO_HASH_BCRYPT.match(texto)) or texto.startswith("$argon2")
-
-
-# A coleção Postman da Morfeu descreve "API Key": header ``Authorization`` com
-# o token puro. Na prática a API responde ``{"message":"Token inválido."}`` a
-# qualquer credencial que o middleware não aceite, sem dizer se o problema é o
-# valor ou o *formato* do header. Como existem instalações Morfeu atrás de
-# middleware estilo Laravel/Passport (que exige ``Bearer``), o conector tenta o
-# formato documentado primeiro e, só diante de 401/403, repete a mesma
-# requisição com o prefixo ``Bearer`` no mesmo host HTTPS. Um 401 significa que
-# nada foi executado do outro lado, então a repetição é segura inclusive em
-# POST/PUT.
+# A coleção Postman da Morfeu documenta API Key no header ``Authorization``:
+# o token puro é sempre a primeira tentativa. O fornecedor não documenta um
+# modo Bearer, mas a compatibilidade legada abaixo permanece estritamente
+# limitada aos hosts HTTPS oficiais para instalações que o aceitem. Uma
+# mensagem 401/403 não permite concluir, por si só, por que a credencial foi
+# recusada — o diagnóstico nunca transforma essa hipótese em fato.
+#
+# Não inferimos que um valor que "pareça" hash, token de outro produto ou senha
+# seja uma credencial Morfeu. A API precisa confirmar isso no teste autenticado.
+# O valor é mantido cifrado e jamais é exibido em logs ou respostas.
 ESQUEMA_PURO = "puro"
 ESQUEMA_BEARER = "bearer"
 ESQUEMAS_AUTENTICACAO = (ESQUEMA_PURO, ESQUEMA_BEARER)
@@ -416,35 +391,12 @@ def explicar_diagnostico(tentativas: list[TentativaJettax]) -> str:
         for t in tentativas
     )
 
-    # "Dados de acesso inválidos." só aparece quando a requisição atravessa o
-    # middleware e a aplicação consulta a credencial — com o formato documentado
-    # (token puro), enquanto o formato Bearer cai no middleware com "Token
-    # inválido.". Ou seja: endereço e formato estão certos, e quem recusou foi
-    # o cadastro da credencial no serviço Morfeu. Caso observado (2026-09): a
-    # chave exibida no painel do Jettax 360 funcionava em outro programa da
-    # contabilidade, mas não era reconhecida pela Morfeu — serviço separado,
-    # com autorização própria.
-    recusada_pela_aplicacao = any(
-        t.status_code == 401 and "dados de acesso inválidos" in t.mensagem.lower()
-        for t in tentativas
-    )
-    if recusada_pela_aplicacao:
-        return (
-            "A Jettax recebeu a requisição e consultou a credencial, mas não a reconhece como "
-            'válida para a API Morfeu ("Dados de acesso inválidos."). Endereço e formato de '
-            "envio estão corretos: o que falta é a credencial servir à Morfeu. Se este mesmo "
-            "token funciona em outro programa, ele está autorizado em outra API da Jettax "
-            "(Jettax 360, Box J etc.), que são serviços separados da Morfeu. Peça ao suporte "
-            "da Jettax para habilitar a API Morfeu para este token ou emitir o token "
-            f"específico da Morfeu. Tentativas: {resumo}."
-        )
-
     if status <= {401, 403}:
         return (
-            "A Jettax recusou este token em todos os endereços e formatos testados, ou seja, o problema "
-            "está na credencial e não no conector: o token não existe, foi revogado, pertence a outro "
-            "ambiente ou a conta não tem a API liberada. Peça à Jettax um token de API ativo para a URL "
-            f"em uso e confirme se o acesso à API Morfeu está habilitado. Tentativas: {resumo}."
+            "A Jettax recusou a autenticação em todas as combinações seguras testadas. A coleção "
+            "pública não permite identificar a causa apenas pela mensagem: confirme com a Jettax "
+            "que o valor é um token emitido para a API Morfeu, está ativo e que a conta possui o "
+            f"acesso contratado. Tentativas: {resumo}."
         )
     return f"A Jettax não concluiu o teste de leitura. Tentativas: {resumo}."
 
@@ -531,9 +483,14 @@ class ClienteJettax:
     def _enviar(self, metodo: str, url: str, *, params: dict[str, Any] | None, json: dict[str, Any] | None, esquema: str) -> httpx.Response:
         cabecalhos = {
             "Authorization": self._valor_authorization(esquema),
-            # A coleção Morfeu não publica media type versionado. Pedir um
-            # "application/vnd.morfeu.v2+json" inexistente pode render 406.
+            # A coleção publica também uma variação v2 para NFS-e, mas o
+            # exemplo dela é uma representação reduzida. A importação usa a
+            # resposta padrão, que é a que documenta metadados e XML.
             "Accept": "application/json",
+            # A coleção envia este media type inclusive nos GETs. Declará-lo
+            # em todas as operações evita depender de comportamento implícito
+            # de proxies ou middleware legado.
+            "Content-Type": "application/json",
         }
         if self._client is not None:
             return self._client.request(metodo, url, params=params, json=json, headers=cabecalhos)
@@ -617,11 +574,65 @@ class ClienteJettax:
             raise JettaxErro("A Jettax reportou erro ao processar a solicitação.", categoria="rejeitada")
         return dados
 
+    def obter_cliente(self, cnpj: str) -> dict[str, Any] | None:
+        """Consulta o cadastro remoto por CNPJ.
+
+        O ``GET /api/clients/{cnpj}`` é o único modo seguro de decidir entre
+        POST e PUT. O banco local pode ser restaurado, migrado ou perder o
+        estado antes de a empresa ser novamente vinculada, enquanto a Jettax
+        continua com o cliente já cadastrado. Nesse caso, fazer POST de novo
+        falha por unicidade e impede a importação sem necessidade.
+        """
+        cnpj_normalizado = _cnpj_jettax(cnpj)
+        try:
+            resposta = self._requisitar("GET", f"/api/clients/{cnpj_normalizado}")
+        except JettaxErro as exc:
+            if exc.status_code == 404:
+                return None
+            raise
+        if not isinstance(resposta, dict):
+            raise JettaxErro("A Jettax retornou o cadastro de cliente em formato não reconhecido.", categoria="protocolo")
+        cliente = resposta.get("data", resposta)
+        if not isinstance(cliente, dict):
+            raise JettaxErro("A Jettax retornou o cadastro de cliente em formato não reconhecido.", categoria="protocolo")
+        return cliente
+
     def criar_cliente(self, dados: dict[str, Any]) -> Any:
         return self._requisitar("POST", "/api/clients", json=dados)
 
     def atualizar_cliente(self, cnpj: str, dados: dict[str, Any]) -> Any:
         return self._requisitar("PUT", f"/api/clients/{_cnpj_jettax(cnpj)}", json=dados)
+
+    def sincronizar_cliente(self, cnpj: str, dados: dict[str, Any]) -> bool:
+        """Garante o cadastro remoto e devolve ``True`` quando ele foi criado.
+
+        A consulta inicial reconcilia estado local/remoto. Há ainda uma segunda
+        consulta apenas após resposta de conflito/validação do POST: outro
+        operador pode ter criado o mesmo CNPJ entre o GET e o POST. Erros de
+        autenticação, rede e demais rejeições continuam visíveis ao operador;
+        não são convertidos em uma atualização silenciosa.
+        """
+        cnpj_normalizado = _cnpj_jettax(cnpj)
+        if self.obter_cliente(cnpj_normalizado) is not None:
+            self.atualizar_cliente(cnpj_normalizado, dados)
+            return False
+        try:
+            self.criar_cliente(dados)
+            return True
+        except JettaxErro as erro_criacao:
+            # A coleção não fixa o código de conflito do cadastro. Aceitamos
+            # apenas os status usuais de validação/conflito e confirmamos a
+            # existência pelo GET antes de decidir atualizar.
+            if erro_criacao.status_code not in {400, 409, 422}:
+                raise
+            try:
+                cliente_criado_em_paralelo = self.obter_cliente(cnpj_normalizado)
+            except JettaxErro:
+                raise erro_criacao
+            if cliente_criado_em_paralelo is None:
+                raise
+            self.atualizar_cliente(cnpj_normalizado, dados)
+            return False
 
     def verificar_conexao(self, codigo_ibge: str | None = None) -> Any:
         # GET /api/nfse/cities é um endpoint documentado, de leitura e que
@@ -1251,6 +1262,15 @@ def executar_importacao(db: Session, execucao_id: int, filtros: dict[str, Any] |
         itens = _itens_para_execucao(cliente_jettax_para(db, empresa.escritorio_id), empresa, execucao, filtros or {}, cursor)
         proximo_cursor = _maior_cursor(itens, cursor)
         erros: list[str] = []
+        # Preserva o motivo do fallback já registrado ao enfileirar e acrescenta
+        # diagnósticos da consulta. Um retorno vazio é sucesso HTTP, mas sem esse
+        # aviso o operador não distingue "nada novo" de worker/conector parado.
+        avisos: list[str] = [execucao.aviso] if execucao.aviso else []
+        if not itens:
+            avisos.append(
+                "A Jettax concluiu a consulta sem documentos novos. Se esperava notas, confira o cadastro remoto, "
+                "certificado/credencial municipal e a habilitação de captura na Jettax."
+            )
         criados = duplicados = ignorados = 0
         for item in itens:
             try:
@@ -1277,7 +1297,8 @@ def executar_importacao(db: Session, execucao_id: int, filtros: dict[str, Any] |
         execucao.documentos_duplicados = duplicados
         execucao.documentos_ignorados = ignorados
         execucao.cursor_depois = proximo_cursor if not erros else cursor
-        execucao.aviso = "\n".join(erros[:20]) or None
+        avisos.extend(erros[:20])
+        execucao.aviso = "\n".join(avisos) or None
         # Cursor nunca avança diante de item não persistido: repetir duplicados
         # é seguro; perder uma nota por avançar um cursor quebrado não é.
         if execucao.avancar_cursor and not erros and proximo_cursor and proximo_cursor != cursor:
