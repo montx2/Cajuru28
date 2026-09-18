@@ -8,6 +8,7 @@ import { ROTULO_PAPEL, type Usuario } from "@/lib/types";
 import { Icone } from "@/components/icons";
 import { useToast } from "@/components/Toast";
 import { Esqueleto, EstadoVazio, TituloSecao } from "@/components/ui";
+import { Botao, Entrada, Modal } from "@/components/ui/index";
 
 /**
  * Equipe do escritório (só admin): convida gente, troca papel e desliga acesso.
@@ -15,7 +16,7 @@ import { Esqueleto, EstadoVazio, TituloSecao } from "@/components/ui";
  */
 export default function UsuariosPage() {
   const toast = useToast();
-  const { ehAdmin } = usePapel();
+  const { ehAdmin, usuario: usuarioAtual } = usePapel();
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [mostrarForm, setMostrarForm] = useState(false);
@@ -27,6 +28,8 @@ export default function UsuariosPage() {
   const [erro, setErro] = useState<string | null>(null);
   const [editando, setEditando] = useState<number | null>(null);
   const [novoPapel, setNovoPapel] = useState("operador");
+  const [redefinindo, setRedefinindo] = useState<Usuario | null>(null);
+  const [novaSenha, setNovaSenha] = useState("");
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -86,14 +89,15 @@ export default function UsuariosPage() {
     }
   }
 
-  async function redefinirSenha(usuario: Usuario) {
-    const nova = window.prompt(`Nova senha para ${usuario.nome} (mínimo 6 caracteres):`);
-    if (!nova) return;
+  async function redefinirSenha() {
+    if (!redefinindo || novaSenha.length < 6) return;
     try {
-      await api.atualizarUsuario(usuario.id, { senha: nova });
+      await api.atualizarUsuario(redefinindo.id, { senha: novaSenha });
       toast.sucesso("Senha redefinida.");
+      setRedefinindo(null);
+      setNovaSenha("");
     } catch (e) {
-      toast.erro(e instanceof ApiError ? e.message : "Não foi possível redefinir.");
+      toast.erro(e instanceof ApiError ? e.message : "Não foi possível redefinir a senha.");
     }
   }
 
@@ -108,7 +112,7 @@ export default function UsuariosPage() {
   }
 
   return (
-    <div className="animate-fade-up max-w-4xl">
+    <div className="max-w-4xl">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="page-title">Equipe</h1>
@@ -224,10 +228,10 @@ export default function UsuariosPage() {
                     <td className="font-mono text-xs text-ink-muted">{dataCurta(u.criado_em)}</td>
                     <td className="text-right">
                       <span className="inline-flex gap-1">
-                        <button type="button" onClick={() => redefinirSenha(u)} className="btn-ghost btn-sm" title="Redefinir senha">
+                        <button type="button" onClick={() => setRedefinindo(u)} className="btn-ghost btn-sm" title="Redefinir senha">
                           <Icone nome="chave" className="h-3.5 w-3.5" />
                         </button>
-                        <button type="button" onClick={() => alternarAtivo(u)} className="btn-ghost btn-sm" title={u.ativo ? "Desligar acesso" : "Reativar acesso"}>
+                        <button type="button" onClick={() => alternarAtivo(u)} disabled={u.id === usuarioAtual?.id && u.ativo} className="btn-ghost btn-sm" title={u.id === usuarioAtual?.id && u.ativo ? "Um administrador não pode desativar o próprio acesso" : u.ativo ? "Desligar acesso" : "Reativar acesso"}>
                           <Icone nome={u.ativo ? "x" : "check"} className="h-3.5 w-3.5" />
                         </button>
                       </span>
@@ -239,6 +243,12 @@ export default function UsuariosPage() {
           </div>
         </section>
       )}
+      <Modal aberto={redefinindo !== null} aoFechar={() => { setRedefinindo(null); setNovaSenha(""); }} titulo={`Redefinir senha de ${redefinindo?.nome ?? "usuário"}`}>
+        <div className="mt-4">
+          <Entrada rotulo="Nova senha" type="password" autoComplete="new-password" minLength={6} value={novaSenha} onChange={(e) => setNovaSenha(e.target.value)} descricao="Use ao menos 6 caracteres. A senha atual não será exibida." />
+        </div>
+        <div className="mt-6 flex justify-end gap-3"><Botao onClick={() => setRedefinindo(null)}>Cancelar</Botao><Botao variante="primaria" disabled={novaSenha.length < 6} onClick={redefinirSenha}>Salvar nova senha</Botao></div>
+      </Modal>
     </div>
   );
 }

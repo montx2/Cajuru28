@@ -132,7 +132,7 @@ export default function SaudePage() {
   const saude = backups?.saude;
 
   return (
-    <div className="animate-fade-up space-y-6">
+    <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="page-title">Saúde do sistema</h1>

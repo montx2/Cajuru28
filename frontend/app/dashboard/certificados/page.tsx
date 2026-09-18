@@ -116,7 +116,7 @@ export default function CertificadosPage() {
   }, [itens, filtro, busca]);
 
   return (
-    <div className="animate-fade-up space-y-5">
+    <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="page-title">Certificados</h1>
@@ -251,7 +251,7 @@ export default function CertificadosPage() {
 
       {/* ---- modal de substituição ---- */}
       {modalEmpresa && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 p-4">
           <form onSubmit={substituir} className="card w-full max-w-md p-6 shadow-pop">
             <h2 className="font-serif text-xl font-semibold text-ink">
               {modalEmpresa.tem_certificado ? "Substituir" : "Enviar"} certificado

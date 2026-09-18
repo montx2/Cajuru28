@@ -91,7 +91,7 @@ export default function AtencaoPage() {
     (dados?.itens ?? []).filter((a) => (f === "todas" ? true : a.nivel === f)).length;
 
   return (
-    <div className="animate-fade-up max-w-5xl">
+    <div className="max-w-5xl">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="page-title">Precisa da sua atenção</h1>

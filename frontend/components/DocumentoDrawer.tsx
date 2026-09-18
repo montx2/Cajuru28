@@ -134,7 +134,7 @@ export function DocumentoDrawer({
 
   return (
     <div className="no-print fixed inset-0 z-50">
-      <div className="animate-fade-in absolute inset-0 bg-ink/50 backdrop-blur-sm" onClick={aoFechar} />
+      <div className="animate-fade-in absolute inset-0 bg-ink/50" onClick={aoFechar} />
       <aside className="animate-slide-in-right absolute inset-y-0 right-0 flex w-full max-w-lg flex-col bg-surface shadow-pop">
         <div className="flex items-center justify-between border-b border-line px-5 py-4">
           <p className="font-serif text-lg font-semibold text-ink">Detalhe do documento</p>

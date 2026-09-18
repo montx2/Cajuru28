@@ -235,7 +235,7 @@ export function Icone({
 export function Logomarca({ className = "h-9 w-9" }: { className?: string }) {
   return (
     <span
-      className={`inline-flex items-center justify-center rounded-xl bg-gradient-to-br from-accent-bright via-accent to-accent-deep font-serif text-lg font-bold text-white shadow-md ${className}`}
+      className={`inline-flex items-center justify-center rounded-xl bg-accent font-serif text-lg font-semibold text-white shadow-md ${className}`}
     >
       N
     </span>

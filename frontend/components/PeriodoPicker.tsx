@@ -81,7 +81,7 @@ export function PeriodoPicker({
             onClick={() => aplicarMes(mes)}
             className={
               mesSelecionado === mes
-                ? "rounded-lg bg-accent-soft px-2 py-1 font-mono text-xs font-bold text-accent-deep"
+                ? "rounded-lg bg-accent-soft px-2 py-1 font-mono text-xs font-semibold text-accent-deep"
                 : "rounded-lg px-2 py-1 font-mono text-xs text-ink-muted hover:bg-surface hover:text-ink"
             }
             title={`Mês inteiro: ${mes.split("-").reverse().join("/")}`}

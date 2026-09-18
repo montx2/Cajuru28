@@ -65,7 +65,7 @@ function BannerStatus({ painel }: { painel: PainelOperacional }) {
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <p className="flex items-center gap-2 font-display text-base font-extrabold tracking-tight text-ink">
+          <p className="flex items-center gap-2 font-display text-base font-semibold tracking-tight text-ink">
             <span className={`inline-block h-2 w-2 rounded-full ${visual.ponto}`} />
             {painel.status_geral === "operando"
               ? "Operação estável"
@@ -73,7 +73,7 @@ function BannerStatus({ painel }: { painel: PainelOperacional }) {
                 ? "Operação estável, com pendências"
                 : "Uma ação precisa de você"}
           </p>
-          <span className="hidden text-[10px] font-extrabold uppercase tracking-[.1em] text-ink-muted lg:inline">Monitoramento contínuo</span>
+          <span className="hidden text-xs font-semibold uppercase tracking-[.1em] text-ink-muted lg:inline">Monitoramento contínuo</span>
         </div>
         <p className="mt-1 text-sm leading-6 text-ink-muted">{painel.mensagem}</p>
       </div>
@@ -225,7 +225,7 @@ function CardAgora({ execucoes }: { execucoes: CentralExecucoes | null }) {
                   {p.razao_social}
                   <span className="ml-1.5 text-ink-faint">{ROTULO_TIPO[p.tipo] ?? p.tipo}</span>
                   {p.pendencia > 0 && (
-                    <span className="ml-1.5 rounded-pill bg-warn-soft px-1.5 py-px font-mono text-[10px] font-bold text-warn">
+                    <span className="ml-1.5 rounded-pill bg-warn-soft px-1.5 py-px font-mono text-xs font-semibold text-warn">
                       {numero(p.pendencia)} pendente(s)
                     </span>
                   )}
@@ -412,7 +412,7 @@ export default function PainelPage() {
   const pendenciasPrincipais = (painel.alertas.criticos ?? 0) + (painel.alertas.atencao ?? 0);
 
   return (
-    <div className="animate-fade-up space-y-5">
+    <div className="space-y-5">
       <div className="page-header mb-1">
         <div>
           <p className="page-kicker">Centro de operações</p>
