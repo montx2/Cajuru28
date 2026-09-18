@@ -51,6 +51,7 @@ from app.services.jettax import (
     diagnosticar_credencial,
     explicar_diagnostico,
     normalizar_token,
+    token_parece_hash_armazenado,
 )
 
 router = APIRouter(prefix="/integracoes/jettax", tags=["integrações · Jettax"])
@@ -118,7 +119,17 @@ def _resolver_autenticacao(db: Session, escritorio_id: int, erro: JettaxErro) ->
     except JettaxErro:
         return erro
     if sucesso is None:
-        return JettaxErro(explicar_diagnostico(tentativas), categoria="autenticacao", status_code=erro.status_code)
+        explicacao = explicar_diagnostico(tentativas)
+        if token_parece_hash_armazenado(token):
+            # Esclarecimento, nunca recusa: a Jettax emite/exibe chaves com cara
+            # de hash ("$2y$10$...") e elas funcionam nas APIs dela. Só vale
+            # garantir ao operador que o sistema transmitiu o valor como colado.
+            explicacao += (
+                " O valor guardado tem o formato exibido no painel da Jettax ('$2y$10$...'): "
+                "o conector o transmite exatamente como foi colado, então a recusa não vem de "
+                "alteração do token pelo sistema."
+            )
+        return JettaxErro(explicacao, categoria="autenticacao", status_code=erro.status_code)
 
     credencial.base_url = sucesso.base_url
     credencial.esquema_autenticacao = sucesso.esquema
@@ -213,6 +224,10 @@ def salvar_credencial_jettax(
             status_code=422,
             detail="Token Jettax inválido após a limpeza automática (prefixo 'Bearer', aspas, espaços e quebras de linha). Cole apenas o token de API emitido pela Jettax.",
         )
+    # Sem veto por formato: a Jettax emite chaves com cara de hash bcrypt
+    # ("$2y$10$...") e elas autenticam de verdade nas APIs dela — quem decide
+    # se a credencial serve para a Morfeu é o teste de conexão, que roda já no
+    # diagnóstico abaixo e grava host/formato aceitos.
     credencial = db.query(JettaxCredencial).filter_by(escritorio_id=escritorio_id).first()
     if credencial is None:
         credencial = JettaxCredencial(escritorio_id=escritorio_id, base_url=dados.base_url.strip(), token_cifrado="")

@@ -25,6 +25,7 @@ import base64
 import gzip
 import logging
 import os
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -80,6 +81,31 @@ def normalizar_token(valor: object) -> str:
     return "".join(texto.split())  # remove espaços/tabs/quebras internos
 
 
+# Formato de chave exibido pelo painel Jettax. Caso real confirmado em
+# 2026-09: a caixa "API Token Jettax" do Jettax 360 mostra a credencial como
+# ``$2y$10$`` + 53 caracteres — visual idêntico a um hash bcrypt de
+# armazenamento — e **esse mesmo valor é aceito como chave nas integrações da
+# Jettax** (outro sistema do cliente autenticou com ele). Ou seja, embora
+# nenhum fornecedor conhecido emita tokens com estrutura de KDF por
+# coincidência, para a Jettax esse valor PODE ser a credencial legítima. A
+# detecção abaixo, portanto, existe apenas para *anotar* mensagens de
+# diagnóstico (confirmar que o conector transmite o token exatamente como
+# colado); ela nunca pode impedir o cadastro da credencial.
+_PADRAO_HASH_BCRYPT = re.compile(r"^\$2[abxy]\$\d{2}\$[./A-Za-z0-9]{53}$")
+
+
+def token_parece_hash_armazenado(valor: object) -> bool:
+    """Verdadeiro se o valor tem o formato com cara de hash que o painel mostra.
+
+    Uso exclusivo para contexto em mensagens de diagnóstico — jamais para
+    recusar ou alterar a credencial, que para a Jettax pode ser legítima.
+    """
+    texto = str(valor or "").strip()
+    if not texto:
+        return False
+    return bool(_PADRAO_HASH_BCRYPT.match(texto)) or texto.startswith("$argon2")
+
+
 # A coleção Postman da Morfeu descreve "API Key": header ``Authorization`` com
 # o token puro. Na prática a API responde ``{"message":"Token inválido."}`` a
 # qualquer credencial que o middleware não aceite, sem dizer se o problema é o
@@ -100,6 +126,7 @@ HOSTS_OFICIAIS_JETTAX = (
     "https://morfeu-api.jettax.com.br",
     "https://morfeu.jettax.com.br",
 )
+_NETLOCS_OFICIAIS_JETTAX = frozenset(urlparse(h).netloc for h in HOSTS_OFICIAIS_JETTAX)
 
 _FLUXO_NFSE = "nfse"
 _FLUXO_NFE_SAIDA = "sales"
@@ -389,6 +416,29 @@ def explicar_diagnostico(tentativas: list[TentativaJettax]) -> str:
         for t in tentativas
     )
 
+    # "Dados de acesso inválidos." só aparece quando a requisição atravessa o
+    # middleware e a aplicação consulta a credencial — com o formato documentado
+    # (token puro), enquanto o formato Bearer cai no middleware com "Token
+    # inválido.". Ou seja: endereço e formato estão certos, e quem recusou foi
+    # o cadastro da credencial no serviço Morfeu. Caso observado (2026-09): a
+    # chave exibida no painel do Jettax 360 funcionava em outro programa da
+    # contabilidade, mas não era reconhecida pela Morfeu — serviço separado,
+    # com autorização própria.
+    recusada_pela_aplicacao = any(
+        t.status_code == 401 and "dados de acesso inválidos" in t.mensagem.lower()
+        for t in tentativas
+    )
+    if recusada_pela_aplicacao:
+        return (
+            "A Jettax recebeu a requisição e consultou a credencial, mas não a reconhece como "
+            'válida para a API Morfeu ("Dados de acesso inválidos."). Endereço e formato de '
+            "envio estão corretos: o que falta é a credencial servir à Morfeu. Se este mesmo "
+            "token funciona em outro programa, ele está autorizado em outra API da Jettax "
+            "(Jettax 360, Box J etc.), que são serviços separados da Morfeu. Peça ao suporte "
+            "da Jettax para habilitar a API Morfeu para este token ou emitir o token "
+            f"específico da Morfeu. Tentativas: {resumo}."
+        )
+
     if status <= {401, 403}:
         return (
             "A Jettax recusou este token em todos os endereços e formatos testados, ou seja, o problema "
@@ -458,11 +508,22 @@ class ClienteJettax:
         url = rota_ou_url if rota_ou_url.startswith(("http://", "https://")) else urljoin(self.base_url + "/", rota_ou_url.lstrip("/"))
         base = urlparse(self.base_url)
         destino = urlparse(url)
-        # O link next vem do fornecedor. Nunca seguimos uma URL de outro host,
-        # pois isso mandaria o header Authorization para fora da Jettax.
-        if (destino.scheme, destino.netloc) != (base.scheme, base.netloc):
-            raise JettaxErro("A Jettax retornou uma paginação fora do domínio configurado.", categoria="protocolo")
-        return url
+        if (destino.scheme, destino.netloc) == (base.scheme, base.netloc):
+            return url
+        # A própria coleção Morfeu documenta paginação entre os dois hosts
+        # oficiais: o exemplo salvo de GET /api/nfse/cities saiu de
+        # morfeu-api.jettax.com.br com link next apontando para
+        # morfeu.jettax.com.br. Ambos já recebem o token nas sondagens do
+        # diagnóstico; recusar essa troca quebraria a página 2 das listagens.
+        # Qualquer host fora do par oficial segue recusado — o token nunca sai
+        # da Jettax.
+        if (
+            destino.scheme == "https"
+            and destino.netloc in _NETLOCS_OFICIAIS_JETTAX
+            and base.netloc in _NETLOCS_OFICIAIS_JETTAX
+        ):
+            return url
+        raise JettaxErro("A Jettax retornou uma paginação fora do domínio configurado.", categoria="protocolo")
 
     def _valor_authorization(self, esquema: str) -> str:
         return f"Bearer {self.token}" if esquema == ESQUEMA_BEARER else self.token

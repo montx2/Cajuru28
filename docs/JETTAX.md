@@ -33,8 +33,17 @@ JETTAX_MAX_PAGINAS_POR_EXECUCAO=50
 O endpoint `GET /integracoes/jettax` informa apenas se o token está
 configurado; ele nunca o devolve. O cliente HTTP usa o header
 `Authorization` esperado pela Morfeu, timeout estrito, não segue redireções e
-recusa links de paginação que saiam do host configurado — o token não pode ser
-vazado para outro domínio.
+recusa links de paginação fora dos hosts oficiais da Jettax — o token não
+pode ir para outro domínio. A troca **entre** `morfeu-api.jettax.com.br` e
+`morfeu.jettax.com.br` é permitida porque a própria coleção documenta o link
+`next` cruzando de um host para o outro.
+
+**Códigos de erro documentados na coleção** (repetidos nas seções DAS/NFSe):
+`401 {"message": "Dados de acesso inválidos"}` (credencial apresentada e não
+reconhecida) e `403 {"message": "Token não encontrado"}` (credencial
+ausente/inexistente). Ou seja, a própria documentação confirma que `401
+"Dados de acesso inválidos."` é a resposta para **um token enviado que a
+Morfeu não aceita** — documentação e teste de campo dizem a mesma coisa.
 
 ### Diagnóstico: "A Jettax recusou a autenticação do conector"
 
@@ -43,12 +52,15 @@ header é `Authorization: <token>` com o token **puro, sem o prefixo
 `Bearer`**.
 
 **Comportamento observado na API de produção (verificado em 2026-09):** os
-dois endereços respondem `HTTP 401 {"message":"Token inválido."}` para
-qualquer credencial que o middleware não aceite — inclusive quando nenhum
-header é enviado. Ou seja, **a Jettax devolve a mesma mensagem genérica** para
-token errado, token de outro ambiente e header em formato inesperado. Não é
-possível distinguir esses casos apenas pelo corpo da resposta, e é por isso
-que o conector passou a investigar ativamente em vez de só repassar o erro.
+dois endereços respondem `HTTP 401` com mensagens curtas e genéricas —
+`"Token inválido."` quando o middleware não aceita a credencial (inclusive o
+formato `Bearer` com valor que não seja um JWT válido) e `"Dados de acesso
+inválidos."` quando a requisição atravessa o middleware e a aplicação não
+reconhece a credencial. Ou seja, **não é possível distinguir pelo corpo da
+resposta** "token errado" de "token de outro ambiente" ou "conta sem API
+liberada", e é por isso que o conector investiga ativamente em vez de só
+repassar o erro. Na prática, o formato documentado (token puro) é o que
+chega mais fundo na validação.
 
 O que o NotasFlow faz hoje, automaticamente:
 
@@ -83,6 +95,36 @@ curl -i "https://morfeu-api.jettax.com.br/api/nfse/cities" -H "Authorization: SE
 curl -i "https://morfeu.jettax.com.br/api/nfse/cities"     -H "Authorization: SEU_TOKEN"
 # e, se ambos recusarem, o mesmo par com: -H "Authorization: Bearer SEU_TOKEN"
 ```
+
+### O painel mostra a chave com cara de hash (`$2y$10$…`) — ela é a credencial
+
+Caso real confirmado (2026-09): na caixa **API Token Jettax** (Jettax 360 →
+Geral > Configurações > Integrações), a chave aparece no formato
+`$2y$10$` + 53 caracteres — visual de hash bcrypt. **Use esse valor como
+está**: a Jettax emite/exibe a chave assim e outro sistema do escritório
+autenticou com exatamente esse valor. O NotasFlow o transmite byte a byte,
+sem nenhuma alteração.
+
+Quando a Morfeu responde ao teste com este par de mensagens:
+
+- token **puro** → `HTTP 401 "Dados de acesso inválidos."` (o formato
+  documentado atravessa o middleware e a aplicação não reconhece a
+  credencial **para a Morfeu**);
+- `Bearer <token>` → `HTTP 401 "Token inválido."` (recusa do middleware);
+
+o diagnóstico é: endereço e formato estão certos — **a credencial não está
+reconhecida pela API Morfeu**. Explicação mais comum quando a mesma chave
+funciona em outro programa: ela está autorizada em **outra** API da Jettax
+(Jettax 360, Box J, sincronização…), e a Morfeu é um serviço separado, com
+habilitação própria. Também vale considerar token rotacionado após a cópia
+ou restrição por IP.
+
+Ação: peça ao suporte da Jettax para **habilitar a API Morfeu para o seu
+token** ou **emitir o token específico da Morfeu**. O NotasFlow reconhece
+esse padrão de resposta no teste de conexão e já exibe essa orientação na
+mensagem de erro (o valor colado nunca é ecoado em resposta, auditoria ou
+log). O conector nunca barra a colagem por formato: quem decide se a
+credencial serve à Morfeu é o teste autenticado.
 
 Outros pontos de atenção:
 
@@ -187,6 +229,11 @@ janela curta. NF-e automática usa o fluxo recebido (`purchases`) quando
 `baixar_nfes_enviadas` estiver habilitado, usa o fluxo emitido (`sales`).
 
 ## Deduplicação e cursores
+
+- A paginação segue `meta.pagination.links.next`. A coleção tem exemplo real
+  em que a resposta veio de `morfeu-api.jettax.com.br` com `next` apontando
+  para `morfeu.jettax.com.br`, então o conector aceita a troca **entre os dois
+  hosts oficiais** e continua recusando qualquer outro host.
 
 - A identidade de cada documento é única por empresa. NF-e usa a chave fiscal
   do XML; NFS-e sem chave retornada recebe a identidade estável
