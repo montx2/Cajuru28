@@ -126,6 +126,7 @@ HOSTS_OFICIAIS_JETTAX = (
     "https://morfeu-api.jettax.com.br",
     "https://morfeu.jettax.com.br",
 )
+_NETLOCS_OFICIAIS_JETTAX = frozenset(urlparse(h).netloc for h in HOSTS_OFICIAIS_JETTAX)
 
 _FLUXO_NFSE = "nfse"
 _FLUXO_NFE_SAIDA = "sales"
@@ -507,11 +508,22 @@ class ClienteJettax:
         url = rota_ou_url if rota_ou_url.startswith(("http://", "https://")) else urljoin(self.base_url + "/", rota_ou_url.lstrip("/"))
         base = urlparse(self.base_url)
         destino = urlparse(url)
-        # O link next vem do fornecedor. Nunca seguimos uma URL de outro host,
-        # pois isso mandaria o header Authorization para fora da Jettax.
-        if (destino.scheme, destino.netloc) != (base.scheme, base.netloc):
-            raise JettaxErro("A Jettax retornou uma paginação fora do domínio configurado.", categoria="protocolo")
-        return url
+        if (destino.scheme, destino.netloc) == (base.scheme, base.netloc):
+            return url
+        # A própria coleção Morfeu documenta paginação entre os dois hosts
+        # oficiais: o exemplo salvo de GET /api/nfse/cities saiu de
+        # morfeu-api.jettax.com.br com link next apontando para
+        # morfeu.jettax.com.br. Ambos já recebem o token nas sondagens do
+        # diagnóstico; recusar essa troca quebraria a página 2 das listagens.
+        # Qualquer host fora do par oficial segue recusado — o token nunca sai
+        # da Jettax.
+        if (
+            destino.scheme == "https"
+            and destino.netloc in _NETLOCS_OFICIAIS_JETTAX
+            and base.netloc in _NETLOCS_OFICIAIS_JETTAX
+        ):
+            return url
+        raise JettaxErro("A Jettax retornou uma paginação fora do domínio configurado.", categoria="protocolo")
 
     def _valor_authorization(self, esquema: str) -> str:
         return f"Bearer {self.token}" if esquema == ESQUEMA_BEARER else self.token

@@ -33,8 +33,17 @@ JETTAX_MAX_PAGINAS_POR_EXECUCAO=50
 O endpoint `GET /integracoes/jettax` informa apenas se o token está
 configurado; ele nunca o devolve. O cliente HTTP usa o header
 `Authorization` esperado pela Morfeu, timeout estrito, não segue redireções e
-recusa links de paginação que saiam do host configurado — o token não pode ser
-vazado para outro domínio.
+recusa links de paginação fora dos hosts oficiais da Jettax — o token não
+pode ir para outro domínio. A troca **entre** `morfeu-api.jettax.com.br` e
+`morfeu.jettax.com.br` é permitida porque a própria coleção documenta o link
+`next` cruzando de um host para o outro.
+
+**Códigos de erro documentados na coleção** (repetidos nas seções DAS/NFSe):
+`401 {"message": "Dados de acesso inválidos"}` (credencial apresentada e não
+reconhecida) e `403 {"message": "Token não encontrado"}` (credencial
+ausente/inexistente). Ou seja, a própria documentação confirma que `401
+"Dados de acesso inválidos."` é a resposta para **um token enviado que a
+Morfeu não aceita** — documentação e teste de campo dizem a mesma coisa.
 
 ### Diagnóstico: "A Jettax recusou a autenticação do conector"
 
@@ -220,6 +229,11 @@ janela curta. NF-e automática usa o fluxo recebido (`purchases`) quando
 `baixar_nfes_enviadas` estiver habilitado, usa o fluxo emitido (`sales`).
 
 ## Deduplicação e cursores
+
+- A paginação segue `meta.pagination.links.next`. A coleção tem exemplo real
+  em que a resposta veio de `morfeu-api.jettax.com.br` com `next` apontando
+  para `morfeu.jettax.com.br`, então o conector aceita a troca **entre os dois
+  hosts oficiais** e continua recusando qualquer outro host.
 
 - A identidade de cada documento é única por empresa. NF-e usa a chave fiscal
   do XML; NFS-e sem chave retornada recebe a identidade estável

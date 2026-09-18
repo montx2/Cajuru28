@@ -638,3 +638,38 @@ def test_explicacao_distingue_recusa_da_aplicacao_da_recusa_do_middleware():
         [TentativaJettax(base_url=BASE, esquema="puro", status_code=401, ok=False, mensagem="Token inválido.")]
     )
     assert "está na credencial" in generica  # sem o padrão, mantém a explicação genérica
+
+
+@respx.mock
+def test_paginacao_segue_link_next_entre_os_dois_hosts_oficiais():
+    """Exemplo real da coleção: resposta do -api com next no host irmão."""
+    respx.get(f"{BASE}/api/nfse/invoices/{CNPJ}").mock(
+        return_value=httpx.Response(200, json={
+            "data": [{"id": "1"}],
+            "meta": {"pagination": {"links": {"next": f"{BASE_ALTERNATIVA}/api/nfse/invoices/{CNPJ}?page=2"}}},
+        })
+    )
+    segunda = respx.get(f"{BASE_ALTERNATIVA}/api/nfse/invoices/{CNPJ}?page=2").mock(
+        return_value=httpx.Response(200, json={"data": [{"id": "2"}]})
+    )
+
+    notas = ClienteJettax(token=TOKEN).listar_nfse(CNPJ)
+
+    assert [n["id"] for n in notas] == ["1", "2"]
+    assert segunda.called
+
+
+@respx.mock
+def test_paginacao_para_fora_dos_hosts_oficiais_segue_recusada():
+    """A exceção é só entre morfeu-api/morfeu; externo continua bloqueado."""
+    respx.get(f"{BASE}/api/nfse/invoices/{CNPJ}").mock(
+        return_value=httpx.Response(200, json={
+            "data": [{"id": "1"}],
+            "meta": {"pagination": {"links": {"next": "https://exemplo-invasor.test/api/x"}}},
+        })
+    )
+
+    with pytest.raises(Exception) as erro:
+        ClienteJettax(token=TOKEN).listar_nfse(CNPJ)
+
+    assert "paginação" in str(erro.value)
