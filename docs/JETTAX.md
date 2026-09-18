@@ -73,6 +73,77 @@ O cliente HTTP não segue redirecionamentos e não envia a credencial a domínio
 externos. A paginação pode atravessar somente entre os dois hosts oficiais,
 pois a coleção publica um `next` nesse formato.
 
+## Diagnóstico do 401: o que a resposta da Jettax significa
+
+Sondagem de leitura em `2026-09` contra os dois hosts oficiais (sem enviar
+nenhuma credencial real) confirmou como o servidor responde a cada forma de
+header em `GET /api/nfse/cities`:
+
+| Header enviado | Resposta |
+| --- | --- |
+| nenhum | `401 {"message": "Token inválido."}` |
+| `Authorization: Bearer <valor desconhecido>` | `401 {"message": "Token inválido."}` |
+| `Authorization: <valor desconhecido>` (puro) | `401 {"message": "Dados de acesso inválidos."}` |
+
+Leituras práticas dessa tabela:
+
+- `Bearer` desconhecido responde exatamente como a ausência de header, então
+  a variação Bearer do conector nunca será o caminho documentado; ela existe
+  apenas para instalações legadas que a aceitem.
+- O token puro percorre um caminho próprio de validação. Se o **seu** token
+  puro receber a mesma resposta de um valor obviamente inválido
+  (`Dados de acesso inválidos.`), o servidor está dizendo, na prática, que
+  não reconhece aquele valor como credencial Morfeu — o formato de header e a
+  URL estão descartados como causa.
+- Uma resposta diferente para o seu token (por exemplo, mensagem de conta
+  bloqueada ou permissão) indica valor reconhecido, mas inativo ou sem
+  permissão contratada; nesse caso a conversa é com o suporte da Jettax.
+
+A mesma sondagem revelou que `POST /api/login` **existe** na API
+(`GET /api/login` responde `405 Method Not Allowed`; rotas inexistentes sob
+`/api` respondem `404`), mas a coleção pública não o documenta nem publica o
+corpo esperado. O conector não adivinha contrato: nenhum fluxo de login foi
+implementado por inferência. Existe um script de diagnóstico deliberado para
+essa verificação (abaixo), que só envia credenciais quando o operador as
+fornece explicitamente.
+
+### Script de diagnóstico do servidor
+
+Para responder "o valor configurado é um token que o servidor Morfeu
+reconhece?" com evidência, execute no host com Docker (o contêiner da API é
+quem tem saída de internet):
+
+```bash
+docker compose exec api python scripts/diagnosticar_jettax.py
+# testar um valor específico sem tocar no cofre:
+docker compose exec api python scripts/diagnosticar_jettax.py --token "COLE_AQUI"
+# sonda opcional (uma tentativa) do POST /api/login com credenciais Jettax:
+docker compose exec api python scripts/diagnosticar_jettax.py \
+    --email voce@escritorio.com.br --senha 'SuaSenha' [--formato email_senha]
+```
+
+O script é somente leitura, usa apenas os hosts oficiais e um endpoint GET de
+leitura, nunca imprime o token guardado (apenas comprimento e um resumo
+`sha256`) e redige sequências longas nas mensagens remotas. A sonda de login
+só acontece com `--email`/`--senha` explícitos, faz uma única tentativa por
+execução — tentativas repetidas podem contar como login errado na conta — e
+só exibe um token eventualmente retornado com `--revelar`.
+
+### Onde o token Morfeu é obtido
+
+Não existe geração autoatendimento de token Morfeu no painel do Jettax 360: a
+central de ajuda pública só documenta tokens gerados em **outras** plataformas
+(Acessórias, SIEG, NIBO, OMIE, Domínio/Onvio) que o Jettax 360 consome. A API
+Morfeu é o produto "API aberta" voltado a sistemas parceiros/ERPs, e o token é
+emitido pela própria Jettax. Portanto, na dúvida, confirme com o suporte ou o
+comercial da Jettax:
+
+1. que o valor é um **token emitido para a API Morfeu** (não a senha do
+   Jettax 360, não o token de primeiro acesso, não o apiToken de Acessórias/
+   SIEG/NIBO e não uma chave Domínio/Onvio);
+2. que está **ativo** (não revogado/expirado);
+3. que a conta possui o **acesso à API contratado**.
+
 ## Sequência de operação
 
 1. Cadastre/atualize a empresa local com **CNPJ**, `codigo_ibge` de sete
