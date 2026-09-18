@@ -135,11 +135,16 @@ export interface FiltrosDocumentos {
   tipo?: TipoDocumentoFiscal;
   direcao?: DirecaoDocumento;
   status?: StatusDocumentoFiscal;
-  /** MM/AAAA (o que a tela chama de "competência") */
-  competencia?: string;
-  /** Período livre em YYYY-MM-DD; alternativa à competência fechada. */
+  /**
+   * Período — **obrigatório** em toda consulta ao acervo (a API responde 422
+   * sem ele). Em AAAA-MM-DD, que é o formato do `<input type="date">`.
+   * Exceção única: o download por seleção (`documento_ids`), em que o operador
+   * já escolheu nota a nota.
+   */
   data_inicio?: string;
   data_fim?: string;
+  /** Atalho opcional para o mês inteiro (MM/AAAA). O intervalo vence quando os dois vêm. */
+  competencia?: string;
   leiaute?: "completo" | "resumo";
   busca?: string;
   numero?: string;
@@ -287,19 +292,20 @@ export const api = {
   baixarZip: (filtros: FiltrosExportacao = {}, nome?: string) =>
     baixarArquivo(
       `/documentos/exportar${montarParams(filtros)}`,
-      nome ?? `NotasFlow_${filtros.competencia ?? filtros.data_inicio ?? "todos"}.zip`
+      nome ?? `NotasFlow_${filtros.data_inicio ?? "selecao"}.zip`
     ),
 
   baixarCsvDocumentos: (filtros: FiltrosExportacao = {}, nome?: string) =>
     baixarArquivo(
       `/documentos/exportar/csv${montarParams(filtros)}`,
-      nome ?? `NotasFlow_relacao_${filtros.competencia ?? filtros.data_inicio ?? "todos"}.csv`
+      nome ?? `NotasFlow_relacao_${filtros.data_inicio ?? "selecao"}.csv`
     ),
 
+  /** O período (data_inicio/data_fim) é obrigatório: é ele que define o que será guardado. */
   solicitarImportacao: (
     empresaId: number,
     tipo: TipoDocumentoFiscal,
-    opcoes: { forcar?: boolean; competencia?: string } = {}
+    opcoes: { forcar?: boolean; data_inicio: string; data_fim: string }
   ) =>
     chamar<ExecucaoImportacao>("/importacoes", {
       method: "POST",
@@ -307,7 +313,8 @@ export const api = {
         empresa_id: empresaId,
         tipo,
         forcar: opcoes.forcar ?? false,
-        ...(opcoes.competencia ? { competencia: opcoes.competencia } : {}),
+        data_inicio: opcoes.data_inicio,
+        data_fim: opcoes.data_fim,
       }),
     }),
 
@@ -360,7 +367,8 @@ export const api = {
   previaImportacaoSelecionadas: (dados: {
     empresa_ids: number[];
     tipos?: TipoDocumentoFiscal[];
-    competencia?: string;
+    data_inicio: string;
+    data_fim: string;
     forcar?: boolean;
   }) =>
     chamar<ResultadoImportacaoSelecionada>("/importacoes/selecionadas/previa", {
@@ -372,7 +380,8 @@ export const api = {
   importarSelecionadas: (dados: {
     empresa_ids: number[];
     tipos?: TipoDocumentoFiscal[];
-    competencia?: string;
+    data_inicio: string;
+    data_fim: string;
     forcar?: boolean;
   }) =>
     chamar<ResultadoImportacaoSelecionada>("/importacoes/selecionadas", {

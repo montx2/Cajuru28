@@ -21,6 +21,14 @@ derruba importadores comerciais. Aqui, portanto:
   recomenda o sped-nfe;
 - checkpoint a cada lote: o que já baixou está no banco, mesmo se o worker
   cair no meio da hora de bloqueio.
+
+**Período (desde a v3.1).** A varredura na origem continua sendo por NSU —
+a SEFAZ/ADN não aceita "me dê só agosto" —, mas a execução carrega o intervalo
+que o operador pediu e só as notas **emitidas dentro dele** são gravadas. O que
+vem de fora é descartado antes de virar linha no banco e arquivo em disco, e
+contado em `documentos_fora_do_periodo` para a execução poder provar o que
+deixou de fora. O cursor de NSU avança normalmente: descartar conteúdo nunca
+faz o sistema reconsultar o mesmo NSU depois.
 """
 
 import logging
@@ -202,6 +210,7 @@ def importar_documentos(
         total_cancelados = execucao.documentos_cancelados or 0
         total_nao_reconhecidos = execucao.eventos_nao_reconhecidos or 0
         total_no_periodo = execucao.documentos_no_periodo or 0
+        total_fora_do_periodo = execucao.documentos_fora_do_periodo or 0
         periodo = fila_periodo(execucao)
         importou_alguma_coisa = False
 
@@ -240,14 +249,17 @@ def importar_documentos(
                     return
 
                 for doc in lote.documentos:
+                    # O filtro que o operador pediu, aplicado ANTES de gravar:
+                    # a distribuição entrega tudo que existe a partir do NSU,
+                    # e guardar meses que ninguém pediu é o que inchava o
+                    # acervo. A nota fora do intervalo é apenas contada.
+                    if not _documento_no_periodo(doc, periodo):
+                        total_fora_do_periodo += 1
+                        continue
                     if _gravar_documento(db, empresa_id, tipo_doc, doc):
                         total_importado += 1
+                        total_no_periodo += 1
                         importou_alguma_coisa = True
-                        quando = _parse_data(doc.competencia) or _parse_data(
-                            str(doc.data_emissao or "")
-                        )
-                        if periodo.contem(quando):
-                            total_no_periodo += 1
                         if _aplicar_eventos_pendentes(db, empresa_id, tipo_doc, doc.chave_acesso):
                             total_cancelados += 1
 
@@ -267,6 +279,7 @@ def importar_documentos(
                 execucao.documentos_cancelados = total_cancelados
                 execucao.eventos_nao_reconhecidos = total_nao_reconhecidos
                 execucao.documentos_no_periodo = total_no_periodo
+                execucao.documentos_fora_do_periodo = total_fora_do_periodo
                 if lote.erros:
                     execucao.aviso = _resumir_avisos(execucao.aviso, lote.erros)
                 db.commit()  # checkpoint a cada lote — nada se perde numa queda
@@ -294,6 +307,18 @@ def importar_documentos(
 
         if (estado.max_nsu and int(estado.ultimo_nsu or 0) < int(estado.max_nsu or 0)):
             sincronizacao.marcar_consulta_ok(db, estado)
+
+        if total_fora_do_periodo:
+            # Prova do recorte: sem esta linha o operador veria "500 documentos
+            # distribuídos, 12 importados" e não saberia se perdeu algo.
+            execucao.aviso = _resumir_avisos(
+                execucao.aviso,
+                [
+                    f"{total_fora_do_periodo} documento(s) fora do período "
+                    f"{periodo.rotulo()} foram ignorados (não entraram no acervo). "
+                    "Para trazê-los, rode a importação com o período correspondente."
+                ],
+            )
 
         execucao.status = StatusExecucao.CONCLUIDA
         execucao.bloqueado_ate = None
@@ -485,6 +510,31 @@ def fila_periodo(execucao: ExecucaoImportacao):
     from app.services.periodo import Periodo
 
     return Periodo(inicio=execucao.data_inicio, fim=execucao.data_fim)
+
+
+def _documento_no_periodo(doc, periodo) -> bool:
+    """
+    A nota recém-baixada pertence ao período pedido?
+
+    Critério: **data de emissão** — a mesma regra que as telas usam para
+    filtrar (`app/services/referencia.py`), para o que foi importado em agosto
+    ser exatamente o que aparece quando se filtra agosto.
+
+    Dois cuidados deliberados:
+
+    - período aberto (execução antiga, sem data gravada) aceita tudo, senão
+      um reprocessamento apagaria o histórico de quem importava antes desta
+      versão;
+    - documento sem data legível é **mantido**. Descartar por falta de campo
+      seria perder nota fiscal por um defeito de leiaute — o erro caro. Ela
+      aparece na tela pelo que tiver de data e pode ser conferida à mão.
+    """
+    if periodo is None or not periodo.definido:
+        return True
+    quando = _parse_data(str(getattr(doc, "data_emissao", "") or ""))
+    if quando is None:
+        return True
+    return periodo.contem(quando)
 
 
 def _aviso_jettax(resultado: ResultadoFallbackJettax) -> str | None:

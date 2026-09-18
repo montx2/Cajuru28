@@ -5,10 +5,19 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { api, ApiError, type FiltrosExportacao, type FiltrosDocumentos } from "@/lib/api";
 import { usePapel } from "@/lib/papel";
-import { CompetenciaPicker } from "@/components/CompetenciaPicker";
+import { PeriodoPicker } from "@/components/PeriodoPicker";
 import { DocumentoDrawer } from "@/components/DocumentoDrawer";
 import { Icone } from "@/components/icons";
-import { bytesParaTexto, paraAPI, rotulo as rotuloMes } from "@/lib/competencia";
+import { bytesParaTexto } from "@/lib/competencia";
+import {
+  erroDoPeriodo,
+  paraFiltro,
+  periodoDaURL,
+  periodoValido,
+  rotuloPeriodo,
+  sufixoArquivo,
+  type Periodo,
+} from "@/lib/periodo";
 import {
   ROTULO_TIPO,
   type DirecaoDocumento,
@@ -30,15 +39,6 @@ function formatarData(valor: string | null | undefined): string {
 
 function truncarChave(chave: string): string {
   return `${chave.slice(0, 8)}…${chave.slice(-6)}`;
-}
-
-function nomePeriodo(competencia: string | null, dataInicio: string, dataFim: string): string {
-  if (dataInicio || dataFim) {
-    if (dataInicio && dataFim) return `${formatarData(dataInicio)} a ${formatarData(dataFim)}`;
-    if (dataInicio) return `desde ${formatarData(dataInicio)}`;
-    return `até ${formatarData(dataFim)}`;
-  }
-  return rotuloMes(competencia);
 }
 
 /**
@@ -65,11 +65,10 @@ function ConteudoDocumentos() {
   const [direcao, setDirecao] = useState<DirecaoDocumento | "">("");
   const [statusDoc, setStatusDoc] = useState<StatusDocumentoFiscal | "">("");
   const [leiaute, setLeiaute] = useState<"" | "completo" | "resumo">("");
-  const [competencia, setCompetencia] = useState<string | null>(
-    searchParams.get("competencia") || null
-  );
-  const [dataInicio, setDataInicio] = useState("");
-  const [dataFim, setDataFim] = useState("");
+  // Período obrigatório. A tela abre no mês corrente (ou no que a URL pedir),
+  // nunca em "todos os períodos" — abrir sem recorte era o que despejava o
+  // acervo inteiro e fazia o filtro parecer quebrado.
+  const [periodo, setPeriodo] = useState<Periodo>(() => periodoDaURL(searchParams));
   const [valorMin, setValorMin] = useState("");
   const [valorMax, setValorMax] = useState("");
   // A busca global da barra superior chega por `?busca=`.
@@ -99,26 +98,37 @@ function ConteudoDocumentos() {
     setSelecionados(new Set());
   }, []);
 
+  const periodoOk = periodoValido(periodo);
+  const avisoPeriodo = erroDoPeriodo(periodo);
+
   // Uma única definição de filtro para a tela, para o contador, para CSV e para
   // o ZIP — é o que faz "12 documentos na tela" virar "12 arquivos no ZIP".
-  const filtros = useMemo<FiltrosDocumentos>(() => {
-    const competenciaAPI = competencia && !dataInicio && !dataFim ? paraAPI(competencia) : undefined;
-    return {
+  // O período entra sempre como intervalo de datas: uma forma só, igual à que
+  // a API aplica sobre a data de emissão.
+  const filtros = useMemo<FiltrosDocumentos>(
+    () => ({
       ...(empresaId === "todas" ? {} : { empresa_id: empresaId }),
       ...(tipo ? { tipo } : {}),
       ...(direcao ? { direcao } : {}),
       ...(statusDoc ? { status: statusDoc } : {}),
       ...(leiaute ? { leiaute } : {}),
-      ...(competenciaAPI ? { competencia: competenciaAPI } : {}),
-      ...(dataInicio ? { data_inicio: dataInicio } : {}),
-      ...(dataFim ? { data_fim: dataFim } : {}),
+      ...paraFiltro(periodo),
       ...(termoBusca ? { busca: termoBusca } : {}),
       ...(valorMin ? { valor_min: valorMin } : {}),
       ...(valorMax ? { valor_max: valorMax } : {}),
-    };
-  }, [empresaId, tipo, direcao, statusDoc, leiaute, competencia, dataInicio, dataFim, termoBusca, valorMin, valorMax]);
+    }),
+    [empresaId, tipo, direcao, statusDoc, leiaute, periodo, termoBusca, valorMin, valorMax]
+  );
 
   const carregar = useCallback(async (paginaOffset = offset) => {
+    // Sem período completo não se consulta: a API recusaria, e pedir para nada
+    // só encheria a tela de erro enquanto a pessoa ainda está digitando a data.
+    if (!periodoValido(periodo)) {
+      setDocumentos([]);
+      setResumo(null);
+      setEstimativa(null);
+      return;
+    }
     setCarregando(true);
     try {
       const [lista, agregado, estimado] = await Promise.all([
@@ -134,7 +144,7 @@ function ConteudoDocumentos() {
     } finally {
       setCarregando(false);
     }
-  }, [filtros, offset]);
+  }, [filtros, offset, periodo]);
 
   useEffect(() => {
     carregar();
@@ -151,7 +161,7 @@ function ConteudoDocumentos() {
     try {
       await api.baixarZip(
         filtros as FiltrosExportacao,
-        `NotasFlow_${competencia || dataInicio || "todos"}.zip`
+        `NotasFlow_${sufixoArquivo(periodo)}.zip`
       );
       setMensagem("Download iniciado — o ZIP traz os XMLs disponíveis, a relação em CSV e um LEIA-ME.");
     } catch (e) {
@@ -167,7 +177,7 @@ function ConteudoDocumentos() {
     try {
       await api.baixarCsvDocumentos(
         filtros as FiltrosExportacao,
-        `NotasFlow_relacao_${competencia || dataInicio || "todos"}.csv`
+        `NotasFlow_relacao_${sufixoArquivo(periodo)}.csv`
       );
       setMensagem("CSV iniciado — a relação usa os mesmos filtros da tela.");
     } catch (e) {
@@ -261,9 +271,8 @@ function ConteudoDocumentos() {
     setDirecao("");
     setStatusDoc("");
     setLeiaute("");
-    setCompetencia(null);
-    setDataInicio("");
-    setDataFim("");
+    // O período NÃO é limpo: ele é obrigatório, e zerá-lo deixaria a tela sem
+    // poder consultar nada. "Limpar" tira os filtros opcionais e mantém o mês.
     setValorMin("");
     setValorMax("");
     setBusca("");
@@ -271,7 +280,7 @@ function ConteudoDocumentos() {
   }
 
   const semXmlCompleto = resumo?.por_tipo ? documentos.filter((d) => d.leiaute === "resumo").length : 0;
-  const periodoRotulo = nomePeriodo(competencia, dataInicio, dataFim);
+  const periodoRotulo = rotuloPeriodo(periodo);
 
   return (
     <div className="animate-fade-up">
@@ -283,7 +292,10 @@ function ConteudoDocumentos() {
             {periodoRotulo} · {resumo ? `${resumo.total} documento(s), ${resumo.canceladas} cancelada(s)` : "Lendo o acervo…"}
           </p>
         </div>
-        <Link href={`/dashboard/importacoes${competencia ? `?competencia=${competencia}` : ""}`} className="btn-primary btn-sm">
+        <Link
+          href={`/dashboard/importacoes?data_inicio=${periodo.inicio}&data_fim=${periodo.fim}`}
+          className="btn-primary btn-sm"
+        >
           <Icone nome="importacao" className="h-3.5 w-3.5" /> Importar notas
         </Link>
       </div>
@@ -360,18 +372,18 @@ function ConteudoDocumentos() {
         </div>
 
         <div>
-          <p className="mb-2 text-xs uppercase text-ink-muted">Competência</p>
-          <CompetenciaPicker
-            valor={competencia}
+          <p className="mb-2 text-xs uppercase text-ink-muted">
+            Período <span className="text-danger">*</span>
+          </p>
+          <PeriodoPicker
+            valor={periodo}
             aoMudar={(valor) => {
               resetarLista();
-              setCompetencia(valor);
-              if (valor) {
-                setDataInicio("");
-                setDataFim("");
-              }
+              setPeriodo(valor);
             }}
+            idPrefixo="documentos"
           />
+          {avisoPeriodo && <p className="mt-1 text-xs text-danger">{avisoPeriodo}</p>}
         </div>
 
         <div>
@@ -411,7 +423,7 @@ function ConteudoDocumentos() {
       </div>
 
       {filtrosAvancados && (
-        <div className="card mb-6 grid gap-3 p-4 sm:grid-cols-5">
+        <div className="card mb-6 grid gap-3 p-4 sm:grid-cols-3">
           <label className="text-xs uppercase text-ink-muted">
             XML
             <select
@@ -426,32 +438,6 @@ function ConteudoDocumentos() {
               <option value="completo">Somente XML completo</option>
               <option value="resumo">Somente resumo</option>
             </select>
-          </label>
-          <label className="text-xs uppercase text-ink-muted">
-            Data inicial
-            <input
-              type="date"
-              value={dataInicio}
-              onChange={(e) => {
-                resetarLista();
-                setDataInicio(e.target.value);
-                if (e.target.value) setCompetencia(null);
-              }}
-              className="input mt-1 w-full"
-            />
-          </label>
-          <label className="text-xs uppercase text-ink-muted">
-            Data final
-            <input
-              type="date"
-              value={dataFim}
-              onChange={(e) => {
-                resetarLista();
-                setDataFim(e.target.value);
-                if (e.target.value) setCompetencia(null);
-              }}
-              className="input mt-1 w-full"
-            />
           </label>
           <label className="text-xs uppercase text-ink-muted">
             Valor mínimo
@@ -483,9 +469,9 @@ function ConteudoDocumentos() {
               className="input mt-1 w-full"
             />
           </label>
-          <p className="sm:col-span-5 text-xs text-ink-muted">
-            Profissionais costumam fechar mês por competência, mas aqui também dá para auditar por intervalo livre, valor,
-            direção, canceladas e XML pendente. O ZIP e o CSV respeitam exatamente estes filtros.
+          <p className="sm:col-span-3 text-xs text-ink-muted">
+            O período fica no filtro principal e vale para tudo — inclusive ZIP e CSV, que baixam exatamente o
+            que está na tela. Aqui ficam os recortes extras: valor, XML pendente, direção e canceladas.
           </p>
         </div>
       )}
@@ -559,18 +545,30 @@ function ConteudoDocumentos() {
         ))}
       </div>
 
-      {carregando && documentos.length === 0 ? (
+      {!periodoOk ? (
+        <div className="empty-state">
+          <p className="font-display text-base font-extrabold text-ink">Informe o período</p>
+          <p className="mt-1 text-xs text-ink-muted">
+            {avisoPeriodo} Use os atalhos de mês para preencher o mês inteiro de uma vez.
+          </p>
+        </div>
+      ) : carregando && documentos.length === 0 ? (
         <p className="text-sm text-ink-muted">Carregando…</p>
       ) : documentos.length === 0 ? (
         <div className="empty-state">
-          <p className="font-display text-base font-extrabold text-ink">Nenhum documento neste filtro</p>
+          <p className="font-display text-base font-extrabold text-ink">
+            Nenhum documento em {periodoRotulo}
+          </p>
           <p className="mt-1 text-xs text-ink-muted">
-            Se o mês for antigo, rode a importação em{" "}
-            <Link href="/dashboard/importacoes" className="text-accent hover:underline">
+            Se o período for antigo, rode a importação em{" "}
+            <Link
+              href={`/dashboard/importacoes?data_inicio=${periodo.inicio}&data_fim=${periodo.fim}`}
+              className="text-accent hover:underline"
+            >
               Importações
             </Link>{" "}
-            — a SEFAZ entrega os documentos na ordem de chegada (por NSU), e a competência filtra o que já
-            está guardado.
+            — a SEFAZ entrega os documentos na ordem de chegada (por NSU) e o sistema guarda apenas os
+            emitidos dentro do período que você pedir.
           </p>
         </div>
       ) : (

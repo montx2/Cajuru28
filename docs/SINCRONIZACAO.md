@@ -80,24 +80,45 @@ empresas cuja janela venceu há mais tempo, na ordem em que estão prontas —
 ninguém fica "preso atrás" de um CNPJ grande, e cada CNPJ mantém o intervalo
 de 1h independentemente do número de empresas no escritório.
 
-## 4. Competência (mês) — o que ela faz e o que ela não faz
+## 4. Período — obrigatório, e por quê
 
-- **Ela não filtra a descarga.** A SEFAZ só anda por NSU. Filtrar a consulta por
-  mês é a receita para perder nota (e para tomar 656 tentando "pular" o cursor).
-- **Ela filtra contagem, tela, ZIP e relatório.** Cada documento guarda a
-  `competencia` declarada no próprio XML (`dComp`/`dhEmi`), indexada; o mês da
-  tela é um `WHERE`, não uma requisição nova.
-- **Ela entra na execução** (`data_inicio`/`data_fim`) para o histórico dizer
-  "essa varredura foi pedida para 08/2026" e contar `documentos_no_periodo`.
-- Formatos aceitos: `08/2026`, `8/2026`, `2026-08`, `ago/2026`, `082026`,
-  `202608`, ou uma data completa (o mês dela vale). Entrada inválida responde
-  422 com o formato esperado — nunca "mês 0".
+O período é **um intervalo de datas e é obrigatório** em toda consulta ao acervo
+(`/documentos`, `/documentos/resumo`, `/documentos/por-empresa`,
+`/documentos/exportar`) e em todo pedido de importação (`POST /importacoes`,
+`/importacoes/lote`, `/importacoes/selecionadas`). Sem ele a resposta é **422**
+com a frase do formato aceito. A única exceção é a exportação por
+`documento_ids`: ali o operador já escolheu nota a nota.
+
+- **A data que vale é a data de emissão.** Uma regra só, em
+  `app/services/referencia.py`, usada pela listagem, pelo resumo, pelo ZIP, pelo
+  dashboard, pelo fechamento e pela gravação no worker. Antes cada lugar usava
+  `coalesce(competencia, data_emissao)`, e como a `competencia` declarada no XML
+  é opcional e costuma trazer o mês anterior (serviço de julho faturado em
+  agosto), pedir "agosto" devolvia julho e junho junto — era o bug de "o filtro
+  não funciona".
+- **A descarga continua por NSU.** A SEFAZ/ADN não aceita recorte por data;
+  pular cursor é receita para perder nota e para tomar 656. Então baixa-se tudo
+  o que a fila tiver e **o recorte é aplicado antes de gravar**: nota emitida
+  fora do período pedido é descartada, não entra no acervo. O cursor de NSU
+  avança do mesmo jeito (o documento foi consumido), e o que foi descartado é
+  contado em `ExecucaoImportacao.documentos_fora_do_periodo` e sai no aviso da
+  execução ("3 documento(s) fora do período 08/2026").
+- **Documento sem data legível é mantido**, não descartado: na dúvida, guardar é
+  reversível; perder nota não é.
+- **Precedência:** `data_inicio`/`data_fim` vencem `competencia`. A
+  `competencia` continua aceita como atalho para o mês fechado, mas o frontend
+  sempre manda o par de datas — uma forma só, sem ambiguidade.
+- Formatos aceitos nas datas: `DD/MM/AAAA` e `AAAA-MM-DD`. Na competência:
+  `08/2026`, `8/2026`, `2026-08`, `ago/2026`, `082026`, `202608`, ou uma data
+  completa (o mês dela vale). Entrada inválida responde 422 com o formato
+  esperado — nunca "mês 0". Data inicial depois da final também é 422, dizendo
+  para inverter as duas.
 
 ## 5. Download em massa
 
 `GET /documentos/exportar` aceita os **mesmos** filtros da listagem
-(`empresa_ids`, `tipo`, `direcao`, `status`, `leiaute`, `competencia`,
-`data_inicio`/`data_fim`, `busca`, `documento_ids`) e devolve:
+(`empresa_ids`, `tipo`, `direcao`, `status`, `leiaute`, `data_inicio`/`data_fim`
+— obrigatórios salvo com `documento_ids` —, `competencia`, `busca`) e devolve:
 
 ```
 NotasFlow/<empresa-slug>/<tipo>/<chave>.xml

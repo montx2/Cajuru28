@@ -278,12 +278,15 @@ class ExecucaoImportacao(Base):
     documentos_cancelados: Mapped[int] = mapped_column(Integer, default=0)
     eventos_nao_reconhecidos: Mapped[int] = mapped_column(Integer, default=0)
     ultimo_nsu: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    # Competência pedida pelo operador (ex.: 08/2026). Nada é descartado por
-    # causa dela — serve para contar o que caiu no mês e para pré-selecionar o
-    # lote na hora de baixar os XMLs.
+    # Período pedido pelo operador (ex.: 01/08/2026 a 31/08/2026). É um filtro
+    # de verdade: a varredura na origem continua por NSU, mas só as notas
+    # emitidas dentro deste intervalo são gravadas — o que vem de fora é
+    # descartado e contado em `documentos_fora_do_periodo`, para a execução
+    # conseguir provar o que deixou de fora.
     data_inicio: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     data_fim: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     documentos_no_periodo: Mapped[int] = mapped_column(Integer, default=0)
+    documentos_fora_do_periodo: Mapped[int] = mapped_column(Integer, default=0)
     # Controle do "quase 100% automático": quantas rodadas esta execução já
     # dormiu esperando a janela de consumo da SEFAZ abrir.
     tentativas: Mapped[int] = mapped_column(Integer, default=0)

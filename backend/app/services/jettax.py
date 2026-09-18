@@ -1071,6 +1071,47 @@ def acionar_fallback_automatico(
     )
 
 
+def _periodo_dos_filtros(filtros: dict[str, Any] | None):
+    """
+    Reconstrói o intervalo pedido a partir dos filtros enviados ao fornecedor.
+
+    A Jettax entra como fallback/conferência da fonte oficial, e precisa
+    respeitar o mesmo recorte: o filtro remoto é por contrato do fornecedor
+    (`data_inicial`/`data_final` para NF-e, `period=m-AAAA` para NFS-e) e nem
+    sempre é exato. Reaplicar o período aqui garante que uma resposta mais
+    generosa que o pedido não reintroduza no acervo os meses que o operador
+    acabou de mandar descartar.
+    """
+    from app.services.periodo import Periodo, periodo_do_mes
+
+    if not filtros:
+        return None
+
+    inicio = _para_data(filtros.get("data_inicial"))
+    fim = _para_data(filtros.get("data_final"))
+    if inicio or fim:
+        return Periodo(inicio=inicio, fim=fim)
+
+    periodo_mensal = _texto(filtros.get("period"))
+    if periodo_mensal and "-" in periodo_mensal:
+        mes, _, ano = periodo_mensal.partition("-")
+        if mes.isdigit() and ano.isdigit():
+            try:
+                return periodo_do_mes(int(ano), int(mes))
+            except ValueError:
+                return None
+    return None
+
+
+def _emissao_do_item(tipo: TipoDocumentoFiscal, item: dict[str, Any]) -> date | None:
+    """Data de emissão do item bruto — a mesma referência usada no resto do sistema."""
+    if tipo == TipoDocumentoFiscal.NFSE:
+        return _para_data(_campo(item, "dataEmissao", "data_emissao"))
+    return _para_data(
+        _campo(item, "dataEmissao", "data_emissao", "dhEmi", "dataHoraEmissao")
+    )
+
+
 def _texto_documento(doc: DocumentoBaixado, campo: str, limite: int) -> str | None:
     return _texto(getattr(doc, campo, ""), limite) or None
 
@@ -1272,11 +1313,20 @@ def executar_importacao(db: Session, execucao_id: int, filtros: dict[str, Any] |
                 "certificado/credencial municipal e a habilitação de captura na Jettax."
             )
         criados = duplicados = ignorados = 0
+        fora_do_periodo = 0
+        periodo = _periodo_dos_filtros(filtros)
         for item in itens:
             try:
                 identificador = _texto(_campo(item, "id", "ultimoId", "lastId"), 100)
                 if not identificador:
                     raise ValueError("Documento Jettax sem identificador do fornecedor.")
+                # Mesmo recorte da fonte oficial: o que está fora do período
+                # pedido não entra no acervo. Item sem data legível é mantido —
+                # descartar nota por campo ausente seria o erro caro.
+                emissao = _emissao_do_item(execucao.tipo, item)
+                if periodo is not None and emissao is not None and not periodo.contem(emissao):
+                    fora_do_periodo += 1
+                    continue
                 if execucao.tipo == TipoDocumentoFiscal.NFSE:
                     criou = _persistir_nfse_metadados(db, empresa, item)
                 else:
@@ -1297,6 +1347,11 @@ def executar_importacao(db: Session, execucao_id: int, filtros: dict[str, Any] |
         execucao.documentos_duplicados = duplicados
         execucao.documentos_ignorados = ignorados
         execucao.cursor_depois = proximo_cursor if not erros else cursor
+        if fora_do_periodo:
+            avisos.append(
+                f"{fora_do_periodo} documento(s) devolvidos pela Jettax estavam fora do "
+                "período pedido e não foram guardados."
+            )
         avisos.extend(erros[:20])
         execucao.aviso = "\n".join(avisos) or None
         # Cursor nunca avança diante de item não persistido: repetir duplicados

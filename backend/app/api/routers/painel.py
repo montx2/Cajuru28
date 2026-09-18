@@ -50,6 +50,7 @@ from app.schemas import (
     UltimaSincronizacao,
 )
 from app.services import batimento
+from app.services.referencia import data_referencia_sql
 
 router = APIRouter(prefix="/painel", tags=["painel operacional"])
 
@@ -67,10 +68,6 @@ def _inicio_do_dia_utc() -> datetime:
     agora_local = datetime.now().astimezone()
     meia_noite_local = agora_local.replace(hour=0, minute=0, second=0, microsecond=0)
     return meia_noite_local.astimezone(timezone.utc)
-
-
-def _competencia_efetiva():
-    return func.coalesce(DocumentoFiscal.competencia, func.date(DocumentoFiscal.data_emissao))
 
 
 def _resposta_execucao(execucao: ExecucaoImportacao) -> ExecucaoImportacaoResposta:
@@ -263,7 +260,7 @@ def painel_operacional(
     aguardando_xml = base_documentos.filter(DocumentoFiscal.leiaute == "resumo").count()
 
     hoje = date.today()
-    comp = _competencia_efetiva()
+    comp = data_referencia_sql()
     mes_atual = date(hoje.year, hoje.month, 1)
     fim_mes = date(hoje.year + (hoje.month == 12), (hoje.month % 12) + 1, 1) - timedelta(days=1)
     do_mes = base_documentos.filter(comp >= mes_atual, comp <= fim_mes)

@@ -49,6 +49,7 @@ _COLUNAS_POR_TABELA: dict[str, list[tuple[str, str]]] = {
         ("data_inicio", "DATE"),
         ("data_fim", "DATE"),
         ("documentos_no_periodo", "INTEGER NOT NULL DEFAULT 0"),
+        ("documentos_fora_do_periodo", "INTEGER NOT NULL DEFAULT 0"),
         ("tentativas", "INTEGER NOT NULL DEFAULT 0"),
         ("bloqueado_ate", "TIMESTAMP WITH TIME ZONE"),
         ("origem", "VARCHAR(20) NOT NULL DEFAULT 'manual'"),

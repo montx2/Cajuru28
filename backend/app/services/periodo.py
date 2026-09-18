@@ -11,7 +11,13 @@ Formatos aceitos (todos muito usados na prática brasileira):
 
     08/2026   8-2026   2026-08   2026/08   ago/2026   082026   202608
     2026-08-20 (qualquer dia puxa o mês inteiro dele)
-    intervalos explícitos: data_inicio / data_fim
+    intervalos explícitos: data_inicio / data_fim, em DD/MM/AAAA ou AAAA-MM-DD
+    (01/08/2026 a 31/08/2026 é exatamente o que o operador digita na tela)
+
+Desde a v3.1 o período deixou de ser opcional nas operações que pesam — a
+importação e tudo que lê o acervo. `interpretar_periodo_obrigatorio()` é a
+porta única dessa exigência: sem intervalo não se importa e não se lista, e é
+isso que impede o sistema de encher com meses que ninguém pediu.
 """
 
 from __future__ import annotations
@@ -190,24 +196,66 @@ def interpretar_periodo(
     data_fim: object = None,
 ) -> Periodo:
     """
-    A porta de entrada única: `competencia` (MM/AAAA) vence quando informada;
-    senão usa o intervalo explícito. Sempre devolve um `Periodo` (possivelmente
-    vazio = "sem filtro").
+    A porta de entrada única: o intervalo explícito (`data_inicio`/`data_fim`)
+    vence quando informado, porque é o mais específico que o operador pode
+    dizer; na falta dele vale a `competencia` (MM/AAAA), que é um mês fechado.
+    Sempre devolve um `Periodo` (possivelmente vazio = "sem filtro").
+
+    A ordem importa: antes a competência vencia sempre, e quem digitava
+    "01/08/2026 a 15/08/2026" numa tela que também mandava a competência do mês
+    recebia agosto inteiro de volta — o intervalo digitado era silenciosamente
+    ignorado.
     """
+    inicio = _aceitar_data(data_inicio, "data_inicio")
+    fim = _aceitar_data(data_fim, "data_fim")
+    if inicio or fim:
+        if inicio and fim and inicio > fim:
+            raise PeriodoInvalido(
+                f"A data inicial ({inicio:%d/%m/%Y}) é depois da data final "
+                f"({fim:%d/%m/%Y}). Inverta as duas."
+            )
+        return Periodo(inicio=inicio, fim=fim)
+
     if competencia is not None and str(competencia).strip():
         return interpretar_competencia(competencia)
 
-    inicio = _aceitar_data(data_inicio, "data_inicio")
-    fim = _aceitar_data(data_fim, "data_fim")
-    if inicio and fim and inicio > fim:
+    return Periodo()
+
+
+def interpretar_periodo_obrigatorio(
+    competencia: str | None = None,
+    data_inicio: object = None,
+    data_fim: object = None,
+    *,
+    onde: str = "da consulta",
+) -> Periodo:
+    """
+    Mesma leitura de `interpretar_periodo`, mas **exigindo** um intervalo
+    fechado (início e fim).
+
+    Por que existir: sem período obrigatório, "pegar as NFS-e de agosto" virava
+    "pegar tudo o que a distribuição tiver" — meses inteiros que ninguém pediu
+    entulhando o acervo. Exigir as duas pontas também garante que a exclusão do
+    que está fora do período seja uma decisão explícita, nunca um acidente.
+    """
+    periodo = interpretar_periodo(competencia, data_inicio, data_fim)
+    if periodo.inicio is None or periodo.fim is None:
         raise PeriodoInvalido(
-            f"data_inicio ({inicio:%d/%m/%Y}) é depois de data_fim ({fim:%d/%m/%Y})."
+            f"Informe o período {onde}: data inicial E data final "
+            "(ex.: 01/08/2026 a 31/08/2026) ou a competência no formato "
+            f"{FORMATO}."
         )
-    return Periodo(inicio=inicio, fim=fim)
+    return periodo
 
 
 def _aceitar_data(valor: object, nome: str) -> date | None:
-    """Aceita `date`, string ISO ou None (a API recebe as duas formas)."""
+    """
+    Aceita `date`, `AAAA-MM-DD`, `DD/MM/AAAA` ou None.
+
+    `DD/MM/AAAA` está aqui porque é o que o operador digita (e o que a tela
+    mostra). Sem isso, "01/08/2026" era lido como ano 1, mês 8 — ou recusado —
+    e o filtro de datas simplesmente não pegava.
+    """
     if valor is None or valor == "":
         return None
     if isinstance(valor, date) and not hasattr(valor, "hour"):
@@ -216,9 +264,14 @@ def _aceitar_data(valor: object, nome: str) -> date | None:
     partes = re.split(r"[-/.]", texto[:10])
     if len(partes) != 3 or not all(parte.isdigit() for parte in partes):
         raise PeriodoInvalido(
-            f"{nome} inválida: {texto!r}. Use o formato AAAA-MM-DD (ex.: 2026-08-01)."
+            f"{nome} inválida: {texto!r}. Use DD/MM/AAAA (ex.: 01/08/2026) "
+            "ou AAAA-MM-DD (ex.: 2026-08-01)."
         )
-    return _validar(int(partes[0]), int(partes[1]), int(partes[2]))
+    if len(partes[0]) == 4:  # AAAA-MM-DD
+        ano, mes, dia = partes
+    else:  # DD/MM/AAAA
+        dia, mes, ano = partes
+    return _validar(_normalizar_ano(ano), _mes_numero(mes), int(dia))
 
 
 def proxima_competencia(competencia: str) -> str:

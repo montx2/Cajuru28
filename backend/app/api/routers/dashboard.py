@@ -42,6 +42,7 @@ from app.services.periodo import (
     interpretar_periodo,
     periodo_do_mes,
 )
+from app.services.referencia import data_referencia_sql
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -49,17 +50,9 @@ _MES_CURTO = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "ou
 _ROTULO_TIPO = {"nfse": "NFS-e", "nfe": "NFe", "cte": "CT-e"}
 
 
-def _competencia_efetiva():
-    """Competência declarada no XML; na falta dela, a data de emissão."""
-    return func.coalesce(
-        DocumentoFiscal.competencia,
-        func.date(DocumentoFiscal.data_emissao),
-    )
-
-
 def _mes_chave():
     """Agrupador mensal 'AAAA-MM' que funciona em PostgreSQL e SQLite."""
-    comp = _competencia_efetiva()
+    comp = data_referencia_sql()
     if settings.usando_sqlite:
         return func.strftime("%Y-%m", comp)
     return func.to_char(comp, "YYYY-MM")
@@ -118,7 +111,7 @@ def kpis(
     """Os números da Visão geral: mês atual, saúde e certificados."""
     periodo = _periodo_competencia(competencia)
     anterior = _mes_anterior(periodo)
-    comp = _competencia_efetiva()
+    comp = data_referencia_sql()
 
     base = _documentos_do_escritorio(db, escritorio_id)
     no_mes = base.filter(comp >= periodo.inicio, comp <= periodo.fim)
@@ -270,7 +263,7 @@ def por_tipo(
 
     consulta = _documentos_do_escritorio(db, escritorio_id)
     if periodo.definido:
-        comp = _competencia_efetiva()
+        comp = data_referencia_sql()
         if periodo.inicio:
             consulta = consulta.filter(comp >= periodo.inicio)
         if periodo.fim:
@@ -319,7 +312,7 @@ def top_emitentes(
         DocumentoFiscal.direcao == direcao
     )
     if periodo.definido:
-        comp = _competencia_efetiva()
+        comp = data_referencia_sql()
         if periodo.inicio:
             consulta = consulta.filter(comp >= periodo.inicio)
         if periodo.fim:
@@ -363,7 +356,7 @@ def ranking_empresas(
 
     consulta = _documentos_do_escritorio(db, escritorio_id)
     if periodo.definido:
-        comp = _competencia_efetiva()
+        comp = data_referencia_sql()
         if periodo.inicio:
             consulta = consulta.filter(comp >= periodo.inicio)
         if periodo.fim:

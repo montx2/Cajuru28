@@ -1,14 +1,20 @@
 """
 Consulta e download dos documentos importados.
 
-Dois detalhes que parecem pequenos e são decisivos para quem usa isto todo
+Três detalhes que parecem pequenos e são decisivos para quem usa isto todo
 dia no escritório:
 
-- **filtro por competência** (`08/2026`): como a distribuição oficial não
-  aceita data, o banco guarda a competência de tudo que chegou e o recorte é
-  feito aqui. Trocar de mês passa a custar zero requisições à SEFAZ;
+- **filtro de período obrigatório**: toda leitura do acervo exige um intervalo
+  fechado (`data_inicio`/`data_fim`, ex.: 01/08/2026 a 31/08/2026) ou uma
+  competência (`08/2026`, que vira o mês inteiro). Sem período não se lista —
+  é o que impede a tela de despejar meses que ninguém pediu;
+- **o recorte acontece no banco**, sobre a data de emissão do documento, então
+  trocar de mês custa zero requisições à SEFAZ;
 - **download em massa** (`/exportar`): um ZIP com os XMLs por empresa + uma
   planilha de relação, que é exatamente o pacote que se manda por e-mail.
+
+O único caminho que dispensa período é a exportação por seleção explícita
+(`documento_ids=12,34`): ali o operador já apontou nota a nota o que quer.
 """
 
 import csv
@@ -48,9 +54,18 @@ from app.schemas import (
     ResumoDocumentos,
     ResultadoExclusaoDocumentos,
 )
-from app.services.periodo import PeriodoInvalido, interpretar_periodo
+from app.services.periodo import (
+    PeriodoInvalido,
+    interpretar_periodo,
+    interpretar_periodo_obrigatorio,
+)
+from app.services.referencia import data_referencia_sql
 
 router = APIRouter(prefix="/documentos", tags=["documentos fiscais"])
+
+DESCRICAO_DATA_INICIO = "Data inicial — 01/08/2026 ou 2026-08-01 (obrigatória)"
+DESCRICAO_DATA_FIM = "Data final — 31/08/2026 ou 2026-08-31 (obrigatória)"
+DESCRICAO_COMPETENCIA = "Atalho para o mês inteiro: MM/AAAA, ex.: 08/2026"
 
 
 def _empresa_do_escritorio(db: Session, empresa_id: int, escritorio_id: int) -> Empresa:
@@ -64,16 +79,24 @@ def _empresa_do_escritorio(db: Session, empresa_id: int, escritorio_id: int) -> 
     return empresa
 
 
-def _competencia_efetiva():
+def _periodo_obrigatorio(
+    competencia: str | None,
+    data_inicio: object,
+    data_fim: object,
+    *,
+    onde: str = "consulta",
+):
     """
-    Expressão de filtragem: a competência declarada no XML e, na falta dela, a
-    data de emissão. `date()` tem o mesmo comportamento em PostgreSQL e SQLite,
-    então o filtro não muda de resultado conforme o banco.
+    Lê o período do pedido e recusa (422) quando ele não veio completo.
+
+    A mensagem é a que aparece na tela, então precisa dizer o que digitar.
     """
-    return func.coalesce(
-        DocumentoFiscal.competencia,
-        func.date(DocumentoFiscal.data_emissao),
-    )
+    try:
+        return interpretar_periodo_obrigatorio(
+            competencia, data_inicio, data_fim, onde=onde
+        )
+    except PeriodoInvalido as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 def _filtrar(
@@ -157,11 +180,13 @@ def _filtrar(
         consulta = consulta.filter(or_(*condicoes))
 
     if inicio or fim:
-        competencia = _competencia_efetiva()
+        # Uma única expressão de data em todo o sistema: a data de emissão.
+        # Ver app/services/referencia.py para o porquê.
+        emissao = data_referencia_sql()
         if inicio:
-            consulta = consulta.filter(competencia >= inicio)
+            consulta = consulta.filter(emissao >= inicio)
         if fim:
-            consulta = consulta.filter(competencia <= fim)
+            consulta = consulta.filter(emissao <= fim)
     return consulta
 
 
@@ -240,9 +265,9 @@ def resumo_documentos(
     direcao: DirecaoDocumento | None = None,
     status: StatusDocumentoFiscal | None = None,
     leiaute: str | None = Query(default=None, description="completo | resumo"),
-    competencia: str | None = None,
-    data_inicio: date | None = Query(default=None),
-    data_fim: date | None = Query(default=None),
+    competencia: str | None = Query(default=None, description=DESCRICAO_COMPETENCIA),
+    data_inicio: str | None = Query(default=None, description=DESCRICAO_DATA_INICIO),
+    data_fim: str | None = Query(default=None, description=DESCRICAO_DATA_FIM),
     busca: str | None = Query(default=None),
     numero: str | None = Query(default=None),
     serie: str | None = Query(default=None),
@@ -255,13 +280,10 @@ def resumo_documentos(
     escritorio_id: int = Depends(escritorio_id_atual),
 ):
     """
-    Total de notas, separando canceladas — com o mesmo filtro de competência do
-    resto da tela (antes o resumo contava tudo e discordava da lista).
+    Total de notas, separando canceladas — com exatamente o mesmo filtro de
+    período da listagem (antes o resumo contava tudo e discordava da lista).
     """
-    try:
-        periodo = interpretar_periodo(competencia, data_inicio, data_fim)
-    except PeriodoInvalido as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    periodo = _periodo_obrigatorio(competencia, data_inicio, data_fim, onde="do resumo")
 
     ids = _ids_empresas_do_escritorio(
         db, escritorio_id=escritorio_id, empresa_id=empresa_id, empresa_ids=empresa_ids
@@ -311,9 +333,9 @@ def listar_documentos(
     direcao: DirecaoDocumento | None = None,
     status: StatusDocumentoFiscal | None = None,
     leiaute: str | None = Query(default=None, description="completo | resumo"),
-    competencia: str | None = Query(default=None, description="MM/AAAA, ex.: 08/2026"),
-    data_inicio: date | None = Query(default=None),
-    data_fim: date | None = Query(default=None),
+    competencia: str | None = Query(default=None, description=DESCRICAO_COMPETENCIA),
+    data_inicio: str | None = Query(default=None, description=DESCRICAO_DATA_INICIO),
+    data_fim: str | None = Query(default=None, description=DESCRICAO_DATA_FIM),
     busca: str | None = Query(default=None, description="chave, número, NSU, emitente ou destinatário"),
     numero: str | None = Query(default=None),
     serie: str | None = Query(default=None),
@@ -327,10 +349,15 @@ def listar_documentos(
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
 ):
-    try:
-        periodo = interpretar_periodo(competencia, data_inicio, data_fim)
-    except PeriodoInvalido as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    """
+    Lista as notas do período pedido.
+
+    O período é **obrigatório**: informe `data_inicio`/`data_fim`
+    (01/08/2026 a 31/08/2026) ou `competencia` (08/2026, que vira o mês
+    inteiro). Sem ele a resposta é 422 com a instrução — listar "tudo" era
+    justamente o que enchia a tela de meses que ninguém pediu.
+    """
+    periodo = _periodo_obrigatorio(competencia, data_inicio, data_fim, onde="da listagem")
 
     ids = _ids_empresas_do_escritorio(
         db, escritorio_id=escritorio_id, empresa_id=empresa_id, empresa_ids=empresa_ids
@@ -361,9 +388,9 @@ def listar_documentos(
 
 @router.get("/por-empresa", response_model=list[EmpresaResumoDocumentos])
 def resumo_por_empresa(
-    competencia: str | None = None,
-    data_inicio: date | None = Query(default=None),
-    data_fim: date | None = Query(default=None),
+    competencia: str | None = Query(default=None, description=DESCRICAO_COMPETENCIA),
+    data_inicio: str | None = Query(default=None, description=DESCRICAO_DATA_INICIO),
+    data_fim: str | None = Query(default=None, description=DESCRICAO_DATA_FIM),
     tipo: TipoDocumentoFiscal | None = None,
     direcao: DirecaoDocumento | None = None,
     status: StatusDocumentoFiscal | None = None,
@@ -378,11 +405,12 @@ def resumo_por_empresa(
     Antes, quando só `tipo` era informado, `total` vinha filtrado mas
     canceladas/resumos/valor ficavam zerados; agora todos os números nascem da
     mesma consulta usada pela listagem/exportação.
+
+    O período é obrigatório, como em todo o resto da tela.
     """
-    try:
-        periodo = interpretar_periodo(competencia, data_inicio, data_fim)
-    except PeriodoInvalido as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    periodo = _periodo_obrigatorio(
+        competencia, data_inicio, data_fim, onde="do resumo por empresa"
+    )
 
     empresas = (
         db.query(Empresa)
@@ -448,9 +476,9 @@ def estimativa_exportacao(
     tipo: TipoDocumentoFiscal | None = None,
     direcao: DirecaoDocumento | None = None,
     status: StatusDocumentoFiscal | None = None,
-    competencia: str | None = None,
-    data_inicio: date | None = None,
-    data_fim: date | None = None,
+    competencia: str | None = Query(default=None, description=DESCRICAO_COMPETENCIA),
+    data_inicio: str | None = Query(default=None, description=DESCRICAO_DATA_INICIO),
+    data_fim: str | None = Query(default=None, description=DESCRICAO_DATA_FIM),
     incluir_canceladas: bool = True,
     documento_ids: str | None = Query(default=None, description="seleção da tela: 12,34,56"),
     busca: str | None = Query(default=None, description="mesma busca da tela"),
@@ -519,9 +547,9 @@ def exportar_relacao_csv(
     tipo: TipoDocumentoFiscal | None = None,
     direcao: DirecaoDocumento | None = None,
     status: StatusDocumentoFiscal | None = None,
-    competencia: str | None = None,
-    data_inicio: date | None = None,
-    data_fim: date | None = None,
+    competencia: str | None = Query(default=None, description=DESCRICAO_COMPETENCIA),
+    data_inicio: str | None = Query(default=None, description=DESCRICAO_DATA_INICIO),
+    data_fim: str | None = Query(default=None, description=DESCRICAO_DATA_FIM),
     incluir_canceladas: bool = True,
     documento_ids: str | None = Query(default=None, description="seleção da tela: 12,34,56"),
     busca: str | None = Query(default=None, description="mesma busca da tela"),
@@ -602,9 +630,9 @@ def exportar_xmls(
     tipo: TipoDocumentoFiscal | None = None,
     direcao: DirecaoDocumento | None = None,
     status: StatusDocumentoFiscal | None = None,
-    competencia: str | None = None,
-    data_inicio: date | None = None,
-    data_fim: date | None = None,
+    competencia: str | None = Query(default=None, description=DESCRICAO_COMPETENCIA),
+    data_inicio: str | None = Query(default=None, description=DESCRICAO_DATA_INICIO),
+    data_fim: str | None = Query(default=None, description=DESCRICAO_DATA_FIM),
     incluir_canceladas: bool = True,
     documento_ids: str | None = Query(default=None, description="seleção da tela: 12,34,56"),
     busca: str | None = Query(default=None, description="mesma busca da tela"),
@@ -712,21 +740,37 @@ def _params_export(
     empresa_id: int | str | None,
     empresa_ids: str | None,
     competencia: str | None,
-    data_inicio: date | None,
-    data_fim: date | None,
+    data_inicio: object,
+    data_fim: object,
     incluir_canceladas: bool,
     documento_ids: str | None = None,
 ):
-    try:
-        periodo = interpretar_periodo(competencia, data_inicio, data_fim)
-    except PeriodoInvalido as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    """
+    Parâmetros comuns das três saídas (estimativa, CSV e ZIP).
 
+    Período obrigatório, com **uma** exceção: quando o pedido traz
+    `documento_ids`, o operador já escolheu nota a nota na tela — exigir data
+    ali seria pedir duas vezes a mesma informação (e o "baixar seleção"
+    deixaria de funcionar).
+    """
+    # A checagem de escritório vem primeiro de propósito: pedir XML de outro
+    # cliente é 403 mesmo que o período também esteja faltando. Trocar a ordem
+    # transformaria uma tentativa de acesso indevido num inofensivo "faltou a
+    # data", escondendo o que realmente aconteceu.
     ids = _ids_empresas_do_escritorio(
         db, escritorio_id=escritorio_id, empresa_id=empresa_id, empresa_ids=empresa_ids
     )
-    selecionados = _parse_ids(documento_ids, nome="documento_id")
-    return ids, periodo, (not incluir_canceladas), selecionados
+    selecao = _parse_ids(documento_ids, nome="documento_id")
+    if selecao:
+        try:
+            periodo = interpretar_periodo(competencia, data_inicio, data_fim)
+        except PeriodoInvalido as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    else:
+        periodo = _periodo_obrigatorio(
+            competencia, data_inicio, data_fim, onde="do download"
+        )
+    return ids, periodo, (not incluir_canceladas), selecao
 
 
 def _consulta_export(

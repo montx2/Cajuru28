@@ -6,7 +6,8 @@ import { useSearchParams } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { StatusDot } from "@/components/StatusDot";
 import { PainelImportacao } from "@/components/PainelImportacao";
-import { emQuanto, horaLocal, mesAtual, paraAPI } from "@/lib/competencia";
+import { emQuanto, horaLocal } from "@/lib/competencia";
+import { periodoDaURL, periodoValido, rotuloPeriodo, type Periodo } from "@/lib/periodo";
 import {
   ROTULO_TIPO,
   type Empresa,
@@ -64,7 +65,10 @@ function Ficha({
 function ConteudoImportacoes() {
   const searchParams = useSearchParams();
   const execucaoDestacada = searchParams.get("execucao");
-  const [competencia, setCompetencia] = useState<string | null>(searchParams.get("competencia") || mesAtual());
+  // O período é obrigatório também aqui: é ele que decide o que a importação
+  // vai guardar. A URL pode trazê-lo (vindo de Documentos); senão, mês atual.
+  const [periodo, setPeriodo] = useState<Periodo>(() => periodoDaURL(searchParams));
+  const periodoOk = periodoValido(periodo);
 
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
   const [execucoes, setExecucoes] = useState<ExecucaoImportacao[]>([]);
@@ -106,13 +110,18 @@ function ConteudoImportacoes() {
   async function puxarAgora(estado: EstadoSincronizacao) {
     setAviso(null);
     try {
+      if (!periodoOk) {
+        setAviso("Informe o período antes de puxar: data inicial e data final.");
+        return;
+      }
       const execucao = await api.solicitarImportacao(
         estado.empresa_id,
         estado.tipo as TipoDocumentoFiscal,
-        { competencia: paraAPI(competencia) }
+        { data_inicio: periodo.inicio, data_fim: periodo.fim }
       );
       setAviso(
-        `Enfileirado para ${estado.razao_social} (${ROTULO_TIPO[estado.tipo as TipoDocumentoFiscal]}) — execução #${execucao.id}.`
+        `Enfileirado para ${estado.razao_social} (${ROTULO_TIPO[estado.tipo as TipoDocumentoFiscal]}) ` +
+          `em ${rotuloPeriodo(periodo)} — execução #${execucao.id}.`
       );
       await carregar();
     } catch (e) {
@@ -151,14 +160,18 @@ function ConteudoImportacoes() {
           <p className="page-kicker">Automação fiscal</p>
           <h1 className="page-title">Importações</h1>
           <p className="page-description">
-            O sistema varre as empresas sozinho, dentro da janela oficial de 1h por CNPJ — você não precisa clicar. Use esta aba só para puxar uma competência específica na hora. Se a SEFAZ pedir espera (cStat 656), a execução retoma sozinha no horário certo; forçar antes zera o cronômetro.
+            O sistema varre as empresas sozinho, dentro da janela oficial de 1h por CNPJ — você não
+            precisa clicar. Use esta aba para puxar um período específico na hora: a busca na SEFAZ é
+            por NSU, mas só as notas emitidas dentro do período escolhido entram no acervo. Se a SEFAZ
+            pedir espera (cStat 656), a execução retoma sozinha no horário certo; forçar antes zera o
+            cronômetro.
           </p>
         </div>
         <Link
-          href={`/dashboard/documentos${competencia ? `?competencia=${competencia}` : ""}`}
+          href={`/dashboard/documentos?data_inicio=${periodo.inicio}&data_fim=${periodo.fim}`}
           className="border border-line px-3 py-2 text-sm text-accent hover:border-accent"
         >
-          Baixar os XMLs de {competencia ? competencia.split("-").reverse().join("/") : "todos os períodos"} →
+          Baixar os XMLs de {rotuloPeriodo(periodo)} →
         </Link>
       </div>
 
@@ -177,8 +190,8 @@ function ConteudoImportacoes() {
       <PainelImportacao
         aoDisparar={carregar}
         titulo="Puxar notas"
-        competenciaInicial={competencia ?? undefined}
-        aoMudarCompetencia={setCompetencia}
+        periodoInicial={periodo}
+        aoMudarPeriodo={setPeriodo}
       />
 
       {aviso && (
