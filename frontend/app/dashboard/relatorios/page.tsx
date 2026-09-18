@@ -255,7 +255,7 @@ export default function RelatoriosPage() {
                         <Link href={`/dashboard/empresa?id=${e.empresa_id}`} className="link font-medium">
                           {e.razao_social}
                         </Link>
-                        <span className="block font-mono text-[11px] text-ink-faint">
+                        <span className="block font-mono text-xs text-ink-faint">
                           {formatarCnpjCpf(e.cnpj)} · {e.uf}
                         </span>
                       </td>
@@ -264,7 +264,7 @@ export default function RelatoriosPage() {
                           {e.por_tipo[tipo]?.qtd ? (
                             <>
                               <span className="text-ink">{numero(e.por_tipo[tipo].qtd)}</span>
-                              <span className="block text-[11px] text-ink-faint">
+                              <span className="block text-xs text-ink-faint">
                                 {moeda(e.por_tipo[tipo].valor)}
                               </span>
                             </>

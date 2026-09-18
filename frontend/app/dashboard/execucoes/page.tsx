@@ -72,7 +72,7 @@ export default function ExecucoesPage() {
   if (!dados) return null;
 
   return (
-    <div className="animate-fade-up space-y-6">
+    <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="page-title">Execuções</h1>

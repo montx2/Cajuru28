@@ -8,6 +8,7 @@ import { usePapel } from "@/lib/papel";
 import { PeriodoPicker } from "@/components/PeriodoPicker";
 import { DocumentoDrawer } from "@/components/DocumentoDrawer";
 import { Icone } from "@/components/icons";
+import { DialogoConfirmacao } from "@/components/ui/index";
 import { bytesParaTexto } from "@/lib/competencia";
 import {
   erroDoPeriodo,
@@ -86,6 +87,7 @@ function ConteudoDocumentos() {
   const [estimativa, setEstimativa] = useState<EstimativaExportacao | null>(null);
   const [baixando, setBaixando] = useState(false);
   const [excluindo, setExcluindo] = useState(false);
+  const [alvosExclusao, setAlvosExclusao] = useState<number[]>([]);
   const [mensagem, setMensagem] = useState<string | null>(null);
 
   useEffect(() => {
@@ -205,8 +207,6 @@ function ConteudoDocumentos() {
 
   async function excluirDocumento(id: number) {
     if (somenteLeitura) return;
-    const doc = documentos.find((item) => item.id === id);
-    if (!window.confirm(`Excluir definitivamente o documento ${doc?.numero ?? doc?.chave_acesso ?? id}?`)) return;
     setExcluindo(true);
     setMensagem(null);
     try {
@@ -218,13 +218,13 @@ function ConteudoDocumentos() {
       setMensagem(e instanceof ApiError ? e.message : "Não foi possível excluir o documento.");
     } finally {
       setExcluindo(false);
+      setAlvosExclusao([]);
     }
   }
 
   async function excluirSelecionados() {
     if (somenteLeitura || selecionados.size === 0) return;
     const ids = [...selecionados];
-    if (!window.confirm(`Excluir definitivamente ${ids.length} documento(s) selecionado(s)?`)) return;
     setExcluindo(true);
     setMensagem(null);
     try {
@@ -236,6 +236,7 @@ function ConteudoDocumentos() {
       setMensagem(e instanceof ApiError ? e.message : "Não foi possível excluir a seleção.");
     } finally {
       setExcluindo(false);
+      setAlvosExclusao([]);
     }
   }
 
@@ -505,7 +506,7 @@ function ConteudoDocumentos() {
         {!somenteLeitura && (
           <button
             type="button"
-            onClick={excluirSelecionados}
+            onClick={() => setAlvosExclusao([...selecionados])}
             disabled={excluindo || selecionados.size === 0}
             className="btn-ghost btn-sm text-danger"
           >
@@ -547,7 +548,7 @@ function ConteudoDocumentos() {
 
       {!periodoOk ? (
         <div className="empty-state">
-          <p className="font-display text-base font-extrabold text-ink">Informe o período</p>
+          <p className="font-display text-base font-semibold text-ink">Informe o período</p>
           <p className="mt-1 text-xs text-ink-muted">
             {avisoPeriodo} Use os atalhos de mês para preencher o mês inteiro de uma vez.
           </p>
@@ -556,7 +557,7 @@ function ConteudoDocumentos() {
         <p className="text-sm text-ink-muted">Carregando…</p>
       ) : documentos.length === 0 ? (
         <div className="empty-state">
-          <p className="font-display text-base font-extrabold text-ink">
+          <p className="font-display text-base font-semibold text-ink">
             Nenhum documento em {periodoRotulo}
           </p>
           <p className="mt-1 text-xs text-ink-muted">
@@ -662,7 +663,7 @@ function ConteudoDocumentos() {
                     {!somenteLeitura && (
                       <button
                         type="button"
-                        onClick={() => excluirDocumento(doc.id)}
+                        onClick={() => setAlvosExclusao([doc.id])}
                         disabled={excluindo}
                         className="text-danger hover:underline disabled:opacity-50"
                       >
@@ -679,6 +680,7 @@ function ConteudoDocumentos() {
       )}
 
       <DocumentoDrawer documentoId={docAberto} aoFechar={() => setDocAberto(null)} />
+      <DialogoConfirmacao aberto={alvosExclusao.length > 0} aoFechar={() => setAlvosExclusao([])} aoConfirmar={() => alvosExclusao.length === 1 ? excluirDocumento(alvosExclusao[0]) : excluirSelecionados()} titulo={alvosExclusao.length === 1 ? "Excluir documento" : "Excluir documentos em lote"} consequencia={`${alvosExclusao.length} documento(s) e seus arquivos XML serão removidos definitivamente. Esta ação não pode ser desfeita.`} rotuloConfirmar="Excluir definitivamente" tom="perigo" exigirTexto={alvosExclusao.length > 1 ? "EXCLUIR" : undefined} carregando={excluindo} />
 
       <div className="mt-4 flex items-center justify-between text-sm text-ink-muted">
         <span>

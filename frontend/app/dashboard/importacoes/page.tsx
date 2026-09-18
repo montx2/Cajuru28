@@ -154,7 +154,7 @@ function ConteudoImportacoes() {
   void tick; // os contadores regressivos dependem deste tick
 
   return (
-    <div className="animate-fade-up max-w-6xl">
+    <div className="max-w-6xl">
       <div className="page-header">
         <div>
           <p className="page-kicker">Automação fiscal</p>

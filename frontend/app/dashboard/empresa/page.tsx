@@ -219,7 +219,7 @@ function ConteudoEmpresa() {
   if (!empresa) return <p className="text-sm text-ink-muted">Carregando…</p>;
 
   return (
-    <div className="animate-fade-up max-w-3xl">
+    <div className="max-w-3xl">
       <Link href="/dashboard/empresas" className="link text-xs">← Empresas</Link>
       <div className="mb-8 mt-5">
         <p className="page-kicker">Cadastro fiscal</p>

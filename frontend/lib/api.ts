@@ -104,14 +104,26 @@ async function chamar<T>(caminho: string, opcoes: RequestInit = {}): Promise<T> 
 
   if (!resposta.ok) {
     const corpo = await resposta.json().catch(() => ({}));
-    let detalhe = corpo.detail ?? "Erro inesperado na API";
-    // FastAPI devolve lista de erros de validação Pydantic
+    let detalhe: unknown = corpo.detail ?? "Erro inesperado na API";
+    // A localização vinda do Pydantic evita mensagens vagas em formulários extensos.
     if (Array.isArray(detalhe)) {
       detalhe = detalhe
-        .map((e: { msg?: string; loc?: unknown[] }) => e.msg ?? JSON.stringify(e))
+        .map((item: unknown) => {
+          if (typeof item !== "object" || item === null) return String(item);
+          const erro = item as { msg?: unknown; loc?: unknown[] };
+          const local = erro.loc?.filter((parte) => parte !== "body").join(" → ");
+          const mensagem = typeof erro.msg === "string" ? erro.msg : "valor inválido";
+          return local ? `${local}: ${mensagem}` : mensagem;
+        })
         .join("; ");
     }
-    throw new ApiError(resposta.status, typeof detalhe === "string" ? detalhe : "Erro na API");
+    const mensagensStatus: Partial<Record<number, string>> = {
+      403: "Origem não autorizada para esta sessão ou papel sem permissão para a ação.",
+      413: "O arquivo ultrapassa o limite de 35 MiB. Selecione um arquivo menor.",
+      429: "A consulta ainda está na janela de consumo. O sistema retoma automaticamente.",
+    };
+    const mensagem = mensagensStatus[resposta.status] ?? (typeof detalhe === "string" ? detalhe : "A API devolveu uma resposta inválida.");
+    throw new ApiError(resposta.status, mensagem);
   }
 
   if (resposta.status === 204) return undefined as T;

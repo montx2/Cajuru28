@@ -52,7 +52,7 @@ export default function AuditoriaPage() {
   }
 
   return (
-    <div className="animate-fade-up max-w-5xl">
+    <div className="max-w-5xl">
       <div className="mb-6">
         <h1 className="page-title">Auditoria</h1>
         <p className="mt-1 text-sm text-ink-muted">
@@ -129,7 +129,7 @@ export default function AuditoriaPage() {
                     <td>
                       <span className="badge-neutral">{ROTULO_ACAO[r.acao] ?? r.acao}</span>
                       {r.entidade && (
-                        <span className="ml-1 font-mono text-[11px] text-ink-faint">
+                        <span className="ml-1 font-mono text-xs text-ink-faint">
                           {r.entidade}
                           {r.entidade_id ? `#${r.entidade_id}` : ""}
                         </span>

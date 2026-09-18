@@ -5,6 +5,7 @@ import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
 import { usePapel } from "@/lib/papel";
 import type { ConsultaCNPJ, Empresa, LoteEmpresasResposta } from "@/lib/types";
+import { DialogoConfirmacao } from "@/components/ui/index";
 
 const UFS = [
   "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS",
@@ -50,6 +51,7 @@ export default function EmpresasPage() {
   const [erro, setErro] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
   const [excluindoId, setExcluindoId] = useState<number | null>(null);
+  const [empresaParaExcluir, setEmpresaParaExcluir] = useState<Empresa | null>(null);
 
   // estado do importador em massa
   const [mostrarLote, setMostrarLote] = useState(false);
@@ -146,15 +148,12 @@ export default function EmpresasPage() {
   }
 
   async function excluirEmpresa(empresa: Empresa) {
-    const confirmado = window.confirm(
-      `Excluir ${empresa.razao_social}?\n\nTodos os XMLs, certificados e históricos desta empresa serão removidos definitivamente.`
-    );
-    if (!confirmado) return;
     setErro(null);
     setExcluindoId(empresa.id);
     try {
       await api.excluirEmpresa(empresa.id);
       setEmpresas((atuais) => atuais.filter((item) => item.id !== empresa.id));
+      setEmpresaParaExcluir(null);
     } catch (e) {
       setErro(e instanceof ApiError ? e.message : "Não foi possível excluir a empresa.");
     } finally {
@@ -433,12 +432,12 @@ export default function EmpresasPage() {
                   </div>
                   <span className="badge-neutral">{empresa.uf}</span>
                 </div>
-                <p className="mt-4 text-xs font-bold text-accent-deep">Abrir cadastro <span aria-hidden="true">→</span></p>
+                <p className="mt-4 text-xs font-semibold text-accent-deep">Abrir cadastro <span aria-hidden="true">→</span></p>
               </Link>
               {!somenteLeitura && (
                 <button
                   type="button"
-                  onClick={() => excluirEmpresa(empresa)}
+                  onClick={() => setEmpresaParaExcluir(empresa)}
                   disabled={excluindoId === empresa.id}
                   className="mt-3 text-xs text-danger hover:underline disabled:opacity-50"
                 >
@@ -449,6 +448,7 @@ export default function EmpresasPage() {
           ))}
         </div>
       )}
+      <DialogoConfirmacao aberto={empresaParaExcluir !== null} aoFechar={() => setEmpresaParaExcluir(null)} aoConfirmar={() => empresaParaExcluir ? excluirEmpresa(empresaParaExcluir) : undefined} titulo="Excluir empresa" consequencia={`A empresa ${empresaParaExcluir?.razao_social ?? "selecionada"}, seus certificados, históricos e todos os XMLs serão removidos definitivamente.`} rotuloConfirmar="Excluir empresa e XMLs" tom="perigo" exigirTexto="EXCLUIR" carregando={excluindoId !== null} />
     </div>
   );
 }

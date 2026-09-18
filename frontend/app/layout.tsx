@@ -1,18 +1,5 @@
 import type { Metadata } from "next";
 import "./globals.css";
-
-export const metadata: Metadata = {
-  title: "NotasFlow — Operação fiscal",
-  description: "Centro de controle fiscal com importação automática, alertas relevantes e fechamento mensal.",
-  // O mesmo ícone do programa: a aba do navegador, o atalho e a bandeja
-  // mostram a mesma marca. O arquivo é gerado por `scripts/gerar_icone.py`.
-  icons: { icon: "/icone.png", shortcut: "/icone.png", apple: "/icone.png" },
-};
-
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <html lang="pt-BR">
-      <body>{children}</body>
-    </html>
-  );
-}
+export const metadata: Metadata = { title: "NotasFlow — Operação fiscal", description: "Captura, validação e fechamento de documentos fiscais.", icons: { icon: "/icone.png" } };
+const scriptTema = `(function(){try{var t=localStorage.getItem('notasflow:tema')||'sistema';var e=t==='escuro'||(t==='sistema'&&matchMedia('(prefers-color-scheme:dark)').matches);document.documentElement.dataset.tema=e?'escuro':'claro'}catch(e){}})()`;
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) { return <html lang="pt-BR" suppressHydrationWarning><head><script dangerouslySetInnerHTML={{ __html: scriptTema }} /></head><body>{children}</body></html>; }

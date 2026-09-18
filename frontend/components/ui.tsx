@@ -60,8 +60,8 @@ export function KpiCard({
     <>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-[10px] font-extrabold uppercase tracking-[.13em] text-ink-muted">{rotulo}</p>
-          <p className="mt-3 font-display text-[1.9rem] font-extrabold leading-none tracking-tight tabular-nums text-ink">{valor}</p>
+          <p className="text-xs font-semibold uppercase tracking-[.13em] text-ink-muted">{rotulo}</p>
+          <p className="mt-3 font-display text-[1.9rem] font-semibold leading-none tracking-tight tabular-nums text-ink">{valor}</p>
         </div>
         <span className={`inline-flex h-9 w-9 items-center justify-center rounded-[10px] ${COR_TOM[tom]}`}>
           <Icone nome={icone} className="h-[18px] w-[18px]" />
@@ -70,7 +70,7 @@ export function KpiCard({
       <div className="mt-4 flex min-h-5 items-center justify-between gap-2 border-t border-line/70 pt-3">
         {detalhe ? <p className="text-xs leading-5 text-ink-faint">{detalhe}</p> : <span />}
         {variacao !== undefined && variacao !== null && (
-          <span className={`flex-none rounded-pill px-2 py-1 font-mono text-[10px] font-semibold ${variacao >= 0 ? "bg-accent-soft text-accent-deep" : "bg-danger-soft text-danger"}`}>
+          <span className={`flex-none rounded-pill px-2 py-1 font-mono text-xs font-semibold ${variacao >= 0 ? "bg-accent-soft text-accent-deep" : "bg-danger-soft text-danger"}`}>
             {variacao >= 0 ? "▲" : "▼"} {Math.abs(variacao).toLocaleString("pt-BR")}%
           </span>
         )}
@@ -111,13 +111,13 @@ export function GraficoBarras({
               title={d.titulo ?? `${d.rotulo}: ${d.valor}`}
               className="group relative flex h-full flex-1 flex-col justify-end"
             >
-              <span className="pointer-events-none absolute -top-1 left-1/2 z-10 hidden -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md bg-ink px-2 py-1 font-mono text-[11px] text-white group-hover:block">
+              <span className="pointer-events-none absolute -top-1 left-1/2 z-10 hidden -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md bg-ink px-2 py-1 font-mono text-xs text-white group-hover:block">
                 {d.titulo ?? d.valor}
               </span>
               <div
                 className={`w-full rounded-t-md transition-all duration-300 ${
                   destaque
-                    ? "bg-gradient-to-t from-accent-deep to-accent-bright"
+                    ? "bg-accent"
                     : "bg-accent-soft group-hover:bg-accent/40"
                 }`}
                 style={{ height: `${h}%` }}
@@ -130,7 +130,7 @@ export function GraficoBarras({
         {dados.map((d) => (
           <span
             key={d.rotulo}
-            className="flex-1 truncate text-center font-mono text-[10px] text-ink-faint"
+            className="flex-1 truncate text-center font-mono text-xs text-ink-faint"
           >
             {d.rotulo}
           </span>
@@ -234,7 +234,7 @@ export function EstadoVazio({
       <span className="inline-flex h-11 w-11 items-center justify-center rounded-[14px] bg-accent-soft text-accent-deep">
         <Icone nome={icone} className="h-5 w-5" />
       </span>
-      <p className="mt-4 font-display text-base font-extrabold tracking-tight text-ink">{titulo}</p>
+      <p className="mt-4 font-display text-base font-semibold tracking-tight text-ink">{titulo}</p>
       {texto && <p className="mt-1 max-w-sm text-sm leading-6 text-ink-muted">{texto}</p>}
       {acao && <div className="mt-5">{acao}</div>}
     </div>

@@ -8,6 +8,7 @@ import { bytesParaTexto } from "@/lib/competencia";
 import { Icone } from "@/components/icons";
 import { useToast } from "@/components/Toast";
 import { Esqueleto, TituloSecao } from "@/components/ui";
+import { DialogoConfirmacao } from "@/components/ui/index";
 import type { InfoSistema, ResumoCertificado } from "@/lib/types";
 
 export default function ConfiguracoesPage() {
@@ -29,6 +30,7 @@ export default function ConfiguracoesPage() {
   const [resetando, setResetando] = useState(false);
   const [removerIntegracoesReset, setRemoverIntegracoesReset] = useState(false);
   const [forcarReset, setForcarReset] = useState(false);
+  const [dialogoReset, setDialogoReset] = useState(false);
 
   const carregar = useCallback(() => {
     api.infoSistema().then(setInfo).catch(() => setInfo(null));
@@ -97,10 +99,6 @@ export default function ConfiguracoesPage() {
     if (confirmacaoReset.trim().toUpperCase() !== "LIMPAR") {
       return toast.erro("Digite LIMPAR para confirmar a limpeza geral.");
     }
-    const ok = window.confirm(
-      "Isto apaga empresas, certificados, documentos, XMLs, execuções e cursores do escritório logado. Deseja continuar?"
-    );
-    if (!ok) return;
     setResetando(true);
     try {
       const r = await api.resetGeral({
@@ -112,6 +110,7 @@ export default function ConfiguracoesPage() {
       setConfirmacaoReset("");
       setRemoverIntegracoesReset(false);
       setForcarReset(false);
+      setDialogoReset(false);
       carregar();
     } catch (e) {
       toast.erro(e instanceof ApiError ? e.message : "Falha ao limpar o sistema.");
@@ -125,7 +124,7 @@ export default function ConfiguracoesPage() {
   const webhook = info?.webhook;
 
   return (
-    <div className="animate-fade-up max-w-5xl">
+    <div className="max-w-5xl">
       <h1 className="page-title">Configurações</h1>
       <p className="mt-1 text-sm text-ink-muted">
         Diagnóstico do ambiente, certificados, atenção e integrações.
@@ -224,7 +223,7 @@ export default function ConfiguracoesPage() {
               type="button"
               className="btn-ghost self-end text-danger"
               disabled={resetando || confirmacaoReset.trim().toUpperCase() !== "LIMPAR"}
-              onClick={resetarTudo}
+              onClick={() => setDialogoReset(true)}
             >
               {resetando ? "Limpando…" : "Limpar geral"}
             </button>
@@ -382,6 +381,7 @@ export default function ConfiguracoesPage() {
           {!certificados.length && <p className="py-4 text-sm text-ink-muted">Nenhuma empresa cadastrada.</p>}
         </div>
       </section>
+      <DialogoConfirmacao aberto={dialogoReset} aoFechar={() => setDialogoReset(false)} aoConfirmar={resetarTudo} titulo="Limpar todo o escritório" consequencia="Empresas, certificados, documentos, XMLs, execuções e cursores serão apagados. Integrações também serão removidas se essa opção estiver marcada. A operação é irreversível." rotuloConfirmar="Limpar definitivamente" tom="perigo" exigirTexto="LIMPAR" carregando={resetando} />
     </div>
   );
 }
