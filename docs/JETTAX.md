@@ -40,45 +40,61 @@ vazado para outro domínio.
 
 O contrato público da Morfeu (coleção Postman) autentica por **API Key**: o
 header é `Authorization: <token>` com o token **puro, sem o prefixo
-`Bearer`**. A coleção documenta estas respostas de autenticação:
+`Bearer`**.
 
-| HTTP | Corpo documentado | Significado prático |
-| --- | --- | --- |
-| 401 | `{"message": "Dados de acesso inválidos"}` | Token recusado: valor incorreto, revogado ou emitido para outro sistema |
-| 403 | `{"message": "Token não encontrado"}` | O token não existe **na URL consultada** — provável ambiente errado |
+**Comportamento observado na API de produção (verificado em 2026-09):** os
+dois endereços respondem `HTTP 401 {"message":"Token inválido."}` para
+qualquer credencial que o middleware não aceite — inclusive quando nenhum
+header é enviado. Ou seja, **a Jettax devolve a mesma mensagem genérica** para
+token errado, token de outro ambiente e header em formato inesperado. Não é
+possível distinguir esses casos apenas pelo corpo da resposta, e é por isso
+que o conector passou a investigar ativamente em vez de só repassar o erro.
 
-A mensagem do conector inclui o status e o host tentado
-(ex.: `[HTTP 403 · morfeu-api.jettax.com.br]`) e o log do servidor
-(`docker compose logs api`) registra método, rota e status de cada chamada
-recusada.
+O que o NotasFlow faz hoje, automaticamente:
 
-Pontos de atenção conhecidos:
+1. **Tenta o formato documentado primeiro** (`Authorization: <token>`). Se a
+   resposta for 401/403, repete a mesma requisição com
+   `Authorization: Bearer <token>`. Repetir é seguro porque um 401 garante que
+   nada foi executado do outro lado. O formato aceito é **memorizado** na
+   credencial (coluna `esquema_autenticacao`), então a descoberta acontece uma
+   vez, não a cada chamada.
+2. **Ao salvar a credencial e ao testar a conexão**, sonda as combinações
+   `endereço × formato` — `morfeu-api.jettax.com.br` e `morfeu.jettax.com.br`,
+   com token puro e com `Bearer` — usando sempre o `GET /api/nfse/cities`
+   (leitura). Se alguma funcionar, o endereço/formato correto é **gravado
+   sozinho**; o operador não precisa mais adivinhar a URL.
+   A sondagem só envia o token para hosts `*.jettax.com.br` em HTTPS.
+3. **Mostra a resposta literal da Jettax** na mensagem de erro
+   (ex.: `Resposta da Jettax: "Token inválido."`), junto do status e do host.
+   Qualquer sequência longa sem espaços na mensagem remota é substituída por
+   `[redigido]`, para o caso de o fornecedor ecoar o próprio token.
 
-1. **A Jettax mantém dois endereços de API em produção**:
-   `https://morfeu-api.jettax.com.br` (texto da coleção) e
-   `https://morfeu.jettax.com.br` (destino do link "URL produção" da própria
-   coleção). Ambos respondem como API Morfeu, e o token emitido para um
-   **não** é aceito no outro. Se o teste recusar a autenticação, troque a URL
-   no painel e teste de novo. Para confirmar fora do sistema, rode na sua
-   máquina:
+Se, mesmo após essa varredura, todas as tentativas voltarem 401/403, a
+conclusão é objetiva e o sistema a exibe: **o problema está na credencial, não
+no conector** — token inexistente, revogado, emitido para outro ambiente ou
+conta sem acesso liberado à API Morfeu. Nesse ponto, a ação é com o suporte da
+Jettax: peça um token de API ativo e a confirmação de que a API está habilitada
+para a conta.
 
-   ```bash
-   curl -i "https://morfeu-api.jettax.com.br/api/nfse/cities" -H "Authorization: SEU_TOKEN"
-   curl -i "https://morfeu.jettax.com.br/api/nfse/cities" -H "Authorization: SEU_TOKEN"
-   ```
+Para confirmar por fora do sistema:
 
-   O comando que responder `200` indica o ambiente correto; `403`/"Token não
-   encontrado" indica que o token é do outro ambiente (ou não existe mais).
-2. **Cole o token sem `Bearer `** — o sistema já remove automaticamente o
-   prefixo `Bearer`, aspas, espaços e quebras de linha ao salvar a credencial
-   (tokens de API não contêm espaços) e recusa colagens que ficam vazias
-   após essa limpeza.
-3. **Use o token de API, não a senha do painel** da Jettax 360. Se restar
-   dúvida sobre o token correto ou se o acesso à API está liberado para a sua
-   conta, confirme com o suporte da Jettax.
-4. O teste do conector usa `GET /api/nfse/cities` (leitura, documentada). Se
-   esse endpoint aceitar o token mas as importações falharem, o problema é
-   posterior à autenticação (permissão do cliente, CNPJ não registrado etc.).
+```bash
+curl -i "https://morfeu-api.jettax.com.br/api/nfse/cities" -H "Authorization: SEU_TOKEN"
+curl -i "https://morfeu.jettax.com.br/api/nfse/cities"     -H "Authorization: SEU_TOKEN"
+# e, se ambos recusarem, o mesmo par com: -H "Authorization: Bearer SEU_TOKEN"
+```
+
+Outros pontos de atenção:
+
+- **Use o token de API, não a senha do painel** da Jettax 360.
+- Cole o token sem `Bearer ` — prefixo, aspas, espaços e quebras de linha são
+  removidos automaticamente ao salvar, e colagens que ficam vazias são
+  recusadas.
+- O log do servidor (`docker compose logs api`) registra método, rota, formato
+  tentado, status e a mensagem do fornecedor de cada chamada recusada.
+- Se `GET /api/nfse/cities` aceitar o token mas as importações falharem, o
+  problema é posterior à autenticação (permissão do cliente, CNPJ não
+  registrado etc.).
 
 Para receber notificações, gere um valor longo e aleatório e o guarde também
 como segredo de infraestrutura:
