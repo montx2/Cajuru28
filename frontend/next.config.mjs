@@ -12,6 +12,8 @@ const ROTAS_API = [
   "sistema",
   "usuarios",
   "auditoria",
+  // Jettax/Morfeu e Acessórias (Configurações e detalhe da empresa).
+  "integracoes",
 ];
 
 const nextConfig = {

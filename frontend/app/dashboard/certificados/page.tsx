@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { dataHora, formatarCnpjCpf, tempoRelativo } from "@/lib/format";
 import type { CertificadoPainel } from "@/lib/types";
 import { Icone } from "@/components/icons";
+import { BuscaInput } from "@/components/Busca";
 import { useToast } from "@/components/Toast";
 import { Esqueleto, EstadoVazio, KpiCard, TituloSecao } from "@/components/ui";
 
@@ -147,15 +148,13 @@ export default function CertificadosPage() {
             {f.rotulo}
           </button>
         ))}
-        <div className="relative ml-auto">
-          <Icone nome="busca" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
-          <input
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-            placeholder="Empresa ou CNPJ…"
-            className="input pl-9 sm:w-64"
-          />
-        </div>
+        <BuscaInput
+          valor={busca}
+          aoMudar={setBusca}
+          placeholder="Empresa ou CNPJ…"
+          className="sm:ml-auto sm:w-72"
+          ariaLabel="Buscar certificado por empresa ou CNPJ"
+        />
       </div>
 
       {carregando && !itens ? (

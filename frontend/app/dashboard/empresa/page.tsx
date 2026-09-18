@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { api, ApiError } from "@/lib/api";
 import { usePapel } from "@/lib/papel";
-import { formatarDocumento } from "@/components/SeletorEmpresas";
+import { formatarCnpjCpf as formatarDocumento } from "@/lib/format";
 import {
   type Certificado,
   type Empresa,

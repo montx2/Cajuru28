@@ -53,7 +53,8 @@ export function PainelImportacao({
   const [tipo, setTipo] = useState<TipoDocumentoFiscal | "todos">("todos");
   const [periodo, setPeriodo] = useState<Periodo>(periodoInicial ?? periodoPadrao());
   const [estados, setEstados] = useState<EstadoSincronizacao[]>([]);
-  const [certificados, setCertificados] = useState<ResumoCertificado[]>([]);
+  // null = resumo ainda não chegou: o seletor não bloqueia ninguém por falta de dado.
+  const [certificados, setCertificados] = useState<ResumoCertificado[] | null>(null);
   const [previa, setPrevia] = useState<ResultadoImportacaoSelecionada | null>(null);
   const [resultado, setResultado] = useState<ResultadoImportacaoSelecionada | null>(null);
   const [disparando, setDisparando] = useState(false);
@@ -141,15 +142,8 @@ export function PainelImportacao({
     }
   }
 
-  const semCertificado = useMemo(
-    () =>
-      new Set(
-        certificados.filter((item) => !item.tem_certificado).map((item) => item.empresa_id)
-      ),
-    [certificados]
-  );
-  const vencidos = certificados.filter((item) => item.vencido);
-  const vencendo = certificados.filter((item) => item.vence_em_breve);
+  const vencidos = (certificados ?? []).filter((item) => item.vencido);
+  const vencendo = (certificados ?? []).filter((item) => item.vence_em_breve);
 
   const podemRodar = previa?.itens.filter((item) => item.status === "ok").length ?? 0;
   const naJanela = previa?.itens.filter((item) => item.status === "em_cooldown").length ?? 0;
@@ -189,21 +183,22 @@ export function PainelImportacao({
       <section className="card-pad">
         <p className="mb-1 text-base font-semibold text-ink">{titulo}</p>
         <p className="mb-5 text-sm text-ink-muted">
-          Escolha o período, marque as empresas e clique em importar. A varredura na SEFAZ continua
-          sendo por NSU — é o único jeito que ela aceita —, mas só entram no acervo as notas
-          emitidas dentro do período pedido.
+          Escolha o período, marque as empresas e clique em importar. A lista mostra por padrão
+          apenas as empresas com certificado válido — a pré-condição da consulta na SEFAZ. A
+          varredura na origem continua sendo por NSU — é o único jeito que ela aceita —, mas só
+          entram no acervo as notas emitidas dentro do período pedido.
         </p>
 
         <div className="mb-5 flex flex-wrap items-end gap-x-6 gap-y-4">
           <div>
-            <p className="mb-2 text-xs uppercase text-ink-muted">
+            <p className="label">
               Período <span className="text-danger">*</span>
             </p>
             <PeriodoPicker valor={periodo} aoMudar={mudarPeriodo} idPrefixo="importacao" />
             {avisoPeriodo && <p className="mt-1 text-xs text-danger">{avisoPeriodo}</p>}
           </div>
           <div>
-            <p className="mb-2 text-xs uppercase text-ink-muted">O que puxar</p>
+            <p className="label">O que puxar</p>
             <select
               value={tipo}
               onChange={(e) => setTipo(e.target.value as TipoDocumentoFiscal | "todos")}
@@ -221,9 +216,9 @@ export function PainelImportacao({
 
         <SeletorEmpresas
           empresas={empresas}
+          certificados={certificados}
           selecionadas={selecionadas}
           aoMudar={setSelecionadas}
-          semCertificado={semCertificado}
           estados={estados}
           tipoAtivo={tipo}
         />

@@ -7,6 +7,7 @@ import { api, ApiError, type FiltrosExportacao, type FiltrosDocumentos } from "@
 import { usePapel } from "@/lib/papel";
 import { PeriodoPicker } from "@/components/PeriodoPicker";
 import { DocumentoDrawer } from "@/components/DocumentoDrawer";
+import { BuscaInput } from "@/components/Busca";
 import { Icone } from "@/components/icons";
 import { bytesParaTexto } from "@/lib/competencia";
 import {
@@ -279,6 +280,23 @@ function ConteudoDocumentos() {
     setTermoBusca("");
   }
 
+  // A busca da tela aplica sozinha após uma pausa na digitação — ninguém
+  // precisa apertar "Buscar" — e Enter continua aplicando na hora.
+  const aplicarBusca = useCallback((termo: string) => {
+    resetarLista();
+    setTermoBusca(termo);
+  }, [resetarLista]);
+
+  const filtrosAtivos =
+    (empresaId !== "todas" ? 1 : 0) +
+    (tipo ? 1 : 0) +
+    (direcao ? 1 : 0) +
+    (statusDoc ? 1 : 0) +
+    (leiaute ? 1 : 0) +
+    (termoBusca ? 1 : 0) +
+    (valorMin ? 1 : 0) +
+    (valorMax ? 1 : 0);
+
   const semXmlCompleto = resumo?.por_tipo ? documentos.filter((d) => d.leiaute === "resumo").length : 0;
   const periodoRotulo = rotuloPeriodo(periodo);
 
@@ -301,8 +319,20 @@ function ConteudoDocumentos() {
       </div>
 
       <div className="filter-bar">
+        <div className="w-full sm:w-auto sm:min-w-80 sm:flex-1">
+          <p className="label">Busca</p>
+          <BuscaInput
+            valor={busca}
+            aoMudar={setBusca}
+            aoBuscar={aplicarBusca}
+            atraso={500}
+            placeholder="chave, número, NSU, emitente ou destinatário"
+            ariaLabel="Buscar documentos"
+          />
+        </div>
+
         <div>
-          <p className="mb-2 text-xs uppercase text-ink-muted">Empresa</p>
+          <p className="label">Empresa</p>
           <select
             value={empresaId === "todas" ? "todas" : String(empresaId)}
             onChange={(e) => {
@@ -321,7 +351,7 @@ function ConteudoDocumentos() {
         </div>
 
         <div>
-          <p className="mb-2 text-xs uppercase text-ink-muted">Tipo</p>
+          <p className="label">Tipo</p>
           <select
             value={tipo}
             onChange={(e) => {
@@ -340,7 +370,7 @@ function ConteudoDocumentos() {
         </div>
 
         <div>
-          <p className="mb-2 text-xs uppercase text-ink-muted">Direção</p>
+          <p className="label">Direção</p>
           <select
             value={direcao}
             onChange={(e) => {
@@ -356,7 +386,7 @@ function ConteudoDocumentos() {
         </div>
 
         <div>
-          <p className="mb-2 text-xs uppercase text-ink-muted">Situação</p>
+          <p className="label">Situação</p>
           <select
             value={statusDoc}
             onChange={(e) => {
@@ -372,7 +402,7 @@ function ConteudoDocumentos() {
         </div>
 
         <div>
-          <p className="mb-2 text-xs uppercase text-ink-muted">
+          <p className="label">
             Período <span className="text-danger">*</span>
           </p>
           <PeriodoPicker
@@ -386,61 +416,35 @@ function ConteudoDocumentos() {
           {avisoPeriodo && <p className="mt-1 text-xs text-danger">{avisoPeriodo}</p>}
         </div>
 
-        <div>
-          <p className="mb-2 text-xs uppercase text-ink-muted">Busca</p>
-          <div className="flex gap-2">
-            <input
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  resetarLista();
-                  setTermoBusca(busca.trim());
-                }
-              }}
-              placeholder="chave, número, NSU, emitente ou destinatário"
-              className="input w-72"
-            />
-            <button
-              type="button"
-              onClick={() => {
-                resetarLista();
-                setTermoBusca(busca.trim());
-              }}
-              className="btn-ghost btn-sm"
-            >
-              Buscar
-            </button>
-          </div>
-        </div>
-
         <button type="button" onClick={() => setFiltrosAvancados((valor) => !valor)} className="btn-ghost btn-sm self-end">
+          <Icone nome="filtro" className="h-3.5 w-3.5" />
           {filtrosAvancados ? "Ocultar filtros" : "Mais filtros"}
         </button>
         <button type="button" onClick={limparFiltros} className="btn-ghost btn-sm self-end">
-          Limpar
+          <Icone nome="x" className="h-3.5 w-3.5" />
+          {filtrosAtivos > 0 ? `Limpar (${filtrosAtivos})` : "Limpar"}
         </button>
       </div>
 
       {filtrosAvancados && (
-        <div className="card mb-6 grid gap-3 p-4 sm:grid-cols-3">
-          <label className="text-xs uppercase text-ink-muted">
-            XML
+        <div className="card mb-6 grid gap-4 p-4 sm:grid-cols-3 sm:p-5">
+          <div>
+            <label className="label">XML</label>
             <select
               value={leiaute}
               onChange={(e) => {
                 resetarLista();
                 setLeiaute(e.target.value as "" | "completo" | "resumo");
               }}
-              className="input mt-1 w-full"
+              className="input"
             >
               <option value="">Completos e resumos</option>
               <option value="completo">Somente XML completo</option>
               <option value="resumo">Somente resumo</option>
             </select>
-          </label>
-          <label className="text-xs uppercase text-ink-muted">
-            Valor mínimo
+          </div>
+          <div>
+            <label className="label">Valor mínimo</label>
             <input
               type="number"
               min="0"
@@ -451,11 +455,11 @@ function ConteudoDocumentos() {
                 setValorMin(e.target.value);
               }}
               placeholder="0,00"
-              className="input mt-1 w-full"
+              className="input"
             />
-          </label>
-          <label className="text-xs uppercase text-ink-muted">
-            Valor máximo
+          </div>
+          <div>
+            <label className="label">Valor máximo</label>
             <input
               type="number"
               min="0"
@@ -466,10 +470,10 @@ function ConteudoDocumentos() {
                 setValorMax(e.target.value);
               }}
               placeholder="9999,99"
-              className="input mt-1 w-full"
+              className="input"
             />
-          </label>
-          <p className="sm:col-span-3 text-xs text-ink-muted">
+          </div>
+          <p className="text-xs leading-5 text-ink-muted sm:col-span-3">
             O período fica no filtro principal e vale para tudo — inclusive ZIP e CSV, que baixam exatamente o
             que está na tela. Aqui ficam os recortes extras: valor, XML pendente, direção e canceladas.
           </p>

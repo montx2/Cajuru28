@@ -6,6 +6,7 @@ import { usePapel } from "@/lib/papel";
 import { dataHora } from "@/lib/format";
 import { ROTULO_ACAO, type RegistroAuditoria } from "@/lib/types";
 import { Icone } from "@/components/icons";
+import { BuscaInput } from "@/components/Busca";
 import { Esqueleto, EstadoVazio, TituloSecao } from "@/components/ui";
 
 /**
@@ -74,18 +75,14 @@ export default function AuditoriaPage() {
         </div>
         <div className="min-w-52 flex-1">
           <p className="label">Busca</p>
-          <div className="flex gap-2">
-            <input
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && setTermo(busca.trim())}
-              placeholder="email, entidade ou detalhe…"
-              className="input"
-            />
-            <button type="button" onClick={() => setTermo(busca.trim())} className="btn-ghost btn-sm">
-              <Icone nome="busca" className="h-4 w-4" />
-            </button>
-          </div>
+          <BuscaInput
+            valor={busca}
+            aoMudar={setBusca}
+            aoBuscar={setTermo}
+            atraso={500}
+            placeholder="email, entidade ou detalhe…"
+            ariaLabel="Buscar na auditoria"
+          />
         </div>
         <button type="button" onClick={carregar} className="btn-ghost btn-sm" title="Atualizar">
           <Icone nome="atualizar" className="h-4 w-4" />
