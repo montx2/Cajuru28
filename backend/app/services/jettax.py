@@ -41,6 +41,7 @@ from app.core.config import settings
 from app.core.documentos import normalizar_cnpj, normalizar_documento
 from app.core.money import valor_monetario
 from app.core.tempo import tornar_data_hora_fiscal_consciente
+from app.core.vault import SegredoIndecifravelError
 from app.models import (
     DirecaoDocumento,
     DocumentoFiscal,
@@ -147,6 +148,14 @@ _MAX_TEXTO_ERRO = 500
 _JANELA_REPETICAO_AUTOMATICA = timedelta(minutes=30)
 
 
+# Rotas de leitura sondadas pelo diagnóstico, nesta ordem. A primeira é a
+# mesma do teste de conexão (municípios NFS-e). A segunda é o contrato-base
+# de clientes: uma conta com token Morfeu válido responde 2xx ali mesmo sem o
+# módulo de NFS-e habilitado — sem esse desempate, "token certo sem módulo"
+# era reportado ao operador como "token inválido".
+ROTAS_SONDAGEM = ("/api/nfse/cities", "/api/clients")
+
+
 @dataclass(slots=True)
 class TentativaJettax:
     """Resultado de uma sondagem endereço + formato de header."""
@@ -156,6 +165,7 @@ class TentativaJettax:
     status_code: int | None
     ok: bool
     mensagem: str
+    rota: str = "/api/nfse/cities"
 
     @property
     def host(self) -> str:
@@ -164,6 +174,11 @@ class TentativaJettax:
     @property
     def rotulo_esquema(self) -> str:
         return "Bearer <token>" if self.esquema == ESQUEMA_BEARER else "token puro"
+
+    @property
+    def via_contrato_base(self) -> bool:
+        """``True`` quando foi o contrato de clientes (não o de NFS-e) que respondeu."""
+        return self.rota == "/api/clients"
 
 
 @dataclass(slots=True)
@@ -373,6 +388,11 @@ def diagnosticar_credencial(token: str, base_url: str) -> tuple[TentativaJettax 
     header inesperado. Em vez de deixar o operador adivinhando, sondamos as
     combinações plausíveis — sempre com GET de leitura, sempre dentro do
     domínio da Jettax — e devolvemos a que funcionou (ou o mapa das recusas).
+
+    Para cada endereço a ordem é: municípios NFS-e e, se nenhum formato do
+    header passou ali, o contrato-base ``GET /api/clients``. Uma conta com
+    token válido mas sem o módulo de NFS-e habilitado é assim reconhecida como
+    *credencial aceita*, com a limitação registrada na tentativa devolvida.
     """
     token_limpo = normalizar_token(token)
     if not token_limpo:
@@ -392,12 +412,13 @@ def diagnosticar_credencial(token: str, base_url: str) -> tuple[TentativaJettax 
 
     tentativas: list[TentativaJettax] = []
     for url in candidatos:
-        for esquema in ESQUEMAS_AUTENTICACAO:
-            cliente = ClienteJettax(base_url=url, token=token_limpo, esquema_autenticacao=esquema)
-            tentativa = cliente.sondar(esquema)
-            tentativas.append(tentativa)
-            if tentativa.ok:
-                return tentativa, tentativas
+        for rota in ROTAS_SONDAGEM:
+            for esquema in ESQUEMAS_AUTENTICACAO:
+                cliente = ClienteJettax(base_url=url, token=token_limpo, esquema_autenticacao=esquema)
+                tentativa = cliente.sondar(esquema, rota)
+                tentativas.append(tentativa)
+                if tentativa.ok:
+                    return tentativa, tentativas
     return None, tentativas
 
 
@@ -417,7 +438,7 @@ def explicar_diagnostico(tentativas: list[TentativaJettax]) -> str:
         )
 
     resumo = "; ".join(
-        f"{t.host} com {t.rotulo_esquema} → {('HTTP ' + str(t.status_code)) if t.status_code else 'sem resposta'}"
+        f"{t.host}{t.rota} com {t.rotulo_esquema} → {('HTTP ' + str(t.status_code)) if t.status_code else 'sem resposta'}"
         + (f' "{t.mensagem}"' if t.mensagem and t.status_code else "")
         for t in tentativas
     )
@@ -427,7 +448,10 @@ def explicar_diagnostico(tentativas: list[TentativaJettax]) -> str:
             "A Jettax recusou a autenticação em todas as combinações seguras testadas. A coleção "
             "pública não permite identificar a causa apenas pela mensagem: confirme com a Jettax "
             "que o valor é um token emitido para a API Morfeu, está ativo e que a conta possui o "
-            f"acesso contratado. Tentativas: {resumo}."
+            "acesso contratado. Passo a passo: copie novamente o token do usuário no painel Jettax "
+            "(use somente o valor do token, sem rótulos), salve a credencial e repita o teste; "
+            "persistindo a recusa, o suporte da Jettax precisa confirmar o acesso da conta à API "
+            f"Morfeu. Tentativas: {resumo}."
         )
     return f"A Jettax não concluiu o teste de leitura. Tentativas: {resumo}."
 
@@ -465,26 +489,29 @@ class ClienteJettax:
     def configurado(self) -> bool:
         return bool(self.token)
 
-    def sondar(self, esquema: str) -> "TentativaJettax":
+    def sondar(self, esquema: str, rota: str = "/api/nfse/cities") -> "TentativaJettax":
         """Uma única chamada de leitura com exatamente um formato de header.
 
         Diferente de ``verificar_conexao``, não tenta o formato alternativo:
         é a peça usada pelo diagnóstico para dizer qual combinação de
-        endereço + formato a Jettax realmente aceita.
+        endereço + formato a Jettax realmente aceita. Apenas rotas de leitura
+        do contrato público (``ROTAS_SONDAGEM``) são aceitas aqui.
         """
+        if rota not in ROTAS_SONDAGEM:
+            raise JettaxErro("Rota de sondagem não autorizada para o diagnóstico Jettax.", categoria="protocolo")
         try:
-            resposta = self._enviar("GET", self._url_segura("/api/nfse/cities"), params=None, json=None, esquema=esquema)
+            resposta = self._enviar("GET", self._url_segura(rota), params=None, json=None, esquema=esquema)
         except JettaxErro as exc:
-            return TentativaJettax(base_url=self.base_url, esquema=esquema, status_code=None, ok=False, mensagem=str(exc))
+            return TentativaJettax(base_url=self.base_url, esquema=esquema, status_code=None, ok=False, mensagem=str(exc), rota=rota)
         detalhe = _mensagem_remota(resposta)
         if resposta.status_code < 300:
             return TentativaJettax(
                 base_url=self.base_url, esquema=esquema, status_code=resposta.status_code, ok=True,
-                mensagem="Token aceito.",
+                mensagem="Token aceito.", rota=rota,
             )
         return TentativaJettax(
             base_url=self.base_url, esquema=esquema, status_code=resposta.status_code, ok=False,
-            mensagem=detalhe or f"HTTP {resposta.status_code}",
+            mensagem=detalhe or f"HTTP {resposta.status_code}", rota=rota,
         )
 
     def _url_segura(self, rota_ou_url: str) -> str:
@@ -1413,6 +1440,20 @@ def executar_importacao(db: Session, execucao_id: int, filtros: dict[str, Any] |
     except JettaxErro as exc:
         execucao.status = "erro"
         execucao.mensagem_erro = _texto(str(exc), _MAX_TEXTO_ERRO)
+        execucao.finalizado_em = agora
+        configuracao.ultimo_erro = execucao.mensagem_erro
+        configuracao.falhas_seguidas = (configuracao.falhas_seguidas or 0) + 1
+        configuracao.travado_em = None
+        db.commit()
+    except SegredoIndecifravelError:
+        # Sem esta rota a execução caía no guarda-chuva de "falha interna" e o
+        # operador nunca descobria que basta salvar o token de novo após a
+        # troca da VAULT_MASTER_KEY.
+        execucao.status = "erro"
+        execucao.mensagem_erro = (
+            "A credencial Jettax não pôde ser aberta com a chave do cofre atual "
+            "(VAULT_MASTER_KEY mudou). Salve o token novamente em Configurações → Jettax."
+        )
         execucao.finalizado_em = agora
         configuracao.ultimo_erro = execucao.mensagem_erro
         configuracao.falhas_seguidas = (configuracao.falhas_seguidas or 0) + 1

@@ -76,6 +76,21 @@ export function descreverErro(erro: unknown, contexto = "carregar estes dados"):
         };
       default:
         if (erro.status >= 500) {
+          // Um 5xx com `detail` curado pela API (ex.: diagnóstico da Jettax)
+          // não é "falha interna": a mensagem explica a recusa e o que fazer.
+          // Escondê-la atrás do texto genérico deixava o operador sem a única
+          // pista acionável. O fallback sem detail continua genérico e seguro.
+          const mensagemApi = erro.message.trim();
+          const recusadaExplicada = mensagemApi !== "" && mensagemApi !== "Erro inesperado na API";
+          if (recusadaExplicada) {
+            return {
+              titulo: "O servidor recusou a ação",
+              causa: `O servidor respondeu ${erro.status} ao ${contexto} e explicou o motivo.`,
+              proximoPasso: mensagemApi,
+              tom: "erro",
+              detalhe: mensagemApi,
+            };
+          }
           return {
             titulo: "Falha interna na API",
             causa: `O servidor respondeu ${erro.status} ao ${contexto}.`,

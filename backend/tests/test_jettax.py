@@ -427,6 +427,9 @@ def test_registro_corrige_credencial_legada_antes_de_reconciliar_cliente(cliente
             httpx.Response(401, json={"message": "Token inválido."}),
         ]
     )
+    respx.get(f"{BASE}/api/clients").mock(
+        return_value=httpx.Response(401, json={"message": "Token inválido."})
+    )
     respx.get(f"{BASE_ALTERNATIVA}/api/nfse/cities").mock(return_value=httpx.Response(200, json=[]))
     respx.get(f"{BASE_ALTERNATIVA}/api/clients/{CNPJ}").mock(return_value=httpx.Response(404, json={"message": "Não encontrado"}))
     criacao = respx.post(f"{BASE_ALTERNATIVA}/api/clients").mock(return_value=httpx.Response(201, json={"data": {"cnpj": CNPJ}}))
@@ -660,13 +663,35 @@ def test_diagnostico_encontra_o_endereco_correto_da_jettax():
     respx.get(f"{BASE}/api/nfse/cities").mock(
         return_value=httpx.Response(401, json={"message": "Token inválido."})
     )
+    respx.get(f"{BASE}/api/clients").mock(
+        return_value=httpx.Response(401, json={"message": "Token inválido."})
+    )
     respx.get(f"{BASE_ALTERNATIVA}/api/nfse/cities").mock(return_value=httpx.Response(200, json=[]))
 
     sucesso, tentativas = diagnosticar_credencial(TOKEN, BASE)
 
     assert sucesso is not None
     assert sucesso.base_url == BASE_ALTERNATIVA
+    assert sucesso.rota == "/api/nfse/cities"
     assert len(tentativas) >= 2
+
+
+@respx.mock
+def test_diagnostico_desempata_token_valido_sem_modulo_nfse():
+    """Cidades 401 + clientes 200 = token aceito; a limitação é de módulo, não da chave."""
+    respx.get(f"{BASE}/api/nfse/cities").mock(
+        return_value=httpx.Response(401, json={"message": "Dados de acesso inválidos."})
+    )
+    respx.get(f"{BASE}/api/clients").mock(return_value=httpx.Response(200, json={"data": []}))
+
+    sucesso, tentativas = diagnosticar_credencial(TOKEN, BASE)
+
+    assert sucesso is not None
+    assert sucesso.base_url == BASE
+    assert sucesso.rota == "/api/clients"
+    assert sucesso.via_contrato_base is True
+    # A sondagem tentou cidades nos dois formatos antes de chegar ao contrato-base.
+    assert [t.rota for t in tentativas] == ["/api/nfse/cities", "/api/nfse/cities", "/api/clients"]
 
 
 @respx.mock
@@ -674,12 +699,13 @@ def test_diagnostico_nunca_envia_o_token_para_fora_do_dominio_jettax():
     externo = respx.get("https://exemplo-invasor.test/api/nfse/cities").mock(
         return_value=httpx.Response(200, json=[])
     )
-    respx.get(f"{BASE}/api/nfse/cities").mock(
-        return_value=httpx.Response(401, json={"message": "Token inválido."})
-    )
-    respx.get(f"{BASE_ALTERNATIVA}/api/nfse/cities").mock(
-        return_value=httpx.Response(401, json={"message": "Token inválido."})
-    )
+    for url in (BASE, BASE_ALTERNATIVA):
+        respx.get(f"{url}/api/nfse/cities").mock(
+            return_value=httpx.Response(401, json={"message": "Token inválido."})
+        )
+        respx.get(f"{url}/api/clients").mock(
+            return_value=httpx.Response(401, json={"message": "Token inválido."})
+        )
 
     sucesso, _tentativas = diagnosticar_credencial(TOKEN, "https://exemplo-invasor.test")
 
@@ -693,6 +719,9 @@ def test_credencial_recusada_recebe_explicacao_acionavel(cliente_api):
     client, _db, _empresa = cliente_api
     for url in (BASE, BASE_ALTERNATIVA):
         respx.get(f"{url}/api/nfse/cities").mock(
+            return_value=httpx.Response(401, json={"message": "Token inválido."})
+        )
+        respx.get(f"{url}/api/clients").mock(
             return_value=httpx.Response(401, json={"message": "Token inválido."})
         )
 
@@ -712,10 +741,38 @@ def test_credencial_recusada_recebe_explicacao_acionavel(cliente_api):
 
 
 @respx.mock
+def test_teste_do_painel_avisa_quando_so_o_contrato_base_responde(cliente_api):
+    """Token aceito sem módulo NFS-e: o teste passa e o aviso orienta a habilitação."""
+    client, db, _empresa = cliente_api
+    respx.get(f"{BASE}/api/nfse/cities").mock(
+        return_value=httpx.Response(401, json={"message": "Dados de acesso inválidos."})
+    )
+    respx.get(f"{BASE}/api/clients").mock(return_value=httpx.Response(200, json={"data": []}))
+
+    assert client.put(
+        "/integracoes/jettax/credencial",
+        json={"token": "token-valido-sem-modulo-nfse", "base_url": BASE},
+    ).status_code == 200
+
+    teste = client.post("/integracoes/jettax/testar")
+
+    assert teste.status_code == 200, teste.text
+    mensagem = teste.json()["mensagem"]
+    assert "NFS-e" in mensagem and "módulo" in mensagem
+    assert "token-valido-sem-modulo-nfse" not in mensagem
+    credencial = db.query(JettaxCredencial).one()
+    assert credencial.base_url == BASE
+    assert credencial.esquema_autenticacao == "puro"
+
+
+@respx.mock
 def test_teste_do_painel_corrige_endereco_e_passa_a_funcionar(cliente_api):
     """Salvar com o host errado não pode condenar a integração a falhar sempre."""
     client, db, _empresa = cliente_api
     respx.get(f"{BASE}/api/nfse/cities").mock(
+        return_value=httpx.Response(401, json={"message": "Token inválido."})
+    )
+    respx.get(f"{BASE}/api/clients").mock(
         return_value=httpx.Response(401, json={"message": "Token inválido."})
     )
     respx.get(f"{BASE_ALTERNATIVA}/api/nfse/cities").mock(return_value=httpx.Response(200, json=[]))
@@ -730,6 +787,61 @@ def test_teste_do_painel_corrige_endereco_e_passa_a_funcionar(cliente_api):
     assert teste.status_code == 200, teste.text
     credencial = db.query(JettaxCredencial).first()
     assert credencial.base_url == BASE_ALTERNATIVA
+
+
+@respx.mock
+def test_teste_do_painel_orienta_quando_a_chave_do_cofre_mudou(cliente_api, monkeypatch):
+    """VAULT_MASTER_KEY nova → a rota orienta salvar o token de novo, sem 500 mudo."""
+    from cryptography.fernet import Fernet
+
+    client, _db, _empresa = cliente_api
+    respx.get(f"{BASE}/api/nfse/cities").mock(return_value=httpx.Response(200, json=[]))
+    assert client.put(
+        "/integracoes/jettax/credencial",
+        json={"token": TOKEN, "base_url": BASE},
+    ).status_code == 200
+
+    # Rotação sem VAULT_PREVIOUS_MASTER_KEYS: o que estava cifrado fica preso.
+    monkeypatch.setattr(config.settings, "vault_master_key", Fernet.generate_key().decode())
+
+    resposta = client.post("/integracoes/jettax/testar")
+
+    assert resposta.status_code == 422
+    assert "Salve o token novamente" in resposta.json()["detail"]
+    assert TOKEN not in resposta.text
+
+
+def test_importacao_registra_orientacao_quando_a_chave_do_cofre_mudou(db, monkeypatch):
+    """O worker também deve apontar a solução, não "falha interna"."""
+    from cryptography.fernet import Fernet
+    from app.core.vault import cifrar_segredo
+
+    sessao, empresa, configuracao, _ = db
+    sessao.add(
+        JettaxCredencial(
+            escritorio_id=empresa.escritorio_id,
+            base_url=BASE,
+            token_cifrado=cifrar_segredo(TOKEN),
+        )
+    )
+    execucao = JettaxExecucao(
+        empresa_id=empresa.id,
+        tipo=TipoDocumentoFiscal.NFSE,
+        fluxo="nfse",
+        avancar_cursor=True,
+    )
+    sessao.add(execucao)
+    sessao.commit()
+
+    monkeypatch.setattr(config.settings, "vault_master_key", Fernet.generate_key().decode())
+
+    executar_importacao(sessao, execucao.id)
+
+    sessao.refresh(execucao)
+    sessao.refresh(configuracao)
+    assert execucao.status == "erro"
+    assert "Salve o token novamente" in execucao.mensagem_erro
+    assert configuracao.travado_em is None
 
 
 # --------------------------------------------------------------------------

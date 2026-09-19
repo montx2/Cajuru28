@@ -45,6 +45,7 @@ from app.services import auditoria
 from app.services.certificados import ler_pfx_protegido
 from app.services.jettax import (
     JettaxErro,
+    TentativaJettax,
     carga_cliente,
     cliente_jettax_para,
     cursor_para,
@@ -97,29 +98,52 @@ def _erro_http(exc: JettaxErro) -> HTTPException:
     return HTTPException(status_code=codigo, detail=str(exc))
 
 
-def _resolver_autenticacao(db: Session, escritorio_id: int, erro: JettaxErro) -> JettaxErro | None:
+def _erro_cofre_jettax() -> JettaxErro:
+    """Mensagem única para credencial presa pela troca da VAULT_MASTER_KEY."""
+    return JettaxErro(
+        "A credencial Jettax guardada não pôde ser aberta com a chave do cofre atual "
+        "(VAULT_MASTER_KEY mudou). Salve o token novamente.",
+        categoria="configuracao",
+    )
+
+
+def _mensagem_verificacao(sucesso: TentativaJettax) -> str:
+    """Resume como a credencial foi aceita — inclusive a limitação de módulo.
+
+    Quando só o contrato-base de clientes respondeu, o token é válido, mas o
+    endpoint de municípios NFS-e recusou: dizer "conexão verificada" aí
+    esconderia do operador que as importações de NFS-e seguirão falhando até a
+    Jettax habilitar o módulo na conta.
+    """
+    if sucesso.via_contrato_base:
+        return (
+            "Token aceito no contrato de clientes da Morfeu, mas o endpoint de cidades da NFS-e "
+            "recusou a mesma credencial. Confirme com a Jettax se o módulo NFS-e está habilitado "
+            "na conta; sem ele, as importações de NFS-e seguem bloqueadas."
+        )
+    return "Conexão autenticada verificada ao salvar a credencial."
+
+
+def _resolver_autenticacao(db: Session, escritorio_id: int, erro: JettaxErro) -> tuple[TentativaJettax | None, JettaxErro | None]:
     """Sonda endereços/formatos da Jettax e corrige a credencial se achar um que funcione.
 
-    Devolve ``None`` quando a conexão passou a funcionar (credencial ajustada e
-    persistida) ou um ``JettaxErro`` com a explicação objetiva do que testar.
+    Devolve ``(tentativa, None)`` quando a conexão passou a funcionar (credencial
+    ajustada e persistida — a tentativa diz em qual rota/host/formato) ou
+    ``(None, JettaxErro)`` com a explicação objetiva do que testar.
     """
     credencial = db.query(JettaxCredencial).filter_by(escritorio_id=escritorio_id).first()
     if credencial is None:
-        return erro  # token vindo do ambiente: nada a corrigir no banco
+        return None, erro  # token vindo do ambiente: nada a corrigir no banco
     try:
         token = decifrar_segredo(credencial.token_cifrado)
     except SegredoIndecifravelError:
-        return JettaxErro(
-            "A credencial Jettax guardada não pôde ser aberta com a chave do cofre atual "
-            "(VAULT_MASTER_KEY mudou). Salve o token novamente.",
-            categoria="configuracao",
-        )
+        return None, _erro_cofre_jettax()
     try:
         sucesso, tentativas = diagnosticar_credencial(token, credencial.base_url)
     except JettaxErro:
-        return erro
+        return None, erro
     if sucesso is None:
-        return JettaxErro(
+        return None, JettaxErro(
             explicar_diagnostico(tentativas),
             categoria="autenticacao",
             status_code=erro.status_code,
@@ -128,7 +152,7 @@ def _resolver_autenticacao(db: Session, escritorio_id: int, erro: JettaxErro) ->
     credencial.base_url = sucesso.base_url
     credencial.esquema_autenticacao = sucesso.esquema
     db.flush()
-    return None
+    return sucesso, None
 
 
 def _marcar_falha_registro(db: Session, configuracao: JettaxConfiguracaoEmpresa, mensagem: str) -> None:
@@ -254,11 +278,13 @@ def salvar_credencial_jettax(
             saude.mensagem = explicar_diagnostico(tentativas)[:500]
         else:
             saude.status = "ok"
-            saude.mensagem = "Conexão autenticada verificada ao salvar a credencial."
+            saude.mensagem = _mensagem_verificacao(sucesso)
     saude.verificado_em = agora
     if sucesso is not None:
         if sucesso.base_url != credencial.base_url:
             detalhe += f"; endereço ajustado para {sucesso.host} (o token é aceito lá)"
+        if sucesso.via_contrato_base:
+            detalhe += "; aceito no contrato de clientes, mas sem resposta do endpoint de cidades NFS-e"
         credencial.base_url = sucesso.base_url
         credencial.esquema_autenticacao = sucesso.esquema
     elif saude.status == "erro":
@@ -292,6 +318,8 @@ def testar_conexao_jettax(
         saude = JettaxSaudeConector(escritorio_id=escritorio_id)
         db.add(saude)
     agora = _agora()
+    mensagem_sucesso = "Conexão autenticada verificada."
+    erro: JettaxErro | None = None
     try:
         cliente = cliente_jettax_para(db, escritorio_id)
         cliente.verificar_conexao()
@@ -300,22 +328,33 @@ def testar_conexao_jettax(
         credencial = db.query(JettaxCredencial).filter_by(escritorio_id=escritorio_id).first()
         if credencial is not None and credencial.esquema_autenticacao != cliente.esquema_autenticacao:
             credencial.esquema_autenticacao = cliente.esquema_autenticacao
+    except SegredoIndecifravelError:
+        # Sem este desvio a troca da VAULT_MASTER_KEY derrubava a rota com um
+        # 500 mudo, e o operador nunca sabia que bastava salvar o token de novo.
+        erro = _erro_cofre_jettax()
     except JettaxErro as exc:
         if exc.categoria == "autenticacao":
             # Antes de devolver "recusou a autenticação", descobrimos se
             # alguma combinação endereço + formato de header funciona. Isso
             # separa de vez "credencial inválida" de "conector mal apontado".
-            exc = _resolver_autenticacao(db, escritorio_id, exc)
-        if exc is not None:
-            saude.status = "erro"
-            saude.verificado_em = agora
-            saude.mensagem = str(exc)[:500]
-            auditoria.registrar(db, usuario, "jettax_teste_falhou", entidade="integracao", detalhe="Teste autenticado do conector falhou")
-            db.commit()
-            raise _erro_http(exc)
+            sucesso, resolvido = _resolver_autenticacao(db, escritorio_id, exc)
+            if resolvido is None and sucesso is not None:
+                erro = None
+                mensagem_sucesso = _mensagem_verificacao(sucesso)
+            else:
+                erro = resolvido
+        else:
+            erro = exc
+    if erro is not None:
+        saude.status = "erro"
+        saude.verificado_em = agora
+        saude.mensagem = str(erro)[:500]
+        auditoria.registrar(db, usuario, "jettax_teste_falhou", entidade="integracao", detalhe="Teste autenticado do conector falhou")
+        db.commit()
+        raise _erro_http(erro)
     saude.status = "ok"
     saude.verificado_em = agora
-    saude.mensagem = "Conexão autenticada verificada."
+    saude.mensagem = mensagem_sucesso
     auditoria.registrar(db, usuario, "jettax_testado", entidade="integracao", detalhe="Teste autenticado de leitura concluído")
     db.commit()
     return JettaxTesteConexaoResposta(status="ok", verificado_em=agora, mensagem=saude.mensagem)
@@ -375,6 +414,8 @@ def _sincronizar_cliente_jettax(
     erro: JettaxErro | None = None
     try:
         criado = cliente_jettax_para(db, escritorio_id).sincronizar_cliente(empresa.cnpj_cpf, corpo)
+    except SegredoIndecifravelError:
+        erro = _erro_cofre_jettax()
     except JettaxErro as exc:
         erro = exc
 
@@ -384,8 +425,8 @@ def _sincronizar_cliente_jettax(
     # autenticação (antes de POST/PUT) e depois de o diagnóstico achar uma
     # combinação segura que realmente respondeu.
     if erro is not None and erro.categoria == "autenticacao":
-        erro_corrigido = _resolver_autenticacao(db, escritorio_id, erro)
-        if erro_corrigido is None:
+        sucesso, erro_corrigido = _resolver_autenticacao(db, escritorio_id, erro)
+        if erro_corrigido is None and sucesso is not None:
             try:
                 criado = cliente_jettax_para(db, escritorio_id).sincronizar_cliente(empresa.cnpj_cpf, corpo)
                 erro = None

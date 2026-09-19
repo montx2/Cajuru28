@@ -67,12 +67,28 @@ oficiais (`morfeu-api.jettax.com.br` e `morfeu.jettax.com.br`). Isso não torna
 uma chave de outro produto uma chave Morfeu. A combinação que responder com
 sucesso é persistida para evitar novas tentativas redundantes.
 
+Quando o endpoint de cidades recusa a autenticação em todos os formatos, o
+diagnóstico ainda sonda `GET /api/clients` — o contrato-base documentado — no
+mesmo par de hosts. Um 2xx ali prova que o **token é válido para a Morfeu**, e
+a saúde do conector passa a apontar a limitação real: o módulo de NFS-e não
+está habilitado na conta, o que bloqueia apenas as importações de NFS-e até a
+Jettax liberar. Sem esse desempate, uma conta assim era reportada como "token
+inválido", que é a pista errada.
+
 Um `401` ou `403` confirma apenas que aquela autenticação foi recusada. A
 coleção pública não permite deduzir pelo texto da resposta se o valor foi
 revogado, pertence a outro produto, se a conta não contratou a API ou se há
-outra regra de autorização. Nessa situação, solicite à Jettax a confirmação de
-um **token Morfeu ativo** e das permissões da conta. Nunca copie uma senha,
-hash ou valor extraído de log/banco como se fosse token de API.
+outra regra de autorização. Nessa situação, copie o token novamente no painel
+da Jettax (somente o valor, sem o rótulo da linha) e, persistindo a recusa,
+solicite ao suporte da Jettax a confirmação de um **token Morfeu ativo** e das
+permissões da conta. Nunca copie uma senha, hash ou valor extraído de log/banco
+como se fosse token de API.
+
+Se a `VAULT_MASTER_KEY` do servidor for trocada sem manter
+`VAULT_PREVIOUS_MASTER_KEYS`, a credencial Jettax guardada (e as senhas dos
+A1) deixam de abrir. Rotas, testes e execuções passam a responder com a
+orientação explícita "salve o token novamente" em vez de uma falha interna
+genérica — o mesmo vale para reenviar os certificados `.pfx`.
 
 O cliente HTTP não segue redirecionamentos e não envia a credencial a domínios
 externos. A paginação pode atravessar somente entre os dois hosts oficiais,
