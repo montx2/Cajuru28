@@ -17,6 +17,7 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -203,7 +204,10 @@ class DocumentoFiscal(Base):
     # data, então guardamos a competência de tudo que chega e filtramos aqui:
     # trocar de mês passa a custar zero consultas à SEFAZ.
     competencia: Mapped[Optional[date]] = mapped_column(Date, nullable=True, index=True)
-    valor_total: Mapped[float] = mapped_column()
+    # Valor fiscal nunca é FLOAT: PostgreSQL soma NUMERIC exatamente e a escala
+    # fixa impede que relatórios fechem com diferença de centavos.
+    # `asdecimal=False` mantém o contrato JSON atual (número) nas respostas.
+    valor_total: Mapped[float] = mapped_column(Numeric(15, 2, asdecimal=False))
     xml_path: Mapped[str] = mapped_column(String(500))
     # "completo" = XML inteiro; "resumo" = só o resNFe/resCTe (a SEFAZ libera o
     # XML completo do destinatário após manifestação — dá para buscar pela

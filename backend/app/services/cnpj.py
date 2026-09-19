@@ -23,6 +23,7 @@ class DadosCNPJ:
     nome_fantasia: str = ""
     uf: str = ""
     municipio: str = ""
+    codigo_ibge: str = ""
     fonte: str = "BrasilAPI"
 
 
@@ -56,6 +57,11 @@ def consultar_cnpj(cnpj: str) -> DadosCNPJ | None:
     razao = str(dados.get("razao_social") or dados.get("nome") or "").strip()
     fantasia = str(dados.get("nome_fantasia") or "").strip()
     municipio = str(dados.get("municipio") or "").strip()
+    # BrasilAPI expõe o código de sete dígitos sob codigo_municipio_ibge.
+    # Não confundir com codigo_municipio/TOM, que não é aceito pela Morfeu.
+    codigo_ibge = "".join(caractere for caractere in str(dados.get("codigo_municipio_ibge") or "") if caractere.isdigit())
+    if len(codigo_ibge) != 7:
+        codigo_ibge = ""
     if not (uf or razao or fantasia):
         return None
     return DadosCNPJ(
@@ -64,4 +70,5 @@ def consultar_cnpj(cnpj: str) -> DadosCNPJ | None:
         nome_fantasia=fantasia,
         uf=uf,
         municipio=municipio,
+        codigo_ibge=codigo_ibge,
     )

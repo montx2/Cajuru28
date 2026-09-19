@@ -291,6 +291,9 @@ export function estadoDoDocumento(documento: Pick<DocumentoFiscal, "status" | "l
     // A SEFAZ entregou o resumo (resNFe); o XML completo vem pela chave.
     return { tom: "espera", rotulo: "Só resumo", icone: "documento" };
   }
+  if (documento.leiaute === "metadados") {
+    return { tom: "espera", rotulo: "Sem XML da fonte", icone: "documento" };
+  }
   return { tom: "neutro", rotulo: "Normal", icone: "verificar" };
 }
 

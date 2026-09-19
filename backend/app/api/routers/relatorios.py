@@ -17,6 +17,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
+from app.core.tempo import hoje_operacional
 from app.api.deps import escritorio_id_atual
 from app.db.session import get_db
 from app.models import (
@@ -35,7 +36,7 @@ router = APIRouter(prefix="/relatorios", tags=["relatórios"])
 def _periodo(competencia: str | None):
     texto = (competencia or "").strip()
     if not texto:
-        hoje = date.today()
+        hoje = hoje_operacional()
         texto = f"{hoje.month:02d}/{hoje.year:04d}"
     try:
         return interpretar_competencia(texto)
@@ -73,7 +74,7 @@ def _linhas_fechamento(db: Session, escritorio_id: int, competencia: str | None)
             func.sum(
                 case((DocumentoFiscal.status == StatusDocumentoFiscal.CANCELADA, 1), else_=0)
             ),
-            func.sum(case((DocumentoFiscal.leiaute == "resumo", 1), else_=0)),
+            func.sum(case((DocumentoFiscal.leiaute != "completo", 1), else_=0)),
         )
         .select_from(Empresa)
         .outerjoin(

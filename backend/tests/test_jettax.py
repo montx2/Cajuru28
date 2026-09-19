@@ -786,3 +786,37 @@ def test_paginacao_para_fora_dos_hosts_oficiais_segue_recusada():
         ClienteJettax(token=TOKEN).listar_nfse(CNPJ)
 
     assert "paginação" in str(erro.value)
+
+
+@respx.mock
+def test_paginacao_completa_no_limite_exato_nao_e_erro(monkeypatch):
+    """Duas páginas para teto de duas encerram normalmente, sem for/else falso."""
+    monkeypatch.setattr(config.settings, "jettax_max_paginas_por_execucao", 2)
+    rota = respx.get(f"{BASE}/api/nfse/invoices/{CNPJ}").mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json={
+                    "data": [{"id": "1"}],
+                    "meta": {"pagination": {"links": {"next": f"{BASE}/api/nfse/invoices/{CNPJ}?page=2"}}},
+                },
+            ),
+            httpx.Response(200, json={"data": [{"id": "2"}]}),
+        ]
+    )
+
+    assert [item["id"] for item in ClienteJettax(token=TOKEN).listar_nfse(CNPJ)] == ["1", "2"]
+    assert rota.call_count == 2
+
+
+def test_normalizacao_aceita_linha_authorization_colada_do_postman():
+    from app.services.jettax import normalizar_token
+
+    assert normalizar_token(" Authorization: Bearer token-correto-123 ") == "token-correto-123"
+
+
+def test_base_nao_morfeu_e_recusada_antes_de_parecer_token_invalido():
+    from app.services.jettax import JettaxErro, normalizar_base_url_jettax
+
+    with pytest.raises(JettaxErro, match="base Morfeu oficial"):
+        normalizar_base_url_jettax("https://api.jettax.com.br")

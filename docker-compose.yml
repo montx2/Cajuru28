@@ -39,6 +39,7 @@ services:
     init: true
     env_file: ./backend/.env
     environment:
+      TZ: America/Sao_Paulo
       BACKUP_DIR: /backups
     depends_on:
       db:
@@ -77,6 +78,7 @@ services:
     command: celery -A app.worker.celery_app worker --loglevel=info --concurrency=4
     env_file: ./backend/.env
     environment:
+      TZ: America/Sao_Paulo
       BACKUP_DIR: /backups
     depends_on:
       db:
@@ -101,6 +103,7 @@ services:
     command: celery -A app.worker.celery_app beat --loglevel=info
     env_file: ./backend/.env
     environment:
+      TZ: America/Sao_Paulo
       BACKUP_DIR: /backups
     depends_on:
       db:

@@ -106,11 +106,16 @@ def _completar_dados_empresa(dados: EmpresaCriar) -> dict:
     documento = normalizar_documento(dados.cnpj_cpf)
     uf = _validar_uf_ou_vazio(dados.uf)
     razao = (dados.razao_social or "").strip()
+    codigo_ibge = dados.codigo_ibge
 
-    consulta = _consulta_publica(documento) if (eh_cnpj_numerico(documento) and (not uf or not razao)) else None
+    # A consulta também entrega o IBGE municipal de sete dígitos. Buscar mesmo
+    # quando razão/UF já vieram preenchidas elimina um bloqueio do cadastro
+    # Morfeu sem substituir dado manual informado pelo operador.
+    consulta = _consulta_publica(documento) if (eh_cnpj_numerico(documento) and (not uf or not razao or not codigo_ibge)) else None
     if consulta is not None:
         uf = uf or _validar_uf_ou_vazio(consulta.uf)
         razao = razao or consulta.razao_social or consulta.nome_fantasia
+        codigo_ibge = codigo_ibge or consulta.codigo_ibge or None
 
     if not razao:
         raise HTTPException(
@@ -127,7 +132,7 @@ def _completar_dados_empresa(dados: EmpresaCriar) -> dict:
         "razao_social": razao[:255],
         "cnpj_cpf": documento,
         "uf": uf,
-        "codigo_ibge": dados.codigo_ibge,
+        "codigo_ibge": codigo_ibge,
         "inscricao_municipal": dados.inscricao_municipal,
     }
 
@@ -200,6 +205,7 @@ def consultar_cadastro_publico_cnpj(
         nome_fantasia=dados.nome_fantasia,
         uf=dados.uf,
         municipio=dados.municipio,
+        codigo_ibge=dados.codigo_ibge,
         fonte=dados.fonte,
         mensagem="Dados encontrados automaticamente.",
     )

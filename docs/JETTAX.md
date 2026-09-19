@@ -31,7 +31,9 @@ O contrato publicado cobre:
 A grafia `cnpjDestinario` (sem “ta”) é a grafia do fornecedor e é enviada
 assim pelo adaptador. NF-e chega com XML gzip codificado em base64; NFS-e tem
 apenas metadados no contrato público, portanto o NotasFlow não inventa uma URL
-de XML/PDF para ela.
+de XML/PDF para ela. Na exportação ZIP, essas NFS-e seguem no `relacao.csv` e
+ganham um JSON normalizado em `metadados/`, claramente marcado como **sem XML
+original**.
 
 ## Configuração segura e diagnóstico
 
@@ -45,8 +47,11 @@ Authorization: TOKEN_MORFEU
 Configure o token emitido para a API Morfeu no gerenciador de segredos do
 deploy ou, para cada escritório, em **Configurações → Jettax / Morfeu**. O
 painel cifra o valor no cofre do servidor e nunca o retorna ao navegador.
-Também remove um prefixo `Bearer`, aspas e espaços acidentais de colagem antes
-de guardar a chave.
+Também remove um prefixo `Bearer`, aspas, espaços acidentais e o rótulo de uma
+linha copiada do Postman/cURL (`Authorization: Bearer …`) antes de guardar a
+chave. A base aceita somente os dois hosts Morfeu publicados
+(`morfeu-api.jettax.com.br` e `morfeu.jettax.com.br`): uma URL de outro produto
+Jettax não é tratada como “token inválido”.
 
 ```dotenv
 JETTAX_API_BASE_URL=https://morfeu-api.jettax.com.br
@@ -87,14 +92,16 @@ se ele existir, fazem `PUT`, e se não existir, fazem `POST`. Isso corrige o
 caso comum de banco local restaurado/novo com cliente já cadastrado remotamente,
 sem tentar criar o CNPJ duas vezes. Se outro operador criar o cliente durante
 a operação, o conector confirma a existência e atualiza de forma idempotente.
-4. `enviar_certificado` é desmarcado por padrão. Quando selecionado, o A1
-ativo guardado no volume protegido e sua senha cifrada são usados apenas em
-memória para o registro; PFX, senha e base64 nunca aparecem em resposta,
-auditoria ou modelo de integração.
-5. Após o registro, dispare uma consulta ou aguarde o fallback automático. Uma
-resposta sem documentos é uma consulta bem-sucedida sem itens novos, não um
-sinal de que o worker parou. A execução mostra esse aviso para orientar a
-conferência de cadastro/captura.
+4. No painel da empresa, **Enviar certificado A1 ao registrar** começa marcado
+para não deixar a captura de NFS-e sem credencial por engano. Desmarque-o só
+quando a credencial municipal já estiver configurada no painel da Jettax. A1 e
+senha cifrada são usados apenas em memória para o registro; PFX, senha e
+base64 nunca aparecem em resposta, auditoria ou modelo de integração.
+5. Após o registro, use os botões **Importar NFS-e**, **Importar NF-e
+recebidas** ou **Importar NF-e emitidas** na aba Integrações da empresa, ou
+aguarde o fallback automático. Uma resposta sem documentos é uma consulta bem-
+sucedida sem itens novos, não um sinal de que o worker parou. A execução mostra
+esse aviso para orientar a conferência de cadastro/captura.
 
 A captura também depende da habilitação operacional na Jettax. As orientações
 atuais da fornecedora indicam certificado A1 ou credencial municipal e módulo

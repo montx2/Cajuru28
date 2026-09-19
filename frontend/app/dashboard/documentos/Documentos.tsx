@@ -49,7 +49,7 @@ const PASSO = 500;
 
 const DIRECOES: DirecaoDocumento[] = ["tomada", "prestada"];
 const STATUS: StatusDocumentoFiscal[] = ["normal", "cancelada"];
-const LEIAUTES: LeiauteDocumento[] = ["completo", "resumo"];
+const LEIAUTES: LeiauteDocumento[] = ["completo", "resumo", "metadados"];
 
 /**
  * Acervo de documentos: a tela de maior volume do produto.
@@ -328,7 +328,7 @@ export function Documentos() {
         celula: (documento) => (
           <IndicadorEstado
             {...estadoDoDocumento(documento)}
-            titulo={documento.motivo_cancelamento ?? (documento.leiaute === "resumo" ? "Recebido em resumo — XML completo pendente" : undefined)}
+            titulo={documento.motivo_cancelamento ?? (documento.leiaute === "resumo" ? "Recebido em resumo — XML completo pendente" : documento.leiaute === "metadados" ? "NFS-e Jettax sem XML original; exporte o período para obter o JSON normalizado." : undefined)}
           />
         ),
       },
@@ -462,9 +462,10 @@ export function Documentos() {
               value={leiaute}
               onChange={(evento) => definir({ leiaute: evento.target.value || null })}
               opcoes={[
-                { valor: "", rotulo: "Completos e resumos" },
+                { valor: "", rotulo: "Todos os leiautes" },
                 { valor: "completo", rotulo: "Somente XML completo" },
                 { valor: "resumo", rotulo: "Somente resumo (pendentes)" },
+                { valor: "metadados", rotulo: "Somente metadados Jettax (sem XML)" },
               ]}
             />
             <Selecao
@@ -479,6 +480,11 @@ export function Documentos() {
             />
           </div>
 
+          {leiaute === "metadados" ? (
+            <div className="rounded-controle border border-espera/40 bg-espera-tenue px-3 py-2 text-sm text-espera">
+              Estas NFS-e vieram da Jettax/Morfeu sem XML original. A exportação do período inclui um JSON normalizado e a relação CSV; não há XML a completar pela SEFAZ.
+            </div>
+          ) : null}
           {leiaute === "resumo" ? (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-controle border border-espera/40 bg-espera-tenue px-3 py-2">
               <p className="text-sm text-espera">

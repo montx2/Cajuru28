@@ -50,6 +50,7 @@ from app.services.jettax import (
     cursor_para,
     diagnosticar_credencial,
     explicar_diagnostico,
+    normalizar_base_url_jettax,
     normalizar_token,
 )
 
@@ -205,9 +206,10 @@ def salvar_credencial_jettax(
     usuario: Usuario = _ADMIN,
 ):
     """Guarda o token cifrado; o valor nunca é devolvido pela API."""
-    base = urlparse(dados.base_url.strip())
-    if base.scheme != "https" or not base.netloc or base.username or base.password:
-        raise HTTPException(status_code=422, detail="A URL da Jettax deve ser HTTPS e não conter credenciais.")
+    try:
+        base_url = normalizar_base_url_jettax(dados.base_url)
+    except JettaxErro as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     # A Morfeu espera o token puro no header Authorization (API Key, sem
     # "Bearer"). A limpeza aqui evita que uma colagem com prefixo/quebras de
     # linha produza 401/403 silencioso em todas as chamadas do conector.
@@ -223,25 +225,44 @@ def salvar_credencial_jettax(
     # a credencial para esta integração.
     credencial = db.query(JettaxCredencial).filter_by(escritorio_id=escritorio_id).first()
     if credencial is None:
-        credencial = JettaxCredencial(escritorio_id=escritorio_id, base_url=dados.base_url.strip(), token_cifrado="")
+        credencial = JettaxCredencial(escritorio_id=escritorio_id, base_url=base_url, token_cifrado="")
         db.add(credencial)
-    credencial.base_url = dados.base_url.strip().rstrip("/")
+    credencial.base_url = base_url
     credencial.token_cifrado = cifrar_segredo(token)
     detalhe = "Credencial Jettax atualizada no cofre"
     if token != dados.token.strip():
         detalhe += "; token normalizado (prefixo/espaços removidos antes de cifrar)"
 
     # Descobre no ato qual endereço/formato a Jettax aceita e já grava o certo,
-    # em vez de salvar uma configuração que só vai falhar no primeiro uso.
+    # em vez de salvar uma configuração que só vai falhar no primeiro uso. A
+    # saúde também é atualizada agora: "salvo" sem dizer se foi aceito era a
+    # origem de muitos relatos de token aparentemente inválido.
+    saude = db.query(JettaxSaudeConector).filter_by(escritorio_id=escritorio_id).first()
+    if saude is None:
+        saude = JettaxSaudeConector(escritorio_id=escritorio_id)
+        db.add(saude)
+    agora = _agora()
     try:
-        sucesso, _tentativas = diagnosticar_credencial(token, credencial.base_url)
-    except JettaxErro:
-        sucesso = None
+        sucesso, tentativas = diagnosticar_credencial(token, credencial.base_url)
+    except JettaxErro as exc:
+        sucesso, tentativas = None, []
+        saude.status = "erro"
+        saude.mensagem = str(exc)[:500]
+    else:
+        if sucesso is None:
+            saude.status = "erro"
+            saude.mensagem = explicar_diagnostico(tentativas)[:500]
+        else:
+            saude.status = "ok"
+            saude.mensagem = "Conexão autenticada verificada ao salvar a credencial."
+    saude.verificado_em = agora
     if sucesso is not None:
         if sucesso.base_url != credencial.base_url:
             detalhe += f"; endereço ajustado para {sucesso.host} (o token é aceito lá)"
         credencial.base_url = sucesso.base_url
         credencial.esquema_autenticacao = sucesso.esquema
+    elif saude.status == "erro":
+        detalhe += "; a credencial foi salva, mas a verificação autenticada falhou"
     auditoria.registrar(db, usuario, "jettax_credencial_atualizada", entidade="integracao", detalhe=detalhe)
     db.commit()
     return status_jettax(db=db, escritorio_id=escritorio_id)
@@ -272,7 +293,13 @@ def testar_conexao_jettax(
         db.add(saude)
     agora = _agora()
     try:
-        cliente_jettax_para(db, escritorio_id).verificar_conexao()
+        cliente = cliente_jettax_para(db, escritorio_id)
+        cliente.verificar_conexao()
+        # Se a instância aceitou o fallback Bearer, conserve a descoberta. Sem
+        # isso toda importação nova começava com um 401 desnecessário.
+        credencial = db.query(JettaxCredencial).filter_by(escritorio_id=escritorio_id).first()
+        if credencial is not None and credencial.esquema_autenticacao != cliente.esquema_autenticacao:
+            credencial.esquema_autenticacao = cliente.esquema_autenticacao
     except JettaxErro as exc:
         if exc.categoria == "autenticacao":
             # Antes de devolver "recusou a autenticação", descobrimos se

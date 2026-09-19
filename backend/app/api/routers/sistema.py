@@ -9,7 +9,7 @@ from sqlalchemy import select, text
 
 from app.db.session import get_db
 
-from app.api.deps import requer_escrita, usuario_atual
+from app.api.deps import requer_escrita, requer_papel, usuario_atual
 from app.core.config import settings
 from app.models import (
     AcessoriasCredencial,
@@ -146,7 +146,7 @@ def reset_geral(
     remover_integracoes: bool = False,
     forcar: bool = False,
     db=Depends(get_db),
-    usuario: Usuario = Depends(requer_escrita),
+    usuario: Usuario = Depends(requer_papel("admin")),
 ):
     """
     Limpa o escritório logado para começar do zero: empresas, certificados,

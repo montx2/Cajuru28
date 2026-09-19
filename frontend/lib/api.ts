@@ -194,7 +194,7 @@ export interface FiltrosDocumentos {
   data_fim?: string;
   /** Atalho opcional para o mês inteiro (MM/AAAA). O intervalo vence quando os dois vêm. */
   competencia?: string;
-  leiaute?: "completo" | "resumo";
+  leiaute?: "completo" | "resumo" | "metadados";
   busca?: string;
   numero?: string;
   serie?: string;

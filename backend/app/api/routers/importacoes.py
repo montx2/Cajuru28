@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import escritorio_id_atual, requer_escrita
 from app.core.config import settings
+from app.core.tempo import hoje_operacional
 from app.db.session import get_db
 from app.models import (
     Certificado,
@@ -669,7 +670,7 @@ def _contagens_por_empresa_tipo(
             DocumentoFiscal.tipo,
             func.count(DocumentoFiscal.id),
             func.sum(case((DocumentoFiscal.status == StatusDocumentoFiscal.CANCELADA, 1), else_=0)),
-            func.sum(case((DocumentoFiscal.leiaute == "resumo", 1), else_=0)),
+            func.sum(case((DocumentoFiscal.leiaute != "completo", 1), else_=0)),
         )
         .filter(
             DocumentoFiscal.empresa_id.in_(empresa_ids or [-1]),
@@ -894,7 +895,7 @@ def conferir_competencia(
     competência. Se algo não cumprir isso, a resposta aponta exatamente onde
     rodar de novo ou o que corrigir.
     """
-    hoje = date.today()
+    hoje = hoje_operacional()
     periodo = _periodo(competencia or f"{hoje.month:02d}/{hoje.year:04d}")
     assert periodo is not None and periodo.inicio is not None and periodo.fim is not None
     tipos_lista = _parse_tipos_csv(tipos)

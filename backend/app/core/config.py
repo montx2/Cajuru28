@@ -79,6 +79,11 @@ class Settings(BaseSettings):
     # Ambiente fiscal dos importadores: "producao" | "homologacao"
     ambiente_fiscal: str = "producao"
 
+    # Observabilidade: produção usa JSON para permitir correlação entre API,
+    # worker e proxy sem precisar acessar o banco manualmente.
+    log_level: str = "INFO"
+    log_json: bool = True
+
     # ---------------- Jettax 360 / Morfeu ----------------
     jettax_api_base_url: str = "https://morfeu-api.jettax.com.br"
     jettax_api_token: str = ""

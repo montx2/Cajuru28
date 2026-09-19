@@ -19,6 +19,7 @@ O único caminho que dispensa período é a exportação por seleção explícit
 
 import csv
 import io
+import json
 import os
 import re
 import tempfile
@@ -30,7 +31,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
 
-from app.api.deps import escritorio_id_atual, requer_escrita, usuario_atual
+from app.api.deps import escritorio_id_atual, requer_escrita, requer_papel, usuario_atual
 from app.core.config import settings
 from app.db.session import get_db
 from app.models import (
@@ -133,8 +134,8 @@ def _filtrar(
     if status is not None:
         consulta = consulta.filter(DocumentoFiscal.status == status)
     if leiaute:
-        if leiaute not in {"completo", "resumo"}:
-            raise HTTPException(status_code=422, detail="leiaute deve ser 'completo' ou 'resumo'.")
+        if leiaute not in {"completo", "resumo", "metadados"}:
+            raise HTTPException(status_code=422, detail="leiaute deve ser 'completo', 'resumo' ou 'metadados'.")
         consulta = consulta.filter(DocumentoFiscal.leiaute == leiaute)
     if origem:
         consulta = consulta.filter(DocumentoFiscal.origem == origem.strip().lower())
@@ -264,7 +265,7 @@ def resumo_documentos(
     tipo: TipoDocumentoFiscal | None = None,
     direcao: DirecaoDocumento | None = None,
     status: StatusDocumentoFiscal | None = None,
-    leiaute: str | None = Query(default=None, description="completo | resumo"),
+    leiaute: str | None = Query(default=None, description="completo | resumo | metadados"),
     competencia: str | None = Query(default=None, description=DESCRICAO_COMPETENCIA),
     data_inicio: str | None = Query(default=None, description=DESCRICAO_DATA_INICIO),
     data_fim: str | None = Query(default=None, description=DESCRICAO_DATA_FIM),
@@ -332,7 +333,7 @@ def listar_documentos(
     tipo: TipoDocumentoFiscal | None = None,
     direcao: DirecaoDocumento | None = None,
     status: StatusDocumentoFiscal | None = None,
-    leiaute: str | None = Query(default=None, description="completo | resumo"),
+    leiaute: str | None = Query(default=None, description="completo | resumo | metadados"),
     competencia: str | None = Query(default=None, description=DESCRICAO_COMPETENCIA),
     data_inicio: str | None = Query(default=None, description=DESCRICAO_DATA_INICIO),
     data_fim: str | None = Query(default=None, description=DESCRICAO_DATA_FIM),
@@ -394,7 +395,7 @@ def resumo_por_empresa(
     tipo: TipoDocumentoFiscal | None = None,
     direcao: DirecaoDocumento | None = None,
     status: StatusDocumentoFiscal | None = None,
-    leiaute: str | None = Query(default=None, description="completo | resumo"),
+    leiaute: str | None = Query(default=None, description="completo | resumo | metadados"),
     busca: str | None = Query(default=None),
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
@@ -427,7 +428,7 @@ def resumo_por_empresa(
             DocumentoFiscal.empresa_id,
             func.count(DocumentoFiscal.id),
             func.sum(case((DocumentoFiscal.status == StatusDocumentoFiscal.CANCELADA, 1), else_=0)),
-            func.sum(case((DocumentoFiscal.leiaute == "resumo", 1), else_=0)),
+            func.sum(case((DocumentoFiscal.leiaute != "completo", 1), else_=0)),
             func.coalesce(
                 func.sum(
                     case(
@@ -482,7 +483,7 @@ def estimativa_exportacao(
     incluir_canceladas: bool = True,
     documento_ids: str | None = Query(default=None, description="seleção da tela: 12,34,56"),
     busca: str | None = Query(default=None, description="mesma busca da tela"),
-    leiaute: str | None = Query(default=None, description="completo | resumo"),
+    leiaute: str | None = Query(default=None, description="completo | resumo | metadados"),
     numero: str | None = Query(default=None),
     serie: str | None = Query(default=None),
     emitente_documento: str | None = Query(default=None),
@@ -553,7 +554,7 @@ def exportar_relacao_csv(
     incluir_canceladas: bool = True,
     documento_ids: str | None = Query(default=None, description="seleção da tela: 12,34,56"),
     busca: str | None = Query(default=None, description="mesma busca da tela"),
-    leiaute: str | None = Query(default=None, description="completo | resumo"),
+    leiaute: str | None = Query(default=None, description="completo | resumo | metadados"),
     numero: str | None = Query(default=None),
     serie: str | None = Query(default=None),
     emitente_documento: str | None = Query(default=None),
@@ -636,7 +637,7 @@ def exportar_xmls(
     incluir_canceladas: bool = True,
     documento_ids: str | None = Query(default=None, description="seleção da tela: 12,34,56"),
     busca: str | None = Query(default=None, description="mesma busca da tela"),
-    leiaute: str | None = Query(default=None, description="completo | resumo"),
+    leiaute: str | None = Query(default=None, description="completo | resumo | metadados"),
     numero: str | None = Query(default=None),
     serie: str | None = Query(default=None),
     emitente_documento: str | None = Query(default=None),
@@ -899,7 +900,7 @@ def _linha_relatorio(documento: DocumentoFiscal, empresa: Empresa, arquivo_zip: 
         documento.destinatario_nome or "",
         f"{documento.valor_total:.2f}".replace(".", ","),
         "CANCELADA" if documento.status == StatusDocumentoFiscal.CANCELADA else "NORMAL",
-        "sim" if documento.leiaute != "resumo" else "so-resumo",
+        "sim" if documento.leiaute == "completo" else ("metadados-sem-xml" if documento.leiaute == "metadados" else "so-resumo"),
         documento.origem or "",
         documento.nsu or "",
         arquivo_zip,
@@ -953,9 +954,38 @@ def _montar_zip(consulta, periodo, *, incluir_relatorio: bool) -> str:
                 usados.add(endereco)
                 arquivo_relatorio = endereco
             else:
-                # Sem arquivo não dá para inventar XML; a relação continua
-                # listando a nota, com o caminho em branco para revisão.
+                # A Morfeu pública entrega NFS-e como metadados, sem contrato
+                # de download de XML. Em vez de omitir a nota do pacote (ou
+                # fingir que JSON é XML), entregamos sua representação
+                # normalizada e deixamos isso explícito no relatório.
                 arquivo_relatorio = ""
+                if documento.leiaute == "metadados":
+                    endereco_metadados = f"{pasta}/metadados/{documento.id}_{documento.chave_acesso}.json"
+                    pacote.writestr(
+                        endereco_metadados,
+                        json.dumps(
+                            {
+                                "aviso": "A fonte Jettax/Morfeu não disponibilizou XML original para esta NFS-e.",
+                                "empresa": {"id": empresa.id, "razao_social": empresa.razao_social, "cnpj_cpf": empresa.cnpj_cpf},
+                                "documento": {
+                                    "id": documento.id,
+                                    "tipo": documento.tipo.value,
+                                    "chave_acesso": documento.chave_acesso,
+                                    "numero": documento.numero,
+                                    "serie": documento.serie,
+                                    "data_emissao": documento.data_emissao.isoformat() if documento.data_emissao else None,
+                                    "competencia": documento.competencia.isoformat() if documento.competencia else None,
+                                    "valor_total": f"{documento.valor_total:.2f}",
+                                    "situacao": documento.situacao,
+                                    "origem": documento.origem,
+                                    "identificador_fonte": documento.nsu,
+                                },
+                            },
+                            ensure_ascii=False,
+                            indent=2,
+                        ),
+                    )
+                    arquivo_relatorio = endereco_metadados
 
             escritor.writerow(_linha_relatorio(documento, empresa, arquivo_relatorio))
 
@@ -979,8 +1009,10 @@ def _leia_me(periodo, quantidade: int) -> str:
         "relacao.csv abre direto no Excel (separador ';').\n\n"
         "Notas com 'so-resumo' na coluna xml_completo: a SEFAZ distribui o\n"
         "resumo até que a nota seja manifestada. Use o botão 'completar XML'\n"
-        "no painel — a busca pela chave é limitada a 20 consultas/h por CNPJ,\n"
-        "então o próprio sistema dosifica.\n"
+        "no painel — a busca pela chave é limitada a 20 consultas/h por CNPJ.\n\n"
+        "Notas com 'metadados-sem-xml' vieram da Jettax/Morfeu sem contrato de\n"
+        "download de XML. O pacote contém um JSON normalizado em /metadados,\n"
+        "sem inventar um XML fiscal inexistente.\n"
     )
 
 
@@ -1001,6 +1033,11 @@ def baixar_xml(
     documento = _documento_do_escritorio(db, documento_id, escritorio_id)
 
     if not documento.xml_path or not os.path.isfile(documento.xml_path):
+        if documento.leiaute == "metadados":
+            raise HTTPException(
+                status_code=409,
+                detail="Esta NFS-e chegou da Jettax somente com metadados; a API Morfeu não forneceu XML original. Exporte o período para baixar o JSON normalizado junto da relação CSV.",
+            )
         raise HTTPException(status_code=404, detail="Arquivo XML não encontrado no disco")
 
     return FileResponse(
@@ -1072,7 +1109,7 @@ def excluir_documentos_lote(
     payload: DocumentosExcluirLote,
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
-    usuario: Usuario = Depends(requer_escrita),
+    usuario: Usuario = Depends(requer_papel("admin")),
 ):
     """Exclui as notas marcadas na tela; ids fora do escritório não são aceitos."""
     documentos = (
