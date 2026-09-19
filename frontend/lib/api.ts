@@ -1,5 +1,4 @@
 import type {
-  AlertaItem,
   AlertasResposta,
   BackupsResposta,
   BackupRegistro,
@@ -98,7 +97,14 @@ async function chamar<T>(caminho: string, opcoes: RequestInit = {}): Promise<T> 
   }
 
   if (resposta.status === 401 && !ehLogin) {
-    if (typeof window !== "undefined") window.location.href = "/login";
+    if (typeof window !== "undefined") {
+      // Leva o caminho atual: depois de entrar, o operador volta à tela em que
+      // estava em vez de cair sempre no painel. `replace` não deixa a página
+      // expirada no histórico — o "voltar" não repete o 401.
+      const atual = `${window.location.pathname}${window.location.search}`;
+      const destino = atual.startsWith("/dashboard") ? `?destino=${encodeURIComponent(atual)}` : "";
+      window.location.replace(`/login${destino}`);
+    }
     throw new ApiError(401, "Sessão expirada");
   }
 

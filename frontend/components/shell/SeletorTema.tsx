@@ -1,9 +1,35 @@
 "use client";
-import { useEffect, useState } from "react";
-type Tema = "claro" | "escuro" | "sistema";
-function aplicar(tema: Tema) { const escuro = tema === "escuro" || (tema === "sistema" && window.matchMedia("(prefers-color-scheme: dark)").matches); document.documentElement.dataset.tema = escuro ? "escuro" : "claro"; }
+
+import { useTema, type Tema } from "@/lib/tema";
+import { MenuSuspenso } from "@/components/ui/MenuSuspenso";
+import type { NomeIcone } from "@/components/ui/Icone";
+
+const OPCOES: Array<{ valor: Tema; rotulo: string; icone: NomeIcone }> = [
+  { valor: "claro", rotulo: "Claro", icone: "sol" },
+  { valor: "escuro", rotulo: "Escuro", icone: "lua" },
+  { valor: "sistema", rotulo: "Seguir o sistema", icone: "monitor" },
+];
+
+/** Tema claro e escuro são calibrados separadamente — não é a paleta invertida. */
 export function SeletorTema() {
-  const [tema, setTema] = useState<Tema>("sistema");
-  useEffect(() => { const salvo = localStorage.getItem("notasflow:tema"); const inicial: Tema = salvo === "claro" || salvo === "escuro" ? salvo : "sistema"; setTema(inicial); aplicar(inicial); const media = window.matchMedia("(prefers-color-scheme: dark)"); const mudar = () => aplicar(inicial); media.addEventListener("change", mudar); return () => media.removeEventListener("change", mudar); }, []);
-  return <select id="tema-interface" className="h-10 max-w-28 rounded-md border border-traco bg-superficie px-2 text-xs text-tinta" value={tema} onChange={(e) => { const valor = e.target.value as Tema; setTema(valor); localStorage.setItem("notasflow:tema", valor); aplicar(valor); }} aria-label="Tema da interface"><option value="sistema">Tema: sistema</option><option value="claro">Tema: claro</option><option value="escuro">Tema: escuro</option></select>;
+  const { tema, definir } = useTema();
+  const atual = OPCOES.find((opcao) => opcao.valor === tema) ?? OPCOES[2];
+
+  return (
+    <MenuSuspenso
+      rotulo="Tema da interface"
+      dica={`Tema: ${atual.rotulo}`}
+      icone={atual.icone}
+      largura="w-56"
+      itens={OPCOES.map((opcao) => ({
+        id: opcao.valor,
+        rotulo: opcao.rotulo,
+        icone: opcao.icone,
+        selecionado: opcao.valor === tema,
+        aoClicar: () => definir(opcao.valor),
+      }))}
+    >
+      <p className="px-3 pb-1 pt-1.5 text-2xs font-medium uppercase tracking-[.04em] text-tinta-fraca">Aparência</p>
+    </MenuSuspenso>
+  );
 }

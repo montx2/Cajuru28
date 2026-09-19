@@ -1,13 +1,16 @@
-"use client";
-import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import { api, ApiError } from "@/lib/api";
-import { Botao } from "@/components/ui/Botao";
-const fatos = ["Captura NFS-e, NFe e CT-e pelo ADN e pela SEFAZ.", "Usa certificados A1 sem expor a senha.", "Interrompe apenas o item que falhou; o restante continua."];
-function mensagemErro(erro: unknown): string { if (!(erro instanceof ApiError)) return "Não foi possível validar o acesso. Verifique os dados e tente novamente."; if (erro.status === 401) return "E-mail ou senha incorretos."; if (erro.status === 0) return "A API não respondeu. Verifique os serviços com docker compose ps e consulte GET /saude."; if (erro.status === 403) return "Origem não autorizada para esta sessão."; if (erro.status === 429) return "Muitas tentativas. Tente novamente em instantes."; return erro.message; }
-export default function LoginPage() {
- const router = useRouter(); const emailRef = useRef<HTMLInputElement>(null); const [email,setEmail]=useState(""); const [senha,setSenha]=useState(""); const [mostrar,setMostrar]=useState(false); const [erro,setErro]=useState<string|null>(null); const [enviando,setEnviando]=useState(false);
- useEffect(() => { let vivo=true; api.quemSouEu().then(() => { if(vivo) router.replace("/dashboard"); }).catch(() => { if(vivo) emailRef.current?.focus(); }); return () => { vivo=false; }; },[router]);
- async function entrar(e: React.FormEvent){ e.preventDefault(); setErro(null); setEnviando(true); try { await api.login(email,senha); router.push("/dashboard"); } catch(falha){ setErro(mensagemErro(falha)); } finally { setEnviando(false); } }
- return <main className="grid min-h-screen bg-fundo lg:grid-cols-2"><section className="hidden bg-sidebar p-12 text-white lg:flex lg:flex-col lg:justify-between" aria-labelledby="produto"><div className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-md border border-white/25 font-semibold">N</span><span className="text-md font-semibold">NotasFlow</span></div><div className="max-w-[560px]"><h1 id="produto" className="text-xl font-semibold text-white">Operação fiscal automática, com intervenção apenas quando necessária.</h1><ul className="mt-8 space-y-4">{fatos.map((fato)=><li key={fato} className="flex gap-3 text-base text-white/75"><span aria-hidden="true" className="text-acento">✓</span>{fato}</li>)}</ul></div><p className="font-mono text-xs text-white/55">ADN · SEFAZ · ambiente privado</p></section><section className="flex items-center justify-center px-5 py-10"><div className="w-full max-w-[380px]"><div className="mb-8 lg:hidden"><span className="text-md font-semibold">NotasFlow</span></div><h2 className="text-lg font-semibold">Entrar</h2><p className="mt-1 text-sm text-tinta-suave">Use as credenciais do escritório.</p><form className="mt-6 space-y-4" onSubmit={entrar} aria-busy={enviando}><div><label className="label" htmlFor="email">E-mail</label><input ref={emailRef} id="email" className="input" type="email" inputMode="email" autoComplete="username" required disabled={enviando} value={email} onChange={(e)=>setEmail(e.target.value)} /></div><div><label className="label" htmlFor="senha">Senha</label><div className="relative"><input id="senha" className="input pr-20" type={mostrar?"text":"password"} autoComplete="current-password" required disabled={enviando} value={senha} onChange={(e)=>setSenha(e.target.value)} /><button type="button" className="absolute right-1 top-1 h-8 rounded-sm px-2 text-xs text-tinta-suave hover:bg-fundo-afundado" aria-pressed={mostrar} onClick={()=>setMostrar(!mostrar)}>{mostrar?"Ocultar":"Mostrar"}</button></div></div>{erro&&<div role="alert" className="rounded-md border border-erro/40 bg-erro-tenue p-3 text-sm text-erro">{erro}</div>}<Botao type="submit" variante="primaria" tamanho="lg" carregando={enviando} className="w-full">{enviando?"Verificando acesso…":"Entrar"}</Botao></form></div></section></main>;
+import { Suspense } from "react";
+import type { Metadata } from "next";
+import { FormularioLogin } from "./FormularioLogin";
+
+export const metadata: Metadata = {
+  title: "Entrar · NotasFlow",
+};
+
+/* `useSearchParams` exige fronteira de Suspense no build estático do App Router. */
+export default function PaginaLogin() {
+  return (
+    <Suspense fallback={null}>
+      <FormularioLogin />
+    </Suspense>
+  );
 }

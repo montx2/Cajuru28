@@ -64,6 +64,31 @@ export function periodoPadrao(): Periodo {
   return intervaloDoMes(mesAtual());
 }
 
+/** Mês anterior inteiro — o período mais consultado num fechamento. */
+export function mesPassado(): Periodo {
+  const anterior = new Date();
+  anterior.setMonth(anterior.getMonth() - 1, 1);
+  return intervaloDoMes(`${anterior.getFullYear()}-${String(anterior.getMonth() + 1).padStart(2, "0")}`);
+}
+
+/** Últimos N meses corridos, terminando hoje. */
+export function ultimosMeses(meses: number): Periodo {
+  const fim = new Date();
+  const inicio = new Date();
+  inicio.setMonth(inicio.getMonth() - (meses - 1), 1);
+  return { inicio: paraISO(inicio), fim: paraISO(fim) };
+}
+
+/** Ano corrente inteiro — usado para varreduras amplas. */
+export function anoCorrente(): Periodo {
+  const ano = new Date().getFullYear();
+  return { inicio: `${ano}-01-01`, fim: `${ano}-12-31` };
+}
+
+function paraISO(data: Date): string {
+  return `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, "0")}-${String(data.getDate()).padStart(2, "0")}`;
+}
+
 /** 2026-08-05 → 05/08/2026 (para títulos e nomes de arquivo). */
 export function dataBR(iso: string): string {
   if (!iso) return "";
