@@ -25,9 +25,9 @@ import base64
 import gzip
 import logging
 import os
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal, InvalidOperation
 from typing import Any, Iterable
 from urllib.parse import urljoin, urlparse
 
@@ -39,6 +39,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.documentos import normalizar_cnpj, normalizar_documento
+from app.core.money import valor_monetario
+from app.core.tempo import tornar_data_hora_fiscal_consciente
 from app.models import (
     DirecaoDocumento,
     DocumentoFiscal,
@@ -67,10 +69,15 @@ def normalizar_token(valor: object) -> str:
     ou quebras de linha no meio; tudo isso é removido para o header sair
     exatamente como o fornecedor emitiu. Tokens de API não contêm espaço.
     """
-    texto = str(valor or "").strip()
+    texto = str(valor or "").replace("\ufeff", "").replace("\u200b", "").strip()
     if not texto:
         return ""
+    # Também aceita a linha completa copiada do Postman/cURL, por exemplo
+    # ``Authorization: Bearer abc``. Era um caso que preservava o rótulo no
+    # segredo e fazia um token correto parecer inválido no fornecedor.
+    texto = re.sub(r"^(?:authorization|api[-_ ]?key)\s*:\s*", "", texto, flags=re.IGNORECASE)
     for _ in range(2):  # cobre "Bearer Bearer <token>" de dupla colagem
+        texto = texto.strip("\"'").strip()
         minusculo = texto.lower()
         if minusculo.startswith("bearer "):
             texto = texto[7:].strip()
@@ -102,6 +109,33 @@ HOSTS_OFICIAIS_JETTAX = (
     "https://morfeu.jettax.com.br",
 )
 _NETLOCS_OFICIAIS_JETTAX = frozenset(urlparse(h).netloc for h in HOSTS_OFICIAIS_JETTAX)
+
+
+def normalizar_base_url_jettax(valor: str) -> str:
+    """Aceita somente as duas bases Morfeu publicadas pela fornecedora.
+
+    Evita salvar URLs parecidas como ``api.jettax.com.br`` — uma base de outro
+    produto fazia a tela reportar "token inválido" apesar de o token Morfeu
+    estar correto. A paginação continua podendo atravessar o par oficial.
+    """
+    partes = urlparse((valor or "").strip())
+    origem = f"{partes.scheme.lower()}://{partes.netloc.lower()}".rstrip("/")
+    if (
+        partes.scheme.lower() != "https"
+        or partes.username
+        or partes.password
+        or partes.path not in {"", "/"}
+        or partes.params
+        or partes.query
+        or partes.fragment
+        or origem not in HOSTS_OFICIAIS_JETTAX
+    ):
+        raise JettaxErro(
+            "Use uma base Morfeu oficial: https://morfeu-api.jettax.com.br ou https://morfeu.jettax.com.br.",
+            categoria="configuracao",
+        )
+    return origem
+
 
 _FLUXO_NFSE = "nfse"
 _FLUXO_NFE_SAIDA = "sales"
@@ -233,7 +267,7 @@ def _dicionario(valor: object) -> dict[str, Any]:
 
 def _data_hora(valor: object) -> datetime:
     if isinstance(valor, datetime):
-        return valor if valor.tzinfo else valor.replace(tzinfo=timezone.utc)
+        return tornar_data_hora_fiscal_consciente(valor)
     texto = _texto(valor)
     if not texto:
         return datetime.now(timezone.utc)
@@ -244,7 +278,7 @@ def _data_hora(valor: object) -> datetime:
             resultado = date_parser.parse(texto)
         except (ValueError, TypeError, OverflowError):
             return datetime.now(timezone.utc)
-    return resultado if resultado.tzinfo else resultado.replace(tzinfo=timezone.utc)
+    return tornar_data_hora_fiscal_consciente(resultado)
 
 
 def _para_data(valor: object) -> date | None:
@@ -284,10 +318,7 @@ def _decimal(valor: object) -> float:
         texto = original.replace(",", ".")
     else:
         texto = original
-    try:
-        return float(Decimal(texto or "0"))
-    except (InvalidOperation, ValueError):
-        return 0.0
+    return valor_monetario(texto or "0")
 
 
 def _normalizar_chave(chave: str) -> str:
@@ -641,19 +672,31 @@ class ClienteJettax:
         return self._requisitar("GET", "/api/nfse/cities", params=params)
 
     def _listar_paginas(self, rota: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+        """Lista todas as páginas, sem confundir fim normal com teto local.
+
+        ``for … else`` não distingue uma última página sem ``next`` lida na
+        última iteração de uma paginação que realmente excedeu o limite. Esse
+        detalhe fazia uma consulta perfeitamente completa falhar quando o
+        total de páginas era exatamente JETTAX_MAX_PAGINAS_POR_EXECUCAO.
+        """
         rota_atual: str | None = rota
-        parametros_atuais: dict[str, Any] | None = {chave: valor for chave, valor in params.items() if valor not in (None, "")}
+        parametros_atuais: dict[str, Any] | None = {
+            chave: valor for chave, valor in params.items() if valor not in (None, "")
+        }
         documentos: list[dict[str, Any]] = []
         visitadas: set[str] = set()
         limite = max(1, int(settings.jettax_max_paginas_por_execucao))
 
         for _ in range(limite):
             if not rota_atual:
-                break
+                return documentos
             url = self._url_segura(rota_atual)
-            if url in visitadas:
+            # A primeira rota recebe filtros separados; incluí-los na chave
+            # impede que um next que volte à mesma rota+query passe despercebido.
+            identidade = str(httpx.URL(url, params=parametros_atuais)) if parametros_atuais else url
+            if identidade in visitadas:
                 raise JettaxErro("A Jettax retornou paginação cíclica.", categoria="protocolo")
-            visitadas.add(url)
+            visitadas.add(identidade)
             resposta = self._requisitar("GET", rota_atual, params=parametros_atuais)
             parametros_atuais = None  # links next já carregam a query própria
             if isinstance(resposta, list):
@@ -671,12 +714,14 @@ class ClienteJettax:
                 raise JettaxErro("A Jettax retornou documentos em formato não reconhecido.", categoria="protocolo")
             documentos.extend(pagina)
             rota_atual = str(proxima) if proxima else None
-        else:
-            raise JettaxErro(
-                "Limite de páginas da Jettax atingido; reduza o período ou aumente JETTAX_MAX_PAGINAS_POR_EXECUCAO.",
-                categoria="limite_local",
-            )
-        return documentos
+            if not rota_atual:
+                return documentos
+
+        # Só existe estouro quando ainda há uma próxima página pendente.
+        raise JettaxErro(
+            "Limite de páginas da Jettax atingido; reduza o período ou aumente JETTAX_MAX_PAGINAS_POR_EXECUCAO.",
+            categoria="limite_local",
+        )
 
     def listar_nfse(self, cnpj: str, *, last_id: str | None = None, numero: str | None = None, nota_situacao: str | None = None, tipo_nota: str | None = None, period: str | None = None) -> list[dict[str, Any]]:
         return self._listar_paginas(
@@ -1135,7 +1180,7 @@ def _persistir_xml(db: Session, empresa_id: int, tipo: TipoDocumentoFiscal, doc:
             "nsu": _texto(doc.nsu, 20) or "0",
             "data_emissao": _data_hora(doc.data_emissao),
             "competencia": _competencia(doc.competencia, _data_hora(doc.data_emissao)),
-            "valor_total": float(doc.valor_total or 0),
+            "valor_total": valor_monetario(doc.valor_total),
             "xml_path": caminho,
             "status": StatusDocumentoFiscal.NORMAL,
             "leiaute": _texto(doc.leiaute, 12) or "completo",

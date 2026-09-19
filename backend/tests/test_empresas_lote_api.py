@@ -249,3 +249,24 @@ def test_lote_sem_arquivo_nem_csv_da_erro(cliente):
     client, _, _ = cliente
     resposta = client.post("/empresas/lote", data={"senha": "", "uf_padrao": "SP"})
     assert resposta.status_code == 400
+
+
+def test_criacao_preenche_ibge_vindo_da_consulta_publica(monkeypatch):
+    from app.api.routers.empresas import _completar_dados_empresa
+    from app.schemas import EmpresaCriar
+    from app.services.cnpj import DadosCNPJ
+
+    monkeypatch.setattr(
+        "app.api.routers.empresas._consulta_publica",
+        lambda _cnpj: DadosCNPJ(
+            documento="12345678000199",
+            razao_social="Empresa da Consulta",
+            uf="MG",
+            municipio="Cajuru",
+            codigo_ibge="3114205",
+        ),
+    )
+
+    dados = _completar_dados_empresa(EmpresaCriar(cnpj_cpf="12.345.678/0001-99"))
+
+    assert dados["codigo_ibge"] == "3114205"

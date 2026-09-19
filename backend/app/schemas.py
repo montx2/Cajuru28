@@ -123,6 +123,7 @@ class ConsultaCNPJResposta(BaseModel):
     nome_fantasia: str = ""
     uf: str = ""
     municipio: str = ""
+    codigo_ibge: str = ""
     fonte: str = ""
     mensagem: str = ""
 

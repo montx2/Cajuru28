@@ -378,7 +378,7 @@ export function Empresa() {
             rodape={
               <p className="nums text-xs text-tinta-suave">
                 {numero(documentosNoPeriodo.length)} {plural(documentosNoPeriodo.length, "documento", "documentos")} ·{" "}
-                {numero(documentosNoPeriodo.filter((documento) => documento.leiaute === "resumo").length)} só com resumo · clique numa linha para abrir o detalhe
+                {numero(documentosNoPeriodo.filter((documento) => documento.leiaute !== "completo").length)} sem XML completo · clique numa linha para abrir o detalhe
               </p>
             }
           />
@@ -524,7 +524,7 @@ const colunasDocumentos: Array<ColunaTabela<DocumentoFiscal>> = [
     celula: (documento) => (
       <span className="flex flex-wrap items-center gap-1.5">
         {documento.status === "cancelada" ? <Etiqueta tom="erro">Cancelada</Etiqueta> : <Etiqueta tom="ok">Normal</Etiqueta>}
-        {documento.leiaute === "resumo" ? <Etiqueta tom="espera">só resumo</Etiqueta> : null}
+        {documento.leiaute === "resumo" ? <Etiqueta tom="espera">só resumo</Etiqueta> : documento.leiaute === "metadados" ? <Etiqueta tom="espera">sem XML da fonte</Etiqueta> : null}
       </span>
     ),
   },
@@ -582,6 +582,7 @@ function AbaIntegracoes({ empresaId, somenteLeitura }: { empresaId: number; some
   const configuracao = useRecurso(() => api.obterJettaxEmpresa(empresaId), [empresaId], { automatico: false });
   const execucoes = useRecurso(() => api.listarExecucoesJettaxEmpresa(empresaId, 10), [empresaId]);
   const [salvando, setSalvando] = useState<string | null>(null);
+  const [enviarCertificado, setEnviarCertificado] = useState(true);
 
   useEffect(() => {
     if (status.dados?.configurado) configuracao.atualizar();
@@ -618,9 +619,13 @@ function AbaIntegracoes({ empresaId, somenteLeitura }: { empresaId: number; some
   async function registrar() {
     setSalvando("registrar");
     try {
-      const resultado = await api.registrarJettaxEmpresa(empresaId, false);
+      const resultado = await api.registrarJettaxEmpresa(empresaId, enviarCertificado);
       configuracao.definir(resultado);
-      avisar({ tom: "ok", titulo: "Empresa registrada no Jettax", descricao: `Status: ${resultado.status}` });
+      avisar({
+        tom: "ok",
+        titulo: "Empresa registrada no Jettax",
+        descricao: enviarCertificado ? `Status: ${resultado.status} · certificado A1 enviado com segurança.` : `Status: ${resultado.status}`,
+      });
     } catch (falha) {
       avisar({ tom: "erro", titulo: "Não foi possível registrar", descricao: mensagemDoErro(falha, "registrar a empresa no Jettax") });
     } finally {
@@ -628,7 +633,30 @@ function AbaIntegracoes({ empresaId, somenteLeitura }: { empresaId: number; some
     }
   }
 
+  async function importar(tipo: "nfse" | "nfe-entrada" | "nfe-saida") {
+    const rotulo = tipo === "nfse" ? "NFS-e" : tipo === "nfe-entrada" ? "NF-e recebidas" : "NF-e emitidas";
+    setSalvando(`importar-${tipo}`);
+    try {
+      const execucao = tipo === "nfse"
+        ? await api.importarNFSeJettax(empresaId)
+        : await api.importarNFeJettax(empresaId, { direcao: tipo === "nfe-entrada" ? "purchases" : "sales" });
+      execucoes.atualizar();
+      configuracao.atualizar();
+      avisar({ tom: "ok", titulo: `${rotulo}: importação iniciada`, descricao: `Execução #${execucao.id} enfileirada. Acompanhe o resultado abaixo.` });
+    } catch (falha) {
+      avisar({ tom: "erro", titulo: `Não foi possível importar ${rotulo}`, descricao: mensagemDoErro(falha, "disparar a importação Jettax") });
+    } finally {
+      setSalvando(null);
+    }
+  }
+
   const dados = configuracao.dados;
+  const podeImportar = Boolean(dados?.ativa && ["registrada", "atualizada"].includes(dados.status));
+  const motivoImportacao = !dados?.ativa
+    ? "Ative a integração desta empresa antes de importar."
+    : !["registrada", "atualizada"].includes(dados?.status ?? "")
+      ? "Registre/atualize o cliente na Jettax antes de importar."
+      : undefined;
 
   return (
     <div className="space-y-4">
@@ -659,9 +687,37 @@ function AbaIntegracoes({ empresaId, somenteLeitura }: { empresaId: number; some
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3">
-              <Alternador rotulo="Baixar NFS-e" ligado={dados.baixar_nfes} aoMudar={(valor) => salvar("baixar_nfes", valor)} pendente={salvando === "baixar_nfes"} desabilitado={somenteLeitura} motivoDesabilitado={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined} />
-              <Alternador rotulo="Baixar NF-e" ligado={dados.baixar_nfes_enviadas} aoMudar={(valor) => salvar("baixar_nfes_enviadas", valor)} pendente={salvando === "baixar_nfes_enviadas"} desabilitado={somenteLeitura} motivoDesabilitado={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined} />
+              <Alternador rotulo="Baixar NF-e recebidas" descricao="Ativa a captura de compras no cadastro Morfeu." ligado={dados.baixar_nfes} aoMudar={(valor) => salvar("baixar_nfes", valor)} pendente={salvando === "baixar_nfes"} desabilitado={somenteLeitura} motivoDesabilitado={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined} />
+              <Alternador rotulo="Baixar NF-e emitidas" descricao="Ativa a captura de vendas no cadastro Morfeu." ligado={dados.baixar_nfes_enviadas} aoMudar={(valor) => salvar("baixar_nfes_enviadas", valor)} pendente={salvando === "baixar_nfes_enviadas"} desabilitado={somenteLeitura} motivoDesabilitado={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined} />
               <Alternador rotulo="Integração ativa" ligado={dados.ativa} aoMudar={(valor) => salvar("ativa", valor)} pendente={salvando === "ativa"} desabilitado={somenteLeitura} motivoDesabilitado={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined} />
+            </div>
+
+            <div className="border-t border-traco pt-3">
+              <Alternador
+                rotulo="Enviar certificado A1 ao registrar"
+                descricao="Necessário para a captura de NFS-e quando a prefeitura usa certificado. O PFX e a senha só trafegam nesta chamada HTTPS e nunca voltam para a tela."
+                ligado={enviarCertificado}
+                aoMudar={setEnviarCertificado}
+                desabilitado={somenteLeitura}
+                motivoDesabilitado={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined}
+              />
+            </div>
+
+            <div className="border-t border-traco pt-3">
+              <p className="mb-2 text-sm font-medium text-tinta">Importar agora</p>
+              <p className="mb-3 text-xs leading-5 text-tinta-suave">Cada ação cria uma execução auditável. NFS-e pode vir como metadados quando a API Morfeu não disponibiliza XML original.</p>
+              <div className="flex flex-wrap gap-2">
+                <Botao variante="primaria" tamanho="sm" onClick={() => importar("nfse")} carregando={salvando === "importar-nfse"} disabled={somenteLeitura || !podeImportar} title={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : motivoImportacao}>
+                  Importar NFS-e
+                </Botao>
+                <Botao variante="secundaria" tamanho="sm" onClick={() => importar("nfe-entrada")} carregando={salvando === "importar-nfe-entrada"} disabled={somenteLeitura || !podeImportar} title={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : motivoImportacao}>
+                  Importar NF-e recebidas
+                </Botao>
+                <Botao variante="secundaria" tamanho="sm" onClick={() => importar("nfe-saida")} carregando={salvando === "importar-nfe-saida"} disabled={somenteLeitura || !podeImportar} title={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : motivoImportacao}>
+                  Importar NF-e emitidas
+                </Botao>
+              </div>
+              {motivoImportacao ? <p className="mt-2 text-xs text-espera">{motivoImportacao}</p> : null}
             </div>
 
             <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-traco pt-3 text-sm sm:grid-cols-4">

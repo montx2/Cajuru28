@@ -57,7 +57,7 @@ def metricas(
         .filter(Empresa.escritorio_id == escritorio_id)
     )
     total_docs = docs.count()
-    resumos = docs.filter(DocumentoFiscal.leiaute == "resumo").count()
+    resumos = docs.filter(DocumentoFiscal.leiaute != "completo").count()
     canceladas = docs.filter(
         DocumentoFiscal.status == StatusDocumentoFiscal.CANCELADA
     ).count()

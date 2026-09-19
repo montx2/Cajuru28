@@ -7,7 +7,7 @@ export type StatusDocumentoFiscal = "normal" | "cancelada";
  * nada e não deve ver vermelho.
  */
 export type StatusExecucao = "em_andamento" | "aguardando" | "concluida" | "erro";
-export type LeiauteDocumento = "completo" | "resumo";
+export type LeiauteDocumento = "completo" | "resumo" | "metadados";
 
 export interface Empresa {
   id: number;
@@ -70,6 +70,7 @@ export interface ConsultaCNPJ {
   nome_fantasia: string;
   uf: string;
   municipio: string;
+  codigo_ibge: string;
   fonte: string;
   mensagem: string;
 }

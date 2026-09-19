@@ -318,14 +318,14 @@ function AbaIntegracoes({ admin, somenteLeitura }: { admin: boolean; somenteLeit
                 value={tokenJettax}
                 onChange={(evento) => setTokenJettax(evento.target.value)}
                 disabled={bloqueado}
-                descricao="O token enviado nunca volta ao navegador."
+                descricao="Use o token da API Morfeu. Pode colar o valor puro ou a linha “Authorization: Bearer …”; o prefixo é removido antes de cifrar."
               />
               <Entrada
                 rotulo="Base URL"
                 value={baseJettax || jettax.dados.base_url}
                 onChange={(evento) => setBaseJettax(evento.target.value)}
                 disabled={bloqueado}
-                placeholder="https://api.jettax.com.br"
+                placeholder="https://morfeu-api.jettax.com.br"
               />
             </div>
 
@@ -336,7 +336,8 @@ function AbaIntegracoes({ admin, somenteLeitura }: { admin: boolean; somenteLeit
                   executar("salvar a credencial Jettax", async () => {
                     await api.salvarCredencialJettax(tokenJettax, baseJettax || jettax.dados?.base_url || "");
                     setTokenJettax("");
-                    return { titulo: "Credencial Jettax salva" };
+                    await jettax.atualizar();
+                    return { titulo: "Credencial Jettax salva", descricao: "O resultado da verificação autenticada aparece no status acima." };
                   })
                 }
                 carregando={ocupado === "salvar a credencial Jettax"}

@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import escritorio_id_atual
 from app.api.routers.importacoes import estados_do_escritorio
 from app.core.config import settings
+from app.core.tempo import hoje_operacional
 from app.db.session import get_db
 from app.models import (
     Certificado,
@@ -75,7 +76,7 @@ def _valor_liquido():
 
 
 def _competencia_atual() -> str:
-    hoje = date.today()
+    hoje = hoje_operacional()
     return f"{hoje.month:02d}/{hoje.year:04d}"
 
 
@@ -127,7 +128,7 @@ def kpis(
         else None
     )
 
-    sem_xml = base.filter(DocumentoFiscal.leiaute == "resumo").count()
+    sem_xml = base.filter(DocumentoFiscal.leiaute != "completo").count()
     documentos_total = base.count()
 
     empresas_ativas = (
@@ -202,7 +203,7 @@ def evolucao(
     escritorio_id: int = Depends(escritorio_id_atual),
 ):
     """Série mensal dos últimos N meses (barras do dashboard)."""
-    hoje = date.today()
+    hoje = hoje_operacional()
     chaves: list[str] = []
     ano, mes = hoje.year, hoje.month
     for _ in range(meses):
@@ -371,7 +372,7 @@ def ranking_empresas(
             func.sum(
                 case((DocumentoFiscal.status == StatusDocumentoFiscal.CANCELADA, 1), else_=0)
             ),
-            func.sum(case((DocumentoFiscal.leiaute == "resumo", 1), else_=0)),
+            func.sum(case((DocumentoFiscal.leiaute != "completo", 1), else_=0)),
         )
         .group_by(Empresa.id, Empresa.razao_social)
         .order_by(func.count(DocumentoFiscal.id).desc())

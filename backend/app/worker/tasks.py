@@ -42,6 +42,8 @@ from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from app.core.config import settings
+from app.core.money import valor_monetario
+from app.core.tempo import tornar_data_hora_fiscal_consciente
 from app.core.vault import decifrar_segredo
 from app.db.session import SessionLocal
 from app.models import (
@@ -95,22 +97,16 @@ def _parse_data_emissao(valor: str | datetime | None) -> datetime:
     gravação quebrar por um campo opcional malformado.
     """
     if isinstance(valor, datetime):
-        if valor.tzinfo is None:
-            return valor.replace(tzinfo=timezone.utc)
-        return valor
+        return tornar_data_hora_fiscal_consciente(valor)
     if not valor or not str(valor).strip():
         return datetime.now(timezone.utc)
     try:
         dt = date_parser.isoparse(str(valor).strip())
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt
+        return tornar_data_hora_fiscal_consciente(dt)
     except (ValueError, TypeError, OverflowError):
         try:
             dt = date_parser.parse(str(valor).strip())
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return dt
+            return tornar_data_hora_fiscal_consciente(dt)
         except (ValueError, TypeError, OverflowError):
             return datetime.now(timezone.utc)
 
@@ -700,7 +696,7 @@ def _gravar_documento(db, empresa_id: int, tipo: TipoDocumentoFiscal, doc) -> bo
         "nsu": str(doc.nsu),
         "data_emissao": _parse_data_emissao(doc.data_emissao),
         "competencia": _parse_data(getattr(doc, "competencia", "")),
-        "valor_total": float(doc.valor_total or 0),
+        "valor_total": valor_monetario(doc.valor_total),
         "xml_path": xml_path,
         "status": StatusDocumentoFiscal.NORMAL,
         "leiaute": getattr(doc, "leiaute", "completo") or "completo",
@@ -1168,7 +1164,7 @@ def _sobrescrever_xml(documento: DocumentoFiscal, completo: DocumentoBaixado) ->
         f.write(completo.xml)
 
     documento.leiaute = "completo"
-    documento.valor_total = float(completo.valor_total or documento.valor_total or 0)
+    documento.valor_total = valor_monetario(completo.valor_total or documento.valor_total)
     if completo.data_emissao:
         documento.data_emissao = _parse_data_emissao(completo.data_emissao)
     competencia = _parse_data(completo.competencia)

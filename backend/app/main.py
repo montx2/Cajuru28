@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from uuid import uuid4
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,12 +29,16 @@ from app.api.routers import (
 )
 from app.bootstrap import garantir_usuario_inicial
 from app.core.config import settings
+from app.core.logging import configurar_logging, request_id_atual
 from app.core.rate_limit import limitar_mutacao
 from app.db.base import criar_tabelas
 
 
 @asynccontextmanager
 async def ciclo_de_vida(_app: FastAPI):
+    # Configuração vem antes de qualquer operação de inicialização: falhas de
+    # migration/bootstrap precisam carregar timestamp, nível e request/task id.
+    configurar_logging()
     # Valida de novo na inicialização para tornar a fronteira evidente nos logs
     # e impedir que uma instância de produção incompleta comece a servir dados.
     settings.validar_producao()
@@ -71,16 +76,23 @@ app.add_middleware(
 
 @app.middleware("http")
 async def protecoes_http(request: Request, call_next):
-    """CSRF, limite de mutações e cabeçalhos mínimos para API pública."""
+    """CSRF, limite de mutações, correlação e cabeçalhos mínimos para API pública."""
+    recebido = request.headers.get("X-Request-ID", "").strip()
+    # Não refletir string arbitrária/longa de cliente em log ou resposta.
+    request_id = recebido if 1 <= len(recebido) <= 128 and recebido.replace("-", "").replace("_", "").isalnum() else uuid4().hex
+    token_contexto = request_id_atual.set(request_id)
     try:
         tamanho_declarado = int(request.headers.get("content-length", "0"))
     except ValueError:
         tamanho_declarado = 0
     if tamanho_declarado > _MAX_TAMANHO_REQUISICAO:
-        return JSONResponse(
+        resposta = JSONResponse(
             status_code=413,
             content={"detail": "Requisição excede o limite de 35 MiB."},
         )
+        resposta.headers["X-Request-ID"] = request_id
+        request_id_atual.reset(token_contexto)
+        return resposta
 
     metodo_inseguro = request.method in {"POST", "PUT", "PATCH", "DELETE"}
     usa_cookie = bool(request.cookies.get(settings.session_cookie_name))
@@ -95,10 +107,13 @@ async def protecoes_http(request: Request, call_next):
     exige_origem = usa_cookie or (request.url.path == "/auth/login" and bool(origem))
     if metodo_inseguro and not webhook_jettax and exige_origem:
         if not origem or origem not in _origens:
-            return JSONResponse(
+            resposta = JSONResponse(
                 status_code=403,
                 content={"detail": "Origem não autorizada para esta sessão."},
             )
+            resposta.headers["X-Request-ID"] = request_id
+            request_id_atual.reset(token_contexto)
+            return resposta
 
     if (
         metodo_inseguro
@@ -111,9 +126,19 @@ async def protecoes_http(request: Request, call_next):
             status_code = getattr(exc, "status_code", 503)
             detalhe = getattr(exc, "detail", "Proteção de acesso indisponível.")
             headers = getattr(exc, "headers", None)
-            return JSONResponse(status_code=status_code, content={"detail": detalhe}, headers=headers)
+            resposta = JSONResponse(status_code=status_code, content={"detail": detalhe}, headers=headers)
+            resposta.headers["X-Request-ID"] = request_id
+            request_id_atual.reset(token_contexto)
+            return resposta
 
-    response = await call_next(request)
+    try:
+        response = await call_next(request)
+    except Exception:
+        # Middleware pode propagar erro de endpoint no modo de desenvolvimento;
+        # não deixe o id daquela requisição contaminar a próxima coroutine.
+        request_id_atual.reset(token_contexto)
+        raise
+    response.headers["X-Request-ID"] = request_id
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
@@ -122,6 +147,7 @@ async def protecoes_http(request: Request, call_next):
     if settings.em_producao:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
+    request_id_atual.reset(token_contexto)
     return response
 
 

@@ -164,6 +164,7 @@ def aplicar_migracoes() -> None:
                 if nome not in _colunas_existentes(tabela):
                     raise
 
+    _normalizar_valor_total_numerico()
     _criar_indices()
     _preencher_competencia_faltante()
     _semear_sincronizacoes()
@@ -189,6 +190,38 @@ def _garantir_valores_enum() -> None:
             log.info("Migração: valor '%s' garantido no tipo %s", valor, tipo)
         except Exception as exc:  # noqa: BLE001 — tipo pode não existir ainda
             log.info("Migração: ALTER TYPE %s ignorado (%s)", tipo, exc)
+
+
+def _normalizar_valor_total_numerico() -> None:
+    """Migra o legado FLOAT para NUMERIC(15,2) sem perder documentos.
+
+    A conversão é idempotente no PostgreSQL e arredonda uma única vez, com a
+    mesma precisão que o domínio fiscal expõe. SQLite não possui ALTER COLUMN;
+    nele a nova declaração NUMERIC já vale para bancos novos e os testes não
+    representam armazenamento de produção.
+    """
+    if engine.dialect.name != "postgresql" or "valor_total" not in _colunas_existentes("documentos_fiscais"):
+        return
+    coluna = next(
+        (item for item in inspect(engine).get_columns("documentos_fiscais") if item["name"] == "valor_total"),
+        None,
+    )
+    tipo_atual = coluna.get("type") if coluna else None
+    if getattr(tipo_atual, "precision", None) == 15 and getattr(tipo_atual, "scale", None) == 2:
+        return
+    try:
+        with engine.begin() as conexao:
+            conexao.execute(
+                text(
+                    "ALTER TABLE documentos_fiscais "
+                    "ALTER COLUMN valor_total TYPE NUMERIC(15,2) "
+                    "USING ROUND(valor_total::numeric, 2)"
+                )
+            )
+        log.info("Migração: documentos_fiscais.valor_total garantido como NUMERIC(15,2)")
+    except Exception as exc:  # noqa: BLE001 — não deixa o banco indisponível sem diagnóstico
+        log.warning("Migração: conversão de valor_total para NUMERIC falhou (%s)", exc)
+        raise
 
 
 def _criar_indices() -> None:

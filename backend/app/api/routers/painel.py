@@ -27,6 +27,7 @@ from app.api.deps import escritorio_id_atual
 from app.api.routers.alertas import computar_alertas
 from app.api.routers.importacoes import estados_do_escritorio
 from app.core.config import settings
+from app.core.tempo import inicio_do_dia_operacional_utc, hoje_operacional
 from app.db.session import get_db
 from app.models import (
     Certificado,
@@ -65,9 +66,7 @@ def _inicio_do_dia_utc() -> datetime:
     container. Um documento importado às 22h de Brasília (01:20 UTC do dia
     seguinte) continua contando no "hoje" de quem está trabalhando.
     """
-    agora_local = datetime.now().astimezone()
-    meia_noite_local = agora_local.replace(hour=0, minute=0, second=0, microsecond=0)
-    return meia_noite_local.astimezone(timezone.utc)
+    return inicio_do_dia_operacional_utc()
 
 
 def _resposta_execucao(execucao: ExecucaoImportacao) -> ExecucaoImportacaoResposta:
@@ -257,9 +256,9 @@ def painel_operacional(
         ).count()
     )
     total_documentos = base_documentos.count()
-    aguardando_xml = base_documentos.filter(DocumentoFiscal.leiaute == "resumo").count()
+    aguardando_xml = base_documentos.filter(DocumentoFiscal.leiaute != "completo").count()
 
-    hoje = date.today()
+    hoje = hoje_operacional()
     comp = data_referencia_sql()
     mes_atual = date(hoje.year, hoje.month, 1)
     fim_mes = date(hoje.year + (hoje.month == 12), (hoje.month % 12) + 1, 1) - timedelta(days=1)

@@ -6,6 +6,11 @@ from celery import Celery
 from celery.schedules import crontab
 
 from app.core.config import settings
+from app.core.logging import configurar_logging
+
+# Worker e beat emitem o mesmo formato da API; uma falha de importação passa a
+# ser correlacionável sem abrir o banco de produção.
+configurar_logging()
 
 AGENDA = {
     "sincronizar-tudo": {

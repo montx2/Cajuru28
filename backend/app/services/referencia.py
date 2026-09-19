@@ -1,42 +1,56 @@
-"""
-A data que decide se um documento está *dentro do período pedido*.
+"""A data que decide se um documento está *dentro do período pedido*.
 
-Por que um módulo só para isto: o recorte por período aparece em muitos
-lugares (listagem, resumo, por-empresa, ZIP, CSV, fechamento, dashboard,
-painel e a gravação no worker). Enquanto cada lugar tinha a sua própria
-expressão, a mesma nota podia aparecer em agosto numa tela e em julho na
-outra — e o operador via "o filtro não funciona", com razão.
-
-A regra, única e explícita: **vale a data de emissão do documento**. É a data
-que o contador confere, a que aparece no XML de todo tipo de documento e a
-única que existe sempre (a competência declarada é opcional e vem em branco
-numa parte relevante das NFS-e).
+A regra é única e explícita: vale a data de emissão do documento, interpretada
+no fuso operacional brasileiro. Isso evita que um documento emitido depois das
+21h seja deslocado para o dia seguinte apenas porque PostgreSQL roda em UTC.
 """
 
 from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import func
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.sql.functions import GenericFunction
+from sqlalchemy.types import Date
 
+from app.core.tempo import data_operacional
 from app.models import DocumentoFiscal
 
 
-def data_referencia_sql():
-    """
-    Expressão SQL da data de referência, para filtros e agrupamentos.
+class _DataFiscalSql(GenericFunction):
+    """Data civil da emissão, compilada para cada banco suportado."""
 
-    `date()` se comporta igual em PostgreSQL e SQLite, então o filtro não muda
-    de resultado conforme o banco.
-    """
-    return func.date(DocumentoFiscal.data_emissao)
+    type = Date()
+    inherit_cache = True
+
+
+@compiles(_DataFiscalSql, "postgresql")
+def _compilar_data_fiscal_postgresql(element, compiler, **kwargs) -> str:
+    coluna = compiler.process(list(element.clauses)[0], **kwargs)
+    return f"DATE(timezone('America/Sao_Paulo', {coluna}))"
+
+
+@compiles(_DataFiscalSql, "sqlite")
+def _compilar_data_fiscal_sqlite(element, compiler, **kwargs) -> str:
+    coluna = compiler.process(list(element.clauses)[0], **kwargs)
+    # SQLite de testes não guarda offset de TIMESTAMP WITH TIME ZONE; os dados
+    # foram gravados com a data fiscal já preservada, portanto date() é a forma
+    # estável e equivalente nesta plataforma.
+    return f"date({coluna})"
+
+
+@compiles(_DataFiscalSql)
+def _compilar_data_fiscal_generico(element, compiler, **kwargs) -> str:
+    coluna = compiler.process(list(element.clauses)[0], **kwargs)
+    return f"DATE({coluna})"
+
+
+def data_referencia_sql():
+    """Expressão SQL portável da data fiscal de emissão."""
+    return _DataFiscalSql(DocumentoFiscal.data_emissao)
 
 
 def data_referencia(documento: DocumentoFiscal) -> date | None:
-    """Versão Python da mesma regra — usada quando já temos o objeto na mão."""
+    """Versão Python da mesma regra — usada quando o objeto já está em mãos."""
     valor = getattr(documento, "data_emissao", None)
-    if isinstance(valor, datetime):
-        return valor.date()
-    if isinstance(valor, date):
-        return valor
-    return None
+    return data_operacional(valor)
