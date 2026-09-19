@@ -2,136 +2,242 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ══════════════════════════════════════════════════════════════════════════
+   PAPEL & GRAFITE — tokens
+   Nenhuma cor é escrita em componente: tudo passa por estes nomes.
+   Valores medidos com WCAG 2.2 (a tabela completa está em design/SISTEMA.md).
+   ══════════════════════════════════════════════════════════════════════════ */
+
 :root {
   color-scheme: light;
-  --font-sans: Inter, "Segoe UI", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, monospace;
-  --fundo: #F7F8F7; --fundo-rgb: 247 248 247;
-  --fundo-afundado: #EFF1F0; --fundo-afundado-rgb: 239 241 240;
-  --superficie: #FFFFFF; --superficie-rgb: 255 255 255;
-  --superficie-alta: #FFFFFF; --superficie-alta-rgb: 255 255 255;
-  --tinta-forte: #12181A; --tinta-forte-rgb: 18 24 26;
-  --tinta: #2B3437; --tinta-rgb: 43 52 55;
-  --tinta-suave: #5C6B6F; --tinta-suave-rgb: 92 107 111;
-  --tinta-fraca: #879599; --tinta-fraca-rgb: 135 149 153;
-  --traco: #E2E7E5; --traco-rgb: 226 231 229;
-  --traco-forte: #AAB7B3; --traco-forte-rgb: 170 183 179;
-  --acento: #0F6B50; --acento-rgb: 15 107 80;
-  --acento-escuro: #0A4F3B; --acento-escuro-rgb: 10 79 59;
-  --acento-tenue: #E8F3EE; --acento-tenue-rgb: 232 243 238;
-  --acento-borda: #82BCA2; --acento-borda-rgb: 130 188 162;
-  --ok: #17734F; --ok-rgb: 23 115 79; --ok-tenue: #E6F4EC; --ok-tenue-rgb: 230 244 236;
-  --espera: #79550D; --espera-rgb: 121 85 13; --espera-tenue: #FDF3DE; --espera-tenue-rgb: 253 243 222;
-  --erro: #A8342A; --erro-rgb: 168 52 42; --erro-tenue: #FBEAE7; --erro-tenue-rgb: 251 234 231;
-  --info: #1F5FAE; --info-rgb: 31 95 174; --info-tenue: #E9F0FA; --info-tenue-rgb: 233 240 250;
-  --neutro: #5C6B6F; --neutro-rgb: 92 107 111; --neutro-tenue: #EFF1F0; --neutro-tenue-rgb: 239 241 240;
-  --foco: #0F6B50; --foco-halo: rgba(15,107,80,.22);
-  --sidebar-rgb: 18 24 26; --sidebar-alta-rgb: 28 36 38; --sidebar-hover-rgb: 43 52 55; --sidebar-traco-rgb: 67 80 83;
-  --sombra-1: 0 1px 2px rgba(16,24,20,.06), 0 4px 12px -8px rgba(16,24,20,.16);
-  --sombra-2: 0 12px 32px -12px rgba(16,24,20,.28);
+
+  /* Superfícies — papel de alta gramatura, com dois níveis de recesso. */
+  --fundo: #f7f8f7;              --fundo-rgb: 247 248 247;
+  --fundo-afundado: #eff1f0;     --fundo-afundado-rgb: 239 241 240;
+  --superficie: #ffffff;         --superficie-rgb: 255 255 255;
+  --superficie-alta: #ffffff;    --superficie-alta-rgb: 255 255 255;
+
+  /* Tinta — exatamente quatro níveis; `tinta-fraca` não carrega informação. */
+  --tinta-forte: #12181a;        --tinta-forte-rgb: 18 24 26;    /* 17,9:1 */
+  --tinta: #2b3437;              --tinta-rgb: 43 52 55;          /* 12,7:1 */
+  --tinta-suave: #5c6b6f;        --tinta-suave-rgb: 92 107 111;  /*  5,5:1 */
+  --tinta-fraca: #879599;        --tinta-fraca-rgb: 135 149 153; /*  3,1:1 — só desabilitado/ornamento */
+
+  /* Traço — divisores. A borda de controle é outra porque 1.4.11 pede 3:1. */
+  --traco: #e2e7e5;              --traco-rgb: 226 231 229;
+  --traco-forte: #c9d2cf;        --traco-forte-rgb: 201 210 207;
+  --borda-controle: #7e8c88;     --borda-controle-rgb: 126 140 136; /* 3,5:1 no branco */
+
+  /* Acento único — o carimbo verde de "conferido". */
+  --acento: #0f6b50;             --acento-rgb: 15 107 80;        /* 6,5:1 */
+  --acento-escuro: #0a4f3b;      --acento-escuro-rgb: 10 79 59;  /* hover/press */
+  --acento-tenue: #e8f3ee;       --acento-tenue-rgb: 232 243 238;
+  --acento-borda: #b9dccb;       --acento-borda-rgb: 185 220 203;
+  --acento-contraste: #ffffff;   --acento-contraste-rgb: 255 255 255; /* texto sobre acento */
+
+  /* Estados — semânticos. `espera` cobre a janela oficial da SEFAZ e cota:
+     esperar não é falhar, por isso nunca usa `erro`. */
+  --ok: #17734f;                 --ok-rgb: 23 115 79;            /* 5,8:1 */
+  --ok-tenue: #e6f4ec;           --ok-tenue-rgb: 230 244 236;
+  --espera: #8a6210;             --espera-rgb: 138 98 16;        /* 5,5:1 */
+  --espera-tenue: #fdf3de;       --espera-tenue-rgb: 253 243 222;
+  --erro: #a8342a;               --erro-rgb: 168 52 42;          /* 6,6:1 */
+  --erro-tenue: #fbeae7;         --erro-tenue-rgb: 251 234 231;
+  --info: #1f5fae;               --info-rgb: 31 95 174;          /* 6,4:1 */
+  --info-tenue: #e9f0fa;         --info-tenue-rgb: 233 240 250;
+  --neutro: #5c6b6f;             --neutro-rgb: 92 107 111;
+  --neutro-tenue: #eff1f0;       --neutro-tenue-rgb: 239 241 240;
+
+  /* Grafite — superfície escura do produto (barra lateral, login, código XML).
+     É superfície, não cor de estado: permanece grafite nos dois temas. */
+  --grafite: #12181a;            --grafite-rgb: 18 24 26;
+  --grafite-alta: #1c2426;       --grafite-alta-rgb: 28 36 38;
+  --grafite-hover: #2b3437;      --grafite-hover-rgb: 43 52 55;
+  --grafite-traco: #435053;      --grafite-traco-rgb: 67 80 83;
+  --sobre-grafite: #f3f6f5;      --sobre-grafite-rgb: 243 246 245;
+
+  /* Foco — um anel só, visível sobre qualquer superfície do sistema. */
+  --foco: #0f6b50;
+  --foco-halo: rgba(15, 107, 80, 0.22);
+
+  /* Elevação — dois níveis, ambos semânticos (camada flutuante e modal). */
+  --sombra-1: 0 1px 2px rgba(16, 24, 20, 0.06), 0 4px 12px -8px rgba(16, 24, 20, 0.16);
+  --sombra-2: 0 12px 32px -12px rgba(16, 24, 20, 0.28);
+
+  /* Geometria do shell: o header sticky define o `scroll-margin` de todo alvo. */
+  --altura-cabecalho: 56px;
+  --largura-lateral: 240px;
+  --largura-lateral-colapsada: 56px;
 }
 
+/* Tema escuro não é o claro invertido: superfícies sobem dois degraus, a tinta
+   desce, o acento clareia para segurar 4,5:1 e o texto sobre o acento escurece. */
 [data-tema="escuro"] {
   color-scheme: dark;
-  --fundo: #0F1513; --fundo-rgb: 15 21 19;
-  --fundo-afundado: #151C1A; --fundo-afundado-rgb: 21 28 26;
-  --superficie: #1B2422; --superficie-rgb: 27 36 34;
-  --superficie-alta: #222D2A; --superficie-alta-rgb: 34 45 42;
-  --tinta-forte: #F3F6F5; --tinta-forte-rgb: 243 246 245;
-  --tinta: #E8EDEB; --tinta-rgb: 232 237 235;
-  --tinta-suave: #A9B6B2; --tinta-suave-rgb: 169 182 178;
-  --tinta-fraca: #72817C; --tinta-fraca-rgb: 114 129 124;
-  --traco: #33403C; --traco-rgb: 51 64 60;
-  --traco-forte: #64736E; --traco-forte-rgb: 100 115 110;
-  --acento: #3FBF90; --acento-rgb: 63 191 144;
-  --acento-escuro: #72D5B0; --acento-escuro-rgb: 114 213 176;
-  --acento-tenue: #173D31; --acento-tenue-rgb: 23 61 49;
-  --acento-borda: #2E8061; --acento-borda-rgb: 46 128 97;
-  --ok: #65C99E; --ok-rgb: 101 201 158; --ok-tenue: #173B2F; --ok-tenue-rgb: 23 59 47;
-  --espera: #E1B958; --espera-rgb: 225 185 88; --espera-tenue: #40351C; --espera-tenue-rgb: 64 53 28;
-  --erro: #F18A80; --erro-rgb: 241 138 128; --erro-tenue: #472521; --erro-tenue-rgb: 71 37 33;
-  --info: #85B6F3; --info-rgb: 133 182 243; --info-tenue: #1D334D; --info-tenue-rgb: 29 51 77;
-  --neutro: #A9B6B2; --neutro-rgb: 169 182 178; --neutro-tenue: #27302E; --neutro-tenue-rgb: 39 48 46;
-  --foco: #65D4AA; --foco-halo: rgba(101,212,170,.28);
-  --sidebar-rgb: 10 14 13; --sidebar-alta-rgb: 21 28 26; --sidebar-hover-rgb: 39 48 46; --sidebar-traco-rgb: 67 80 76;
+
+  --fundo: #0f1513;              --fundo-rgb: 15 21 19;
+  --fundo-afundado: #151c1a;     --fundo-afundado-rgb: 21 28 26;
+  --superficie: #1b2422;         --superficie-rgb: 27 36 34;
+  --superficie-alta: #222d2a;    --superficie-alta-rgb: 34 45 42;
+
+  --tinta-forte: #f3f6f5;        --tinta-forte-rgb: 243 246 245; /* 14,6:1 */
+  --tinta: #e8edeb;              --tinta-rgb: 232 237 235;       /* 13,4:1 */
+  --tinta-suave: #a9b6b2;        --tinta-suave-rgb: 169 182 178; /*  7,6:1 */
+  --tinta-fraca: #72817c;        --tinta-fraca-rgb: 114 129 124; /*  3,9:1 */
+
+  --traco: #2c3735;              --traco-rgb: 44 55 53;
+  --traco-forte: #48554f;        --traco-forte-rgb: 72 85 79;
+  --borda-controle: #7c8b86;     --borda-controle-rgb: 124 139 134; /* 4,5:1 na superfície */
+
+  --acento: #3fbf90;             --acento-rgb: 63 191 144;       /* 6,9:1 */
+  --acento-escuro: #72d5b0;      --acento-escuro-rgb: 114 213 176;
+  --acento-tenue: #173d31;       --acento-tenue-rgb: 23 61 49;
+  --acento-borda: #2e8061;       --acento-borda-rgb: 46 128 97;
+  --acento-contraste: #0f1513;   --acento-contraste-rgb: 15 21 19; /* 8,0:1 sobre o acento */
+
+  --ok: #65c99e;                 --ok-rgb: 101 201 158;
+  --ok-tenue: #173b2f;           --ok-tenue-rgb: 23 59 47;
+  --espera: #e1b958;             --espera-rgb: 225 185 88;
+  --espera-tenue: #40351c;       --espera-tenue-rgb: 64 53 28;
+  --erro: #f18a80;               --erro-rgb: 241 138 128;
+  --erro-tenue: #472521;         --erro-tenue-rgb: 71 37 33;
+  --info: #85b6f3;               --info-rgb: 133 182 243;
+  --info-tenue: #1d334d;         --info-tenue-rgb: 29 51 77;
+  --neutro: #a9b6b2;             --neutro-rgb: 169 182 178;
+  --neutro-tenue: #27302e;       --neutro-tenue-rgb: 39 48 46;
+
+  --grafite: #0a0f0d;            --grafite-rgb: 10 15 13;
+  --grafite-alta: #151c1a;       --grafite-alta-rgb: 21 28 26;
+  --grafite-hover: #222d2a;      --grafite-hover-rgb: 34 45 42;
+  --grafite-traco: #2e3a36;      --grafite-traco-rgb: 46 58 54;
+  --sobre-grafite: #e8edeb;      --sobre-grafite-rgb: 232 237 235;
+
+  --foco: #65d4aa;
+  --foco-halo: rgba(101, 212, 170, 0.28);
+
+  --sombra-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 12px -8px rgba(0, 0, 0, 0.6);
+  --sombra-2: 0 16px 40px -16px rgba(0, 0, 0, 0.72);
 }
 
 @layer base {
-  * { border-color: var(--traco); }
-  html { min-width: 320px; scroll-padding-top: 64px; text-rendering: optimizeLegibility; }
-  body { @apply min-h-screen bg-fundo font-sans text-base text-tinta antialiased; }
-  h1, h2, h3 { color: var(--tinta-forte); }
-  h1 { letter-spacing: -.011em; }
-  button, input, select, textarea { font: inherit; }
-  button:not(:disabled), [role="button"] { cursor: pointer; }
-  button, a, input, select, textarea, [tabindex] { scroll-margin-top: 68px; }
-  td, .tabular-nums { font-variant-numeric: tabular-nums lining-nums; }
-  td[data-tipo="numero"], th[data-tipo="numero"] { text-align: right; }
-  ::selection { background: var(--acento-tenue); color: var(--tinta-forte); }
+  html {
+    min-width: 320px;
+    /* 2.4.11: o header sticky não pode cobrir o alvo focado. */
+    scroll-padding-top: calc(var(--altura-cabecalho) + 16px);
+    text-rendering: optimizeLegibility;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply min-h-screen bg-fundo font-sans text-base text-tinta antialiased;
+  }
+
+  h1, h2, h3, h4 {
+    @apply text-tinta-forte;
+    text-wrap: balance;
+  }
+  h1 { letter-spacing: -0.011em; }
+
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button:not(:disabled), [role="button"]:not([aria-disabled="true"]) { cursor: pointer; }
+  button, a, input, select, textarea, summary, [tabindex] {
+    scroll-margin-top: calc(var(--altura-cabecalho) + 16px);
+  }
+
+  /* Números tabulares em toda célula e em qualquer elemento marcado `.nums`:
+     valor que atualiza não pode fazer a coluna dançar. */
+  td, th, .nums {
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+  [data-numerico="true"] { text-align: right; }
+
+  /* 2.4.7: anel de foco único — 2 px sólidos + halo, sobre qualquer fundo. */
+  :focus-visible {
+    outline: 2px solid var(--foco);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 3px var(--foco-halo);
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background: var(--acento-tenue);
+    color: var(--tinta-forte);
+  }
+
+  /* Campos de data/mês herdam o `color-scheme` do tema: no escuro o ícone do
+     calendário nativo sai legível sem CSS por conta. */
+  input[type="date"], input[type="month"], input[type="datetime-local"] {
+    min-height: 36px;
+  }
+
+  summary { list-style: none; }
+  summary::-webkit-details-marker { display: none; }
 }
 
-:focus-visible { outline: 2px solid var(--foco); outline-offset: 2px; box-shadow: 0 0 0 3px var(--foco-halo); }
+@layer utilities {
+  /* Esqueleto: reproduz a geometria real do conteúdo, nunca um bloco genérico. */
+  .esqueleto {
+    @apply rounded-md bg-fundo-afundado;
+    animation: brilho 1.6s cubic-bezier(0.2, 0, 0, 1) infinite;
+  }
 
-@layer components {
-  .app-shell { @apply relative min-h-screen; }
-  .page-header { @apply mb-6 flex flex-wrap items-end justify-between gap-4; }
-  .page-kicker { @apply mb-1 text-2xs font-medium uppercase tracking-[.04em] text-tinta-suave; }
-  .page-title { @apply text-lg font-semibold leading-7 text-tinta-forte; }
-  .page-description { @apply mt-1 max-w-[72ch] text-base text-tinta-suave; }
-  .section-title { @apply text-md font-semibold text-tinta-forte; }
-  .section-meta { @apply mt-0.5 text-sm text-tinta-suave; }
-  .card, .panel, .neu { @apply rounded-card border border-traco bg-superficie shadow-none; }
-  .card-pad { @apply card p-4 sm:p-5; }
-  .card-hover { @apply transition-colors duration-120 ease-produto hover:border-traco-forte hover:bg-fundo-afundado; }
-  .surface-muted, .neu-inset { @apply rounded-lg border border-traco bg-fundo-afundado; }
-  .filter-bar { @apply card mb-4 flex flex-wrap items-end gap-4 p-4; }
-  .table-shell { @apply card max-w-full overflow-x-auto; }
-  .empty-state { @apply card flex flex-col items-center px-6 py-10 text-center; }
-  .btn { @apply inline-flex min-h-9 min-w-6 items-center justify-center gap-2 rounded-md border border-transparent px-3 text-sm font-medium transition-colors duration-120 ease-produto disabled:cursor-not-allowed disabled:opacity-50; }
-  .btn-primary { @apply btn min-h-10 border-acento bg-acento text-white hover:bg-acento-escuro; }
-  .btn-gold, .btn-soft { @apply btn bg-acento-tenue text-acento-escuro hover:bg-acento hover:text-white; }
-  .btn-ghost { @apply btn border-traco bg-superficie text-tinta hover:border-traco-forte hover:bg-fundo-afundado; }
-  .btn-danger-ghost { @apply btn border-erro/40 bg-superficie text-erro hover:bg-erro-tenue; }
-  .btn-sm { @apply min-h-8 px-3 text-xs; }
-  .btn-icon { @apply inline-flex h-10 w-10 items-center justify-center rounded-md border border-transparent text-tinta-suave transition-colors duration-120 hover:border-traco hover:bg-fundo-afundado hover:text-tinta-forte; }
-  .label { @apply mb-1.5 block text-xs font-medium text-tinta; }
-  .input { @apply min-h-10 w-full rounded-md border border-traco-forte bg-superficie px-3 py-2 text-base text-tinta outline-none transition-colors duration-120 placeholder:text-tinta-fraca hover:border-tinta-suave focus:border-acento; }
-  select.input { @apply w-auto pr-9; }
-  .input-dark { @apply input border-sidebar-line bg-sidebar-hover text-white placeholder:text-white/50; }
-  .badge { @apply inline-flex min-h-6 items-center gap-1 whitespace-nowrap rounded-sm px-2 text-xs font-medium; }
-  .badge-ok { @apply badge bg-ok-tenue text-ok; }
-  .badge-warn { @apply badge bg-espera-tenue text-espera; }
-  .badge-danger { @apply badge bg-erro-tenue text-erro; }
-  .badge-info { @apply badge bg-info-tenue text-info; }
-  .badge-neutral { @apply badge bg-neutro-tenue text-neutro; }
-  .link { @apply min-h-6 font-medium text-acento underline-offset-4 hover:underline; }
-  .chip { @apply inline-flex min-h-8 items-center gap-1.5 rounded-sm border border-traco bg-superficie px-2.5 text-xs font-medium text-tinta-suave; }
-  .tabs { @apply flex flex-wrap items-center gap-1 rounded-lg border border-traco bg-fundo-afundado p-1; }
-  .tab { @apply min-h-8 rounded-sm px-3 text-sm font-medium text-tinta-suave hover:text-tinta-forte; }
-  .tab-active { @apply bg-superficie text-tinta-forte shadow-nivel1; }
-  .tabela { @apply w-full text-sm; }
-  .tabela caption { @apply sr-only; }
-  .tabela thead tr { @apply border-b border-traco bg-fundo-afundado text-left text-tinta-suave; }
-  .tabela thead th { @apply sticky top-14 z-10 h-10 whitespace-nowrap bg-fundo-afundado px-3 text-xs font-medium uppercase tracking-[.04em]; }
-  .tabela tbody tr { @apply h-11 border-b border-traco last:border-0 hover:bg-fundo-afundado; }
-  .tabela tbody tr.clicavel { @apply cursor-pointer; }
-  .tabela tbody td { @apply px-3 py-2 align-middle; }
-  .skeleton { @apply rounded-md bg-fundo-afundado; animation: shimmer 1.6s cubic-bezier(.2,0,0,1) infinite; }
-  .nav-item { @apply relative mb-0.5 flex min-h-10 items-center gap-3 rounded-md px-3 text-sm font-normal text-white/70 transition-colors duration-120 hover:bg-white/5 hover:text-white; }
-  .nav-item-ativo { @apply bg-white/10 font-medium text-white; }
-  .nav-item-ativo::before { content: ""; @apply absolute left-0 top-2 bottom-2 w-0.5 bg-acento; }
-  .xml-code { @apply overflow-x-auto rounded-lg border border-sidebar-line bg-sidebar p-4 font-mono text-xs leading-relaxed text-white/90; }
-  .pulso-andamento { animation: pulso 2s cubic-bezier(.2,0,0,1) infinite; }
-  .nao-imprimir, .no-print { }
+  /* Rolagem de painéis densos sem barra obesa. */
+  .rolagem-fina {
+    scrollbar-width: thin;
+    scrollbar-color: var(--traco-forte) transparent;
+  }
+  .rolagem-fina::-webkit-scrollbar { width: 10px; height: 10px; }
+  .rolagem-fina::-webkit-scrollbar-thumb {
+    background: var(--traco-forte);
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background-clip: content-box;
+  }
+  .rolagem-fina::-webkit-scrollbar-track { background: transparent; }
+
+  .nao-imprimir { /* marcado por componente; a regra vive no bloco de impressão */ }
 }
 
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; } }
-@media (prefers-contrast: more) { :root { --traco-rgb: var(--traco-forte-rgb); --tinta-suave-rgb: var(--tinta-rgb); } }
+/* Redução de movimento: o pulso de execução vira estado estático (o ícone muda
+   no componente), e toda transição cai para 1 ms. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+/* Contraste reforçado: divisores viram borda de controle e a tinta suave sobe
+   um degrau — nada depende de um cinza claro para ser compreendido. */
+@media (prefers-contrast: more) {
+  :root {
+    --traco-rgb: var(--traco-forte-rgb);
+    --traco-forte-rgb: var(--borda-controle-rgb);
+    --tinta-suave-rgb: var(--tinta-rgb);
+  }
+}
+
+/* Impressão: o fechamento do mês vira folha de dossiê. Sem shell, sem botão,
+   sem cor de fundo — e o estado continua legível porque é ícone + palavra. */
 @media print {
-  .nao-imprimir, .no-print { display: none !important; }
-  @page { size: A4 landscape; margin: 14mm; }
-  body { background: white; color: black; font-family: Georgia, serif; }
-  .card, .panel { border: 1px solid #777; box-shadow: none; break-inside: avoid; }
+  @page { size: A4 portrait; margin: 12mm; }
+  @page paisagem { size: A4 landscape; margin: 10mm; }
+
+  .nao-imprimir { display: none !important; }
+  .pagina-paisagem { page: paisagem; }
+
+  html, body {
+    background: #fff !important;
+    color: #000 !important;
+    font-size: 11px;
+  }
+  main { padding: 0 !important; max-width: none !important; }
+  a[href]::after { content: ""; }
+
+  table { width: 100%; border-collapse: collapse; }
   thead { display: table-header-group; }
-  tr { break-inside: avoid; }
+  tr, .evitar-quebra { break-inside: avoid; }
+  th, td { border-bottom: 1px solid #999 !important; padding: 3px 6px !important; }
 }

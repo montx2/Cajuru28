@@ -1,10 +1,10 @@
 import { redirect } from "next/navigation";
 
 /**
- * A central de alertas virou "Precisa da sua atenção" — a lista operacional
- * principal do sistema privado. Mantemos a rota antiga redirecionando para
- * não quebrar favoritos e hábitos de teclado do operador.
+ * `/dashboard/alertas` virou `/dashboard/atencao`: o nome antigo descrevia o
+ * mecanismo, o novo descreve o trabalho. Links salvos, favoritos e e-mails
+ * antigos continuam funcionando — por isso é redirect e não 404.
  */
-export default function AlertasPage() {
+export default function PaginaAlertas() {
   redirect("/dashboard/atencao");
 }

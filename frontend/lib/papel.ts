@@ -1,44 +1,29 @@
-"use client";
-
-import { useEffect, useState } from "react";
-import { api } from "./api";
-import type { UsuarioAtual } from "./types";
+import type { PapelUsuario } from "./types";
 
 /**
- * Papel do usuário logado, com cache em memória (uma chamada por sessão).
- * A API barra de verdade; aqui é só para esconder/desabilitar botões.
+ * Papéis: a API é quem barra de verdade. Estas funções existem para a interface
+ * não oferecer um clique que vai falhar — controle indisponível fica visível e
+ * desabilitado, com o motivo no tooltip (esconder deixaria o operador sem saber
+ * por que a ação sumiu).
  */
 
-let cache: UsuarioAtual | null | undefined;
-
-export function usePapel() {
-  const [usuario, setUsuario] = useState<UsuarioAtual | null>(cache ?? null);
-
-  useEffect(() => {
-    if (cache !== undefined) {
-      setUsuario(cache);
-      return;
-    }
-    api
-      .quemSouEu()
-      .then((u) => {
-        cache = u;
-        setUsuario(u);
-      })
-      .catch(() => {});
-  }, []);
-
-  const papel = usuario?.papel ?? "admin";
-  return {
-    usuario,
-    papel,
-    carregando: usuario === null,
-    ehAdmin: papel === "admin",
-    podeOperar: papel === "admin" || papel === "operador",
-    somenteLeitura: papel === "leitura",
-  };
+export function ehAdmin(papel: PapelUsuario | string | undefined): boolean {
+  return papel === "admin";
 }
 
-export function limparCachePapel() {
-  cache = undefined;
+export function podeOperar(papel: PapelUsuario | string | undefined): boolean {
+  return papel === "admin" || papel === "operador";
 }
+
+export function somenteLeitura(papel: PapelUsuario | string | undefined): boolean {
+  return papel === "leitura";
+}
+
+export const MOTIVO_SOMENTE_LEITURA = "Seu papel é somente leitura. Peça a um operador para executar esta ação.";
+
+/** Rótulo humano do papel — aparece no menu do usuário e na tabela Equipe. */
+export const ROTULO_PAPEL_CURTO: Record<string, string> = {
+  admin: "Administrador",
+  operador: "Operador",
+  leitura: "Somente leitura",
+};

@@ -1,17 +1,10 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { api } from "@/lib/api";
-
-export default function Home() {
-  const router = useRouter();
-
-  useEffect(() => {
-    api.quemSouEu()
-      .then(() => router.replace("/dashboard"))
-      .catch(() => router.replace("/login"));
-  }, [router]);
-
-  return null;
+/**
+ * A raiz não tem conteúdo próprio: é porta de entrada. Quem tem cookie válido é
+ * autenticado pela primeira chamada do painel; quem não tem recebe `401` e cai
+ * no login. Decidir isso no servidor evita uma tela em branco com spinner.
+ */
+export default function PaginaRaiz() {
+  redirect("/dashboard");
 }
