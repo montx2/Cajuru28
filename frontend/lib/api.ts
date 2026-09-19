@@ -64,9 +64,35 @@ export class ApiError extends Error {
   }
 }
 
-async function chamar<T>(caminho: string, opcoes: RequestInit = {}): Promise<T> {
+export interface OpcoesChamada extends RequestInit {
+  /**
+   * Não redireciona para `/login` quando a API responder 401 — quem chamou
+   * trata a ausência de sessão como resposta esperada, não como acidente.
+   * É o caso da sondagem da própria tela de login.
+   */
+  silencioso?: boolean;
+}
+
+/** `/login` já é o destino: mandar para lá de novo só recarregaria a página. */
+function naTelaDeLogin(): boolean {
+  if (typeof window === "undefined") return false;
+  const caminho = window.location.pathname;
+  return caminho === "/login" || caminho.startsWith("/login/");
+}
+
+/**
+ * Uma única navegação por sessão expirada.
+ *
+ * O shell dispara várias chamadas em paralelo (sessão, alertas, painel). Sem
+ * esta trava, cada 401 da mesma rodada agendava seu próprio `replace` e o
+ * navegador enfileirava recarregamentos concorrentes.
+ */
+let redirecionandoParaLogin = false;
+
+async function chamar<T>(caminho: string, opcoes: OpcoesChamada = {}): Promise<T> {
+  const { silencioso = false, ...init } = opcoes;
   const cabecalhos: Record<string, string> = {
-    ...(opcoes.body && !(opcoes.body instanceof FormData)
+    ...(init.body && !(init.body instanceof FormData)
       ? { "Content-Type": "application/json" }
       : {}),
   };
@@ -79,7 +105,7 @@ async function chamar<T>(caminho: string, opcoes: RequestInit = {}): Promise<T> 
   let resposta: Response;
   try {
     resposta = await fetch(`${BASE_URL}${caminho}`, {
-      ...opcoes,
+      ...init,
       credentials: "include",
       headers: cabecalhos,
     });
@@ -97,7 +123,12 @@ async function chamar<T>(caminho: string, opcoes: RequestInit = {}): Promise<T> 
   }
 
   if (resposta.status === 401 && !ehLogin) {
-    if (typeof window !== "undefined") {
+    // Só navega quem está *fora* do login e não pediu silêncio. Redirecionar
+    // para `/login` estando em `/login` recarrega a própria página: a sondagem
+    // de sessão roda de novo, toma 401 de novo e o ciclo não para — era o
+    // "pisca-pisca" que impedia digitar as credenciais.
+    if (typeof window !== "undefined" && !silencioso && !naTelaDeLogin() && !redirecionandoParaLogin) {
+      redirecionandoParaLogin = true;
       // Leva o caminho atual: depois de entrar, o operador volta à tela em que
       // estava em vez de cair sempre no painel. `replace` não deixa a página
       // expirada no histórico — o "voltar" não repete o 401.
@@ -212,6 +243,12 @@ export const api = {
   logout: () => chamar<void>("/auth/logout", { method: "POST" }),
 
   quemSouEu: () => chamar<UsuarioAtual>("/auth/me"),
+
+  /**
+   * Mesma leitura, para quem já está no login: um 401 aqui é a resposta
+   * esperada ("ainda não entrou"), então não dispara navegação nenhuma.
+   */
+  quemSouEuSilencioso: () => chamar<UsuarioAtual>("/auth/me", { silencioso: true }),
 
   listarEmpresas: () => chamar<Empresa[]>("/empresas"),
 

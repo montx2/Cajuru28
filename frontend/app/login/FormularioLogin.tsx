@@ -44,10 +44,12 @@ export function FormularioLogin() {
   const [enviando, setEnviando] = useState(false);
 
   // Quem já tem cookie válido não deve ver o formulário: segue para o destino.
+  // A sondagem é silenciosa de propósito — sem sessão a API responde 401, que
+  // aqui significa "mostre o formulário", nunca "recarregue a página".
   useEffect(() => {
     let vivo = true;
     api
-      .quemSouEu()
+      .quemSouEuSilencioso()
       .then(() => {
         if (vivo) router.replace(destino);
       })
