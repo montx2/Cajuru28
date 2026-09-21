@@ -25,7 +25,9 @@ download. Depois dele, `consChNFe` passa a devolver o `procNFe` inteiro.
 
 1. **Assinatura obrigatória.** Diferente da distribuição DFe (que usa só mTLS),
    o evento precisa de assinatura XML-DSig enveloped sobre a tag `infEvento`,
-   com C14N exclusiva, SHA-1 + RSA — é o que o XSD do evento exige.
+   com C14N **inclusiva** (`REC-xml-c14n-20010315`), SHA-1 + RSA. O XSD oficial
+   (`xmldsig-core-schema_v1.01.xsd`) fixa esse algoritmo: C14N *exclusiva*
+   (`xml-exc-c14n#`) é rejeitada com falha de schema (cStat 215).
 2. **`Id` no formato canônico:** `ID` + tipoEvento(6) + chave(44) + seq(2).
 3. **Idempotência:** `cStat=573` ("Duplicidade de Evento") **é sucesso** — o
    evento já estava registrado. Tratar como erro faria o worker repetir para
@@ -73,6 +75,8 @@ RECEPCAO_EVENTO_SOAP_ACTION = (
 NS_PORTAL = "http://www.portalfiscal.inf.br/nfe"
 NS_WSDL = "http://www.portalfiscal.inf.br/nfe/wsdl/NFeRecepcaoEvento4"
 NS_DSIG = "http://www.w3.org/2000/09/xmldsig#"
+# Único algoritmo de canonicalização aceito pelo XSD da NF-e (C14N 1.0 inclusiva).
+ALG_C14N = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315"
 
 # Evento de Ciência da Operação.
 TIPO_EVENTO_CIENCIA = "210210"
@@ -173,10 +177,10 @@ def montar_evento(
 
 
 def assinar_evento(evento_xml: bytes, cert_path: str, key_path: str) -> bytes:
-    """Assina `infEvento` com XML-DSig enveloped (C14N exclusiva, SHA-1/RSA).
+    """Assina `infEvento` com XML-DSig enveloped (C14N inclusiva, SHA-1/RSA).
 
     O leiaute de eventos da NF-e exige exatamente este perfil: referência ao
-    `Id` do `infEvento`, transforms `enveloped-signature` + `c14n-exclusive`,
+    `Id` do `infEvento`, transforms `enveloped-signature` + `c14n` (inclusiva),
     digest SHA-1 e assinatura RSA-SHA1. Não é escolha nossa — é o que o XSD
     valida e o que o ambiente aceita.
 
@@ -197,8 +201,18 @@ def assinar_evento(evento_xml: bytes, cert_path: str, key_path: str) -> bytes:
     if not id_evento:
         raise ValueError("infEvento sem atributo Id — assinatura impossível.")
 
-    # 1. Digest do nó assinado, canonicalizado com C14N exclusiva.
-    canonicalizado = etree.tostring(inf_evento, method="c14n", exclusive=True, with_comments=False)
+    # 1. Digest do nó assinado, canonicalizado com C14N 1.0 (inclusiva).
+    #
+    # ARMADILHA do lxml: `tostring(subelemento, method="c14n", exclusive=False)`
+    # injeta um `xmlns=""` espúrio em filhos de elementos que têm atributo
+    # (ex.: <descEvento xmlns="">), o que gera digest errado e a SEFAZ rejeita a
+    # assinatura (cStat 297). Reparsear o `infEvento` como documento próprio
+    # contorna o defeito; o resultado é byte a byte o C14N 1.0 correto (o
+    # namespace em escopo é só o padrão `…/nfe`, o mesmo que o verificador vê).
+    inf_isolado = etree.fromstring(etree.tostring(inf_evento))
+    canonicalizado = etree.tostring(
+        inf_isolado, method="c14n", exclusive=False, with_comments=False
+    )
     digest = hashes.Hash(hashes.SHA1())
     digest.update(canonicalizado)
     digest_valor = base64.b64encode(digest.finalize()).decode()
@@ -206,12 +220,12 @@ def assinar_evento(evento_xml: bytes, cert_path: str, key_path: str) -> bytes:
     # 2. SignedInfo referenciando o Id, também canonicalizado antes de assinar.
     signed_info_xml = (
         f'<SignedInfo xmlns="{NS_DSIG}">'
-        f'<CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>'
+        f'<CanonicalizationMethod Algorithm="{ALG_C14N}"/>'
         f'<SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1"/>'
         f'<Reference URI="#{id_evento}">'
         f"<Transforms>"
         f'<Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/>'
-        f'<Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/>'
+        f'<Transform Algorithm="{ALG_C14N}"/>'
         f"</Transforms>"
         f'<DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1"/>'
         f"<DigestValue>{digest_valor}</DigestValue>"
@@ -220,7 +234,7 @@ def assinar_evento(evento_xml: bytes, cert_path: str, key_path: str) -> bytes:
     )
     signed_info = etree.fromstring(signed_info_xml.encode())
     signed_info_c14n = etree.tostring(
-        signed_info, method="c14n", exclusive=True, with_comments=False
+        signed_info, method="c14n", exclusive=False, with_comments=False
     )
 
     with open(key_path, "rb") as arquivo:
@@ -247,8 +261,22 @@ def assinar_evento(evento_xml: bytes, cert_path: str, key_path: str) -> bytes:
     return etree.tostring(raiz, encoding="utf-8")
 
 
+def _id_lote() -> str:
+    """`TIdLote` do XSD: 1 a 15 dígitos. Timestamp UTC (14) + 1 dígito aleatório."""
+    import secrets
+
+    return datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S") + str(secrets.randbelow(10))
+
+
 def montar_envelope_evento(evento_assinado: bytes, tp_amb: str = "1") -> bytes:
-    """Empacota o evento assinado no `envEvento` dentro do SOAP 1.2."""
+    """Empacota o evento assinado no `envEvento` dentro do SOAP 1.2.
+
+    Atenção ao formato: no NFeRecepcaoEvento4 o corpo SOAP é o próprio
+    `<nfeDadosMsg xmlns="…/NFeRecepcaoEvento4">` — SEM o elemento-operação
+    `nfeRecepcaoEvento` em volta (esse invólucro existe só no serviço de
+    *distribuição*, `nfeDistDFeInteresse`). É assim que o sped-nfe, em produção,
+    fala com o Ambiente Nacional.
+    """
     evento = evento_assinado.decode("utf-8")
     # Remove a declaração XML: o evento vai embutido, não é documento raiz.
     evento = re.sub(r"^<\?xml[^>]*\?>\s*", "", evento)
@@ -256,14 +284,12 @@ def montar_envelope_evento(evento_assinado: bytes, tp_amb: str = "1") -> bytes:
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<soap12:Envelope xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">'
         "<soap12:Body>"
-        f'<nfeRecepcaoEvento xmlns="{NS_WSDL}">'
-        "<nfeDadosMsg>"
+        f'<nfeDadosMsg xmlns="{NS_WSDL}">'
         f'<envEvento xmlns="{NS_PORTAL}" versao="{VERSAO_EVENTO}">'
-        "<idLote>1</idLote>"
+        f"<idLote>{_id_lote()}</idLote>"
         f"{evento}"
         "</envEvento>"
         "</nfeDadosMsg>"
-        "</nfeRecepcaoEvento>"
         "</soap12:Body>"
         "</soap12:Envelope>"
     )

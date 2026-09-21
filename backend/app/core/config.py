@@ -97,7 +97,7 @@ class Settings(BaseSettings):
     sincronismo_automatico: bool = True
     sincronismo_intervalo_minutos: int = 5
     sincronismo_lote_empresas: int = 20
-    completar_xmls_a_cada_horas: int = 6
+    completar_xmls_a_cada_horas: int = 1
 
     # ---------------- Celery ----------------
     broker_visibility_timeout_segundos: int = 21600

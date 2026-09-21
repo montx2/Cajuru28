@@ -18,10 +18,11 @@ Cada docZip pode ser resumo (resNFe), documento completo (procNFe) ou evento
 DocumentoFiscal.
 
 Sobre o "só veio o resumo": é comportamento oficial, não bug. Enquanto o
-destinatário não se manifestar, o Ambiente Nacional distribui o `resNFe` e
-guarda a NFe completa. O caminho suportado para obter o XML inteiro é a
-consulta pontual pela chave (`consChNFe`), limitada a 20 consultas/h —
-implementada em `buscar_por_chave()` e usada pelo worker em segundo plano.
+destinatário não registrar a Ciência da Operação (210210), o Ambiente Nacional
+distribui só o `resNFe`. `consChNFe` NÃO contorna isso: para o destinatário ele
+também exige manifestação prévia (NT 2014.002). Depois da Ciência, o `procNFe`
+chega pelo próprio fluxo de NSU (ver `_promover_resumo` no worker);
+`buscar_por_chave()` (20 consultas/h) fica como reserva.
 
 Sobre "prestadas": o emitente **não** recebe os próprios documentos pela
 distribuição (tabela oficial do sped-nfe). NFe emitida pela empresa aparece

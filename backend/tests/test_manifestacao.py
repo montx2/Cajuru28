@@ -127,52 +127,98 @@ def test_chave_invalida_e_recusada_antes_de_qualquer_chamada():
 # --------------------------------------------------------------------------
 
 
-def test_evento_assinado_tem_assinatura_valida_sobre_o_infevento(par_certificado):
-    """A assinatura precisa conferir contra o C14N exclusivo do infEvento.
+XSD_DIR = __import__("pathlib").Path(__file__).parent / "xsd"
 
-    Este teste recalcula o digest e verifica a assinatura RSA com a chave
-    pública — se a serialização mudar um byte, o ambiente rejeitaria, e aqui
-    o teste quebra antes de chegar em produção.
+
+def _envelope_evento_sem_soap(assinado: bytes) -> bytes:
+    import re
+
+    corpo = re.sub(rb"^<\?xml[^>]*\?>\s*", b"", assinado).decode()
+    return (
+        f'<envEvento xmlns="{NS_PORTAL}" versao="1.00"><idLote>1</idLote>{corpo}</envEvento>'
+    ).encode()
+
+
+def test_evento_assinado_valida_no_xsd_oficial_da_sefaz(par_certificado):
+    """Regressão do bug que impedia a Ciência: o XSD OFICIAL da SEFAZ fixa o
+    algoritmo de canonicalização em C14N 1.0 inclusiva. Com C14N *exclusiva* o
+    ambiente devolve falha de schema (cStat 215) e a nota nunca é destravada.
+
+    Os XSDs em `tests/xsd/` são os do Portal da NF-e (pacote PL_010_V1.21).
     """
-    from cryptography.hazmat.primitives.asymmetric import padding
-    import base64
-
-    cert_path, key_path, chave = par_certificado
-    assinado = assinar_evento(montar_evento(CHAVE, CNPJ, uf="SP"), cert_path, key_path)
-    raiz = etree.fromstring(assinado)
-
-    assinatura = raiz.find(f"{{{NS_DSIG}}}Signature")
-    assert assinatura is not None, "evento saiu sem assinatura"
-
-    # 1. O digest publicado bate com o infEvento canonicalizado?
-    inf = raiz.find(f"{{{NS_PORTAL}}}infEvento")
-    canon = etree.tostring(inf, method="c14n", exclusive=True, with_comments=False)
-    esperado = hashes.Hash(hashes.SHA1())
-    esperado.update(canon)
-    digest_publicado = assinatura.find(f".//{{{NS_DSIG}}}DigestValue").text
-    assert digest_publicado == base64.b64encode(esperado.finalize()).decode()
-
-    # 2. A referência aponta para o Id correto?
-    referencia = assinatura.find(f".//{{{NS_DSIG}}}Reference")
-    assert referencia.get("URI") == f"#{inf.get('Id')}"
-
-    # 3. A assinatura RSA confere com a chave pública do certificado?
-    signed_info = assinatura.find(f"{{{NS_DSIG}}}SignedInfo")
-    signed_info_c14n = etree.tostring(
-        signed_info, method="c14n", exclusive=True, with_comments=False
-    )
-    valor = base64.b64decode(assinatura.find(f"{{{NS_DSIG}}}SignatureValue").text)
-    chave.public_key().verify(valor, signed_info_c14n, padding.PKCS1v15(), hashes.SHA1())
-
-
-def test_envelope_embute_o_evento_sem_declaracao_xml_duplicada(par_certificado):
     cert_path, key_path, _ = par_certificado
     assinado = assinar_evento(montar_evento(CHAVE, CNPJ, uf="SP"), cert_path, key_path)
-    envelope = montar_envelope_evento(assinado).decode()
 
-    assert envelope.count("<?xml") == 1, "declaração XML duplicada quebra o parser da SEFAZ"
-    assert "<envEvento" in envelope and "<idLote>" in envelope
-    assert "nfeRecepcaoEvento" in envelope
+    schema = etree.XMLSchema(etree.parse(str(XSD_DIR / "envConfRecebto_v1.00.xsd")))
+    doc = etree.fromstring(_envelope_evento_sem_soap(assinado))
+    assert schema.validate(doc), [e.message for e in schema.error_log]
+
+    # e o algoritmo é exatamente o exigido
+    metodo = doc.find(f".//{{{NS_DSIG}}}CanonicalizationMethod").get("Algorithm")
+    assert metodo == "http://www.w3.org/TR/2001/REC-xml-c14n-20010315"
+
+
+def test_digest_do_infevento_nao_tem_xmlns_vazio_espurio(par_certificado, monkeypatch):
+    """`lxml` injeta `xmlns=""` ao canonicalizar subárvore em modo inclusivo.
+
+    O digest esperado abaixo foi calculado pelo libxmlsec1 (implementação de
+    referência) sobre um evento de data fixa — se alguém voltar a canonicalizar
+    a subárvore direto, o valor muda e este teste quebra.
+    """
+    import base64
+
+    from app.services.importadores import manifestacao
+
+    monkeypatch.setattr(manifestacao, "_agora_fiscal", lambda: "2026-09-21T10:00:00+00:00")
+    cert_path, key_path, _ = par_certificado
+    assinado = assinar_evento(montar_evento(CHAVE, CNPJ, uf="SP"), cert_path, key_path)
+    raiz = etree.fromstring(assinado)
+    inf = raiz.find(f"{{{NS_PORTAL}}}infEvento")
+
+    canonico_correto = etree.tostring(
+        etree.fromstring(etree.tostring(inf)), method="c14n", exclusive=False
+    )
+    assert b'xmlns=""' not in canonico_correto
+
+    h = hashes.Hash(hashes.SHA1())
+    h.update(canonico_correto)
+    digest = base64.b64encode(h.finalize()).decode()
+    assert raiz.find(f".//{{{NS_DSIG}}}DigestValue").text == digest
+
+
+def test_assinatura_confere_no_libxmlsec1(par_certificado, tmp_path):
+    """Verificação independente (libxmlsec1). Pulada se `xmlsec` não estiver instalado."""
+    xmlsec = pytest.importorskip("xmlsec")
+    cert_path, key_path, _ = par_certificado
+    assinado = assinar_evento(montar_evento(CHAVE, CNPJ, uf="SP"), cert_path, key_path)
+
+    def verificar(xml: bytes) -> None:
+        doc = etree.fromstring(xml)
+        xmlsec.tree.add_ids(doc, ["Id"])
+        ctx = xmlsec.SignatureContext()
+        ctx.key = xmlsec.Key.from_file(cert_path, xmlsec.constants.KeyDataFormatCertPem)
+        ctx.verify(xmlsec.tree.find_node(doc, xmlsec.constants.NodeSignature))
+
+    verificar(assinado)
+    with pytest.raises(xmlsec.Error):
+        verificar(assinado.replace(b"Ciencia da Operacao", b"Confirmacao da Operacao"))
+
+
+def test_envelope_soap_usa_nfedadosmsg_direto_no_body(par_certificado):
+    """No NFeRecepcaoEvento4 o Body é o `<nfeDadosMsg>` — sem elemento-operação."""
+    cert_path, key_path, _ = par_certificado
+    assinado = assinar_evento(montar_evento(CHAVE, CNPJ, uf="SP"), cert_path, key_path)
+    envelope = montar_envelope_evento(assinado)
+    texto = envelope.decode()
+
+    assert texto.count("<?xml") == 1, "declaração XML duplicada quebra o parser da SEFAZ"
+    assert "nfeRecepcaoEvento>" not in texto and "<nfeRecepcaoEvento" not in texto
+    raiz = etree.fromstring(envelope)
+    corpo = raiz[0]
+    assert etree.QName(corpo[0]).localname == "nfeDadosMsg"
+    assert etree.QName(corpo[0]).namespace.endswith("/NFeRecepcaoEvento4")
+    id_lote = raiz.xpath("//*[local-name()='idLote']/text()")[0]
+    assert id_lote.isdigit() and 1 <= len(id_lote) <= 15
 
 
 # --------------------------------------------------------------------------

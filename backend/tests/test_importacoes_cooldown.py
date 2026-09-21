@@ -330,6 +330,8 @@ def test_completar_xml_respeita_janela_antes_de_consultar(db, tmp_path, monkeypa
             valor_total=0.0,
             xml_path=str(caminho_xml),
             leiaute="resumo",
+            # Já manifestada: só assim a nota entra na fila do consChNFe.
+            manifestado_em=datetime.now(timezone.utc),
         )
     )
     estado = sincronizacao.obter_estado(sessao, empresa_id, TipoDocumentoFiscal.NFE)
