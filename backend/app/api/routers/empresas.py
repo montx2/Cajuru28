@@ -108,7 +108,7 @@ def _completar_dados_empresa(dados: EmpresaCriar) -> dict:
 
     # A consulta também entrega o IBGE municipal de sete dígitos. Buscar mesmo
     # quando razão/UF já vieram preenchidas elimina um bloqueio do cadastro
-    # Morfeu sem substituir dado manual informado pelo operador.
+    # consulta externa sem substituir dado manual informado pelo operador.
     consulta = _consulta_publica(documento) if (eh_cnpj_numerico(documento) and (not uf or not razao or not codigo_ibge)) else None
     if consulta is not None:
         uf = uf or _validar_uf_ou_vazio(consulta.uf)

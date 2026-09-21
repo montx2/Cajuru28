@@ -954,7 +954,7 @@ def _montar_zip(consulta, periodo, *, incluir_relatorio: bool) -> str:
                 usados.add(endereco)
                 arquivo_relatorio = endereco
             else:
-                # A Morfeu pública entrega NFS-e como metadados, sem contrato
+                # Algumas fontes entregam NFS-e como metadados, sem contrato
                 # de download de XML. Em vez de omitir a nota do pacote (ou
                 # fingir que JSON é XML), entregamos sua representação
                 # normalizada e deixamos isso explícito no relatório.
