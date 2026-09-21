@@ -545,6 +545,7 @@ def estados_do_escritorio(
                     max_nsu=estado.max_nsu,
                     pendencia=sincronizacao.pendencia_de_documentos(estado),
                     em_dia=em_dia,
+                    nunca_consultado=sincronizacao.nunca_consultado(estado),
                     bloqueado_ate=bloqueado_ate if bloqueado_ate and bloqueado_ate > agora else None,
                     motivo_bloqueio=estado.motivo_bloqueio if bloqueado_ate and bloqueado_ate > agora else None,
                     bloqueios_seguidos=estado.bloqueios_seguidos or 0,

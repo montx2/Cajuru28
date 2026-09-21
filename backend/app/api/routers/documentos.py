@@ -965,7 +965,7 @@ def _montar_zip(consulta, periodo, *, incluir_relatorio: bool) -> str:
                         endereco_metadados,
                         json.dumps(
                             {
-                                "aviso": "A fonte Jettax/Morfeu não disponibilizou XML original para esta NFS-e.",
+                                "aviso": "A fonte de origem não disponibilizou XML original para esta NFS-e.",
                                 "empresa": {"id": empresa.id, "razao_social": empresa.razao_social, "cnpj_cpf": empresa.cnpj_cpf},
                                 "documento": {
                                     "id": documento.id,
@@ -1010,8 +1010,8 @@ def _leia_me(periodo, quantidade: int) -> str:
         "Notas com 'so-resumo' na coluna xml_completo: a SEFAZ distribui o\n"
         "resumo até que a nota seja manifestada. Use o botão 'completar XML'\n"
         "no painel — a busca pela chave é limitada a 20 consultas/h por CNPJ.\n\n"
-        "Notas com 'metadados-sem-xml' vieram da Jettax/Morfeu sem contrato de\n"
-        "download de XML. O pacote contém um JSON normalizado em /metadados,\n"
+        "Notas com 'metadados-sem-xml' chegaram de uma fonte que não forneceu o\n"
+        "XML original. O pacote contém um JSON normalizado em /metadados,\n"
         "sem inventar um XML fiscal inexistente.\n"
     )
 
@@ -1036,7 +1036,7 @@ def baixar_xml(
         if documento.leiaute == "metadados":
             raise HTTPException(
                 status_code=409,
-                detail="Esta NFS-e chegou da Jettax somente com metadados; a API Morfeu não forneceu XML original. Exporte o período para baixar o JSON normalizado junto da relação CSV.",
+                detail="Esta NFS-e foi registrada somente com metadados: a fonte de origem não forneceu XML original. Exporte o período para baixar o JSON normalizado junto da relação CSV.",
             )
         raise HTTPException(status_code=404, detail="Arquivo XML não encontrado no disco")
 

@@ -151,7 +151,7 @@ function ConteudoDocumento({ id, aoExcluir, somenteLeitura }: { id: number; aoEx
           <Dado rotulo="Empresa" valor={documento.empresa_razao_social} href={`/dashboard/empresa?id=${documento.empresa_id}`} />
           <Dado rotulo="CNPJ da empresa" valor={<Cnpj valor={documento.empresa_cnpj} />} />
           <Dado rotulo="UF" valor={documento.empresa_uf || "—"} />
-          <Dado rotulo="Leiaute" valor={documento.leiaute === "resumo" ? "Resumo (resNFe)" : documento.leiaute === "metadados" ? "Metadados Jettax (sem XML)" : "XML completo"} />
+          <Dado rotulo="Leiaute" valor={documento.leiaute === "resumo" ? "Resumo (resNFe)" : documento.leiaute === "metadados" ? "Metadados (sem XML)" : "XML completo"} />
           <Dado rotulo="NSU" valor={nsuFormatado(documento.nsu ?? null)} mono />
           <Dado rotulo="Origem" valor={documento.origem || "—"} />
           <Dado rotulo="Importado" valor={documento.importado_em ? tempoRelativo(documento.importado_em) : "—"} dica={dataHora(documento.importado_em)} />

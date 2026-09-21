@@ -68,7 +68,6 @@ class EmpresaCriar(BaseModel):
     # UF pode vir vazia: a rota tenta descobrir automaticamente pelo CNPJ.
     # Se não conseguir, aí sim devolve erro pedindo preenchimento manual.
     uf: str | None = ""
-    # Preenchidos apenas se a empresa também for usar o conector Jettax.
     codigo_ibge: str | None = None
     inscricao_municipal: str | None = None
 
@@ -139,6 +138,7 @@ class EmpresaResposta(BaseModel):
     criado_em: datetime
     sincronizar_automaticamente: bool = True
     quais_tipos_sincronizar: str = "nfse,nfe,cte"
+    manifestar_automaticamente: bool = False
     codigo_ibge: str | None = None
     inscricao_municipal: str | None = None
 
@@ -150,6 +150,7 @@ class EmpresaAtualizar(BaseModel):
     uf: str | None = None
     ativa: bool | None = None
     sincronizar_automaticamente: bool | None = None
+    manifestar_automaticamente: bool | None = None
     quais_tipos_sincronizar: list[TipoDocumentoFiscal] | None = None
     codigo_ibge: str | None = None
     inscricao_municipal: str | None = None
@@ -216,173 +217,6 @@ class LoteEmpresasResposta(BaseModel):
     ja_existiam: int
     erros: int
     itens: list[ItemLoteEmpresas]
-
-
-# ---------- Integração Jettax 360 / Morfeu ----------
-
-class JettaxConfiguracaoAtualizar(BaseModel):
-    """Preferências locais; não aceita token, senha ou certificado."""
-
-    ativa: bool | None = None
-    baixar_nfes: bool | None = None
-    baixar_nfes_enviadas: bool | None = None
-
-
-class JettaxRegistroEmpresa(BaseModel):
-    """Ação explícita que cria/atualiza o cliente remoto."""
-
-    enviar_certificado: bool = False
-
-
-class JettaxConfiguracaoResposta(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    empresa_id: int
-    status: str = "nao_registrada"
-    ativa: bool = False
-    baixar_nfes: bool = False
-    baixar_nfes_enviadas: bool = False
-    ultimo_id_nfse: str | None = None
-    ultimo_id_nfe_saida: str | None = None
-    ultimo_id_nfe_entrada: str | None = None
-    ultimo_registro_em: datetime | None = None
-    ultima_sincronizacao_em: datetime | None = None
-    ultimo_erro: str | None = None
-    falhas_seguidas: int = 0
-    travado_em: datetime | None = None
-    atualizado_em: datetime | None = None
-
-
-class JettaxCredencialAtualizar(BaseModel):
-    token: str
-    base_url: str = "https://morfeu-api.jettax.com.br"
-
-    @field_validator("token")
-    @classmethod
-    def token_obrigatorio(cls, v: str) -> str:
-        if not v.strip():
-            raise ValueError("Informe o token da API Jettax")
-        if len(v) > 4096:
-            raise ValueError("Token muito longo")
-        return v.strip()
-
-
-class JettaxStatusResposta(BaseModel):
-    configurado: bool
-    base_url: str
-    webhook_configurado: bool
-    saude: str = "desconhecido"
-    verificado_em: datetime | None = None
-    mensagem: str | None = None
-    empresas_registradas: int = 0
-    empresas_ativas: int = 0
-
-
-class JettaxTesteConexaoResposta(BaseModel):
-    status: str
-    verificado_em: datetime
-    mensagem: str
-
-
-class JettaxImportarNFSe(BaseModel):
-    """Filtros documentados para `GET /api/nfse/invoices/{cnpj}`.
-
-    Ao informar filtro, a execução é pontual e não move o cursor incremental,
-    para que uma consulta seletiva jamais pule notas na próxima captura.
-    """
-
-    numero: str | None = None
-    nota_situacao: Literal["autorizada", "cancelada"] | None = None
-    tipo_nota: Literal["enviada", "recebida", "nfts"] | None = None
-    period: str | None = None
-
-    @field_validator("period")
-    @classmethod
-    def periodo_morfeu(cls, v: str | None) -> str | None:
-        if v is None or not v.strip():
-            return None
-        valor = v.strip()
-        if not re.fullmatch(r"(?:[1-9]|1[0-2])-\d{4}", valor):
-            raise ValueError("period deve usar m-AAAA, por exemplo 8-2026")
-        return valor
-
-    @property
-    def tem_filtros(self) -> bool:
-        return any((self.numero, self.nota_situacao, self.tipo_nota, self.period))
-
-
-class JettaxImportarNFe(BaseModel):
-    direcao: Literal["sales", "purchases"]
-    chave: str | None = None
-    data_inicial: date | None = None
-    data_final: date | None = None
-    cnpj_destinatario: str | None = None
-    cnpj_emitente: str | None = None
-
-    @field_validator("chave")
-    @classmethod
-    def chave_numerica_opcional(cls, v: str | None) -> str | None:
-        # Chave de acesso é um campo contratualmente numérico; sua máscara não
-        # identifica pessoa/empresa e pode ser removida sem perda semântica.
-        if v is None or not v.strip():
-            return None
-        return re.sub(r"\D", "", v)
-
-    @field_validator("cnpj_destinatario", "cnpj_emitente")
-    @classmethod
-    def documento_jettax_preservado(cls, v: str | None) -> str | None:
-        if v is None or not v.strip():
-            return None
-        try:
-            return normalizar_cnpj(v)
-        except ValueError as exc:
-            raise ValueError(str(exc)) from exc
-
-    @property
-    def tem_filtros(self) -> bool:
-        return any((self.chave, self.data_inicial, self.data_final, self.cnpj_destinatario, self.cnpj_emitente))
-
-
-class JettaxExecucaoResposta(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    empresa_id: int
-    tipo: TipoDocumentoFiscal
-    fluxo: str
-    status: str
-    avancar_cursor: bool
-    cursor_antes: str | None = None
-    cursor_depois: str | None = None
-    documentos_importados: int = 0
-    documentos_duplicados: int = 0
-    documentos_ignorados: int = 0
-    mensagem_erro: str | None = None
-    aviso: str | None = None
-    ticket: str | None = None
-    origem: str = "manual"
-    iniciado_em: datetime | None = None
-    finalizado_em: datetime | None = None
-
-
-class JettaxWebhookEntrada(BaseModel):
-    """Contrato público documentado pela Jettax para a entrega de webhook."""
-
-    type: str
-    ticket: str
-    status: Literal["SUCCESS", "ERROR"]
-    message: str | None = None
-
-
-class JettaxWebhookEventoResposta(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    tipo: str
-    ticket: str
-    status: str
-    mensagem: str | None = None
-    recebido_em: datetime | None = None
 
 
 # ---------- Certificado ----------
@@ -632,6 +466,9 @@ class EstadoSincronizacaoResposta(BaseModel):
     liberacao_rotulo: str = "liberado"
     em_andamento: bool = False
     travado: bool = False
+    #: `maxNSU` desconhecido — o ambiente nunca respondeu para esta empresa+tipo.
+    #: Diferente de "em dia": sem isto, 0 pendência parecia estar tudo certo.
+    nunca_consultado: bool = False
     sincronizar_automaticamente: bool = True
     cota_pontual_disponivel: int = 20
     #: dias desde a última varredura bem-sucedida (None = nunca varreu)

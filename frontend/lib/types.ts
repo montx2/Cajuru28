@@ -17,50 +17,14 @@ export interface Empresa {
   ativa: boolean;
   criado_em: string;
   sincronizar_automaticamente?: boolean;
+  /** Opt-in do evento 210210. Desligado por padrão: ato irreversível. */
+  manifestar_automaticamente?: boolean;
   /** comma-separated: "nfse,nfe,cte" */
   quais_tipos_sincronizar?: string | null;
-  /** Código IBGE municipal de 7 dígitos, usado pelo cadastro Jettax/Morfeu. */
+  /** Código IBGE municipal de 7 dígitos. */
   codigo_ibge?: string | null;
-  /** Inscrição municipal/CCM, usada pelo cadastro Jettax/Morfeu. */
+  /** Inscrição municipal/CCM. */
   inscricao_municipal?: string | null;
-}
-
-export interface JettaxConfiguracaoEmpresa {
-  id?: number | null;
-  empresa_id: number;
-  status: string;
-  ativa: boolean;
-  baixar_nfes: boolean;
-  baixar_nfes_enviadas: boolean;
-  ultimo_id_nfse?: string | null;
-  ultimo_id_nfe_saida?: string | null;
-  ultimo_id_nfe_entrada?: string | null;
-  ultimo_registro_em?: string | null;
-  ultima_sincronizacao_em?: string | null;
-  ultimo_erro?: string | null;
-  falhas_seguidas?: number;
-  travado_em?: string | null;
-  atualizado_em?: string | null;
-}
-
-export interface JettaxExecucao {
-  id: number;
-  empresa_id: number;
-  tipo: "nfse" | "nfe";
-  fluxo: "nfse" | "sales" | "purchases" | string;
-  status: string;
-  avancar_cursor: boolean;
-  cursor_antes?: string | null;
-  cursor_depois?: string | null;
-  documentos_importados: number;
-  documentos_duplicados: number;
-  documentos_ignorados: number;
-  mensagem_erro?: string | null;
-  aviso?: string | null;
-  ticket?: string | null;
-  origem: string;
-  iniciado_em?: string | null;
-  finalizado_em?: string | null;
 }
 
 export interface ConsultaCNPJ {
@@ -195,6 +159,8 @@ export interface EstadoSincronizacao {
   /** frase pronta: "liberado", "libera em 42 min"… */
   liberacao_rotulo: string;
   em_andamento: boolean;
+  /** `maxNSU` desconhecido: nunca consultado com sucesso (≠ em dia). */
+  nunca_consultado?: boolean;
   travado: boolean;
   sincronizar_automaticamente: boolean;
   cota_pontual_disponivel: number;

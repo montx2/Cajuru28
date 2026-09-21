@@ -45,12 +45,10 @@ import {
   type DocumentoDetalhe,
   type DocumentoFiscal,
   type ExecucaoImportacao,
-  type JettaxConfiguracaoEmpresa,
-  type JettaxExecucao,
   type TipoDocumentoFiscal,
 } from "@/lib/types";
 
-const ABAS = ["dados", "certificado", "sincronismo", "documentos", "execucoes", "integracoes"];
+const ABAS = ["dados", "certificado", "sincronismo", "documentos", "execucoes"];
 
 /**
  * Detalhe da empresa: tudo que decide a captura dela num lugar só.
@@ -157,7 +155,6 @@ export function Empresa() {
     { valor: "sincronismo", rotulo: "Sincronismo", icone: "sincronizar", contador: (sincronizacao.dados ?? []).length || undefined },
     { valor: "documentos", rotulo: "Documentos", icone: "documento", contador: pronto ? documentosNoPeriodo.length || undefined : undefined },
     { valor: "execucoes", rotulo: "Execuções", icone: "execucao", contador: (execucoes.dados ?? []).length || undefined },
-    { valor: "integracoes", rotulo: "Integrações", icone: "webhook" },
   ];
 
   return (
@@ -237,6 +234,7 @@ export function Empresa() {
             <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
               <Dado rotulo="Situação" valor={dados.ativa ? "Ativa" : "Inativa"} />
               <Dado rotulo="Sincronismo automático" valor={dados.sincronizar_automaticamente ? "Ligado" : "Desligado"} tom={dados.sincronizar_automaticamente ? undefined : "espera"} />
+              <Dado rotulo="Manifestação automática (NF-e)" valor={dados.manifestar_automaticamente ? "Ligada" : "Desligada"} tom={dados.manifestar_automaticamente ? undefined : "espera"} />
               <Dado
                 rotulo="Tipos sincronizados"
                 valor={
@@ -411,7 +409,6 @@ export function Empresa() {
         </Cartao>
       ) : null}
 
-      {aba === "integracoes" ? <AbaIntegracoes empresaId={dados.id} somenteLeitura={somenteLeitura} /> : null}
 
       <PainelDocumento
         documentoId={documentoAberto}
@@ -576,191 +573,6 @@ function colunasExecucoes(agora: number): Array<ColunaTabela<ExecucaoImportacao>
   ];
 }
 
-function AbaIntegracoes({ empresaId, somenteLeitura }: { empresaId: number; somenteLeitura: boolean }) {
-  const { avisar } = useToast();
-  const status = useRecurso(() => api.statusJettax(), []);
-  const configuracao = useRecurso(() => api.obterJettaxEmpresa(empresaId), [empresaId], { automatico: false });
-  const execucoes = useRecurso(() => api.listarExecucoesJettaxEmpresa(empresaId, 10), [empresaId]);
-  const [salvando, setSalvando] = useState<string | null>(null);
-  const [enviarCertificado, setEnviarCertificado] = useState(true);
-
-  useEffect(() => {
-    if (status.dados?.configurado) configuracao.atualizar();
-    // A configuração só faz sentido com a integração ativa no escritório.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status.dados?.configurado]);
-
-  if (status.carregando) return <EsqueletoBloco linhas={4} />;
-  if (status.erro) return <EstadoErro erro={status.erro} aoTentarNovamente={status.atualizar} contexto="carregar o status da integração Jettax" />;
-  if (!status.dados?.configurado) {
-    return (
-      <EstadoVazio
-        titulo="Integração Jettax não configurada"
-        instrucao="O registro por empresa só existe depois que o token do escritório é salvo em Configurações."
-        acao={<BotaoLink variante="secundaria" href="/dashboard/configuracoes?aba=integracoes">Abrir Configurações</BotaoLink>}
-        icone="webhook"
-      />
-    );
-  }
-
-  async function salvar(campo: keyof Pick<JettaxConfiguracaoEmpresa, "ativa" | "baixar_nfes" | "baixar_nfes_enviadas">, valor: boolean) {
-    setSalvando(campo);
-    try {
-      await api.salvarJettaxEmpresa(empresaId, { [campo]: valor });
-      configuracao.atualizar();
-      avisar({ tom: "ok", titulo: "Preferência salva", descricao: `${campo.replaceAll("_", " ")}: ${valor ? "ligado" : "desligado"}` });
-    } catch (falha) {
-      avisar({ tom: "erro", titulo: "Não foi possível salvar", descricao: mensagemDoErro(falha, "salvar a configuração Jettax") });
-    } finally {
-      setSalvando(null);
-    }
-  }
-
-  async function registrar() {
-    setSalvando("registrar");
-    try {
-      const resultado = await api.registrarJettaxEmpresa(empresaId, enviarCertificado);
-      configuracao.definir(resultado);
-      avisar({
-        tom: "ok",
-        titulo: "Empresa registrada no Jettax",
-        descricao: enviarCertificado ? `Status: ${resultado.status} · certificado A1 enviado com segurança.` : `Status: ${resultado.status}`,
-      });
-    } catch (falha) {
-      avisar({ tom: "erro", titulo: "Não foi possível registrar", descricao: mensagemDoErro(falha, "registrar a empresa no Jettax") });
-    } finally {
-      setSalvando(null);
-    }
-  }
-
-  async function importar(tipo: "nfse" | "nfe-entrada" | "nfe-saida") {
-    const rotulo = tipo === "nfse" ? "NFS-e" : tipo === "nfe-entrada" ? "NF-e recebidas" : "NF-e emitidas";
-    setSalvando(`importar-${tipo}`);
-    try {
-      const execucao = tipo === "nfse"
-        ? await api.importarNFSeJettax(empresaId)
-        : await api.importarNFeJettax(empresaId, { direcao: tipo === "nfe-entrada" ? "purchases" : "sales" });
-      execucoes.atualizar();
-      configuracao.atualizar();
-      avisar({ tom: "ok", titulo: `${rotulo}: importação iniciada`, descricao: `Execução #${execucao.id} enfileirada. Acompanhe o resultado abaixo.` });
-    } catch (falha) {
-      avisar({ tom: "erro", titulo: `Não foi possível importar ${rotulo}`, descricao: mensagemDoErro(falha, "disparar a importação Jettax") });
-    } finally {
-      setSalvando(null);
-    }
-  }
-
-  const dados = configuracao.dados;
-  const podeImportar = Boolean(dados?.ativa && ["registrada", "atualizada"].includes(dados.status));
-  const motivoImportacao = !dados?.ativa
-    ? "Ative a integração desta empresa antes de importar."
-    : !["registrada", "atualizada"].includes(dados?.status ?? "")
-      ? "Registre/atualize o cliente na Jettax antes de importar."
-      : undefined;
-
-  return (
-    <div className="space-y-4">
-      <Cartao
-        titulo="Jettax"
-        descricao={`Base ${status.dados.base_url} · saúde ${status.dados.saude} · ${numero(status.dados.empresas_registradas)} registradas`}
-        acoes={
-          somenteLeitura ? undefined : (
-            <Botao variante="secundaria" tamanho="sm" onClick={registrar} carregando={salvando === "registrar"} iconeEsquerda={<Icone nome="enviar" className="h-3.5 w-3.5" />}>
-              Registrar / atualizar cliente
-            </Botao>
-          )
-        }
-      >
-        {configuracao.carregando ? (
-          <EsqueletoBloco linhas={3} />
-        ) : configuracao.erro ? (
-          <Aviso tom="espera" titulo="Empresa ainda não registrada">
-            {mensagemDoErro(configuracao.erro, "ler a configuração Jettax da empresa")}
-          </Aviso>
-        ) : dados ? (
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <IndicadorEstado tom={dados.ativa ? "ok" : "neutro"} rotulo={dados.ativa ? "Ativa no Jettax" : "Inativa no Jettax"} icone={dados.ativa ? "verificar-circulo" : "pausa"} />
-              <Etiqueta tom="neutro">status {dados.status}</Etiqueta>
-              {dados.ultimo_erro ? <Etiqueta tom="erro" titulo={dados.ultimo_erro}>última falha</Etiqueta> : null}
-              {dados.travado_em ? <Etiqueta tom="espera" titulo={`Travado em ${dataHora(dados.travado_em)}`}>travada</Etiqueta> : null}
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-3">
-              <Alternador rotulo="Baixar NF-e recebidas" descricao="Ativa a captura de compras no cadastro Morfeu." ligado={dados.baixar_nfes} aoMudar={(valor) => salvar("baixar_nfes", valor)} pendente={salvando === "baixar_nfes"} desabilitado={somenteLeitura} motivoDesabilitado={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined} />
-              <Alternador rotulo="Baixar NF-e emitidas" descricao="Ativa a captura de vendas no cadastro Morfeu." ligado={dados.baixar_nfes_enviadas} aoMudar={(valor) => salvar("baixar_nfes_enviadas", valor)} pendente={salvando === "baixar_nfes_enviadas"} desabilitado={somenteLeitura} motivoDesabilitado={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined} />
-              <Alternador rotulo="Integração ativa" ligado={dados.ativa} aoMudar={(valor) => salvar("ativa", valor)} pendente={salvando === "ativa"} desabilitado={somenteLeitura} motivoDesabilitado={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined} />
-            </div>
-
-            <div className="border-t border-traco pt-3">
-              <Alternador
-                rotulo="Enviar certificado A1 ao registrar"
-                descricao="Necessário para a captura de NFS-e quando a prefeitura usa certificado. O PFX e a senha só trafegam nesta chamada HTTPS e nunca voltam para a tela."
-                ligado={enviarCertificado}
-                aoMudar={setEnviarCertificado}
-                desabilitado={somenteLeitura}
-                motivoDesabilitado={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined}
-              />
-            </div>
-
-            <div className="border-t border-traco pt-3">
-              <p className="mb-2 text-sm font-medium text-tinta">Importar agora</p>
-              <p className="mb-3 text-xs leading-5 text-tinta-suave">Cada ação cria uma execução auditável. NFS-e pode vir como metadados quando a API Morfeu não disponibiliza XML original.</p>
-              <div className="flex flex-wrap gap-2">
-                <Botao variante="primaria" tamanho="sm" onClick={() => importar("nfse")} carregando={salvando === "importar-nfse"} disabled={somenteLeitura || !podeImportar} title={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : motivoImportacao}>
-                  Importar NFS-e
-                </Botao>
-                <Botao variante="secundaria" tamanho="sm" onClick={() => importar("nfe-entrada")} carregando={salvando === "importar-nfe-entrada"} disabled={somenteLeitura || !podeImportar} title={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : motivoImportacao}>
-                  Importar NF-e recebidas
-                </Botao>
-                <Botao variante="secundaria" tamanho="sm" onClick={() => importar("nfe-saida")} carregando={salvando === "importar-nfe-saida"} disabled={somenteLeitura || !podeImportar} title={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : motivoImportacao}>
-                  Importar NF-e emitidas
-                </Botao>
-              </div>
-              {motivoImportacao ? <p className="mt-2 text-xs text-espera">{motivoImportacao}</p> : null}
-            </div>
-
-            <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-traco pt-3 text-sm sm:grid-cols-4">
-              <Dado rotulo="Última sincronização" valor={dados.ultima_sincronizacao_em ? dataHora(dados.ultima_sincronizacao_em) : "—"} />
-              <Dado rotulo="Último registro" valor={dados.ultimo_registro_em ? dataHora(dados.ultimo_registro_em) : "—"} />
-              <Dado rotulo="Cursor NFS-e" valor={dados.ultimo_id_nfse ?? "—"} mono />
-              <Dado rotulo="Falhas seguidas" valor={numero(dados.falhas_seguidas ?? 0)} tom={(dados.falhas_seguidas ?? 0) > 0 ? "erro" : undefined} />
-            </dl>
-          </div>
-        ) : null}
-      </Cartao>
-
-      <Cartao titulo="Execuções Jettax" descricao="Últimas importações feitas por esta integração">
-        {execucoes.carregando ? (
-          <EsqueletoBloco linhas={3} />
-        ) : execucoes.erro ? (
-          <EstadoErro erro={execucoes.erro} aoTentarNovamente={execucoes.atualizar} contexto="carregar as execuções Jettax" />
-        ) : (execucoes.dados ?? []).length === 0 ? (
-          <EstadoVazio inline titulo="Nenhuma execução Jettax" instrucao="Registre a empresa e dispare uma importação para criar histórico." icone="webhook" />
-        ) : (
-          <ul className="divide-y divide-traco">
-            {(execucoes.dados ?? []).map((execucao: JettaxExecucao) => (
-              <li key={execucao.id} className="flex flex-wrap items-center justify-between gap-3 py-2.5">
-                <div className="min-w-0">
-                  <p className="truncate text-sm text-tinta">
-                    {execucao.fluxo.toUpperCase()} · {numero(execucao.documentos_importados)} importados
-                    {execucao.documentos_duplicados > 0 ? ` · ${numero(execucao.documentos_duplicados)} duplicados` : ""}
-                  </p>
-                  <p className="nums truncate text-xs text-tinta-suave" title={execucao.mensagem_erro ?? execucao.aviso ?? undefined}>
-                    {execucao.iniciado_em ? dataHora(execucao.iniciado_em) : "—"} · origem {execucao.origem}
-                    {execucao.mensagem_erro ? ` · ${execucao.mensagem_erro}` : ""}
-                  </p>
-                </div>
-                <IndicadorEstado {...estadoDaExecucao(execucao.status)} />
-              </li>
-            ))}
-          </ul>
-        )}
-      </Cartao>
-    </div>
-  );
-}
-
 function ModalEditarEmpresa({
   aberto,
   aoFechar,
@@ -776,6 +588,7 @@ function ModalEditarEmpresa({
     uf: string;
     ativa: boolean;
     sincronizar_automaticamente?: boolean;
+    manifestar_automaticamente?: boolean;
     quais_tipos_sincronizar?: string | null;
     codigo_ibge?: string | null;
     inscricao_municipal?: string | null;
@@ -787,6 +600,7 @@ function ModalEditarEmpresa({
   const [uf, setUf] = useState(empresa.uf ?? "");
   const [ativa, setAtiva] = useState(empresa.ativa);
   const [automatica, setAutomatica] = useState(Boolean(empresa.sincronizar_automaticamente));
+  const [manifestar, setManifestar] = useState(Boolean(empresa.manifestar_automaticamente));
   const [tipos, setTipos] = useState<Set<TipoDocumentoFiscal>>(
     () =>
       new Set(
@@ -808,6 +622,7 @@ function ModalEditarEmpresa({
     setUf(empresa.uf ?? "");
     setAtiva(empresa.ativa);
     setAutomatica(Boolean(empresa.sincronizar_automaticamente));
+    setManifestar(Boolean(empresa.manifestar_automaticamente));
     setIbge(empresa.codigo_ibge ?? "");
     setMunicipal(empresa.inscricao_municipal ?? "");
     setErro(null);
@@ -826,6 +641,7 @@ function ModalEditarEmpresa({
         uf,
         ativa,
         sincronizar_automaticamente: automatica,
+        manifestar_automaticamente: manifestar,
         quais_tipos_sincronizar: Array.from(tipos),
         codigo_ibge: ibge.trim(),
         inscricao_municipal: municipal.trim(),
@@ -878,6 +694,12 @@ function ModalEditarEmpresa({
             descricao="Desligado, a captura só acontece quando alguém dispara manualmente."
             ligado={automatica}
             aoMudar={setAutomatica}
+          />
+          <Alternador
+            rotulo="Manifestar ciência automaticamente (NF-e)"
+            descricao="Sem isto, a NF-e que só veio como resumo nunca libera o XML completo. A Ciência da Operação é um ato irreversível perante a SEFAZ e obriga manifestação conclusiva depois — por isso vem desligada."
+            ligado={manifestar}
+            aoMudar={setManifestar}
           />
           <div>
             <p className="mb-1.5 text-xs font-medium text-tinta">Tipos sincronizados</p>

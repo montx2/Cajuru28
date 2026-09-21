@@ -121,38 +121,6 @@ def verificar_empresa(
     return ("ok", "")
 
 
-def _acionar_jettax_no_bloqueio(
-    db: Session,
-    empresa: Empresa,
-    tipo: TipoDocumentoFiscal,
-    *,
-    periodo: Periodo | None,
-    mensagem: str,
-) -> str:
-    """Ao detectar bloqueio oficial antes de enfileirar, tenta trilha Jettax."""
-    try:
-        from app.services.jettax import acionar_fallback_automatico
-
-        resultado = acionar_fallback_automatico(
-            db,
-            empresa,
-            tipo,
-            origem="fallback_cooldown",
-            motivo="pedido feito enquanto a fonte oficial está bloqueada",
-            data_inicio=periodo.inicio if periodo else None,
-            data_fim=periodo.fim if periodo else None,
-        )
-    except Exception:  # noqa: BLE001 — a fila oficial não pode falhar por causa da Jettax
-        db.rollback()
-        return mensagem
-
-    if resultado.status == "enfileirada":
-        return mensagem + f" Jettax foi acionada em paralelo para conferir (execução #{resultado.execucao_id})."
-    if resultado.status == "ja_em_andamento" and resultado.execucao_id:
-        return mensagem + f" Jettax já está conferindo esta empresa (execução #{resultado.execucao_id})."
-    return mensagem
-
-
 def enfileirar(
     db: Session,
     empresa: Empresa,
@@ -195,10 +163,6 @@ def enfileirar(
             + f"Nova tentativa automática em {libertacao.quando:%d/%m/%Y %H:%M}."
             + (f" ({libertacao.motivo})" if libertacao.motivo else "")
         )
-        if libertacao.bloqueado:
-            mensagem = _acionar_jettax_no_bloqueio(
-                db, empresa, tipo, periodo=periodo, mensagem=mensagem
-            )
         return ResultadoEnfileiramento(
             status="em_cooldown",
             empresa_id=empresa.id,

@@ -55,23 +55,6 @@ class AcessoriasCredencial(Base):
     atualizado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
-class JettaxCredencial(Base):
-    """Credencial Jettax do escritório, cifrada pelo mesmo cofre dos A1."""
-
-    __tablename__ = "jettax_credenciais"
-    __table_args__ = (UniqueConstraint("escritorio_id", name="uq_jettax_credencial_escritorio"),)
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    escritorio_id: Mapped[int] = mapped_column(ForeignKey("escritorios.id"), index=True)
-    base_url: Mapped[str] = mapped_column(String(500))
-    token_cifrado: Mapped[str] = mapped_column(Text)
-    # Formato do header Authorization que esta instância Morfeu aceitou
-    # ("puro" ou "bearer"). Guardado para não repetir a descoberta — e o 401
-    # extra que ela custa — a cada chamada do conector.
-    esquema_autenticacao: Mapped[str] = mapped_column(String(10), default="puro", server_default="puro")
-    atualizado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-
-
 class Usuario(Base):
     """Pessoa do escritório que acessa o sistema (login)."""
 
@@ -112,19 +95,20 @@ class Empresa(Base):
     # sozinho no ADN/SEFAZ respeitando as janelas de consumo — nenhum clique.
     sincronizar_automaticamente: Mapped[bool] = mapped_column(Boolean, default=True)
     quais_tipos_sincronizar: Mapped[str] = mapped_column(String(30), default="nfse,nfe,cte")
-    # Dados municipais usados apenas pela integração Jettax/Morfeu. Permanecem
-    # opcionais porque a empresa também pode operar somente pela distribuição
-    # direta ADN/SEFAZ, que não depende deles.
+    # Manifestação do Destinatário (evento 210210, Ciência da Operação).
+    # É o que libera o XML completo da NF-e em que a empresa é destinatária.
+    # Fica DESLIGADO por padrão de propósito: a Ciência é um ato jurídico
+    # irreversível registrado na SEFAZ em nome da empresa e dispara o prazo
+    # legal de manifestação conclusiva. Só o operador decide quem entra.
+    manifestar_automaticamente: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
+    # Dados municipais do cadastro da empresa. Opcionais: a captura oficial
+    # ADN/SEFAZ não depende deles.
     codigo_ibge: Mapped[str | None] = mapped_column(String(7), nullable=True)
     inscricao_municipal: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     sincronizacoes: Mapped[list["SincronizacaoDFe"]] = relationship(
-        back_populates="empresa", cascade="all, delete-orphan"
-    )
-    jettax_configuracao: Mapped[Optional["JettaxConfiguracaoEmpresa"]] = relationship(
-        back_populates="empresa", cascade="all, delete-orphan", uselist=False
-    )
-    jettax_execucoes: Mapped[list["JettaxExecucao"]] = relationship(
         back_populates="empresa", cascade="all, delete-orphan"
     )
     criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -226,6 +210,12 @@ class DocumentoFiscal(Base):
     )
     motivo_cancelamento: Mapped[str | None] = mapped_column(Text, nullable=True)
     cancelado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Manifestação do destinatário (210210). Preenchido só quando a Ciência da
+    # Operação foi efetivamente registrada na SEFAZ — é o que autoriza o
+    # download do XML completo. `manifestacao_erro` guarda a rejeição
+    # definitiva para o operador ver, em vez de tentar em silêncio para sempre.
+    manifestado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    manifestacao_erro: Mapped[str | None] = mapped_column(Text, nullable=True)
     importado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     empresa: Mapped["Empresa"] = relationship(back_populates="documentos")
@@ -237,7 +227,7 @@ class DocumentoFiscal(Base):
 class DocumentoFiscalFonte(Base):
     """Proveniência de uma nota sem duplicar a identidade fiscal dela.
 
-    A mesma chave pode chegar pela distribuição oficial e pela Jettax. A nota
+    A mesma chave pode chegar por mais de uma fonte oficial. A nota
     continua única em `documentos_fiscais`; esta tabela preserva todas as
     fontes que a confirmaram, sem trocar silenciosamente o XML já arquivado.
     """
@@ -357,94 +347,6 @@ class SincronizacaoDFe(Base):
     )
 
     empresa: Mapped["Empresa"] = relationship(back_populates="sincronizacoes")
-
-
-class JettaxConfiguracaoEmpresa(Base):
-    """Estado local e cursores da captura Jettax/Morfeu de uma empresa.
-
-    Estes cursores pertencem à Jettax e nunca são misturados ao NSU da
-    distribuição direta. A ativação é explícita: cadastrar uma empresa no
-    NotasFlow não envia nada ao fornecedor automaticamente.
-    """
-
-    __tablename__ = "jettax_configuracoes_empresas"
-    __table_args__ = (UniqueConstraint("empresa_id", name="uq_jettax_configuracao_empresa"),)
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id"), index=True)
-    status: Mapped[str] = mapped_column(String(30), default="nao_registrada")
-    ativa: Mapped[bool] = mapped_column(Boolean, default=False)
-    baixar_nfes: Mapped[bool] = mapped_column(Boolean, default=False)
-    baixar_nfes_enviadas: Mapped[bool] = mapped_column(Boolean, default=False)
-    ultimo_id_nfse: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    ultimo_id_nfe_saida: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    ultimo_id_nfe_entrada: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    ultimo_registro_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    ultima_sincronizacao_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    ultimo_erro: Mapped[str | None] = mapped_column(Text, nullable=True)
-    falhas_seguidas: Mapped[int] = mapped_column(Integer, default=0)
-    travado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    atualizado_em: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
-
-    empresa: Mapped["Empresa"] = relationship(back_populates="jettax_configuracao")
-
-
-class JettaxExecucao(Base):
-    """Resultado auditável de uma consulta Jettax, separado do fluxo SEFAZ."""
-
-    __tablename__ = "jettax_execucoes"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id"), index=True)
-    tipo: Mapped[TipoDocumentoFiscal] = mapped_column(Enum(TipoDocumentoFiscal))
-    fluxo: Mapped[str] = mapped_column(String(20), default="")  # sales | purchases | nfse
-    status: Mapped[str] = mapped_column(String(30), default="em_andamento")
-    avancar_cursor: Mapped[bool] = mapped_column(Boolean, default=True)
-    cursor_antes: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    cursor_depois: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    documentos_importados: Mapped[int] = mapped_column(Integer, default=0)
-    documentos_duplicados: Mapped[int] = mapped_column(Integer, default=0)
-    documentos_ignorados: Mapped[int] = mapped_column(Integer, default=0)
-    mensagem_erro: Mapped[str | None] = mapped_column(Text, nullable=True)
-    aviso: Mapped[str | None] = mapped_column(Text, nullable=True)
-    ticket: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
-    origem: Mapped[str] = mapped_column(String(20), default="manual")
-    iniciado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    finalizado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-
-    empresa: Mapped["Empresa"] = relationship(back_populates="jettax_execucoes")
-
-
-class JettaxSaudeConector(Base):
-    """Última verificação autenticada do conector por escritório."""
-
-    __tablename__ = "jettax_saude_conector"
-    __table_args__ = (UniqueConstraint("escritorio_id", name="uq_jettax_saude_escritorio"),)
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    escritorio_id: Mapped[int] = mapped_column(ForeignKey("escritorios.id"), index=True)
-    status: Mapped[str] = mapped_column(String(30), default="desconhecido")
-    verificado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    mensagem: Mapped[str | None] = mapped_column(Text, nullable=True)
-
-
-class JettaxWebhookEvento(Base):
-    """Notificação recebida da Jettax, deduplicada para suportar retries."""
-
-    __tablename__ = "jettax_webhook_eventos"
-    __table_args__ = (
-        UniqueConstraint("tipo", "ticket", "status", name="uq_jettax_webhook_retentativa"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    escritorio_id: Mapped[int | None] = mapped_column(ForeignKey("escritorios.id"), nullable=True, index=True)
-    tipo: Mapped[str] = mapped_column(String(60))
-    ticket: Mapped[str] = mapped_column(String(120))
-    status: Mapped[str] = mapped_column(String(30))
-    mensagem: Mapped[str | None] = mapped_column(Text, nullable=True)
-    recebido_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class EventoFiscalPendente(Base):

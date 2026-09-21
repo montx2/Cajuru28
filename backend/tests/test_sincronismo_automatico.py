@@ -382,6 +382,10 @@ def _prepara_documento_resumo(base, tmp_suffix="r1"):
         valor_total=0,
         xml_path=str(caminho),
         leiaute="resumo",
+        # Já manifestada: estes testes exercitam o gap-fill (consChNFe), não a
+        # manifestação. Sem a Ciência registrada o XML completo nem seria
+        # liberado pelo ambiente — ver test_manifestacao.py.
+        manifestado_em=datetime.now(timezone.utc),
     )
     sessao.add(documento)
     sessao.commit()

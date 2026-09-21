@@ -11,7 +11,6 @@ Navegador -> Frontend Next.js -> API FastAPI -> PostgreSQL
                                              Celery Beat
                                   |
                                   +-> ADN / SEFAZ (mTLS)
-                                  +-> Jettax 360 / Morfeu (token de deploy)
 ```
 
 ## Serviços
@@ -31,10 +30,14 @@ a senha do certificado em texto puro; ela e o PFX são protegidos pelo cofre
 Fernet. Cada pacote de backup é cifrado com uma chave Fernet **separada** e
 replicado para storage S3 configurado em produção.
 
-A Jettax/Morfeu é um adaptador complementar e uma trilha de fallback/conferência
-automática para empresas ativadas, com token somente no ambiente do servidor e
-cursores próprios: ele não divide estado NSU com ADN/SEFAZ. A operação e os
-limites do conector estão em [`JETTAX.md`](JETTAX.md).
+A captura é feita exclusivamente contra as fontes oficiais (ADN para NFS-e e a
+Distribuição DFe da SEFAZ para NF-e/CT-e), com mTLS pelo certificado da própria
+empresa. Não há intermediário de terceiros no caminho do documento fiscal.
+
+Para NF-e que chega apenas como **resumo** (`resNFe`), o XML completo só é
+liberado após a Ciência da Operação (evento 210210). Isso é feito pelo worker,
+mas apenas para empresas que ativaram a opção — a Ciência é irreversível e faz
+correr o prazo da manifestação conclusiva.
 
 ## Operação
 

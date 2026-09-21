@@ -164,14 +164,10 @@ function AbaAmbiente() {
 function AbaIntegracoes({ admin, somenteLeitura }: { admin: boolean; somenteLeitura: boolean }) {
   const { avisar } = useToast();
   const accessorias = useRecurso(() => api.statusAcessorias(), []);
-  const jettax = useRecurso(() => api.statusJettax(), []);
 
   const [tokenAcessorias, setTokenAcessorias] = useState("");
   const [baseAcessorias, setBaseAcessorias] = useState("");
-  const [tokenJettax, setTokenJettax] = useState("");
-  const [baseJettax, setBaseJettax] = useState("");
   const [ocupado, setOcupado] = useState<string | null>(null);
-  const [confirmandoRemocao, setConfirmandoRemocao] = useState(false);
 
   const bloqueado = somenteLeitura || !admin;
   const motivoBloqueio = !admin ? "Somente administrador altera credenciais de integração." : MOTIVO_SOMENTE_LEITURA;
@@ -182,7 +178,6 @@ function AbaIntegracoes({ admin, somenteLeitura }: { admin: boolean; somenteLeit
       const resultado = await acao();
       avisar({ tom: resultado.tom ?? "ok", titulo: resultado.titulo, descricao: resultado.descricao });
       accessorias.atualizar();
-      jettax.atualizar();
     } catch (falha) {
       avisar({ tom: "erro", titulo: "A ação não foi concluída", descricao: mensagemDoErro(falha, chave) });
     } finally {
@@ -291,102 +286,6 @@ function AbaIntegracoes({ admin, somenteLeitura }: { admin: boolean; somenteLeit
         ) : null}
       </Cartao>
 
-      <Cartao
-        titulo="Jettax"
-        descricao="Registro por empresa, importação de NFS-e e NF-e"
-        acoes={jettax.dados ? <IndicadorEstado {...estadoDeIntegracao(jettax.dados.configurado ? jettax.dados.saude : null)} /> : undefined}
-      >
-        {jettax.carregando ? (
-          <EsqueletoBloco linhas={4} />
-        ) : jettax.erro ? (
-          <EstadoErro erro={jettax.erro} aoTentarNovamente={jettax.atualizar} contexto="ler o status da integração Jettax" />
-        ) : jettax.dados ? (
-          <div className="space-y-4">
-            <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-4">
-              <Dado rotulo="Situação" valor={jettax.dados.configurado ? "Configurada" : "Sem credencial"} tom={jettax.dados.configurado ? undefined : "espera"} />
-              <Dado rotulo="Saúde" valor={jettax.dados.saude} tom={jettax.dados.saude === "ok" ? undefined : "espera"} />
-              <Dado rotulo="Base" valor={jettax.dados.base_url || "—"} mono />
-              <Dado rotulo="Empresas" valor={`${numero(jettax.dados.empresas_registradas)} registradas · ${numero(jettax.dados.empresas_ativas)} ativas`} />
-            </dl>
-            {jettax.dados.mensagem ? <p className="text-sm text-tinta-suave">{jettax.dados.mensagem}</p> : null}
-
-            <div className="grid gap-3 border-t border-traco pt-3 sm:grid-cols-2">
-              <Entrada
-                rotulo="Token"
-                type="password"
-                autoComplete="off"
-                value={tokenJettax}
-                onChange={(evento) => setTokenJettax(evento.target.value)}
-                disabled={bloqueado}
-                descricao="Use o token da API Morfeu. Pode colar o valor puro ou a linha “Authorization: Bearer …”; o prefixo é removido antes de cifrar."
-              />
-              <Entrada
-                rotulo="Base URL"
-                value={baseJettax || jettax.dados.base_url}
-                onChange={(evento) => setBaseJettax(evento.target.value)}
-                disabled={bloqueado}
-                placeholder="https://morfeu-api.jettax.com.br"
-              />
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <Botao
-                variante="secundaria"
-                onClick={() =>
-                  executar("salvar a credencial Jettax", async () => {
-                    await api.salvarCredencialJettax(tokenJettax, baseJettax || jettax.dados?.base_url || "");
-                    setTokenJettax("");
-                    await jettax.atualizar();
-                    return { titulo: "Credencial Jettax salva", descricao: "O resultado da verificação autenticada aparece no status acima." };
-                  })
-                }
-                carregando={ocupado === "salvar a credencial Jettax"}
-                disabled={bloqueado || (!tokenJettax && !baseJettax)}
-                title={bloqueado ? motivoBloqueio : undefined}
-              >
-                Salvar credencial
-              </Botao>
-              <Botao
-                variante="sutil"
-                onClick={() =>
-                  executar("testar a integração Jettax", async () => {
-                    const resultado = await api.testarJettax();
-                    return { titulo: `Jettax: ${resultado.status}`, descricao: resultado.mensagem, tom: resultado.status === "ok" ? "ok" : "erro" };
-                  })
-                }
-                carregando={ocupado === "testar a integração Jettax"}
-              >
-                Testar conexão
-              </Botao>
-              <BotaoLink variante="sutil" href="/dashboard/empresas">
-                Registrar empresas
-              </BotaoLink>
-              {jettax.dados.configurado && !bloqueado ? (
-                <Botao variante="perigo-sutil" className="ml-auto" onClick={() => setConfirmandoRemocao(true)}>
-                  Remover credencial
-                </Botao>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
-      </Cartao>
-
-      <DialogoConfirmacao
-        aberto={confirmandoRemocao}
-        aoFechar={() => setConfirmandoRemocao(false)}
-        aoConfirmar={() =>
-          executar("remover a credencial Jettax", async () => {
-            await api.removerCredencialJettax();
-            setConfirmandoRemocao(false);
-            return { titulo: "Credencial Jettax removida", descricao: "As importações por esta integração param imediatamente.", tom: "espera" };
-          })
-        }
-        tom="perigo"
-        titulo="Remover credencial Jettax"
-        consequencia="A integração deixa de funcionar para todas as empresas: nenhuma importação Jettax será disparada."
-        impacto="Registros já importados permanecem no acervo. Para voltar, é preciso salvar um token novo."
-        rotuloConfirmar="Remover credencial"
-      />
     </div>
   );
 }
@@ -533,7 +432,7 @@ function AbaDados({ admin }: { admin: boolean }) {
           <div className="space-y-3 rounded-controle border border-erro/40 bg-erro-tenue p-3">
             <Alternador
               rotulo="Remover também as credenciais de integração"
-              descricao="Acessórias e Jettax voltam a “não configuradas”."
+              descricao="As integrações voltam a “não configuradas”."
               ligado={removerIntegracoes}
               aoMudar={setRemoverIntegracoes}
             />
@@ -575,7 +474,7 @@ function AbaDados({ admin }: { admin: boolean }) {
         impacto={
           <span>
             Depois disto o NotasFlow volta ao estado de instalação nova: nenhuma captura roda até haver empresa com certificado A1.{" "}
-            {removerIntegracoes ? "As credenciais de Acessórias e Jettax também serão removidas." : "Credenciais de integração serão mantidas."}
+            {removerIntegracoes ? "As credenciais de integração também serão removidas." : "Credenciais de integração serão mantidas."}
           </span>
         }
         exigirTexto="APAGAR TUDO"

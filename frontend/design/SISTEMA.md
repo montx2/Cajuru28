@@ -286,7 +286,7 @@ Registro único em `lib/atalhos.ts`: o mapa (`?`), a paleta (`Ctrl/⌘K`) e o ou
 
 - Sessão só em cookie HttpOnly; nenhuma leitura/escrita de token em JS.
 - 401 fora do login → `replace("/login?destino=<rota>")` (volta ao ponto exato).
-- Credenciais de integração (Acessórias, Jettax) são **escritas e nunca lidas**: a API não devolve segredo, e o campo mostra "credencial salva" sem conteúdo. Remoção exige `DialogoConfirmacao`.
+- Credenciais de integração (Acessórias) são **escritas e nunca lidas**: a API não devolve segredo, e o campo mostra "credencial salva" sem conteúdo. Remoção exige `DialogoConfirmacao`.
 - Ações destrutivas passam por `DialogoConfirmacao` com `consequencia` e `impacto`; irreversíveis em massa exigem texto digitado (`exigirTexto`): exclusão de empresa pede `EXCLUIR`, reset geral pede `APAGAR TUDO`.
 - Exclusão de usuário não existe: desativa-se (`ativo = false`) para preservar a trilha de auditoria. Admin não edita a própria conta (evita auto-bloqueio).
 - Auditoria é explicitamente somente leitura — não há botão de apagar trilha.
@@ -305,11 +305,11 @@ Registro único em `lib/atalhos.ts`: o mapa (`?`), a paleta (`Ctrl/⌘K`) e o ou
 | `/dashboard/documentos` | Documentos | Fiscal | `g d` | `documentos`, `resumoDocumentos`, `zip`, `csv`, `completar-xmls`, exclusões |
 | `/dashboard/importacoes` | Importações | Fiscal | `g i` | `sincronizacao`, `resumoSincronizacao`, previa + `importarSelecionadas`, `certificados/resumo` |
 | `/dashboard/empresas` | Empresas | Fiscal | `g e` | `empresas`, `consulta-cnpj`, `importar` (massa), `resumoPorEmpresa`, `certificados/resumo` |
-| `/dashboard/empresa?id=` | Empresa | Fiscal | — | `obterEmpresa`, `atualizar`, `excluir`, `certificados` (+envio), `documentos`, `execucoes`, `sincronizacaoDaEmpresa`, Jettax |
+| `/dashboard/empresa?id=` | Empresa | Fiscal | — | `obterEmpresa`, `atualizar`, `excluir`, `certificados` (+envio), `documentos`, `execucoes`, `sincronizacaoDaEmpresa` |
 | `/dashboard/certificados` | Certificados | Fiscal | `g c` | `painelCertificados`, `enviarCertificado`, `empresas` |
 | `/dashboard/relatorios` | Fechamento | Fiscal | `g f` | `fechamento`, `conferirCompetencia`, `fechamento/csv` |
 | `/dashboard/saude` | Saúde | Sistema | `g s` | `saudeDetalhada`, `infoSistema`, `backups`, `executarBackup`, `testarBackup`, `painelOperacional` |
-| `/dashboard/configuracoes` | Configurações | Sistema | `g o` | `infoSistema`, `saudeDetalhada`, Acessórias, Jettax, `testarWebhook`, `resetGeral` |
+| `/dashboard/configuracoes` | Configurações | Sistema | `g o` | `infoSistema`, `saudeDetalhada`, Acessórias, `testarWebhook`, `resetGeral` |
 | `/dashboard/auditoria` | Auditoria | Sistema | `g t` | `auditoria`, `acoesAuditoria` (visível para quem opera) |
 | `/dashboard/usuarios` | Equipe | Sistema | `g u` | `usuarios` (criar/atualizar) — **só admin** |
 | `/dashboard/alertas` | — | — | — | redirect permanente → `/dashboard/atencao` |

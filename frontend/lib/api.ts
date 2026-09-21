@@ -20,8 +20,6 @@ import type {
   FechamentoMensal,
   InfoSistema,
   ItemImportacaoLote,
-  JettaxConfiguracaoEmpresa,
-  JettaxExecucao,
   KpisDashboard,
   LoteEmpresasResposta,
   PainelOperacional,
@@ -269,6 +267,7 @@ export const api = {
         | "uf"
         | "ativa"
         | "sincronizar_automaticamente"
+        | "manifestar_automaticamente"
         | "codigo_ibge"
         | "inscricao_municipal"
       > & {
@@ -513,50 +512,6 @@ export const api = {
   salvarCredencialAcessorias: (token: string, base_url: string) => chamar<{ configurado: boolean }>("/integracoes/acessorias/credencial", { method: "PUT", body: JSON.stringify({ token, base_url }) }),
   testarAcessorias: () => chamar<{ ok: boolean; mensagem: string }>("/integracoes/acessorias/testar", { method: "POST" }),
   sincronizarEmpresasAcessorias: () => chamar<{ recebidas: number; criadas: number; atualizadas: number; ignoradas: number; invalidas: number }>("/integracoes/acessorias/sincronizar-empresas", { method: "POST", body: JSON.stringify({ atualizar_existentes: true, somente_ativas: true }) }),
-
-  // Integração Jettax (o token enviado nunca volta ao navegador).
-  statusJettax: () => chamar<{ configurado: boolean; base_url: string; saude: string; mensagem?: string; empresas_registradas: number; empresas_ativas: number }>("/integracoes/jettax"),
-  salvarCredencialJettax: (token: string, base_url: string) =>
-    chamar<{ configurado: boolean; base_url: string }>("/integracoes/jettax/credencial", {
-      method: "PUT", body: JSON.stringify({ token, base_url }),
-    }),
-  removerCredencialJettax: () => chamar<void>("/integracoes/jettax/credencial", { method: "DELETE" }),
-  testarJettax: () => chamar<{ status: string; mensagem: string }>("/integracoes/jettax/testar", { method: "POST" }),
-  obterJettaxEmpresa: (empresaId: number) =>
-    chamar<JettaxConfiguracaoEmpresa>(`/integracoes/jettax/empresas/${empresaId}`),
-  salvarJettaxEmpresa: (
-    empresaId: number,
-    dados: Partial<Pick<JettaxConfiguracaoEmpresa, "ativa" | "baixar_nfes" | "baixar_nfes_enviadas">>
-  ) =>
-    chamar<JettaxConfiguracaoEmpresa>(`/integracoes/jettax/empresas/${empresaId}`, {
-      method: "PUT",
-      body: JSON.stringify(dados),
-    }),
-  registrarJettaxEmpresa: (empresaId: number, enviar_certificado = false) =>
-    chamar<JettaxConfiguracaoEmpresa>(`/integracoes/jettax/empresas/${empresaId}/registrar`, {
-      method: "POST",
-      body: JSON.stringify({ enviar_certificado }),
-    }),
-  atualizarClienteJettaxEmpresa: (empresaId: number, enviar_certificado = false) =>
-    chamar<JettaxConfiguracaoEmpresa>(`/integracoes/jettax/empresas/${empresaId}/registrar`, {
-      method: "PUT",
-      body: JSON.stringify({ enviar_certificado }),
-    }),
-  importarNFSeJettax: (empresaId: number, filtros: { period?: string } = {}) =>
-    chamar<JettaxExecucao>(`/integracoes/jettax/empresas/${empresaId}/importar/nfse`, {
-      method: "POST",
-      body: JSON.stringify(filtros),
-    }),
-  importarNFeJettax: (
-    empresaId: number,
-    dados: { direcao: "sales" | "purchases"; data_inicial?: string; data_final?: string }
-  ) =>
-    chamar<JettaxExecucao>(`/integracoes/jettax/empresas/${empresaId}/importar/nfe`, {
-      method: "POST",
-      body: JSON.stringify(dados),
-    }),
-  listarExecucoesJettaxEmpresa: (empresaId: number, limite = 20) =>
-    chamar<JettaxExecucao[]>(`/integracoes/jettax/empresas/${empresaId}/execucoes${montarParams({ limite })}`),
 
   // ---------------------------------------------------------------
   // Webhook (teste manual, só admin)

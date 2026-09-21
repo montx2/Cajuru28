@@ -5,9 +5,8 @@ from __future__ import annotations
 import pytest
 
 from app.core.documentos import normalizar_cnpj, normalizar_documento, validar_cnpj
-from app.schemas import EmpresaCriar, JettaxImportarNFe
+from app.schemas import EmpresaCriar
 from app.services.cnpj import consultar_cnpj
-from app.services.jettax import ClienteJettax, JettaxErro
 
 CNPJ_ALFA = "ABCDEF12345680"  # DV calculado conforme regra RFB alfanumérica
 
@@ -35,20 +34,3 @@ def test_brasilapi_nao_recebe_cnpj_alfanumerico(monkeypatch):
 
     monkeypatch.setattr("app.services.cnpj.httpx.Client", lambda **_kwargs: ClienteQueNaoPodeSerUsado())
     assert consultar_cnpj(CNPJ_ALFA) is None
-
-
-def test_jettax_recusa_cnpj_alfanumerico_antes_da_requisicao():
-    cliente = ClienteJettax(token="segredo-somente-teste")
-    with pytest.raises(JettaxErro) as erro:
-        cliente.listar_nfse(CNPJ_ALFA)
-    assert erro.value.categoria == "contrato"
-    assert "alfanumérico" in str(erro.value)
-
-
-def test_filtro_jettax_preserva_alfa_e_o_cliente_recusa_contrato_nao_confirmado():
-    filtros = JettaxImportarNFe(direcao="sales", cnpj_emitente="ab.cd-ef/123456-80")
-    assert filtros.cnpj_emitente == CNPJ_ALFA
-    with pytest.raises(JettaxErro, match="alfanumérico"):
-        ClienteJettax(token="segredo-somente-teste").listar_nfes(
-            "12345678000195", "sales", cnpj_emitente=filtros.cnpj_emitente
-        )

@@ -328,7 +328,7 @@ export function Documentos() {
         celula: (documento) => (
           <IndicadorEstado
             {...estadoDoDocumento(documento)}
-            titulo={documento.motivo_cancelamento ?? (documento.leiaute === "resumo" ? "Recebido em resumo — XML completo pendente" : documento.leiaute === "metadados" ? "NFS-e Jettax sem XML original; exporte o período para obter o JSON normalizado." : undefined)}
+            titulo={documento.motivo_cancelamento ?? (documento.leiaute === "resumo" ? "Recebido em resumo — XML completo pendente" : documento.leiaute === "metadados" ? "NFS-e sem XML original; exporte o período para obter o JSON normalizado." : undefined)}
           />
         ),
       },
@@ -465,7 +465,7 @@ export function Documentos() {
                 { valor: "", rotulo: "Todos os leiautes" },
                 { valor: "completo", rotulo: "Somente XML completo" },
                 { valor: "resumo", rotulo: "Somente resumo (pendentes)" },
-                { valor: "metadados", rotulo: "Somente metadados Jettax (sem XML)" },
+                { valor: "metadados", rotulo: "Somente metadados (sem XML)" },
               ]}
             />
             <Selecao
@@ -482,7 +482,7 @@ export function Documentos() {
 
           {leiaute === "metadados" ? (
             <div className="rounded-controle border border-espera/40 bg-espera-tenue px-3 py-2 text-sm text-espera">
-              Estas NFS-e vieram da Jettax/Morfeu sem XML original. A exportação do período inclui um JSON normalizado e a relação CSV; não há XML a completar pela SEFAZ.
+              Estas NFS-e foram registradas sem XML original. A exportação do período inclui um JSON normalizado e a relação CSV; não há XML a completar pela SEFAZ.
             </div>
           ) : null}
           {leiaute === "resumo" ? (

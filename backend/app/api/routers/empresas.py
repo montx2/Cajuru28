@@ -1,5 +1,5 @@
 """
-Importação em massa de empresas e certificados — estilo JetTax360.
+Importação em massa de empresas e certificados.
 
 Recebe vários .pfx de uma vez (e/ou um CSV) e já cria as empresas com CNPJ,
 razão social e UF: CNPJ vem do certificado (campo ICP-Brasil) e a razão
@@ -32,8 +32,6 @@ from app.models import (
     Empresa,
     EventoFiscalPendente,
     ExecucaoImportacao,
-    JettaxConfiguracaoEmpresa,
-    JettaxExecucao,
     SincronizacaoDFe,
     StatusExecucao,
     Usuario,
@@ -295,14 +293,12 @@ def excluir_empresa(
     # Ordem explícita para funcionar igualmente em SQLite e PostgreSQL, sem
     # depender de cascatas configuradas no banco instalado.
     db.query(EventoFiscalPendente).filter_by(empresa_id=empresa.id).delete(synchronize_session=False)
-    # Exclusão local jamais chama DELETE /api/clients: a Jettax documenta que
+    # Exclusão local apaga apenas o acervo deste sistema:
     # esse DELETE também apaga as notas remotas, então só o operador pode fazer
     # isso conscientemente fora deste fluxo.
     ids_documentos = db.query(DocumentoFiscal.id).filter_by(empresa_id=empresa.id).subquery()
     db.query(DocumentoFiscalFonte).filter(DocumentoFiscalFonte.documento_id.in_(ids_documentos)).delete(synchronize_session=False)
     db.query(DocumentoFiscal).filter_by(empresa_id=empresa.id).delete(synchronize_session=False)
-    db.query(JettaxExecucao).filter_by(empresa_id=empresa.id).delete(synchronize_session=False)
-    db.query(JettaxConfiguracaoEmpresa).filter_by(empresa_id=empresa.id).delete(synchronize_session=False)
     db.query(ExecucaoImportacao).filter_by(empresa_id=empresa.id).delete(synchronize_session=False)
     db.query(SincronizacaoDFe).filter_by(empresa_id=empresa.id).delete(synchronize_session=False)
     db.query(Certificado).filter_by(empresa_id=empresa.id).delete(synchronize_session=False)
