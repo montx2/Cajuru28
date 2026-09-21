@@ -601,6 +601,10 @@ def _promover_resumo(db, empresa_id: int, tipo: TipoDocumentoFiscal, doc) -> boo
     if existente is None:
         return False
     _sobrescrever_xml(existente, doc)
+    # O arquivo em disco agora é o docZip deste NSU; manter o NSU do resumo
+    # quebraria a reconciliação "qual NSU gerou este XML" numa auditoria.
+    if getattr(doc, "nsu", None):
+        existente.nsu = str(doc.nsu)
     registrar_proveniencia(db, existente.id, "sefaz", str(doc.nsu))
     return True
 
@@ -1094,6 +1098,11 @@ def _sobrescrever_xml(documento: DocumentoFiscal, completo: DocumentoBaixado) ->
         f.write(completo.xml)
 
     documento.leiaute = "completo"
+    # O XML integral chegou: qualquer rejeição/pendência anterior de
+    # manifestação virou história. Deixar `manifestacao_erro` preenchido
+    # manteria a nota fora de `_pendentes_de_completar` para sempre e exibiria
+    # um erro velho numa nota que já está completa no acervo.
+    documento.manifestacao_erro = None
     documento.valor_total = valor_monetario(completo.valor_total or documento.valor_total)
     if completo.data_emissao:
         documento.data_emissao = _parse_data_emissao(completo.data_emissao)

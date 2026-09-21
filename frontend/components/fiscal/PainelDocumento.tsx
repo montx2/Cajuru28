@@ -131,6 +131,25 @@ function ConteudoDocumento({ id, aoExcluir, somenteLeitura }: { id: number; aoEx
             {documento.cancelado_em ? <span className="nums ml-1 text-xs">· {dataHora(documento.cancelado_em)}</span> : null}
           </p>
         ) : null}
+        {/* Por que esta nota ainda está só em resumo. Sem isto o operador via
+            "só resumo" e não tinha como saber se falta manifestar, se a SEFAZ
+            recusou, ou qual foi o motivo — só abrindo o banco. */}
+        {documento.manifestacao_erro ? (
+          <p className="mt-2 rounded-controle border border-erro/40 bg-erro-tenue px-3 py-2 text-sm leading-6 text-erro">
+            <span className="font-medium">Ciência da Operação recusada: </span>
+            {documento.manifestacao_erro}
+          </p>
+        ) : documento.leiaute === "resumo" && !documento.manifestado_em ? (
+          <p className="mt-2 rounded-controle border border-espera/40 bg-espera-tenue px-3 py-2 text-sm leading-6 text-espera">
+            Aguardando a Ciência da Operação. O Ambiente Nacional só entrega o XML
+            completo depois dela. Ligue “Manifestação automática” na empresa para
+            que o sistema registre sozinho.
+          </p>
+        ) : documento.manifestado_em ? (
+          <p className="mt-2 text-xs text-tinta-suave">
+            Ciência da Operação registrada em {dataHora(documento.manifestado_em)}.
+          </p>
+        ) : null}
       </section>
 
       <section aria-labelledby="chave-do-documento">

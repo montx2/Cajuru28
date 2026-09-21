@@ -286,6 +286,12 @@ class DocumentoFiscalResposta(BaseModel):
     destinatario_documento: str | None = None
     nsu: str | None = None
     origem: str | None = None
+    # Diagnóstico da Ciência da Operação (210210). Sem estes dois campos o
+    # operador vê a nota parada em "resumo" e não tem como saber se falta
+    # manifestar, se a SEFAZ recusou, ou qual foi o motivo — era preciso abrir
+    # o banco para descobrir.
+    manifestado_em: datetime | None = None
+    manifestacao_erro: str | None = None
 
 
 class DocumentosExcluirLote(BaseModel):

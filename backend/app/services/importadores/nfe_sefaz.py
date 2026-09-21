@@ -45,6 +45,7 @@ from app.services.importadores._distribuicao_dfe import (
     competencia_de_texto,
     extrair_metadados,
     interpretar_resposta,
+    metadados_da_chave,
     montar_envelope,
     montar_envelope_nfe,
     texto,
@@ -264,6 +265,13 @@ class ImportadorNFeSEFAZ(ImportadorFiscal):
 
         data_emissao = metadados.get("data_emissao") or texto(raiz, "dRec") or ""
 
+        # O `resNFe` não traz nNF/serie — o XSD simplesmente não tem esses
+        # campos. Sem derivar da chave, toda nota ainda em resumo aparecia na
+        # listagem sem número nem série, que é como o contador identifica a
+        # nota. A chave tem formato fixo (MOC), então isto é leitura, não
+        # adivinhação.
+        da_chave = metadados_da_chave(chave)
+
         return DocumentoBaixado(
             chave_acesso=chave,
             nsu=_nsu_inteiro(nsu, "0"),
@@ -271,10 +279,11 @@ class ImportadorNFeSEFAZ(ImportadorFiscal):
             data_emissao=data_emissao,
             valor_total=valor_total,
             direcao=direcao,
-            competencia=competencia_de_texto(metadados.get("competencia", ""), data_emissao),
+            competencia=competencia_de_texto(metadados.get("competencia", ""), data_emissao)
+            or da_chave.get("competencia", ""),
             leiaute="resumo" if schema.lower().startswith("res") else "completo",
-            numero=metadados.get("numero", ""),
-            serie=metadados.get("serie", ""),
+            numero=metadados.get("numero") or da_chave.get("numero", ""),
+            serie=metadados.get("serie") or da_chave.get("serie", ""),
             emitente_documento=metadados.get("emit_doc", ""),
             emitente_nome=metadados.get("emit_nome", ""),
             destinatario_documento=metadados.get("dest_doc", ""),
