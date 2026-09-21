@@ -147,6 +147,41 @@ def test_cursor_nunca_regride(db):
     assert sincronizacao.pendencia_de_documentos(estado) == 0
 
 
+def test_rebobinar_cursor_permite_revarrer_e_libera_a_consulta(db):
+    """A recuperação manual volta o cursor e elimina janelas antigas."""
+    sessao, empresa_id = db
+    estado = sincronizacao.obter_estado(sessao, empresa_id, TipoDocumentoFiscal.NFSE)
+    agora = datetime.now(timezone.utc)
+    sincronizacao.avançar_cursor(sessao, estado, ultimo_nsu="35", max_nsu="35", agora=agora)
+    sincronizacao.marcar_sem_novidade(sessao, estado, agora=agora)
+    sincronizacao.marcar_consumo_indevido(sessao, estado, motivo="656", agora=agora)
+    sessao.commit()
+
+    # O avanço normal nunca regride; a recuperação manual é a exceção explícita.
+    sincronizacao.avançar_cursor(sessao, estado, ultimo_nsu="0", agora=agora)
+    assert estado.ultimo_nsu == "35"
+
+    movimento = sincronizacao.rebobinar_cursor(sessao, estado, ultimo_nsu="0", agora=agora)
+    assert movimento == {"de": "35", "para": "0"}
+    assert estado.ultimo_nsu == "0"
+    assert estado.proxima_consulta_em is None
+    assert estado.bloqueado_ate is None
+    assert sincronizacao.liberacao_para(
+        sessao, empresa_id, TipoDocumentoFiscal.NFSE, agora=agora
+    ).pode is True
+
+
+def test_rebobinar_nunca_pula_o_cursor_para_frente(db):
+    """Um endpoint de recuperação não pode virar uma forma de perder NSUs."""
+    sessao, empresa_id = db
+    estado = sincronizacao.obter_estado(sessao, empresa_id, TipoDocumentoFiscal.NFE)
+    sincronizacao.avançar_cursor(sessao, estado, ultimo_nsu="35", max_nsu="35")
+
+    movimento = sincronizacao.rebobinar_cursor(sessao, estado, ultimo_nsu="999")
+    assert movimento == {"de": "35", "para": "35"}
+    assert estado.ultimo_nsu == "35"
+
+
 def test_realinhe_aceita_o_nsu_que_a_sefaz_devolveu(db):
     """
     Quando outro sistema consome o CNPJ, o ambiente responde 656 informando o

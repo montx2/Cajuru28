@@ -22,13 +22,25 @@ derruba importadores comerciais. Aqui, portanto:
 - checkpoint a cada lote: o que já baixou está no banco, mesmo se o worker
   cair no meio da hora de bloqueio.
 
-**Período (desde a v3.1).** A varredura na origem continua sendo por NSU —
-a SEFAZ/ADN não aceita "me dê só agosto" —, mas a execução carrega o intervalo
-que o operador pediu e só as notas **emitidas dentro dele** são gravadas. O que
-vem de fora é descartado antes de virar linha no banco e arquivo em disco, e
-contado em `documentos_fora_do_periodo` para a execução poder provar o que
-deixou de fora. O cursor de NSU avança normalmente: descartar conteúdo nunca
-faz o sistema reconsultar o mesmo NSU depois.
+**Período (desde a v3.2).** A varredura na origem é por NSU — a SEFAZ/ADN não
+aceita "me dê só agosto" —, e **tudo o que a distribuição entrega é gravado**.
+O intervalo que o operador pediu continua registrado na execução e continua
+contando quanto veio de dentro e de fora dele
+(`documentos_no_periodo` / `documentos_fora_do_periodo`), mas agora como
+*relatório*, não como filtro de gravação.
+
+Por que mudou: até a v3.1 a nota fora do intervalo era descartada **e o cursor
+de NSU avançava assim mesmo**. Como o cursor nunca regride, aquele documento
+ficava inalcançável para sempre — a SEFAZ considera o NSU consumido e não o
+reapresenta. Numa empresa recém-cadastrada, em que o acervo disponível é
+inteiro anterior ao período pedido, o resultado prático era: a captura
+respondia 200, o cursor ia de 0 ao máximo e o acervo terminava vazio, sem nada
+na tela explicando o porquê.
+
+Entre "guardar um mês que ninguém pediu" e "perder nota fiscal de forma
+irreversível", guardar é o erro barato: disco é recuperável, NSU consumido não
+é. O recorte por período continua existindo onde ele é reversível — nos filtros
+de exibição das telas.
 """
 
 import logging
@@ -243,20 +255,27 @@ def importar_documentos(
 
                 for doc in lote.documentos:
                     # XML completo de uma nota que estava só em resumo: promove
-                    # sem olhar o período (a nota já é nossa).
+                    # sem olhar o período (a nota já é nossa). Uma promoção é
+                    # trabalho útil; marcá-la impede um cooldown indevido quando
+                    # ainda existem NSUs pendentes no ambiente.
                     if _promover_resumo(db, empresa_id, tipo_doc, doc):
                         total_completados += 1
+                        importou_alguma_coisa = True
                         continue
-                    # O filtro que o operador pediu, aplicado ANTES de gravar:
-                    # a distribuição entrega tudo que existe a partir do NSU,
-                    # e guardar meses que ninguém pediu é o que inchava o
-                    # acervo. A nota fora do intervalo é apenas contada.
-                    if not _documento_no_periodo(doc, periodo):
-                        total_fora_do_periodo += 1
-                        continue
+
+                    # Grava SEMPRE. O período virou relatório, não filtro de
+                    # gravação: o NSU deste documento está sendo consumido agora
+                    # e o cursor nunca regride sozinho. Descartar aqui perderia
+                    # a nota em definitivo, pois a SEFAZ não reapresenta NSU já
+                    # entregue. Ainda contamos de que lado do intervalo ela caiu
+                    # para a execução explicar o resultado ao operador.
+                    dentro_do_periodo = _documento_no_periodo(doc, periodo)
                     if _gravar_documento(db, empresa_id, tipo_doc, doc):
                         total_importado += 1
-                        total_no_periodo += 1
+                        if dentro_do_periodo:
+                            total_no_periodo += 1
+                        else:
+                            total_fora_do_periodo += 1
                         importou_alguma_coisa = True
                         if _aplicar_eventos_pendentes(db, empresa_id, tipo_doc, doc.chave_acesso):
                             total_cancelados += 1
@@ -325,13 +344,15 @@ def importar_documentos(
 
         if total_fora_do_periodo:
             # Prova do recorte: sem esta linha o operador veria "500 documentos
-            # distribuídos, 12 importados" e não saberia se perdeu algo.
+            # distribuídos, 12 no período" e não saberia onde foi parar o resto.
+            # Eles FORAM guardados — só não aparecem no filtro de tela atual.
             execucao.aviso = _resumir_avisos(
                 execucao.aviso,
                 [
-                    f"{total_fora_do_periodo} documento(s) fora do período "
-                    f"{periodo.rotulo()} foram ignorados (não entraram no acervo). "
-                    "Para trazê-los, rode a importação com o período correspondente."
+                    f"{total_fora_do_periodo} documento(s) vieram fora do período "
+                    f"{periodo.rotulo()} e foram guardados assim mesmo (a SEFAZ não "
+                    "reapresenta NSU já consumido). Para vê-los, ajuste o período "
+                    "na tela de documentos."
                 ],
             )
 
@@ -482,14 +503,11 @@ def _documento_no_periodo(doc, periodo) -> bool:
     filtrar (`app/services/referencia.py`), para o que foi importado em agosto
     ser exatamente o que aparece quando se filtra agosto.
 
-    Dois cuidados deliberados:
-
-    - período aberto (execução antiga, sem data gravada) aceita tudo, senão
-      um reprocessamento apagaria o histórico de quem importava antes desta
-      versão;
-    - documento sem data legível é **mantido**. Descartar por falta de campo
-      seria perder nota fiscal por um defeito de leiaute — o erro caro. Ela
-      aparece na tela pelo que tiver de data e pode ser conferida à mão.
+    Desde a v3.2 isto **não decide mais se a nota é gravada** (ela sempre é);
+    decide apenas em qual contador ela entra, `documentos_no_periodo` ou
+    `documentos_fora_do_periodo`. Quando não dá para afirmar que está fora,
+    o documento conta como dentro — contador inflado é ruído, e o antigo
+    comportamento de descartar na dúvida perdia nota de verdade.
     """
     if periodo is None or not periodo.definido:
         return True

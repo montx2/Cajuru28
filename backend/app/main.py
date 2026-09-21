@@ -49,7 +49,7 @@ async def ciclo_de_vida(_app: FastAPI):
 app = FastAPI(
     title="NotasFlow",
     description="Sistema operacional fiscal privado.",
-    version="3.1.0",
+    version="3.2.0",
     lifespan=ciclo_de_vida,
     # Swagger/OpenAPI não é superfície necessária no servidor público.
     docs_url=None if settings.em_producao else "/docs",

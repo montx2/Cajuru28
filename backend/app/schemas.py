@@ -344,9 +344,9 @@ class ImportacaoSolicitar(BaseModel):
     # e a conversão ficam em `app/services/periodo.py`, uma regra só para todo
     # o sistema.
     #
-    # A descarga na origem continua por NSU (a SEFAZ/ADN não filtra por data),
-    # mas o período decide o que é gravado: o que estiver fora dele é
-    # descartado pelo worker em vez de entulhar o acervo.
+    # A descarga na origem continua por NSU (a SEFAZ/ADN não filtra por data)
+    # e tudo o que vier é gravado; o período define o recorte relatado e o que
+    # a tela mostra, não o que entra no acervo.
     competencia: str | None = None
     data_inicio: str | None = None
     data_fim: str | None = None
@@ -396,6 +396,40 @@ class ImportacaoSelecionadas(BaseModel):
         return vistos
 
 
+class RebobinarCursor(BaseModel):
+    """Pedido para revarrer a distribuição desde um NSU anterior.
+
+    Serve para recuperar documentos perdidos por versões antigas que
+    descartavam notas fora do período, mas consumiam seus NSUs. Como a SEFAZ
+    não reapresenta NSU já entregue, mover o cursor para trás é o único caminho
+    de volta.
+    """
+
+    empresa_id: int
+    # Vazio = os três tipos. Rebobinar um tipo não deve arrastar os outros.
+    tipos: list[TipoDocumentoFiscal] = []
+    # Para onde voltar. "0" = desde o começo do que a distribuição ainda guarda.
+    ultimo_nsu: str = "0"
+
+    @field_validator("ultimo_nsu")
+    @classmethod
+    def ultimo_nsu_numerico(cls, valor: str) -> str:
+        valor = (valor or "").strip()
+        if not valor.isdigit():
+            raise ValueError("ultimo_nsu deve conter somente dígitos.")
+        return str(int(valor))
+
+
+class ItemRebobinarCursor(BaseModel):
+    """O resultado para cada empresa+tipo rebobinado."""
+
+    empresa_id: int
+    tipo: TipoDocumentoFiscal
+    de: str | None = None
+    para: str = "0"
+    mensagem: str = ""
+
+
 class ItemImportacaoSelecionada(BaseModel):
     """Resultado por empresa **e** tipo — é o que a tabela marca linha a linha."""
 
@@ -428,8 +462,9 @@ class ExecucaoImportacaoResposta(BaseModel):
     documentos_cancelados: int
     eventos_nao_reconhecidos: int
     documentos_no_periodo: int = 0
-    # Quantas notas a distribuição entregou fora do período pedido e foram
-    # descartadas. É o número que explica "baixou 500, guardou 12".
+    # Quantas notas a distribuição entregou fora do período pedido. Elas FORAM
+    # guardadas (descartar consumiria o NSU e perderia a nota); este número
+    # explica "baixou 500, e só 12 aparecem no filtro de agosto".
     documentos_fora_do_periodo: int = 0
     iniciado_em: datetime
     finalizado_em: datetime | None

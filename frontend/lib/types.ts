@@ -128,6 +128,8 @@ export interface ExecucaoImportacao {
   documentos_cancelados: number;
   eventos_nao_reconhecidos: number;
   documentos_no_periodo: number;
+  /** Recebidos fora do recorte, mas guardados para não perder o NSU. */
+  documentos_fora_do_periodo: number;
   iniciado_em: string;
   finalizado_em: string | null;
   mensagem_erro?: string | null;
@@ -398,6 +400,7 @@ export const ROTULO_ACAO: Record<string, string> = {
   importacao_disparada: "Disparou importação",
   importacao_lote: "Disparou importação em lote",
   importacao_selecao: "Disparou importação por seleção",
+  cursor_rebobinado: "Rebobinou cursor de importação",
   xmls_completar: "Pediu XMLs completos",
   exportacao_zip: "Baixou ZIP",
   usuario_criado: "Criou usuário",

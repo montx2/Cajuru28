@@ -272,11 +272,11 @@ class ExecucaoImportacao(Base):
     documentos_cancelados: Mapped[int] = mapped_column(Integer, default=0)
     eventos_nao_reconhecidos: Mapped[int] = mapped_column(Integer, default=0)
     ultimo_nsu: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    # Período pedido pelo operador (ex.: 01/08/2026 a 31/08/2026). É um filtro
-    # de verdade: a varredura na origem continua por NSU, mas só as notas
-    # emitidas dentro deste intervalo são gravadas — o que vem de fora é
-    # descartado e contado em `documentos_fora_do_periodo`, para a execução
-    # conseguir provar o que deixou de fora.
+    # Período pedido pelo operador (ex.: 01/08/2026 a 31/08/2026). Desde a
+    # v3.2 é recorte de RELATÓRIO, não de gravação: a varredura na origem
+    # continua por NSU e tudo o que a distribuição entrega é guardado, porque
+    # descartar consumia o NSU e perdia a nota para sempre. O que cai fora do
+    # intervalo vai para `documentos_fora_do_periodo`.
     data_inicio: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     data_fim: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     documentos_no_periodo: Mapped[int] = mapped_column(Integer, default=0)

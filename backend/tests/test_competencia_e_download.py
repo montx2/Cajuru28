@@ -36,6 +36,7 @@ from app.models import (
     Empresa,
     Escritorio,
     ExecucaoImportacao,
+    RegistroAuditoria,
     SincronizacaoDFe,
     StatusDocumentoFiscal,
     StatusExecucao,
@@ -925,6 +926,59 @@ def test_excluir_lote_nao_aceita_documento_de_outro_escritorio(cliente):
     db.expire_all()
     assert db.get(DocumentoFiscal, proprio) is not None
     assert db.get(DocumentoFiscal, estranho) is not None
+
+
+def test_rebobinar_cursor_da_empresa_e_audita_a_recuperacao(cliente):
+    """A rota recupera o NSU, libera a janela e deixa rastro na auditoria."""
+    client, db, empresa_id = cliente["client"], cliente["db"], cliente["empresa_id"]
+    estado = sincronizacao.obter_estado(db, empresa_id, TipoDocumentoFiscal.NFSE)
+    sincronizacao.avançar_cursor(db, estado, ultimo_nsu="35", max_nsu="35")
+    sincronizacao.marcar_sem_novidade(db, estado)
+    db.commit()
+
+    resposta = client.post(
+        "/importacoes/rebobinar",
+        json={"empresa_id": empresa_id, "tipos": ["nfse"], "ultimo_nsu": "0"},
+    )
+
+    assert resposta.status_code == 200, resposta.text
+    assert resposta.json() == [
+        {
+            "empresa_id": empresa_id,
+            "tipo": "nfse",
+            "de": "35",
+            "para": "0",
+            "mensagem": "Cursor movido de 35 para 0.",
+        }
+    ]
+    db.expire_all()
+    estado = sincronizacao.obter_estado(db, empresa_id, TipoDocumentoFiscal.NFSE)
+    assert estado.ultimo_nsu == "0"
+    assert estado.proxima_consulta_em is None
+    assert (
+        db.query(RegistroAuditoria)
+        .filter(RegistroAuditoria.acao == "cursor_rebobinado")
+        .count()
+        == 1
+    )
+
+
+def test_rebobinar_recusa_cursor_com_varredura_ativa(cliente):
+    """O cursor não pode mudar enquanto um worker possui o lease da empresa."""
+    client, db, empresa_id = cliente["client"], cliente["db"], cliente["empresa_id"]
+    estado = sincronizacao.obter_estado(db, empresa_id, TipoDocumentoFiscal.NFSE)
+    sincronizacao.avançar_cursor(db, estado, ultimo_nsu="35", max_nsu="35")
+    assert sincronizacao.travar(db, estado) is True
+    db.commit()
+
+    resposta = client.post(
+        "/importacoes/rebobinar",
+        json={"empresa_id": empresa_id, "tipos": ["nfse"], "ultimo_nsu": "0"},
+    )
+
+    assert resposta.status_code == 409
+    db.expire_all()
+    assert sincronizacao.obter_estado(db, empresa_id, TipoDocumentoFiscal.NFSE).ultimo_nsu == "35"
 
 
 def test_reset_geral_deixa_o_escritorio_sem_empresas(cliente):

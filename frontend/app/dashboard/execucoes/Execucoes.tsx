@@ -557,6 +557,10 @@ function DetalheExecucao({ execucao, agora }: { execucao: ExecucaoImportacao; ag
         <Dado rotulo="Duração" valor={<span className="nums">{duracao}</span>} />
         <Dado rotulo="Período varrido" valor={execucao.data_inicio && execucao.data_fim ? <span className="nums">{`${dataCurta(execucao.data_inicio)} – ${dataCurta(execucao.data_fim)}`}</span> : "—"} />
         <Dado rotulo="Documentos no período" valor={<span className="nums">{numero(execucao.documentos_no_periodo)}</span>} />
+        <Dado
+          rotulo="Fora do período"
+          valor={<span className="nums">{numero(execucao.documentos_fora_do_periodo)}</span>}
+        />
         <Dado rotulo="Importados" valor={<span className="nums">{numero(execucao.documentos_importados)}</span>} />
         <Dado rotulo="Cancelados" valor={<span className="nums">{numero(execucao.documentos_cancelados)}</span>} />
         <Dado rotulo="Eventos não reconhecidos" valor={<span className="nums">{numero(execucao.eventos_nao_reconhecidos)}</span>} />
