@@ -164,6 +164,16 @@ export function Combobox({
               erro ? "border-erro" : aberto ? "border-acento" : "border-borda-controle hover:border-tinta-suave"
             )}
           >
+            {/* O combobox é um campo em que se digita para filtrar, igual à
+                Busca — sem a lupa ele parecia um `select` e o operador não
+                percebia que dava para pesquisar com 1.000 empresas na lista. */}
+            <Icone
+              nome="busca"
+              className={cn(
+                "pointer-events-none ml-2.5 flex-none text-tinta-suave",
+                tamanho === "sm" ? "h-3.5 w-3.5" : "h-4 w-4"
+              )}
+            />
             <input
               ref={entrada}
               id={campoId}
@@ -186,7 +196,9 @@ export function Combobox({
               onClick={() => setAberto(true)}
               onKeyDown={aoTeclar}
               className={cn(
-                "min-w-0 flex-1 rounded-controle bg-transparent px-2.5 text-sm text-tinta outline-none placeholder:text-tinta-suave",
+                // `pl-0`: o recuo agora vem da lupa à esquerda; manter px-2.5
+                // abriria um vão duplo entre o ícone e o texto.
+                "min-w-0 flex-1 rounded-controle bg-transparent pl-2 pr-1 text-sm text-tinta outline-none placeholder:text-tinta-suave",
                 tamanho === "sm" ? "h-8 text-xs" : "h-9"
               )}
             />

@@ -426,6 +426,7 @@ export function Documentos() {
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
             <Busca
+              rotuloVisivel
               rotulo="Buscar documento"
               placeholder="Chave, número, NSU, emitente ou destinatário"
               valor={busca.valor}

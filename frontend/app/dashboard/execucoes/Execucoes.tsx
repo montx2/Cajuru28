@@ -411,7 +411,7 @@ export function Execucoes() {
           }}
           ferramentas={
             <div className="flex flex-wrap items-end gap-2">
-              <Busca rotulo="Buscar execução" placeholder="Empresa, tipo ou mensagem de erro" valor={busca.valor} aoMudar={busca.aoMudar} className="min-w-56 flex-1" />
+              <Busca rotuloVisivel rotulo="Buscar execução" placeholder="Empresa, tipo ou mensagem de erro" valor={busca.valor} aoMudar={busca.aoMudar} className="min-w-56 flex-1" />
               <Selecao
                 rotulo="Empresa"
                 className="w-56"

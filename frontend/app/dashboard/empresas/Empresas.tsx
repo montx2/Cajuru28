@@ -346,7 +346,7 @@ export function Empresas() {
         }}
         ferramentas={
           <div className="flex flex-wrap items-end gap-2">
-            <Busca rotulo="Buscar empresa" placeholder="Razão social ou CNPJ" valor={busca.valor} aoMudar={busca.aoMudar} className="min-w-64 flex-1" />
+            <Busca rotuloVisivel rotulo="Buscar empresa" placeholder="Razão social ou CNPJ" valor={busca.valor} aoMudar={busca.aoMudar} className="min-w-64 flex-1" />
             <Selecao
               rotulo="Situação"
               className="w-60"
