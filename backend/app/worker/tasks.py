@@ -203,6 +203,7 @@ def importar_documentos(
         total_nao_reconhecidos = execucao.eventos_nao_reconhecidos or 0
         total_no_periodo = execucao.documentos_no_periodo or 0
         total_fora_do_periodo = execucao.documentos_fora_do_periodo or 0
+        total_completados = 0
         periodo = fila_periodo(execucao)
         importou_alguma_coisa = False
 
@@ -241,6 +242,11 @@ def importar_documentos(
                     return
 
                 for doc in lote.documentos:
+                    # XML completo de uma nota que estava só em resumo: promove
+                    # sem olhar o período (a nota já é nossa).
+                    if _promover_resumo(db, empresa_id, tipo_doc, doc):
+                        total_completados += 1
+                        continue
                     # O filtro que o operador pediu, aplicado ANTES de gravar:
                     # a distribuição entrega tudo que existe a partir do NSU,
                     # e guardar meses que ninguém pediu é o que inchava o
@@ -310,6 +316,12 @@ def importar_documentos(
 
         if (estado.max_nsu and int(estado.ultimo_nsu or 0) < int(estado.max_nsu or 0)):
             sincronizacao.marcar_consulta_ok(db, estado)
+
+        if total_completados:
+            execucao.aviso = _resumir_avisos(
+                execucao.aviso,
+                [f"{total_completados} nota(s) que estavam só em resumo foram completadas com o XML integral."],
+            )
 
         if total_fora_do_periodo:
             # Prova do recorte: sem esta linha o operador veria "500 documentos
@@ -557,6 +569,44 @@ def _inserir_documento_sem_duplicar(db, valores: dict) -> bool:
 
     resultado = db.execute(comando)
     return resultado.rowcount == 1
+
+
+def _promover_resumo(db, empresa_id: int, tipo: TipoDocumentoFiscal, doc) -> bool:
+    """
+    Troca um `resumo` já gravado pelo XML completo que a distribuição entregou.
+
+    Depois da Ciência da Operação o Ambiente Nacional envia o `procNFe` pelo
+    próprio fluxo de NSU (sem gastar a cota do consChNFe). Como a chave já
+    existe, o insert idempotente de `_gravar_documento` ignoraria o completo e o
+    documento ficaria como resumo para sempre — por isso esta promoção roda
+    ANTES do filtro de período e do insert.
+
+    Retorna True quando um resumo foi completado.
+    """
+    if (getattr(doc, "leiaute", "") or "completo") != "completo":
+        return False
+    chave = _normalizar_chave(getattr(doc, "chave_acesso", None))
+    if not chave:
+        return False
+    existente = (
+        db.query(DocumentoFiscal)
+        .filter(
+            DocumentoFiscal.empresa_id == empresa_id,
+            DocumentoFiscal.tipo == tipo,
+            DocumentoFiscal.chave_acesso == chave,
+            DocumentoFiscal.leiaute == "resumo",
+        )
+        .first()
+    )
+    if existente is None:
+        return False
+    _sobrescrever_xml(existente, doc)
+    # O arquivo em disco agora é o docZip deste NSU; manter o NSU do resumo
+    # quebraria a reconciliação "qual NSU gerou este XML" numa auditoria.
+    if getattr(doc, "nsu", None):
+        existente.nsu = str(doc.nsu)
+    registrar_proveniencia(db, existente.id, "sefaz", str(doc.nsu))
+    return True
 
 
 def _gravar_documento(db, empresa_id: int, tipo: TipoDocumentoFiscal, doc) -> bool:
@@ -854,6 +904,25 @@ def sincronizar_tudo(self) -> dict:
         db.close()
 
 
+def _pendentes_de_completar(db, empresa: Empresa, limite: int) -> list[DocumentoFiscal]:
+    """
+    NF-e que ainda estão em `resumo` e podem avançar nesta rodada.
+
+    Rejeição definitiva (`manifestacao_erro`) e, em empresa sem manifestação
+    automática, nota ainda não manifestada ficariam ocupando as `limite` vagas a
+    cada rodada e barrariam todas as outras (head-of-line blocking).
+    """
+    consulta = db.query(DocumentoFiscal).filter(
+        DocumentoFiscal.empresa_id == empresa.id,
+        DocumentoFiscal.leiaute == "resumo",
+        DocumentoFiscal.tipo == TipoDocumentoFiscal.NFE,
+        DocumentoFiscal.manifestacao_erro.is_(None),
+    )
+    if not empresa.manifestar_automaticamente:
+        consulta = consulta.filter(DocumentoFiscal.manifestado_em.isnot(None))
+    return consulta.order_by(DocumentoFiscal.id.desc()).limit(limite).all()
+
+
 @celery_app.task(name="completar_xmls_pendentes", bind=True, max_retries=0)
 def completar_xmls_pendentes(self, empresa_id: int | None = None, limite: int | None = None) -> dict:
     """
@@ -888,17 +957,7 @@ def completar_xmls_pendentes(self, empresa_id: int | None = None, limite: int | 
         empresas = consulta.order_by(Empresa.id).all()
 
         for empresa in empresas:
-            documentos_pendentes = (
-                db.query(DocumentoFiscal)
-                .filter(
-                    DocumentoFiscal.empresa_id == empresa.id,
-                    DocumentoFiscal.leiaute == "resumo",
-                    DocumentoFiscal.tipo == TipoDocumentoFiscal.NFE,
-                )
-                .order_by(DocumentoFiscal.id.desc())
-                .limit(limite_por_empresa)
-                .all()
-            )
+            documentos_pendentes = _pendentes_de_completar(db, empresa, limite_por_empresa)
             if not documentos_pendentes:
                 continue
             resultado["empresas"] += 1
@@ -1039,6 +1098,11 @@ def _sobrescrever_xml(documento: DocumentoFiscal, completo: DocumentoBaixado) ->
         f.write(completo.xml)
 
     documento.leiaute = "completo"
+    # O XML integral chegou: qualquer rejeição/pendência anterior de
+    # manifestação virou história. Deixar `manifestacao_erro` preenchido
+    # manteria a nota fora de `_pendentes_de_completar` para sempre e exibiria
+    # um erro velho numa nota que já está completa no acervo.
+    documento.manifestacao_erro = None
     documento.valor_total = valor_monetario(completo.valor_total or documento.valor_total)
     if completo.data_emissao:
         documento.data_emissao = _parse_data_emissao(completo.data_emissao)

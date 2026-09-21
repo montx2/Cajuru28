@@ -153,6 +153,15 @@ export interface BuscaProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 
   alvoDoAtalho?: boolean;
   className?: string;
   tamanho?: TamanhoCampo;
+  /**
+   * Mostra o rótulo acima do campo, como nos demais controles.
+   *
+   * Numa linha de filtros a busca fica ao lado de `Selecao`/`Combobox`, que
+   * sempre têm rótulo visível. Sem isto a busca sobe ~20px e o conjunto fica
+   * visivelmente desalinhado — o `items-end` do contêiner só disfarça quando
+   * todos os campos têm a mesma altura de rótulo.
+   */
+  rotuloVisivel?: boolean;
 }
 
 /**
@@ -160,44 +169,66 @@ export interface BuscaProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 
  * conteúdo, e `data-atalho-filtro` para a tecla `/` achar o campo da tela.
  */
 export const Busca = forwardRef<HTMLInputElement, BuscaProps>(function Busca(
-  { valor, aoMudar, rotulo = "Buscar", alvoDoAtalho = true, className, tamanho = "md", id, ...props },
+  { valor, aoMudar, rotulo = "Buscar", alvoDoAtalho = true, className, tamanho = "md", rotuloVisivel = false, id, ...props },
   ref
 ) {
   const gerado = useId();
   const campoId = id ?? gerado;
+  // A lupa é desenhada dentro do campo: o texto precisa começar depois dela.
+  // esquerda(10px) + ícone(16px) + respiro(8px) = 34px  → pl-[2.125rem]
+  // No tamanho `sm` o ícone encolhe para 14px → 10+14+6 = 30px.
+  const recuoTexto = tamanho === "sm" ? "pl-[1.875rem]" : "pl-[2.125rem]";
   return (
-    <div className={cn("relative min-w-0", className)}>
-      <label className="sr-only" htmlFor={campoId}>
-        {rotulo}
-      </label>
-      <Icone nome="busca" className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-tinta-suave" />
-      <input
-        ref={ref}
-        id={campoId}
-        type="search"
-        role="searchbox"
-        value={valor}
-        onChange={(evento) => aoMudar(evento.target.value)}
-        data-atalho-filtro={alvoDoAtalho ? "" : undefined}
-        className={cn(
-          CONTROLE,
-          ALTURAS[tamanho],
-          "pl-8",
-          valor && "pr-8",
-          "[&::-webkit-search-cancel-button]:appearance-none"
-        )}
-        {...props}
-      />
-      {valor ? (
-        <button
-          type="button"
-          aria-label="Limpar busca"
-          onClick={() => aoMudar("")}
-          className="absolute right-1 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-badge text-tinta-suave transition-colors duration-120 hover:bg-fundo-afundado hover:text-tinta-forte"
-        >
-          <Icone nome="fechar" className="h-3.5 w-3.5" />
-        </button>
-      ) : null}
+    <div className={cn("min-w-0", className)}>
+      {rotuloVisivel ? (
+        <div className="mb-1.5 flex items-baseline justify-between gap-3">
+          <label className="text-xs font-medium text-tinta" htmlFor={campoId}>
+            {rotulo}
+          </label>
+        </div>
+      ) : (
+        <label className="sr-only" htmlFor={campoId}>
+          {rotulo}
+        </label>
+      )}
+      <div className="relative min-w-0">
+        <Icone
+          nome="busca"
+          className={cn(
+            "pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-tinta-suave",
+            tamanho === "sm" ? "h-3.5 w-3.5" : "h-4 w-4"
+          )}
+        />
+        <input
+          ref={ref}
+          id={campoId}
+          type="search"
+          role="searchbox"
+          value={valor}
+          onChange={(evento) => aoMudar(evento.target.value)}
+          data-atalho-filtro={alvoDoAtalho ? "" : undefined}
+          className={cn(
+            CONTROLE,
+            ALTURAS[tamanho],
+            recuoTexto,
+            // O botão limpar ocupa 28px a partir de 4px da borda: o texto tem
+            // de parar em 36px, senão encosta no X ao digitar frases longas.
+            valor && "pr-9",
+            "[&::-webkit-search-cancel-button]:appearance-none"
+          )}
+          {...props}
+        />
+        {valor ? (
+          <button
+            type="button"
+            aria-label="Limpar busca"
+            onClick={() => aoMudar("")}
+            className="absolute right-1 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-badge text-tinta-suave transition-colors duration-120 hover:bg-fundo-afundado hover:text-tinta-forte"
+          >
+            <Icone nome="fechar" className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 });

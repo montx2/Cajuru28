@@ -70,7 +70,7 @@ Pontos que valem a pena saber de cor:
 | Task | Frequência | O que faz |
 | --- | --- | --- |
 | `sincronizar_tudo` | `SINCRONISMO_INTERVALO_MINUTOS` (5) | Retoma execuções `AGUARDANDO` vencidas e enfileira as empresas do modo automático, em **round-robin** por `ultima_consulta_em` (mais antigo primeiro), sem repetir empresa+tipo já em andamento. |
-| `completar_xmls_pendentes` | `COMPLETAR_XMLS_A_CADA_HORAS` (6) | Busca pelo XML completo (`consChNFe`) os documentos que chegaram só em `resumo`, respeitando a cota de 20/h por CNPJ e parando em 656. |
+| `completar_xmls_pendentes` | `COMPLETAR_XMLS_A_CADA_HORAS` (1) | Registra a **Ciência da Operação** (210210) nas empresas com `manifestar_automaticamente` e, em seguida, busca o XML completo (`consChNFe`) das notas em `resumo` — respeitando a cota de 20/h por CNPJ e parando em 656. Notas já recusadas (`manifestacao_erro`) saem da fila para não bloquear as demais. |
 
 Precisa de **exatamente uma** instância de `beat` (não escale este serviço).
 Sem o `beat`, o sistema continua correto: só volta a depender de clique.
@@ -146,7 +146,7 @@ NotasFlow/LEIA-ME.txt      o que o pacote contém e o que falta
 | `LIMITE_CONSULTAS_PONTUAIS_POR_HORA` | 20 | Teto do `consNSU`/`consChNFe`. |
 | `ESPERA_ENTRE_LOTES_SEGUNDOS` | 2 | Intervalo entre páginas da mesma varredura (recomendação da NT). |
 | `MAX_LOTES_POR_EXECUCAO` | 50 | Quantas páginas antes de se reagendar. |
-| `COMPLETAR_XMLS_A_CADA_HORAS` | 6 | Frequência do gap-fill de XML. |
+| `COMPLETAR_XMLS_A_CADA_HORAS` | 1 | Frequência da rodada de Ciência da Operação + gap-fill de XML. |
 | `LIMITE_DOCUMENTOS_POR_EXPORTACAO` | 25000 | Teto do ZIP. |
 | `SINCRONISMO_AUTOMATICO` | true | `false` = só consulta manual (útil em homologação). |
 
@@ -156,7 +156,7 @@ NotasFlow/LEIA-ME.txt      o que o pacote contém e o que falta
 | --- | --- | --- |
 | "Aguardando a SEFAZ · bloqueada até HH:MM" | 656 real, janela em curso | Nada. Vai retomar sozinha. Verifique se outro sistema/planilha usa o mesmo CNPJ. |
 | `pendencia` alta que não cai | CNPJ com muito documento acumulado; o round-robin está distribuindo as horas | Espere os ciclos; ou suba `MAX_LOTES_POR_EXECUCAO`. |
-| "só resumo" em muitas NFe | O `procNFe` chega numa página seguinte da distribuição | O gap-fill cuida; `POST /documentos/completar-xmls` acelera (dentro da cota). |
+| "só resumo" em muitas NFe | **Falta a Ciência da Operação.** Enquanto o destinatário não se manifesta, o Ambiente Nacional só distribui o `resNFe` — e o `consChNFe` também volta vazio (NT 2014.002). Não é página seguinte nem cota. | Ligue "Manifestação automática" na empresa. Depois da Ciência o `procNFe` chega pelo próprio fluxo de NSU e substitui o resumo. O detalhe do documento mostra se a Ciência foi registrada ou o motivo da recusa. |
 | Prestadas vazio para NFe | A distribuição não entrega os documentos do próprio emitente | Normal. Emitente consulta a SEFAZ autorizadora. |
 | ZIP responde 413 | Filtro maior que o teto | Afine por empresa ou mês; o teto é configurável. |
 | Mês antigo não aparece | Documento anterior aos ~3 meses disponíveis na distribuição | Reimportar não resolve; a fonte é a empresa/contador. |

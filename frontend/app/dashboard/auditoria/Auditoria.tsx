@@ -108,22 +108,19 @@ export function Auditoria() {
 
       <Cartao densidade="compacta" className="nao-imprimir">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          <Busca rotulo="Buscar na auditoria" placeholder="Usuário, entidade ou detalhe" valor={busca.valor} aoMudar={busca.aoMudar} />
-          <div>
-            <p className="mb-1.5 text-xs font-medium text-tinta">Ação</p>
-            <Combobox
-              rotulo="Ação"
-              opcoes={[
-                { valor: "", rotulo: "Todas as ações" },
-                ...(acoes.dados ?? []).map((valor) => ({ valor, rotulo: ROTULO_ACAO[valor] ?? valor })),
-              ]}
-              valor={acao}
-              aoMudar={(valor) => definir({ acao: valor || null, limite: null })}
-              placeholder="Filtrar por ação"
-              permiteLimpar
-              carregando={acoes.carregando}
-            />
-          </div>
+          <Busca rotuloVisivel rotulo="Buscar na auditoria" placeholder="Usuário, entidade ou detalhe" valor={busca.valor} aoMudar={busca.aoMudar} />
+          <Combobox
+            rotulo="Ação"
+            opcoes={[
+              { valor: "", rotulo: "Todas as ações" },
+              ...(acoes.dados ?? []).map((valor) => ({ valor, rotulo: ROTULO_ACAO[valor] ?? valor })),
+            ]}
+            valor={acao}
+            aoMudar={(valor) => definir({ acao: valor || null, limite: null })}
+            placeholder="Filtrar por ação"
+            permiteLimpar
+            carregando={acoes.carregando}
+          />
           <Selecao
             rotulo="Registros por página"
             value={String(limite)}

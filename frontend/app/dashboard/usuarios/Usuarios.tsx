@@ -215,7 +215,7 @@ export function Usuarios() {
         }}
         ferramentas={
           <div className="flex flex-wrap items-end gap-2">
-            <Busca rotulo="Buscar usuário" placeholder="Nome ou e-mail" valor={busca.valor} aoMudar={busca.aoMudar} className="min-w-56 flex-1" />
+            <Busca rotuloVisivel rotulo="Buscar usuário" placeholder="Nome ou e-mail" valor={busca.valor} aoMudar={busca.aoMudar} className="min-w-56 flex-1" />
             <Selecao
               rotulo="Filtro"
               className="w-56"

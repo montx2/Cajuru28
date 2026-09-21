@@ -82,6 +82,10 @@ export interface DocumentoFiscal {
   destinatario_documento?: string | null;
   nsu?: string | null;
   origem?: string | null;
+  /** Quando a Ciência da Operação (210210) foi registrada na SEFAZ. */
+  manifestado_em?: string | null;
+  /** Motivo da recusa da SEFAZ (cStat + xMotivo) quando a Ciência falhou. */
+  manifestacao_erro?: string | null;
 }
 
 export interface ResultadoExclusaoDocumentos {
