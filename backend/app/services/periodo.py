@@ -233,10 +233,10 @@ def interpretar_periodo_obrigatorio(
     Mesma leitura de `interpretar_periodo`, mas **exigindo** um intervalo
     fechado (início e fim).
 
-    Por que existir: sem período obrigatório, "pegar as NFS-e de agosto" virava
-    "pegar tudo o que a distribuição tiver" — meses inteiros que ninguém pediu
-    entulhando o acervo. Exigir as duas pontas também garante que a exclusão do
-    que está fora do período seja uma decisão explícita, nunca um acidente.
+    Por que existir: a distribuição por NSU precisa guardar tudo o que recebe
+    para não perder documentos consumidos pela SEFAZ. Exigir as duas pontas dá
+    ao operador um recorte explícito e reproduzível para o relatório da rodada
+    e para as telas, sem confundir esse recorte com filtro de gravação.
     """
     periodo = interpretar_periodo(competencia, data_inicio, data_fim)
     if periodo.inicio is None or periodo.fim is None:

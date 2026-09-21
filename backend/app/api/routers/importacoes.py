@@ -5,9 +5,10 @@ Quatro princípios de projeto:
 
 - **período obrigatório**: toda importação declara o intervalo que interessa
   (01/08/2026 a 31/08/2026, ou a competência 08/2026). A distribuição oficial
-  continua andando por NSU — não dá para pedir "só agosto" à SEFAZ —, mas o
-  que chega fora do intervalo é **descartado** na gravação, e não entulha o
-  acervo. Sem período, nada é enfileirado;
+  continua andando por NSU — não dá para pedir "só agosto" à SEFAZ —, e tudo
+  o que ela entrega é **guardado**: o intervalo vira relatório (quanto veio de
+  dentro, quanto veio de fora) em vez de filtro de gravação, porque descartar
+  consumia o NSU e perdia a nota para sempre. Sem período, nada é enfileirado;
 - o `POST` responde 202 e vai embora. Nada de requisição longa esperando SEFAZ:
   o processamento é fila, e o painel acompanha por polling;
 - cooldown **nunca** é surpresa: a resposta diz até quando e por quê;
@@ -45,6 +46,8 @@ from app.schemas import (
     ItemConferenciaCompetencia,
     ItemImportacaoLote,
     ItemImportacaoSelecionada,
+    ItemRebobinarCursor,
+    RebobinarCursor,
     ResultadoImportacaoSelecionada,
     ResumoSincronizacao,
 )
@@ -85,10 +88,11 @@ def _periodo_da_importacao(
     """
     Período **obrigatório** de uma importação.
 
-    É o filtro que decide o que será gravado: tudo que a distribuição entregar
-    fora deste intervalo é descartado pelo worker. Por isso ele não pode ser
-    deduzido nem assumido — sem intervalo explícito, a importação é recusada
-    com 422 e a tela explica o que digitar.
+    Desde a v3.2 ele NÃO decide mais o que é gravado (a distribuição entrega
+    por NSU e tudo o que vier é guardado, senão a nota se perde junto com o
+    cursor). Continua obrigatório porque é ele que define o recorte relatado
+    na execução e o que a tela mostra depois — sem intervalo explícito a
+    importação é recusada com 422 e a tela explica o que digitar.
     """
     try:
         return interpretar_periodo_obrigatorio(
@@ -112,9 +116,9 @@ def solicitar_importacao(
 
     O período é **obrigatório**: `data_inicio`/`data_fim` (01/08/2026 a
     31/08/2026) ou `competencia` (08/2026). A varredura na origem continua
-    sendo por NSU — a SEFAZ/ADN não aceita filtro de data —, mas só as notas
-    emitidas dentro do intervalo são gravadas; o resto é descartado e contado
-    no aviso da execução.
+    sendo por NSU — a SEFAZ/ADN não aceita filtro de data — e tudo o que ela
+    entregar é gravado; o que cair fora do intervalo é contado à parte e
+    relatado no aviso da execução.
     """
     empresa = (
         db.query(Empresa)
@@ -186,8 +190,9 @@ def solicitar_importacao_em_lote(
     não afeta as outras. Empresas sem certificado, sem UF ou dentro da janela
     de consumo são reportadas, não enfileiradas.
 
-    O período é obrigatório e vale para todas as empresas do lote: só entram no
-    acervo as notas emitidas dentro dele.
+    O período é obrigatório e vale para todas as empresas do lote. Ele define
+    o recorte do relatório; a distribuição é por NSU, então toda nota recebida
+    entra no acervo para não ser perdida junto com o cursor.
     """
     periodo = _periodo_da_importacao(competencia, data_inicio, data_fim)
 
@@ -238,6 +243,90 @@ def solicitar_importacao_em_lote(
     )
     db.commit()
     return resultados
+
+
+@router.post("/rebobinar", response_model=list[ItemRebobinarCursor])
+def rebobinar_cursor(
+    dados: RebobinarCursor,
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+    usuario: Usuario = Depends(requer_escrita),
+):
+    """Move o cursor de NSU para trás e libera a próxima consulta.
+
+    Esta é uma recuperação excepcional para cursores que avançaram além do que
+    foi gravado por versões antigas. A revarredura consome cota do ambiente,
+    mas documentos já existentes são reconhecidos pela chave e não duplicam.
+    """
+    empresa = (
+        db.query(Empresa)
+        .filter(Empresa.id == dados.empresa_id, Empresa.escritorio_id == escritorio_id)
+        .first()
+    )
+    if empresa is None:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada.")
+
+    # Evita repetir o mesmo tipo se ele vier duas vezes no JSON; uma operação
+    # deve produzir uma entrada de auditoria e uma resposta por tipo.
+    tipos = list(dict.fromkeys(dados.tipos)) or list(TipoDocumentoFiscal)
+    itens: list[ItemRebobinarCursor] = []
+    for tipo in tipos:
+        estado = sincronizacao.obter_estado(db, empresa.id, tipo, criar=False)
+        if estado is None:
+            # Sem estado não há cursor para rebobinar: a primeira varredura
+            # começa do zero automaticamente.
+            itens.append(
+                ItemRebobinarCursor(
+                    empresa_id=empresa.id,
+                    tipo=tipo,
+                    de=None,
+                    para="0",
+                    mensagem="Sem cursor gravado — a próxima varredura já começa do início.",
+                )
+            )
+            continue
+        if sincronizacao.esta_travado(estado):
+            # Alterar o cursor durante uma varredura ativa faria o worker e o
+            # operador discordarem sobre o próximo NSU. Espere a task terminar
+            # (ou o lease expirar) e tente novamente.
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"A importação de {tipo.value} desta empresa está em andamento. "
+                    "Aguarde terminar antes de rebobinar o cursor."
+                ),
+            )
+
+        movimento = sincronizacao.rebobinar_cursor(
+            db, estado, ultimo_nsu=dados.ultimo_nsu
+        )
+        itens.append(
+            ItemRebobinarCursor(
+                empresa_id=empresa.id,
+                tipo=tipo,
+                de=movimento["de"],
+                para=movimento["para"] or "0",
+                mensagem=(
+                    f"Cursor movido de {movimento['de'] or '—'} para "
+                    f"{movimento['para'] or '0'}."
+                ),
+            )
+        )
+
+    auditoria.registrar(
+        db,
+        usuario,
+        "cursor_rebobinado",
+        entidade="empresa",
+        entidade_id=empresa.id,
+        detalhe=(
+            f"{empresa.razao_social} · "
+            + ", ".join(f"{item.tipo.value}: {item.de or '—'}→{item.para}" for item in itens)
+        ),
+    )
+    # Cursor e auditoria entram juntos: não pode haver recuperação sem rastro.
+    db.commit()
+    return itens
 
 
 def _naive_para_aware(valor: datetime | None) -> datetime | None:
@@ -376,7 +465,8 @@ def importar_selecionadas(
     volta item a item, com o motivo de cada uma — mesmo formato da prévia, para
     a tela poder só trocar "vai rodar" por "está rodando".
 
-    O período é obrigatório: é ele que define quais notas serão guardadas.
+    O período é obrigatório: ele define o recorte que será relatado e exibido,
+    sem descartar documentos cuja distribuição já consumiu o NSU.
     """
     periodo = _periodo_da_importacao(
         dados.competencia, dados.data_inicio, dados.data_fim

@@ -131,9 +131,9 @@ def avançar_cursor(
     agora: datetime | None = None,
 ) -> None:
     """
-    Atualiza o cursor. **Nunca regride** — só o realinhamento explícito
-    (`realinhar_cursor`) pode mudar o sentido, porque aí quem mandou foi a
-    própria SEFAZ.
+    Atualiza o cursor. **Nunca regride** — só o realinhamento informado pela
+    SEFAZ (`realinhar_cursor`) e o rebobinamento manual e auditado
+    (`rebobinar_cursor`) podem mudar o sentido.
     """
     agora = agora or _agora()
     novo = _para_inteiro(ultimo_nsu)
@@ -313,6 +313,7 @@ def liberar(db: Session, estado: SincronizacaoDFe, *, agora: datetime | None = N
 
 
 def esta_travado(estado: SincronizacaoDFe, *, agora: datetime | None = None) -> bool:
+    """Se outra varredura ainda possui o lease desta empresa+tipo."""
     agora = agora or _agora()
     travado_em = _aware(estado.travado_em)
     return bool(travado_em and travado_em > agora - LEASE_MAXIMO)
@@ -338,6 +339,41 @@ def nunca_consultado(estado: SincronizacaoDFe) -> bool:
     estado em que a NF-e ficava presa, silenciosa, esperando para sempre.
     """
     return _para_inteiro(estado.max_nsu) is None
+
+
+def rebobinar_cursor(
+    db: Session,
+    estado: SincronizacaoDFe,
+    *,
+    ultimo_nsu: str | int = "0",
+    agora: datetime | None = None,
+) -> dict[str, str | None]:
+    """Move deliberadamente o cursor para trás para revarrer a distribuição.
+
+    `avançar_cursor` não pode regredir: sem uma operação explícita, um NSU que
+    foi consumido nunca volta da SEFAZ. Esta é a exceção manual e auditável para
+    instalações que usavam a regra antiga de descartar o que caía fora do
+    período. O destino é limitado ao cursor atual para que uma chamada de
+    "rebobinar" jamais consiga pular documentos para a frente.
+
+    A função só altera a sessão; o endpoint registra a auditoria e confirma
+    tudo na mesma transação.
+    """
+    agora = agora or _agora()
+    de = estado.ultimo_nsu
+    atual = _para_inteiro(de) or 0
+    pedido = _para_inteiro(ultimo_nsu) or 0
+    destino = min(pedido, atual)
+
+    estado.ultimo_nsu = str(destino)
+    # Quem pediu revarredura não deve esperar o cooldown que foi gravado pela
+    # própria rodada que está sendo refeita.
+    estado.proxima_consulta_em = None
+    estado.bloqueado_ate = None
+    estado.motivo_bloqueio = None
+    estado.atualizado_em = agora
+    db.flush()
+    return {"de": de, "para": str(destino)}
 
 
 def pendencia_de_documentos(estado: SincronizacaoDFe) -> int:

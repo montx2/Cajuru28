@@ -96,13 +96,25 @@ com a frase do formato aceito. A única exceção é a exportação por
   é opcional e costuma trazer o mês anterior (serviço de julho faturado em
   agosto), pedir "agosto" devolvia julho e junho junto — era o bug de "o filtro
   não funciona".
-- **A descarga continua por NSU.** A SEFAZ/ADN não aceita recorte por data;
-  pular cursor é receita para perder nota e para tomar 656. Então baixa-se tudo
-  o que a fila tiver e **o recorte é aplicado antes de gravar**: nota emitida
-  fora do período pedido é descartada, não entra no acervo. O cursor de NSU
-  avança do mesmo jeito (o documento foi consumido), e o que foi descartado é
-  contado em `ExecucaoImportacao.documentos_fora_do_periodo` e sai no aviso da
-  execução ("3 documento(s) fora do período 08/2026").
+- **A descarga continua por NSU e nada é descartado.** A SEFAZ/ADN não aceita
+  recorte por data; pular cursor é receita para perder nota e para tomar 656.
+  Baixa-se tudo o que a fila tiver e **tudo é gravado**. O período vira recorte
+  de relatório: o que cai fora dele é contado em
+  `ExecucaoImportacao.documentos_fora_do_periodo` e sai no aviso da execução
+  ("3 documento(s) vieram fora do período 08/2026 e foram guardados assim
+  mesmo"); o recorte que o operador vê acontece nos filtros de tela.
+
+  Até a v3.1 a nota fora do período era descartada **e o cursor avançava assim
+  mesmo**. Como o cursor não regride e o ambiente não reapresenta NSU
+  consumido, aquele documento sumia para sempre. O sintoma clássico era uma
+  empresa recém-cadastrada: captura com HTTP 200, cursor de 0 ao máximo,
+  "nada para ler" e acervo vazio. Entre guardar um mês que ninguém pediu e
+  perder nota fiscal de forma irreversível, guardar é o erro barato.
+- **Rebobinar o cursor** (`POST /importacoes/rebobinar`) é o caminho de volta
+  para quem já perdeu documentos assim: manda o NSU para trás e libera a
+  consulta na hora. É a única porta manual que pode regredir o cursor —
+  revarrer gasta cota do ambiente, então não é operação de rotina; notas já
+  existentes são reconhecidas pela chave e não duplicam.
 - **Documento sem data legível é mantido**, não descartado: na dúvida, guardar é
   reversível; perder nota não é.
 - **Precedência:** `data_inicio`/`data_fim` vencem `competencia`. A

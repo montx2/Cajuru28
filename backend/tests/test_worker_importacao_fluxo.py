@@ -187,15 +187,16 @@ def _item_adn(nsu: int, chave: str, emissao: str) -> dict:
 
 
 @respx.mock
-def test_worker_descarta_o_que_esta_fora_do_periodo_pedido(tmp_path, monkeypatch):
+def test_worker_guarda_o_que_vem_fora_do_periodo_e_apenas_contabiliza(tmp_path, monkeypatch):
     """
     O pedido foi 01/08/2026 a 31/08/2026; a distribuição, que só anda por NSU,
     devolve junho, julho e agosto no mesmo lote.
 
-    Só agosto pode virar linha no banco e arquivo em disco — esse é o ponto
-    inteiro do filtro. Os outros dois são contados em
-    `documentos_fora_do_periodo` para a execução conseguir explicar a diferença
-    entre "a SEFAZ mandou 3" e "guardei 1".
+    Os três têm de ser guardados. Os NSUs de junho e julho estão sendo
+    consumidos nesta resposta e o cursor não regride sozinho: descartá-los aqui
+    perderia as notas em definitivo. O período é relatório — quanto caiu dentro
+    e fora — e o recorte de verdade acontece nos filtros de tela, onde é
+    reversível.
     """
     sessao, empresa = _montar_cenario(tmp_path, monkeypatch)
 
@@ -224,19 +225,24 @@ def test_worker_descarta_o_que_esta_fora_do_periodo_pedido(tmp_path, monkeypatch
 
     sessao.refresh(execucao)
     assert execucao.status == StatusExecucao.CONCLUIDA
-    assert execucao.documentos_importados == 1
+    assert execucao.documentos_importados == 3
+    assert execucao.documentos_no_periodo == 1
     assert execucao.documentos_fora_do_periodo == 2
-    assert "2 documento(s) fora do período 08/2026" in (execucao.aviso or "")
+    assert "2 documento(s) vieram fora do período 08/2026" in (execucao.aviso or "")
+    assert "guardados assim mesmo" in (execucao.aviso or "")
 
     guardados = sessao.query(DocumentoFiscal).all()
-    assert [documento.chave_acesso for documento in guardados] == [chave_agosto]
+    assert sorted(documento.chave_acesso for documento in guardados) == sorted(
+        [chave_junho, chave_julho, chave_agosto]
+    )
 
-    # nada de XML órfão em disco para as notas descartadas
+    # Os XMLs dos três estão em disco, não só o do mês pedido.
     pasta = tmp_path / "xml" / str(empresa.id) / "nfse"
-    assert sorted(arquivo.name for arquivo in pasta.iterdir()) == [f"{chave_agosto}.xml"]
+    assert sorted(arquivo.name for arquivo in pasta.iterdir()) == sorted(
+        [f"{chave_junho}.xml", f"{chave_julho}.xml", f"{chave_agosto}.xml"]
+    )
 
-    # o cursor avança até o fim do lote: descartar conteúdo nunca faz o sistema
-    # reconsultar os mesmos NSUs (e gastar a janela de 1h) na próxima rodada
+    # O cursor avança até o fim do lote — agora sem deixar nada para trás.
     assert execucao.ultimo_nsu == "42"
     sessao.close()
 
