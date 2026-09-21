@@ -58,7 +58,7 @@ def consultar_cnpj(cnpj: str) -> DadosCNPJ | None:
     fantasia = str(dados.get("nome_fantasia") or "").strip()
     municipio = str(dados.get("municipio") or "").strip()
     # BrasilAPI expõe o código de sete dígitos sob codigo_municipio_ibge.
-    # Não confundir com codigo_municipio/TOM, que não é aceito pela Morfeu.
+    # Não confundir com codigo_municipio/TOM, que é outro cadastro.
     codigo_ibge = "".join(caractere for caractere in str(dados.get("codigo_municipio_ibge") or "") if caractere.isdigit())
     if len(codigo_ibge) != 7:
         codigo_ibge = ""

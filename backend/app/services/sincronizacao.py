@@ -330,6 +330,16 @@ def esta_em_dia(estado: SincronizacaoDFe) -> bool:
     return ult >= maximo
 
 
+def nunca_consultado(estado: SincronizacaoDFe) -> bool:
+    """`maxNSU` desconhecido: o ambiente nunca respondeu para esta empresa+tipo.
+
+    Distinto de "em dia". Sem esta separação o painel mostrava "nada para ler"
+    para uma combinação que jamais foi consultada com sucesso — exatamente o
+    estado em que a NF-e ficava presa, silenciosa, esperando para sempre.
+    """
+    return _para_inteiro(estado.max_nsu) is None
+
+
 def pendencia_de_documentos(estado: SincronizacaoDFe) -> int:
     """Quantos NSUs ainda faltam varrer (0 quando está em dia ou desconhecido)."""
     ult = _para_inteiro(estado.ultimo_nsu)

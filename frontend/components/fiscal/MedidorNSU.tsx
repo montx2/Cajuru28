@@ -43,8 +43,17 @@ export function MedidorNSU({ ultimo, maximo, pendencia, className, compacto }: M
         />
       ) : null}
       {pendencia !== undefined ? (
-        <p className={cn("nums mt-0.5 text-2xs", pendencia > 0 ? "text-espera" : "text-tinta-suave")}>
-          {pendencia > 0 ? `${numero(pendencia)} para ler` : "nada para ler"}
+        /* Sem `maxNSU` o ambiente ainda não disse quanto existe: dizer "nada
+           para ler" seria mentira — foi o que escondia a NF-e travada, que
+           aparecia como se estivesse em dia sem nunca ter sido consultada. */
+        <p
+          className={cn(
+            "nums mt-0.5 text-2xs",
+            !temMaximo ? "text-espera" : pendencia > 0 ? "text-espera" : "text-tinta-suave"
+          )}
+          title={!temMaximo ? "A SEFAZ ainda não informou o NSU máximo para esta empresa e tipo." : undefined}
+        >
+          {!temMaximo ? "nunca consultado" : pendencia > 0 ? `${numero(pendencia)} para ler` : "nada para ler"}
         </p>
       ) : null}
     </div>

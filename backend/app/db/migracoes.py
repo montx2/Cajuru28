@@ -40,6 +40,9 @@ _COLUNAS_POR_TABELA: dict[str, list[tuple[str, str]]] = {
         ("destinatario_documento", "VARCHAR(18)"),
         ("destinatario_nome", "VARCHAR(255)"),
         ("situacao", "VARCHAR(255)"),
+        # Manifestação do destinatário (210210) — libera o XML completo.
+        ("manifestado_em", "TIMESTAMP WITH TIME ZONE"),
+        ("manifestacao_erro", "TEXT"),
         ("origem", "VARCHAR(20)"),
     ],
     "execucoes_importacao": [
@@ -61,6 +64,9 @@ _COLUNAS_POR_TABELA: dict[str, list[tuple[str, str]]] = {
     "empresas": [
         ("sincronizar_automaticamente", "BOOLEAN NOT NULL DEFAULT TRUE"),
         ("quais_tipos_sincronizar", "VARCHAR(30) NOT NULL DEFAULT 'nfse,nfe,cte'"),
+        # Opt-in da manifestação do destinatário (210210). Default FALSE: nunca
+        # manifestar em nome de uma empresa sem decisão explícita do operador.
+        ("manifestar_automaticamente", "BOOLEAN NOT NULL DEFAULT FALSE"),
         ("codigo_ibge", "VARCHAR(7)"),
         ("inscricao_municipal", "VARCHAR(100)"),
     ],
@@ -79,10 +85,6 @@ _COLUNAS_POR_TABELA: dict[str, list[tuple[str, str]]] = {
         ("objeto_remoto", "VARCHAR(700)"),
         ("arquivos_incluidos", "INTEGER NOT NULL DEFAULT 0"),
     ],
-    "jettax_credenciais": [
-        # Formato do header Authorization aceito pela instância Morfeu.
-        ("esquema_autenticacao", "VARCHAR(10) NOT NULL DEFAULT 'puro'"),
-    ],
 }
 
 # Índices que as telas de filtro por competência/download em massa usam.
@@ -94,8 +96,6 @@ _INDICES: list[tuple[str, str]] = [
     ("ix_documentos_emitente", "CREATE INDEX IF NOT EXISTS ix_documentos_emitente ON documentos_fiscais (emitente_documento)"),
     ("ix_execucoes_empresa_tipo_status", "CREATE INDEX IF NOT EXISTS ix_execucoes_empresa_tipo_status ON execucoes_importacao (empresa_id, tipo, status)"),
     ("ix_sincronizacao_empresa_tipo", "CREATE UNIQUE INDEX IF NOT EXISTS ix_sincronizacao_empresa_tipo ON sincronizacoes_dfe (empresa_id, tipo)"),
-    ("ix_jettax_execucao_empresa_status", "CREATE INDEX IF NOT EXISTS ix_jettax_execucao_empresa_status ON jettax_execucoes (empresa_id, status)"),
-    ("ix_jettax_webhook_ticket", "CREATE INDEX IF NOT EXISTS ix_jettax_webhook_ticket ON jettax_webhook_eventos (ticket)"),
 ]
 
 # `ALTER TYPE` só faz sentido no PostgreSQL (SQLite guarda enum como texto).

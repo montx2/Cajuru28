@@ -84,13 +84,6 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_json: bool = True
 
-    # ---------------- Jettax 360 / Morfeu ----------------
-    jettax_api_base_url: str = "https://morfeu-api.jettax.com.br"
-    jettax_api_token: str = ""
-    jettax_timeout_segundos: float = 30.0
-    jettax_max_paginas_por_execucao: int = 50
-    jettax_webhook_secret: str = ""
-
     # ---------------- Consumo consciente (regras SEFAZ/ADN) ----------------
     cooldown_horas: int = 1
     margem_cooldown_minutos: int = 6
@@ -240,10 +233,6 @@ class Settings(BaseSettings):
                     problemas.append("BACKUP_DIR deve ser absoluto e separado de DADOS_DIR")
         if self.backup_s3_endpoint_url and not self.backup_s3_endpoint_url.startswith("https://"):
             problemas.append("BACKUP_S3_ENDPOINT_URL deve usar HTTPS em produção")
-        if self.jettax_webhook_secret and len(self.jettax_webhook_secret) < 32:
-            problemas.append("JETTAX_WEBHOOK_SECRET deve ter ao menos 32 caracteres")
-        if not (self.jettax_api_base_url or "").startswith("https://"):
-            problemas.append("JETTAX_API_BASE_URL deve usar HTTPS")
         if self.alerta_webhook_url and not self.alerta_webhook_url.startswith("https://"):
             problemas.append("ALERTA_WEBHOOK_URL deve usar HTTPS")
         if self.bootstrap_senha and (len(self.bootstrap_senha) < 14 or self.bootstrap_senha == "troque-esta-senha"):

@@ -20,11 +20,6 @@ from app.models import (
     Empresa,
     EventoFiscalPendente,
     ExecucaoImportacao,
-    JettaxConfiguracaoEmpresa,
-    JettaxCredencial,
-    JettaxExecucao,
-    JettaxSaudeConector,
-    JettaxWebhookEvento,
     SincronizacaoDFe,
     StatusExecucao,
     Usuario,
@@ -191,8 +186,6 @@ def reset_geral(
         db.query(EventoFiscalPendente).filter(EventoFiscalPendente.empresa_id.in_(empresa_ids)).delete(synchronize_session=False)
         db.query(DocumentoFiscalFonte).filter(DocumentoFiscalFonte.documento_id.in_(ids_documentos)).delete(synchronize_session=False)
         db.query(DocumentoFiscal).filter(DocumentoFiscal.empresa_id.in_(empresa_ids)).delete(synchronize_session=False)
-        db.query(JettaxExecucao).filter(JettaxExecucao.empresa_id.in_(empresa_ids)).delete(synchronize_session=False)
-        db.query(JettaxConfiguracaoEmpresa).filter(JettaxConfiguracaoEmpresa.empresa_id.in_(empresa_ids)).delete(synchronize_session=False)
         db.query(ExecucaoImportacao).filter(ExecucaoImportacao.empresa_id.in_(empresa_ids)).delete(synchronize_session=False)
         db.query(SincronizacaoDFe).filter(SincronizacaoDFe.empresa_id.in_(empresa_ids)).delete(synchronize_session=False)
         db.query(Certificado).filter(Certificado.empresa_id.in_(empresa_ids)).delete(synchronize_session=False)
@@ -201,9 +194,6 @@ def reset_geral(
     integracoes = 0
     if remover_integracoes:
         integracoes += db.query(AcessoriasCredencial).filter(AcessoriasCredencial.escritorio_id == escritorio_id).delete(synchronize_session=False)
-        integracoes += db.query(JettaxCredencial).filter(JettaxCredencial.escritorio_id == escritorio_id).delete(synchronize_session=False)
-        integracoes += db.query(JettaxSaudeConector).filter(JettaxSaudeConector.escritorio_id == escritorio_id).delete(synchronize_session=False)
-        integracoes += db.query(JettaxWebhookEvento).filter(JettaxWebhookEvento.escritorio_id == escritorio_id).delete(synchronize_session=False)
 
     auditoria.registrar(
         db,

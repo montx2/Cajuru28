@@ -17,7 +17,7 @@ chmod 600 deploy/production*.env
 ```
 
 Em ambiente gerenciado, injete o mesmo conteúdo por secret manager/identity
-federation em vez de manter arquivos no servidor. Nunca cole `JETTAX_API_TOKEN`,
+federation em vez de manter arquivos no servidor. Nunca cole segredos de integração,
 senhas, chaves Fernet ou URLs com credenciais em tickets, chat ou Git.
 
 Preencha todos os placeholders, usando valores independentes e aleatórios:

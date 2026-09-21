@@ -327,7 +327,7 @@ export function estadoDoBackup(status: string): EstadoVisual {
   }
 }
 
-/** Status livres vindos do Jettax/Morfeu: o texto da API é o rótulo. */
+/** Status livres vindos de integrações externas: o texto da API é o rótulo. */
 export function estadoDeIntegracao(status: string | null | undefined): EstadoVisual {
   const bruto = (status ?? "").trim().toLowerCase();
   if (!bruto) return { tom: "neutro", rotulo: "Não registrada", icone: "ajuda" };
@@ -341,8 +341,4 @@ export function estadoDeIntegracao(status: string | null | undefined): EstadoVis
     return { tom: "espera", rotulo: status as string, icone: "ampulheta" };
   }
   return { tom: "neutro", rotulo: status as string, icone: "info" };
-}
-
-export function estadoDoJettaxExecucao(status: string | null | undefined): EstadoVisual {
-  return estadoDeIntegracao(status);
 }

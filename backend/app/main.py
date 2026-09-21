@@ -20,7 +20,6 @@ from app.api.routers import (
     documentos,
     empresas,
     importacoes,
-    integracoes,
     metricas,
     painel,
     relatorios,
@@ -96,7 +95,6 @@ async def protecoes_http(request: Request, call_next):
 
     metodo_inseguro = request.method in {"POST", "PUT", "PATCH", "DELETE"}
     usa_cookie = bool(request.cookies.get(settings.session_cookie_name))
-    webhook_jettax = request.url.path.startswith("/integracoes/jettax/webhooks/")
 
     # Cookies HttpOnly eliminam a exposição ao JavaScript, mas exigem proteção
     # explícita contra submissão cross-site. O login também é protegido quando
@@ -105,7 +103,7 @@ async def protecoes_http(request: Request, call_next):
     # autenticar por contrato; uma sessão já existente sempre exige Origin.
     origem = request.headers.get("origin", "").rstrip("/")
     exige_origem = usa_cookie or (request.url.path == "/auth/login" and bool(origem))
-    if metodo_inseguro and not webhook_jettax and exige_origem:
+    if metodo_inseguro and exige_origem:
         if not origem or origem not in _origens:
             resposta = JSONResponse(
                 status_code=403,
@@ -115,11 +113,7 @@ async def protecoes_http(request: Request, call_next):
             request_id_atual.reset(token_contexto)
             return resposta
 
-    if (
-        metodo_inseguro
-        and request.url.path not in {"/auth/login", "/auth/logout"}
-        and not webhook_jettax
-    ):
+    if metodo_inseguro and request.url.path not in {"/auth/login", "/auth/logout"}:
         try:
             limitar_mutacao(request)
         except Exception as exc:  # HTTPException não deve virar stacktrace de middleware
@@ -160,7 +154,6 @@ app.include_router(empresas.router)
 app.include_router(certificados.router)
 app.include_router(documentos.router)
 app.include_router(importacoes.router)
-app.include_router(integracoes.router)
 app.include_router(dashboard.router)
 app.include_router(painel.router)
 app.include_router(alertas.router)
