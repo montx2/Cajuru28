@@ -94,7 +94,7 @@ Não há endpoint HTTP para sobrescrever o banco vivo deliberadamente.
 ## 4. Controles do storage externo
 
 Conceda à identidade da aplicação somente `PutObject`, `HeadObject` e, quando
-for necessário recuperar, `GetObject` no prefixo do NotasFlow. Não use bucket
+for necessário recuperar, `GetObject` no prefixo do Fluxa. Não use bucket
 público, ACL pública ou chave IAM ampla. A aplicação confirma `ContentLength` e
 o metadado `sha256` depois do upload; se falhar, o backup fica `erro`, nunca
 `ok`.

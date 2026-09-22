@@ -1,10 +1,10 @@
 # Direção da reconstrução
 
-NotasFlow é um instrumento operacional, não um painel promocional. A primeira superfície precisa confirmar se a automação está saudável e, logo depois, listar apenas decisões humanas pendentes. Escala significa centenas de empresas e milhões de documentos; por isso a experiência privilegia busca, lote, densidade contextual, teclado e persistência de contexto.
+Fluxa é um instrumento operacional, não um painel promocional. A primeira superfície precisa confirmar se a automação está saudável e, logo depois, listar apenas decisões humanas pendentes. Escala significa centenas de empresas e milhões de documentos; por isso a experiência privilegia busca, lote, densidade contextual, teclado e persistência de contexto.
 
 ## Decisões
 
-- **Papel & Grafite:** papel neutro, tinta em quatro níveis, um carimbo verde e cores de estado exclusivamente semânticas.
+- **Papel & Grafite:** papel neutro, tinta em quatro níveis, um acento índigo com vidro controlado (header, sidebar, camadas flutuantes) e cores de estado exclusivamente semânticas.
 - **Hierarquia silenciosa:** peso máximo 600, títulos contidos, divisores no lugar de sombras e números tabulares.
 - **Operação antes de observação:** cada alerta traz a ação de resolução; detalhes de NSU, execução e XML ficam sob demanda.
 - **Contexto durável:** período e filtros vivem na URL; tema, densidade e colunas são preferências locais, nunca credenciais.

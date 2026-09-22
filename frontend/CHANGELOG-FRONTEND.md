@@ -2,7 +2,7 @@
 
 ## Reconstrução integral — Papel & Grafite
 
-Rebuild completo da interface do NotasFlow: 14 rotas, primitivos, shell e camada de estado reescritos do zero. O contrato com a API **não mudou** — nenhum endpoint, parâmetro ou tipo foi alterado, e o backend não precisa de ajuste.
+Rebuild completo da interface do Fluxa: 14 rotas, primitivos, shell e camada de estado reescritos do zero. O contrato com a API **não mudou** — nenhum endpoint, parâmetro ou tipo foi alterado, e o backend não precisa de ajuste.
 
 Escala da mudança: 41 arquivos reescritos, 12 removidos, 75 criados. O front-end passa de ~8,7 mil para ~17,2 mil linhas em 108 arquivos, com **zero dependência nova** (`next`, `react`, `react-dom` e nada além).
 

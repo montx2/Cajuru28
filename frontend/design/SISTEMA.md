@@ -1,6 +1,6 @@
 # Papel & Grafite
 
-Sistema visual e arquitetura do front-end do NotasFlow. Três critérios, nesta ordem: **silencioso, preciso, confiável**.
+Sistema visual e arquitetura do front-end do Fluxa. Três critérios, nesta ordem: **silencioso, preciso, confiável**.
 
 A interface é um instrumento de operação contínua, não uma vitrine. Hierarquia vem de espaço, peso e alinhamento; cor existe apenas para indicar ação ou estado. Tudo que vale regra está implementado — este documento descreve o código, não uma intenção.
 
@@ -40,7 +40,7 @@ Regra de dependência: `ui/` não importa de `fiscal/` nem de `app/`; `fiscal/` 
 
 ### 1.3 Fronteira servidor/cliente
 
-`page.tsx` é servidor: define `metadata` (título via template `%s · NotasFlow`) e envolve o componente de tela em `<Suspense>` com esqueleto equivalente. Toda lógica de dados é cliente (`"use client"`), porque o produto é operado com filtros vivos e polling.
+`page.tsx` é servidor: define `metadata` (título via template `%s · Fluxa`) e envolve o componente de tela em `<Suspense>` com esqueleto equivalente. Toda lógica de dados é cliente (`"use client"`), porque o produto é operado com filtros vivos e polling.
 
 `app/dashboard/layout.tsx` também é servidor e **não** verifica sessão: quem manda é a API. Se o cookie expirou, a primeira chamada responde 401 e `lib/api.ts` faz `window.location.replace("/login?destino=…")`. Não existe middleware nem espelho de autenticação no front-end — dois julgamentos divergentes sobre "quem está logado" é o tipo de bug que esta decisão elimina.
 
@@ -107,36 +107,38 @@ Todos os valores vivem em `app/globals.css` e chegam aos componentes por nomes s
 
 | Papel | Claro | Escuro | Uso |
 |---|---|---|---|
-| Fundo | `#F7F8F7` | `#0F1513` | canvas |
-| Fundo afundado | `#EFF1F0` | `#151C1A` | cabeçalho de tabela, recessos |
-| Superfície | `#FFFFFF` | `#1B2422` | cartão e tabela |
-| Superfície alta | `#FFFFFF` | `#222D2A` | camada sobre superfície |
-| Tinta forte | `#12181A` | `#F3F6F5` | título, número-chave |
-| Tinta | `#2B3437` | `#E8EDEB` | corpo |
-| Tinta suave | `#5C6B6F` | `#A9B6B2` | metadado, placeholder |
-| Tinta fraca | `#879599` | `#72817C` | **só** desabilitado e ornamento |
-| Traço | `#E2E7E5` | `#2C3735` | divisor |
-| Traço forte | `#C9D2CF` | `#48554F` | divisor que precisa ser visto |
-| Borda de controle | `#7E8C88` | `#7C8B86` | input, botão secundário (1.4.11 pede 3:1) |
-| Acento | `#0F6B50` | `#3FBF90` | **única** cor de ação primária |
-| OK | `#17734F` | `#65C99E` | operação confirmada |
+| Fundo | `#EEF1F8` | `#0A0D1C` | canvas (com gradiente de vidro, §17) |
+| Fundo afundado | `#E3E8F3` | `#0E1226` | cabeçalho de tabela, recessos |
+| Superfície | `#FFFFFF` | `#161B34` | cartão e tabela (opaca) |
+| Superfície alta | `#FFFFFF` | `#1C2240` | camada sobre superfície |
+| Tinta forte | `#101425` | `#F2F3FB` | título, número-chave |
+| Tinta | `#2A3050` | `#E2E4F5` | corpo |
+| Tinta suave | `#565D80` | `#A8ADCF` | metadado, placeholder |
+| Tinta fraca | `#8388A8` | `#767CA3` | **só** desabilitado e ornamento |
+| Traço | `#DDE1EF` | `#262C4D` | divisor |
+| Traço forte | `#C3C9E2` | `#3A4270` | divisor que precisa ser visto |
+| Borda de controle | `#7D84AE` | `#7981AD` | input, botão secundário (1.4.11 pede 3:1) |
+| Acento | `#4338CA` | `#8B85F0` | **única** cor de ação primária (índigo) |
+| OK | `#157A5C` | `#5FD0A8` | operação confirmada |
 | Espera | `#8A6210` | `#E1B958` | janela oficial SEFAZ, cota, `aguardando` |
-| Erro | `#A8342A` | `#F18A80` | falha que exige ação humana |
-| Informação | `#1F5FAE` | `#85B6F3` | contexto não operacional |
-| Grafite | `#12181A` | `#0A0F0D` | sidebar, login, XML — superfície, não estado |
+| Erro | `#B23A45` | `#F19A94` | falha que exige ação humana |
+| Informação | `#2F5FD6` | `#8FB3FB` | contexto não operacional |
+| Grafite | `#0C1024` | `#060814` | sidebar, login, XML — superfície, não estado (grafite azulado, coerente com o acento) |
 
 ### 2.1 Contraste medido
 
-Tema claro sobre superfície branca: tinta forte 17,9:1 · tinta 12,7:1 · tinta suave 5,5:1 · acento 6,5:1 · erro 6,6:1 · info 6,4:1 · ok 5,8:1 · espera 5,5:1 · borda de controle 3,5:1. Tema escuro sobre `#1B2422`: tinta forte 14,6:1 · tinta 13,4:1 · tinta suave 7,6:1 · acento 6,9:1 · borda de controle 4,5:1 · texto sobre o acento 8,0:1 (o acento clareia e o texto sobre ele escurece — inverter a paleta quebraria o botão primário).
+Tema claro sobre superfície branca: tinta forte 17,3:1 · tinta 12,2:1 · tinta suave 5,7:1 · acento 7,3:1 · erro 6,1:1 · info 5,3:1 · ok 5,7:1 · espera 5,5:1 · borda de controle 3,5:1. Tema escuro sobre `#161B34`: tinta forte 15,1:1 · tinta 13,0:1 · tinta suave 7,3:1 · acento 7,1:1 · borda de controle 4,5:1 · texto sobre o acento 8,3:1 (o acento clareia e o texto sobre ele escurece — inverter a paleta quebraria o botão primário).
 
-`--tinta-fraca` fica em 3,1:1 no claro: por isso é reservado a placeholder de campo desabilitado e ornamento, e o placeholder ativo usa `tinta-suave`. Todo texto útil passa de 4,5:1.
+`--tinta-fraca` fica em 3,2:1 no claro (4,0:1 no escuro): por isso é reservado a placeholder de campo desabilitado e ornamento, e o placeholder ativo usa `tinta-suave`. Todo texto útil passa de 4,5:1.
+
+Cada valor de `--acento`, `--ok`, `--espera`, `--erro`, `--info` e `--tinta-*` traz o contraste medido em comentário ao lado, em `globals.css` — este documento e o código nunca podem divergir.
 
 ### 2.2 Regras de cor
 
 - Estados usam **ícone + palavra + cor**. Nunca só cor (1.4.1).
 - `aguardando`, janela oficial da SEFAZ, cota e cStat 656 são sempre **espera** (âmbar), com previsão de retomada. Esperar não é falhar: vermelho aqui ensina o operador a ignorar vermelho.
-- Um acento só. Duas ações verdes concorrentes na mesma tela é erro de design, não de estilo.
-- Cor não é decoração: sem gradiente, sem sombra colorida, sem ícone em círculo pastel.
+- Um acento só (índigo). Duas ações de acento concorrentes na mesma tela é erro de design, não de estilo.
+- Cor não é decoração: sem gradiente saturado, sem sombra colorida, sem ícone em círculo pastel. O gradiente sutil do `body` e o vidro (§17) são a única exceção, e têm função (dar ao vidro algo para "flutuar sobre").
 
 ---
 
@@ -353,4 +355,17 @@ Registro único em `lib/atalhos.ts`: o mapa (`?`), a paleta (`Ctrl/⌘K`) e o ou
 
 ## 16. O que não existe aqui
 
-Gradiente · glassmorphism/blur decorativo · emoji · copy de marketing · `rounded-3xl` real · sombra colorida · `fade-up` global de página · segundo acento · KPI com ícone em círculo pastel · hero section · esqueleto que não reproduz a tela · ilustração de vazio · `window.confirm`/`alert`/`prompt` · token em JavaScript · peso 700+ · texto útil abaixo de 12 px · card que levanta no hover · cor sem significado · botão sem verbo · erro sem próximo passo.
+Emoji · copy de marketing · `rounded-3xl` real · sombra colorida · `fade-up` global de página · segundo acento · KPI com ícone em círculo pastel · hero section · esqueleto que não reproduz a tela · ilustração de vazio · `window.confirm`/`alert`/`prompt` · token em JavaScript · peso 700+ · texto útil abaixo de 12 px · card que levanta no hover · cor sem significado · botão sem verbo · erro sem próximo passo.
+
+Exceção controlada: o vidro (§17) e o gradiente de fundo do `body` que o sustenta **existem de propósito** — não são o "glassmorphism decorativo" que esta lista sempre baniu (blur solto em qualquer superfície, sem função). Fora das duas classes `.vidro`/`.vidro-grafite` e do gradiente fixo do `body`, a regra permanece: nenhum outro componente aplica `backdrop-filter`, gradiente decorativo ou sombra colorida.
+
+## 17. Vidro — regra de uso
+
+A Fluxa é compartilhada com outro operador e precisa parecer um produto vendável, não uma tela genérica gerada por IA. A camada de navegação e as camadas flutuantes (nunca a leitura densa) usam um vidro sutil e funcional:
+
+- **Onde**: `Header`, `Sidebar` (`.vidro-grafite`), `Modal`, `Popover`, `MenuSuspenso`, `Toast`, dropdown de `Combobox` e `Cartao` (o cartão de conteúdo, que soma leve elevação ao invés de ficar plano).
+- **Onde não**: texto de corpo, tabela densa, formulário de captura, célula de dado — ali a leitura vem antes de qualquer textura, e a superfície continua opaca (`bg-superficie`).
+- **Como**: classes `.vidro`/`.vidro-grafite` (`globals.css`, camada `utilities`), nunca `backdrop-filter` escrito à mão em componente. Cada uma já embute borda translúcida própria — não combine com `border-*` no elemento.
+- **Variáveis**: `--vidro-rgb`, `--vidro-alpha`, `--vidro-borda-rgb/alpha`, `--vidro-blur` — um valor por tema (claro/escuro), recalibrados junto com o acento índigo.
+- **Degradação**: `@supports not (backdrop-filter: blur(1px))` cai para a superfície opaca equivalente — nunca uma tela transparente sem fallback.
+- **Acessibilidade**: `prefers-contrast: more` derruba a transparência do vidro para 0,94/0,90 — o texto por cima nunca depende do blur para ter contraste.

@@ -1,10 +1,10 @@
 @echo off
 chcp 65001 >nul
-title NotasFlow - Setup
+title Fluxa - Setup
 cd /d "%~dp0"
 
 echo ============================================
-echo   NotasFlow - Configuracao inicial
+echo   Fluxa - Configuracao inicial
 echo ============================================
 echo.
 

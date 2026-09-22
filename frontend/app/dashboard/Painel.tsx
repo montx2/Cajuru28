@@ -62,7 +62,7 @@ export function Painel() {
   usePolling(recarregar, emAndamento > 0 ? 5_000 : 30_000);
 
   useEffect(() => {
-    const titulo = painel.dados ? `Painel · ${painel.dados.status_geral === "operando" ? "tudo em dia" : `${painel.dados.alertas.criticos + painel.dados.alertas.atencao} pendências`}` : "Painel · NotasFlow";
+    const titulo = painel.dados ? `Painel · ${painel.dados.status_geral === "operando" ? "tudo em dia" : `${painel.dados.alertas.criticos + painel.dados.alertas.atencao} pendências`}` : "Painel · Fluxa";
     if (typeof document !== "undefined") document.title = titulo;
   }, [painel.dados]);
 

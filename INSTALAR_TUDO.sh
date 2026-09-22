@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-#  NotasFlow — Instalador completo para Linux e macOS
+#  Fluxa — Instalador completo para Linux e macOS
 #  Instala TUDO numa máquina zerada: git + python3 + Docker + Docker Compose,
 #  gera as chaves (.env), sobe o sistema e mostra o login.
 #
@@ -27,7 +27,7 @@ RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$RAIZ"
 
 printf '\n\033[1;36m########################################################\033[0m\n'
-printf '\033[1;36m#        NotasFlow - INSTALADOR COMPLETO              #\033[0m\n'
+printf '\033[1;36m#        Fluxa - INSTALADOR COMPLETO              #\033[0m\n'
 printf '\033[1;36m#   Git + Python + Docker + Sistema no ar             #\033[0m\n'
 printf '\033[1;36m########################################################\033[0m\n\n'
 [[ $SO_VERIFICAR -eq 1 ]] && { printf '\033[1;33m  MODO VERIFICAÇÃO: nada será instalado.\033[0m\n\n'; }
@@ -241,7 +241,7 @@ API_PORT="$(printf '%s\n' "$SAIDA_PORTAS" | sed -n 's/^API_PORT=//p' | head -1)"
 ok "Painel: http://localhost:${FRONTEND_PORT} — API: http://localhost:${API_PORT}"
 
 # ---------- PASSO 7: subir o sistema ----------
-passo "PASSO 7/7 — Subindo o NotasFlow (primeira vez demora vários minutos)"
+passo "PASSO 7/7 — Subindo o Fluxa (primeira vez demora vários minutos)"
 
 $DC up --build -d
 
@@ -281,7 +281,7 @@ printf '\n'
 if [[ $PAINEL_OK -eq 1 ]]; then ok "Painel respondendo em http://localhost:${FRONTEND_PORT}"; else aviso "Painel ainda subindo — aguarde 1-2 minutos."; fi
 
 # ---------- final ----------
-passo "PRONTO! NotasFlow instalado"
+passo "PRONTO! Fluxa instalado"
 printf '\n  \033[1;32mPainel:\033[0m  http://localhost:%s\n' "$FRONTEND_PORT"
 printf '  \033[1;32mAPI:\033[0m     http://localhost:%s/docs\n\n' "$API_PORT"
 

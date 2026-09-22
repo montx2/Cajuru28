@@ -331,7 +331,7 @@ function AbaAlertas({ admin }: { admin: boolean }) {
             </dl>
             <p className="text-sm text-tinta-suave">
               A URL e o segredo do webhook são definidos por variável de ambiente no servidor — não por esta tela. Alterar o nível mínimo muda quais
-              alertas saem do NotasFlow: abaixo dele, o item continua visível em <Link href="/dashboard/atencao" className="font-medium text-acento underline-offset-4 hover:underline">Precisa da sua atenção</Link>.
+              alertas saem do Fluxa: abaixo dele, o item continua visível em <Link href="/dashboard/atencao" className="font-medium text-acento underline-offset-4 hover:underline">Precisa da sua atenção</Link>.
             </p>
             <Botao variante="secundaria" onClick={testarWebhook} carregando={testando} disabled={!admin} title={admin ? "Envia um alerta de teste para o destino configurado" : "Somente administrador testa o webhook"}>
               Enviar alerta de teste
@@ -425,7 +425,7 @@ function AbaDados({ admin }: { admin: boolean }) {
       <Cartao titulo="Reset geral" descricao="Apaga o acervo desta instalação e volta ao estado inicial" tomFaixa="bg-erro">
         <div className="space-y-4">
           <p className="max-w-leitura text-sm leading-6 text-tinta">
-            Esta operação existe para reinstalar o NotasFlow sem reconstruir o banco na mão. Ela apaga empresas, documentos, certificados, execuções e
+            Esta operação existe para reinstalar o Fluxa sem reconstruir o banco na mão. Ela apaga empresas, documentos, certificados, execuções e
             sincronizações — e remove os arquivos XML do disco. Não há como desfazer.
           </p>
 
@@ -473,7 +473,7 @@ function AbaDados({ admin }: { admin: boolean }) {
         consequencia="Empresas, documentos, certificados, execuções e sincronizações são apagados do banco, e os arquivos XML são removidos do disco."
         impacto={
           <span>
-            Depois disto o NotasFlow volta ao estado de instalação nova: nenhuma captura roda até haver empresa com certificado A1.{" "}
+            Depois disto o Fluxa volta ao estado de instalação nova: nenhuma captura roda até haver empresa com certificado A1.{" "}
             {removerIntegracoes ? "As credenciais de integração também serão removidas." : "Credenciais de integração serão mantidas."}
           </span>
         }

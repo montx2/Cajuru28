@@ -44,3 +44,4 @@ npm-debug.log*
 
 # venv local de diagnóstico
 backend/.venv/
+backend/.env.dev-preview

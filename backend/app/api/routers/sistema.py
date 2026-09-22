@@ -148,12 +148,14 @@ def reset_geral(
     XMLs, execuções, cursores/bloqueios e pendências locais.
 
     Mantém o usuário, o escritório, auditoria e backups. Para evitar clique
-    acidental a tela/API precisa enviar `confirmar=LIMPAR`. Se houver importação
-    realmente em andamento, bloqueia por padrão; `forcar=true` existe para
-    recuperar um ambiente que ficou preso e precisa ser zerado.
+    acidental a tela/API precisa enviar `confirmar=APAGAR TUDO` — a mesma
+    frase que a tela exige digitar no DialogoConfirmacao (exigirTexto="APAGAR
+    TUDO" em Configurações). Se houver importação realmente em andamento,
+    bloqueia por padrão; `forcar=true` existe para recuperar um ambiente que
+    ficou preso e precisa ser zerado.
     """
-    if confirmar.strip().upper() != "LIMPAR":
-        raise HTTPException(status_code=422, detail="Digite/enviar confirmar=LIMPAR para executar a limpeza geral.")
+    if confirmar.strip().upper() != "APAGAR TUDO":
+        raise HTTPException(status_code=422, detail="Digite/enviar confirmar=APAGAR TUDO para executar a limpeza geral.")
 
     escritorio_id = usuario.escritorio_id
     empresa_ids = [linha[0] for linha in db.query(Empresa.id).filter(Empresa.escritorio_id == escritorio_id).all()]

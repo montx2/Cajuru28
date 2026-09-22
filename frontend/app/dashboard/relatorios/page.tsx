@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { Relatorios } from "./Relatorios";
 
 export const metadata: Metadata = {
-  title: "Fechamento · NotasFlow",
+  title: "Fechamento · Fluxa",
 };
 
 /* A competência do fechamento vive na URL (`?mes=AAAA-MM`). */

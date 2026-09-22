@@ -106,7 +106,7 @@ export function MenuSuspenso({ rotulo, itens, icone, variante = "sutil", tamanho
           aria-label={rotulo}
           onKeyDown={aoTeclar}
           className={cn(
-            "absolute top-full z-camada mt-1.5 overflow-hidden rounded-cartao border border-traco bg-superficie py-1 shadow-nivel1 animate-subir",
+            "vidro absolute top-full z-camada mt-1.5 overflow-hidden rounded-cartao py-1 shadow-nivel1 animate-subir",
             alinhamento === "direita" ? "right-0" : "left-0",
             largura
           )}

@@ -1,11 +1,11 @@
 @echo off
 chcp 65001 >nul
-title NotasFlow - Instalador Completo (Git + Python + Docker + Sistema)
+title Fluxa - Instalador Completo (Git + Python + Docker + Sistema)
 cd /d "%~dp0"
 
 echo.
 echo ============================================================
-echo   NotasFlow - INSTALADOR COMPLETO
+echo   Fluxa - INSTALADOR COMPLETO
 echo ============================================================
 echo   Este instalador vai:
 echo     1. Instalar o Git (se nao tiver)

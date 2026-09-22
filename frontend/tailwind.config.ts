@@ -1,7 +1,7 @@
 import type { Config } from "tailwindcss";
 
 /**
- * Papel & Grafite — a única configuração de estilo do NotasFlow.
+ * Papel & Grafite — a única configuração de estilo do Fluxa.
  *
  * Três tetos moram aqui de propósito, para que o erro seja impossível em vez de
  * improvável:

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { mesAtual, paraAPI } from "./competencia";
-import { PERIODO_VAZIO, periodoPadrao, periodoValido, type Periodo } from "./periodo";
+import { PERIODO_VAZIO, intervaloDoMes, periodoPadrao, periodoValido, type Periodo } from "./periodo";
 import { useUrlEstado } from "./urlEstado";
 
 export interface PeriodoUrl {
@@ -20,6 +20,12 @@ export interface PeriodoUrl {
  * acontece depois da montagem: `new Date()` no servidor (UTC) e no navegador
  * (fuso do operador) discordam na virada do mês, e isso viraria erro de
  * hidratação.
+ *
+ * Também aceita `?mes=AAAA-MM` (o atalho que o Painel e os Relatórios usam
+ * nos links de "ver documentos deste mês"): sem isso, quem clicava em
+ * "Documentos em agosto/2026" caía na tela de Documentos com `mes` ignorado
+ * e `data_inicio`/`data_fim` ausentes — o padrão então virava o mês corrente
+ * (ex.: janeiro), mostrando um período completamente diferente do pedido.
  */
 export function usePeriodoUrl(padrao: () => Periodo = periodoPadrao): PeriodoUrl {
   const { parametros, assinatura, definir } = useUrlEstado();
@@ -32,7 +38,17 @@ export function usePeriodoUrl(padrao: () => Periodo = periodoPadrao): PeriodoUrl
   const daUrl = useMemo<Periodo | null>(() => {
     const inicio = parametros.get("data_inicio") ?? "";
     const fim = parametros.get("data_fim") ?? "";
-    return inicio && fim ? { inicio, fim } : null;
+    if (inicio && fim) return { inicio, fim };
+
+    // Atalho de link (`?mes=AAAA-MM` ou `?competencia=AAAA-MM`): mesmo mês
+    // que a competência pedida, sem exigir que quem gera o link monte
+    // data_inicio/data_fim manualmente.
+    const mes = parametros.get("mes") ?? parametros.get("competencia") ?? "";
+    if (/^\d{4}-\d{2}$/.test(mes)) {
+      const intervalo = intervaloDoMes(mes);
+      if (periodoValido(intervalo)) return intervalo;
+    }
+    return null;
   }, [assinatura, parametros]);
 
   useEffect(() => {
@@ -41,8 +57,19 @@ export function usePeriodoUrl(padrao: () => Periodo = periodoPadrao): PeriodoUrl
     definir({ data_inicio: inicial.inicio, data_fim: inicial.fim });
   }, [daUrl, definir, montado, padrao]);
 
+  // O atalho `mes`/`competencia` vira data_inicio/data_fim explícitos na URL
+  // assim que resolvido — evita os dois formatos convivendo e divergindo.
+  useEffect(() => {
+    if (!montado || !daUrl) return;
+    const temMes = parametros.get("mes") || parametros.get("competencia");
+    const temIntervalo = parametros.get("data_inicio") && parametros.get("data_fim");
+    if (temMes && !temIntervalo) {
+      definir({ data_inicio: daUrl.inicio, data_fim: daUrl.fim, mes: null, competencia: null });
+    }
+  }, [daUrl, definir, montado, parametros]);
+
   const aoMudar = useCallback(
-    (proximo: Periodo) => definir({ data_inicio: proximo.inicio, data_fim: proximo.fim, pagina: null }),
+    (proximo: Periodo) => definir({ data_inicio: proximo.inicio, data_fim: proximo.fim, mes: null, competencia: null, pagina: null }),
     [definir]
   );
 

@@ -178,10 +178,10 @@ export function Documentos() {
     setErroExportacao(null);
     try {
       if (exportacao === "xml") {
-        await api.baixarZip(filtros, `NotasFlow_xmls_${sufixoArquivo(periodo)}.zip`);
+        await api.baixarZip(filtros, `Fluxa_xmls_${sufixoArquivo(periodo)}.zip`);
         avisar({ tom: "ok", titulo: "ZIP gerado", descricao: `${rotuloPeriodo(periodo)} · ${estimativa ? numero(estimativa.documentos) : ""} documentos` });
       } else {
-        await api.baixarCsvDocumentos(filtros, `NotasFlow_relacao_${sufixoArquivo(periodo)}.csv`);
+        await api.baixarCsvDocumentos(filtros, `Fluxa_relacao_${sufixoArquivo(periodo)}.csv`);
         avisar({ tom: "ok", titulo: "Relação em CSV gerada", descricao: rotuloPeriodo(periodo) });
       }
       setExportacao(null);
@@ -198,10 +198,10 @@ export function Documentos() {
     try {
       const filtroSelecao = { ...filtros, documento_ids: idsSelecionados.join(",") };
       if (qual === "xml") {
-        await api.baixarZip(filtroSelecao, `NotasFlow_selecao_${sufixoArquivo(periodo)}.zip`);
+        await api.baixarZip(filtroSelecao, `Fluxa_selecao_${sufixoArquivo(periodo)}.zip`);
         avisar({ tom: "ok", titulo: "XMLs da seleção baixados", descricao: `${numero(idsSelecionados.length)} ${plural(idsSelecionados.length, "documento", "documentos")}` });
       } else {
-        await api.baixarCsvDocumentos(filtroSelecao, `NotasFlow_selecao_${sufixoArquivo(periodo)}.csv`);
+        await api.baixarCsvDocumentos(filtroSelecao, `Fluxa_selecao_${sufixoArquivo(periodo)}.csv`);
         avisar({ tom: "ok", titulo: "CSV da seleção gerado", descricao: `${numero(idsSelecionados.length)} ${plural(idsSelecionados.length, "documento", "documentos")}` });
       }
     } catch (falha) {

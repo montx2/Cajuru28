@@ -1,4 +1,4 @@
-# Passo a passo — NotasFlow com Docker
+# Passo a passo — Fluxa com Docker
 
 ## 1. Instalar e iniciar
 

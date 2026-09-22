@@ -171,7 +171,7 @@ export function Relatorios() {
 
       {/* Cabeçalho que só existe no papel: sem ele a folha perde competência, data e responsável. */}
       <div className="hidden print:block">
-        <h1 className="text-lg font-semibold">NotasFlow · Fechamento de {rotuloCompetencia(mes)}</h1>
+        <h1 className="text-lg font-semibold">Fluxa · Fechamento de {rotuloCompetencia(mes)}</h1>
         <p className="mt-1 text-xs">
           Período de {fechamento.dados ? `${dataCurta(fechamento.dados.inicio)} a ${dataCurta(fechamento.dados.fim)}` : "—"} · gerado em{" "}
           {new Date().toLocaleString("pt-BR")} · conferência: {conferencia.dados?.status ?? "—"}

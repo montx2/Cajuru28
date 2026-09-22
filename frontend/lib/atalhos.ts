@@ -55,4 +55,4 @@ export const ROTAS_DO_PREFIXO_G: Record<string, string> = {
 export const ALVO_FILTRO = "data-atalho-filtro";
 
 /** Prefixo único de persistência local (preferências visuais, nunca credencial). */
-export const PREFIXO_ARMAZENAMENTO = "notasflow:";
+export const PREFIXO_ARMAZENAMENTO = "fluxa:";

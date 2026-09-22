@@ -1,6 +1,6 @@
 # Arquitetura
 
-O NotasFlow é executado por Docker Compose. O arquivo padrão é o ambiente
+O Fluxa é executado por Docker Compose. O arquivo padrão é o ambiente
 local de desenvolvimento; dados fiscais reais usam a pilha isolada de
 [`DEPLOY_PRODUCAO.md`](DEPLOY_PRODUCAO.md).
 

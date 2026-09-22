@@ -167,7 +167,7 @@ export function Usuarios() {
     <div className="space-y-5">
       <CabecalhoPagina
         titulo="Equipe"
-        descricao="Quem entra no NotasFlow e o que cada papel pode fazer. Desativar mantém o histórico de auditoria."
+        descricao="Quem entra no Fluxa e o que cada papel pode fazer. Desativar mantém o histórico de auditoria."
         acoes={
           <div className="flex flex-wrap items-center gap-2">
             <Botao variante="sutil" onClick={usuarios.atualizar} carregando={usuarios.atualizando} iconeEsquerda={<Icone nome="atualizar" className="h-4 w-4" />}>

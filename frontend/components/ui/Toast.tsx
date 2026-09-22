@@ -110,7 +110,7 @@ export function ProvedorToast({ children }: { children: ReactNode }) {
               key={aviso.id}
               onMouseEnter={() => pausar(aviso.id)}
               onMouseLeave={() => retomar(aviso)}
-              className="pointer-events-auto relative flex gap-3 overflow-hidden rounded-cartao border border-traco bg-superficie px-3.5 py-3 shadow-nivel1 animate-subir"
+              className="vidro pointer-events-auto relative flex gap-3 overflow-hidden rounded-cartao px-3.5 py-3 shadow-nivel1 animate-subir"
             >
               <span aria-hidden="true" className={cn("absolute inset-y-0 left-0 w-[3px]", tom.faixa)} />
               <Icone nome={tom.icone} className={cn("mt-0.5 h-4 w-4 flex-none", tom.tinta)} />

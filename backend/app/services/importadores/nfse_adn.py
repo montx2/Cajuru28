@@ -360,7 +360,7 @@ class ImportadorNFSeADN(ImportadorFiscal):
                     resposta = client.get(
                         url,
                         params=params,
-                        headers={"Accept": "application/json", "User-Agent": "NotasFlow/0.1"},
+                        headers={"Accept": "application/json", "User-Agent": "Fluxa/0.1"},
                     )
                     if resposta.status_code == 404:
                         try:

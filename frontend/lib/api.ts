@@ -346,13 +346,13 @@ export const api = {
   baixarZip: (filtros: FiltrosExportacao = {}, nome?: string) =>
     baixarArquivo(
       `/documentos/exportar${montarParams(filtros)}`,
-      nome ?? `NotasFlow_${filtros.data_inicio ?? "selecao"}.zip`
+      nome ?? `Fluxa_${filtros.data_inicio ?? "selecao"}.zip`
     ),
 
   baixarCsvDocumentos: (filtros: FiltrosExportacao = {}, nome?: string) =>
     baixarArquivo(
       `/documentos/exportar/csv${montarParams(filtros)}`,
-      nome ?? `NotasFlow_relacao_${filtros.data_inicio ?? "selecao"}.csv`
+      nome ?? `Fluxa_relacao_${filtros.data_inicio ?? "selecao"}.csv`
     ),
 
   /** O período (data_inicio/data_fim) é obrigatório: é ele que define o que será guardado. */
@@ -481,7 +481,7 @@ export const api = {
   baixarFechamentoCsv: (competencia?: string) =>
     baixarArquivo(
       `/relatorios/fechamento.csv${montarParams({ competencia })}`,
-      `NotasFlow_fechamento_${competencia ?? "mes"}.csv`
+      `Fluxa_fechamento_${competencia ?? "mes"}.csv`
     ),
 
   // ---------------------------------------------------------------

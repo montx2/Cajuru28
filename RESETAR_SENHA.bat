@@ -1,10 +1,10 @@
 @echo off
 chcp 65001 >nul
-title NotasFlow - Diagnostico de login
+title Fluxa - Diagnostico de login
 cd /d "%~dp0"
 
 echo ============================================
-echo   NotasFlow - nao consigo entrar
+echo   Fluxa - nao consigo entrar
 echo ============================================
 echo.
 

@@ -231,7 +231,7 @@ def fechamento_csv(
     )
 
     corpo = "\ufeff" + saida.getvalue()
-    nome = f"NotasFlow_fechamento_{fechamento.competencia.replace('/', '-')}.csv"
+    nome = f"Fluxa_fechamento_{fechamento.competencia.replace('/', '-')}.csv"
     return StreamingResponse(
         iter([corpo.encode("utf-8")]),
         media_type="text/csv; charset=utf-8",

@@ -1,5 +1,5 @@
 """
-Diagnostica (e resolve) problemas de login do NotasFlow.
+Diagnostica (e resolve) problemas de login do Fluxa.
 
 Uso:
     docker compose exec api python scripts/diagnosticar_login.py
@@ -39,7 +39,7 @@ def _linha() -> None:
 
 def diagnosticar(db) -> None:
     print("=" * 70)
-    print("  NotasFlow — diagnóstico de login")
+    print("  Fluxa — diagnóstico de login")
     print("=" * 70)
 
     # 1. Banco acessível?
@@ -168,7 +168,7 @@ def criar_admin(db, email: str | None, senha: str | None) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Diagnostica problemas de login do NotasFlow")
+    parser = argparse.ArgumentParser(description="Diagnostica problemas de login do Fluxa")
     parser.add_argument("--redefinir", metavar="EMAIL", help="Redefine a senha desse usuário")
     parser.add_argument("--criar-admin", action="store_true", help="Cria o admin inicial")
     parser.add_argument("--email", help="Email para --criar-admin")

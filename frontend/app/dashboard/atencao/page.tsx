@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { Atencao } from "./Atencao";
 
 export const metadata: Metadata = {
-  title: "Precisa da sua atenção · NotasFlow",
+  title: "Precisa da sua atenção · Fluxa",
 };
 
 /* Filtros de nível, categoria e empresa vivem na URL. */

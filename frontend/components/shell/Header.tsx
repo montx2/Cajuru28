@@ -33,7 +33,7 @@ export function Header({ aoAbrirMenu }: { aoAbrirMenu: () => void }) {
   const { simbolo } = useTeclaModificadora();
 
   return (
-    <header className="nao-imprimir sticky top-0 z-cabecalho flex h-14 flex-none items-center gap-2 border-b border-traco bg-superficie px-3 sm:px-4">
+    <header className="vidro nao-imprimir sticky top-0 z-cabecalho flex h-14 flex-none items-center gap-2 px-3 sm:px-4">
       <button
         type="button"
         onClick={aoAbrirMenu}

@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 cd /d "%~dp0"
-echo Parando NotasFlow...
+echo Parando Fluxa...
 docker compose down
 echo Pronto.
 pause

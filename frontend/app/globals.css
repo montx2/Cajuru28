@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 /* ══════════════════════════════════════════════════════════════════════════
-   PAPEL & GRAFITE — tokens
+   FLUXA — tokens de vidro & índigo
    Nenhuma cor é escrita em componente: tudo passa por estes nomes.
    Valores medidos com WCAG 2.2 (a tabela completa está em design/SISTEMA.md).
    ══════════════════════════════════════════════════════════════════════════ */
@@ -11,58 +11,64 @@
 :root {
   color-scheme: light;
 
-  /* Superfícies — papel de alta gramatura, com dois níveis de recesso. */
-  --fundo: #f7f8f7;              --fundo-rgb: 247 248 247;
-  --fundo-afundado: #eff1f0;     --fundo-afundado-rgb: 239 241 240;
+  /* Superfícies — vidro sobre um fundo com leve gradiente frio. As duas
+     variantes "vidro" carregam transparência + blur; o restante do sistema
+     (tabelas densas, formulários) continua em superfície opaca por leitura. */
+  --fundo: #eef1f8;              --fundo-rgb: 238 241 248;
+  --fundo-afundado: #e3e8f3;     --fundo-afundado-rgb: 227 232 243;
   --superficie: #ffffff;         --superficie-rgb: 255 255 255;
   --superficie-alta: #ffffff;    --superficie-alta-rgb: 255 255 255;
+  --vidro-rgb: 255 255 255;      --vidro-alpha: 0.66;
+  --vidro-borda-rgb: 255 255 255; --vidro-borda-alpha: 0.55;
+  --vidro-blur: 20px;
 
   /* Tinta — exatamente quatro níveis; `tinta-fraca` não carrega informação. */
-  --tinta-forte: #12181a;        --tinta-forte-rgb: 18 24 26;    /* 17,9:1 */
-  --tinta: #2b3437;              --tinta-rgb: 43 52 55;          /* 12,7:1 */
-  --tinta-suave: #5c6b6f;        --tinta-suave-rgb: 92 107 111;  /*  5,5:1 */
-  --tinta-fraca: #879599;        --tinta-fraca-rgb: 135 149 153; /*  3,1:1 — só desabilitado/ornamento */
+  --tinta-forte: #101425;        --tinta-forte-rgb: 16 20 37;    /* 17,3:1 */
+  --tinta: #2a3050;              --tinta-rgb: 42 48 80;          /* 12,2:1 */
+  --tinta-suave: #565d80;        --tinta-suave-rgb: 86 93 128;   /*  5,7:1 */
+  --tinta-fraca: #8388a8;        --tinta-fraca-rgb: 131 136 168; /*  3,2:1 — só desabilitado/ornamento */
 
   /* Traço — divisores. A borda de controle é outra porque 1.4.11 pede 3:1. */
-  --traco: #e2e7e5;              --traco-rgb: 226 231 229;
-  --traco-forte: #c9d2cf;        --traco-forte-rgb: 201 210 207;
-  --borda-controle: #7e8c88;     --borda-controle-rgb: 126 140 136; /* 3,5:1 no branco */
+  --traco: #dde1ef;              --traco-rgb: 221 225 239;
+  --traco-forte: #c3c9e2;        --traco-forte-rgb: 195 201 226;
+  --borda-controle: #7d84ae;     --borda-controle-rgb: 125 132 174; /* 3,5:1 no branco */
 
-  /* Acento único — o carimbo verde de "conferido". */
-  --acento: #0f6b50;             --acento-rgb: 15 107 80;        /* 6,5:1 */
-  --acento-escuro: #0a4f3b;      --acento-escuro-rgb: 10 79 59;  /* hover/press */
-  --acento-tenue: #e8f3ee;       --acento-tenue-rgb: 232 243 238;
-  --acento-borda: #b9dccb;       --acento-borda-rgb: 185 220 203;
+  /* Acento único — índigo. */
+  --acento: #4338ca;             --acento-rgb: 67 56 202;        /* 7,3:1 */
+  --acento-escuro: #362ea3;      --acento-escuro-rgb: 54 46 163; /* hover/press */
+  --acento-tenue: #eceafc;       --acento-tenue-rgb: 236 234 252;
+  --acento-borda: #c7c1f2;       --acento-borda-rgb: 199 193 242;
   --acento-contraste: #ffffff;   --acento-contraste-rgb: 255 255 255; /* texto sobre acento */
 
   /* Estados — semânticos. `espera` cobre a janela oficial da SEFAZ e cota:
      esperar não é falhar, por isso nunca usa `erro`. */
-  --ok: #17734f;                 --ok-rgb: 23 115 79;            /* 5,8:1 */
-  --ok-tenue: #e6f4ec;           --ok-tenue-rgb: 230 244 236;
+  --ok: #157a5c;                 --ok-rgb: 21 122 92;            /* 5,7:1 */
+  --ok-tenue: #e4f4ee;           --ok-tenue-rgb: 228 244 238;
   --espera: #8a6210;             --espera-rgb: 138 98 16;        /* 5,5:1 */
   --espera-tenue: #fdf3de;       --espera-tenue-rgb: 253 243 222;
-  --erro: #a8342a;               --erro-rgb: 168 52 42;          /* 6,6:1 */
-  --erro-tenue: #fbeae7;         --erro-tenue-rgb: 251 234 231;
-  --info: #1f5fae;               --info-rgb: 31 95 174;          /* 6,4:1 */
-  --info-tenue: #e9f0fa;         --info-tenue-rgb: 233 240 250;
-  --neutro: #5c6b6f;             --neutro-rgb: 92 107 111;
-  --neutro-tenue: #eff1f0;       --neutro-tenue-rgb: 239 241 240;
+  --erro: #b23a45;               --erro-rgb: 178 58 69;          /* 6,1:1 */
+  --erro-tenue: #fbeaec;         --erro-tenue-rgb: 251 234 236;
+  --info: #2f5fd6;               --info-rgb: 47 95 214;          /* 5,3:1 */
+  --info-tenue: #e9eefc;         --info-tenue-rgb: 233 238 252;
+  --neutro: #565d80;             --neutro-rgb: 86 93 128;
+  --neutro-tenue: #e7e9f4;       --neutro-tenue-rgb: 231 233 244;
 
   /* Grafite — superfície escura do produto (barra lateral, login, código XML).
-     É superfície, não cor de estado: permanece grafite nos dois temas. */
-  --grafite: #12181a;            --grafite-rgb: 18 24 26;
-  --grafite-alta: #1c2426;       --grafite-alta-rgb: 28 36 38;
-  --grafite-hover: #2b3437;      --grafite-hover-rgb: 43 52 55;
-  --grafite-traco: #435053;      --grafite-traco-rgb: 67 80 83;
-  --sobre-grafite: #f3f6f5;      --sobre-grafite-rgb: 243 246 245;
+     Aqui é um "grafite azulado", coerente com o acento índigo, e também
+     recebe vidro (levemente translúcido sobre o gradiente do body). */
+  --grafite: #0c1024;            --grafite-rgb: 12 16 36;
+  --grafite-alta: #141a34;       --grafite-alta-rgb: 20 26 52;
+  --grafite-hover: #202749;      --grafite-hover-rgb: 32 39 73;
+  --grafite-traco: #333d68;      --grafite-traco-rgb: 51 61 104;
+  --sobre-grafite: #f2f3fb;      --sobre-grafite-rgb: 242 243 251;
 
   /* Foco — um anel só, visível sobre qualquer superfície do sistema. */
-  --foco: #0f6b50;
-  --foco-halo: rgba(15, 107, 80, 0.22);
+  --foco: #4338ca;
+  --foco-halo: rgba(67, 56, 202, 0.24);
 
   /* Elevação — dois níveis, ambos semânticos (camada flutuante e modal). */
-  --sombra-1: 0 1px 2px rgba(16, 24, 20, 0.06), 0 4px 12px -8px rgba(16, 24, 20, 0.16);
-  --sombra-2: 0 12px 32px -12px rgba(16, 24, 20, 0.28);
+  --sombra-1: 0 1px 2px rgba(20, 24, 55, 0.06), 0 8px 24px -12px rgba(30, 34, 80, 0.22);
+  --sombra-2: 0 20px 48px -16px rgba(20, 24, 60, 0.32);
 
   /* Geometria do shell: o header sticky define o `scroll-margin` de todo alvo. */
   --altura-cabecalho: 56px;
@@ -75,48 +81,51 @@
 [data-tema="escuro"] {
   color-scheme: dark;
 
-  --fundo: #0f1513;              --fundo-rgb: 15 21 19;
-  --fundo-afundado: #151c1a;     --fundo-afundado-rgb: 21 28 26;
-  --superficie: #1b2422;         --superficie-rgb: 27 36 34;
-  --superficie-alta: #222d2a;    --superficie-alta-rgb: 34 45 42;
+  --fundo: #0a0d1c;              --fundo-rgb: 10 13 28;
+  --fundo-afundado: #0e1226;     --fundo-afundado-rgb: 14 18 38;
+  --superficie: #161b34;         --superficie-rgb: 22 27 52;
+  --superficie-alta: #1c2240;    --superficie-alta-rgb: 28 34 64;
+  --vidro-rgb: 28 34 64;         --vidro-alpha: 0.58;
+  --vidro-borda-rgb: 140 148 210; --vidro-borda-alpha: 0.22;
+  --vidro-blur: 22px;
 
-  --tinta-forte: #f3f6f5;        --tinta-forte-rgb: 243 246 245; /* 14,6:1 */
-  --tinta: #e8edeb;              --tinta-rgb: 232 237 235;       /* 13,4:1 */
-  --tinta-suave: #a9b6b2;        --tinta-suave-rgb: 169 182 178; /*  7,6:1 */
-  --tinta-fraca: #72817c;        --tinta-fraca-rgb: 114 129 124; /*  3,9:1 */
+  --tinta-forte: #f2f3fb;        --tinta-forte-rgb: 242 243 251; /* 15,1:1 */
+  --tinta: #e2e4f5;              --tinta-rgb: 226 228 245;       /* 13,0:1 */
+  --tinta-suave: #a8adcf;        --tinta-suave-rgb: 168 173 207; /*  7,3:1 */
+  --tinta-fraca: #767ca3;        --tinta-fraca-rgb: 118 124 163; /*  4,0:1 */
 
-  --traco: #2c3735;              --traco-rgb: 44 55 53;
-  --traco-forte: #48554f;        --traco-forte-rgb: 72 85 79;
-  --borda-controle: #7c8b86;     --borda-controle-rgb: 124 139 134; /* 4,5:1 na superfície */
+  --traco: #262c4d;              --traco-rgb: 38 44 77;
+  --traco-forte: #3a4270;        --traco-forte-rgb: 58 66 112;
+  --borda-controle: #7981ad;     --borda-controle-rgb: 121 129 173; /* 4,5:1 na superfície */
 
-  --acento: #3fbf90;             --acento-rgb: 63 191 144;       /* 6,9:1 */
-  --acento-escuro: #72d5b0;      --acento-escuro-rgb: 114 213 176;
-  --acento-tenue: #173d31;       --acento-tenue-rgb: 23 61 49;
-  --acento-borda: #2e8061;       --acento-borda-rgb: 46 128 97;
-  --acento-contraste: #0f1513;   --acento-contraste-rgb: 15 21 19; /* 8,0:1 sobre o acento */
+  --acento: #8b85f0;             --acento-rgb: 139 133 240;      /* 7,1:1 */
+  --acento-escuro: #a7a2f5;      --acento-escuro-rgb: 167 162 245;
+  --acento-tenue: #211e49;       --acento-tenue-rgb: 33 30 73;
+  --acento-borda: #453fa0;       --acento-borda-rgb: 69 63 160;
+  --acento-contraste: #0a0d1c;   --acento-contraste-rgb: 10 13 28; /* 8,3:1 sobre o acento */
 
-  --ok: #65c99e;                 --ok-rgb: 101 201 158;
-  --ok-tenue: #173b2f;           --ok-tenue-rgb: 23 59 47;
+  --ok: #5fd0a8;                 --ok-rgb: 95 208 168;
+  --ok-tenue: #123729;           --ok-tenue-rgb: 18 55 41;
   --espera: #e1b958;             --espera-rgb: 225 185 88;
-  --espera-tenue: #40351c;       --espera-tenue-rgb: 64 53 28;
-  --erro: #f18a80;               --erro-rgb: 241 138 128;
-  --erro-tenue: #472521;         --erro-tenue-rgb: 71 37 33;
-  --info: #85b6f3;               --info-rgb: 133 182 243;
-  --info-tenue: #1d334d;         --info-tenue-rgb: 29 51 77;
-  --neutro: #a9b6b2;             --neutro-rgb: 169 182 178;
-  --neutro-tenue: #27302e;       --neutro-tenue-rgb: 39 48 46;
+  --espera-tenue: #3a301b;       --espera-tenue-rgb: 58 48 27;
+  --erro: #f19a94;               --erro-rgb: 241 154 148;
+  --erro-tenue: #3d2027;         --erro-tenue-rgb: 61 32 39;
+  --info: #8fb3fb;               --info-rgb: 143 179 251;
+  --info-tenue: #1a274a;         --info-tenue-rgb: 26 39 74;
+  --neutro: #a8adcf;             --neutro-rgb: 168 173 207;
+  --neutro-tenue: #1e2340;       --neutro-tenue-rgb: 30 35 64;
 
-  --grafite: #0a0f0d;            --grafite-rgb: 10 15 13;
-  --grafite-alta: #151c1a;       --grafite-alta-rgb: 21 28 26;
-  --grafite-hover: #222d2a;      --grafite-hover-rgb: 34 45 42;
-  --grafite-traco: #2e3a36;      --grafite-traco-rgb: 46 58 54;
-  --sobre-grafite: #e8edeb;      --sobre-grafite-rgb: 232 237 235;
+  --grafite: #060814;            --grafite-rgb: 6 8 20;
+  --grafite-alta: #0e1226;       --grafite-alta-rgb: 14 18 38;
+  --grafite-hover: #1c2240;      --grafite-hover-rgb: 28 34 64;
+  --grafite-traco: #2b3260;      --grafite-traco-rgb: 43 50 96;
+  --sobre-grafite: #e2e4f5;      --sobre-grafite-rgb: 226 228 245;
 
-  --foco: #65d4aa;
-  --foco-halo: rgba(101, 212, 170, 0.28);
+  --foco: #a7a2f5;
+  --foco-halo: rgba(167, 162, 245, 0.3);
 
-  --sombra-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 12px -8px rgba(0, 0, 0, 0.6);
-  --sombra-2: 0 16px 40px -16px rgba(0, 0, 0, 0.72);
+  --sombra-1: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 24px -12px rgba(0, 0, 0, 0.6);
+  --sombra-2: 0 24px 56px -20px rgba(0, 0, 0, 0.78);
 }
 
 @layer base {
@@ -130,6 +139,13 @@
 
   body {
     @apply min-h-screen bg-fundo font-sans text-base text-tinta antialiased;
+    /* Fundo com dois glows suaves e fixos — a superfície que o vidro do shell
+       flutua por cima. Sutil de propósito: nunca compete com o conteúdo. */
+    background-image:
+      radial-gradient(60vw 60vh at 8% -8%, rgba(var(--acento-rgb) / 0.10), transparent 60%),
+      radial-gradient(50vw 55vh at 100% 0%, rgba(var(--info-rgb) / 0.08), transparent 55%);
+    background-attachment: fixed;
+    background-repeat: no-repeat;
   }
 
   h1, h2, h3, h4 {
@@ -195,6 +211,26 @@
   }
   .rolagem-fina::-webkit-scrollbar-track { background: transparent; }
 
+  /* Vidro — a única textura decorativa do produto, usada com regra fixa:
+     cabeçalho, sidebar, cartões e camadas flutuantes (popover/modal/toast).
+     Nunca em texto de corpo nem em tabela densa — ali a leitura vem primeiro. */
+  .vidro {
+    background-color: rgba(var(--vidro-rgb) / var(--vidro-alpha));
+    backdrop-filter: blur(var(--vidro-blur)) saturate(1.4);
+    -webkit-backdrop-filter: blur(var(--vidro-blur)) saturate(1.4);
+    border: 1px solid rgba(var(--vidro-borda-rgb) / var(--vidro-borda-alpha));
+  }
+  .vidro-grafite {
+    background-color: rgba(var(--grafite-rgb) / 0.72);
+    backdrop-filter: blur(var(--vidro-blur)) saturate(1.3);
+    -webkit-backdrop-filter: blur(var(--vidro-blur)) saturate(1.3);
+    border: 1px solid rgba(var(--grafite-traco-rgb) / 0.6);
+  }
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .vidro { background-color: rgb(var(--superficie-rgb)); }
+    .vidro-grafite { background-color: rgb(var(--grafite-rgb)); }
+  }
+
   .nao-imprimir { /* marcado por componente; a regra vive no bloco de impressão */ }
 }
 
@@ -209,13 +245,16 @@
   }
 }
 
-/* Contraste reforçado: divisores viram borda de controle e a tinta suave sobe
-   um degrau — nada depende de um cinza claro para ser compreendido. */
+/* Contraste reforçado: divisores viram borda de controle, a tinta suave sobe
+   um degrau e o vidro perde a transparência — nada depende de uma superfície
+   translúcida para ser compreendido. */
 @media (prefers-contrast: more) {
   :root {
     --traco-rgb: var(--traco-forte-rgb);
     --traco-forte-rgb: var(--borda-controle-rgb);
     --tinta-suave-rgb: var(--tinta-rgb);
+    --vidro-alpha: 0.94;
+    --vidro-borda-alpha: 0.9;
   }
 }
 

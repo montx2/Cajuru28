@@ -36,8 +36,8 @@ export function Cartao({
   return (
     <section
       className={cn(
-        "relative overflow-hidden rounded-cartao bg-superficie",
-        !semBorda && "border border-traco",
+        "vidro relative overflow-hidden rounded-cartao",
+        semBorda && "!border-0",
         className
       )}
     >
