@@ -58,7 +58,7 @@ export function PaletaComandos({ aberto, aoFechar, aoAbrirAtalhos }: PaletaComan
   const [buscandoDocumentos, setBuscandoDocumentos] = useState(false);
   const lista = useRef<HTMLDivElement | null>(null);
   const buscaDebounced = useDebounced(busca.trim(), 350);
-  const container = useFocoPreso<HTMLDivElement>({ ativo: aberto, aoFechar });
+  const container = useFocoPreso<HTMLDivElement>({ ativo: aberto && montado, aoFechar });
 
   useEffect(() => {
     setMontado(true);

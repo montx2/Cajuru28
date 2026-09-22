@@ -1,5 +1,59 @@
 # Changelog do front-end
 
+## Revisão de usabilidade — foco, senha e unificação do A1
+
+Correção do bug que inutilizava o campo de senha do certificado e varredura dos
+defeitos que restavam para o operador. Contrato de API inalterado; nenhuma
+dependência de runtime acrescentada.
+
+### Corrigido
+
+- **Campo de senha perdia o foco a cada tecla** (crítico). O focus trap
+  (`lib/useFocoPreso.ts`) reexecutava seu efeito a cada render porque
+  `aoFechar`/`destino`/`travarRolagem` estavam no array de dependências — e as
+  telas passam `aoFechar={() => setAberto(false)}`, uma função com identidade
+  nova por render. Cada caractere digitado re-renderizava, invalidava o efeito e
+  disparava `alvo.focus()`, jogando o cursor no botão Fechar (X). O efeito passa
+  a depender só de `ativo`, com as opções em refs espelho. **Não havia remount**:
+  o componente ficava montado o tempo todo. Conserta de uma vez todos os modais,
+  o `DialogoConfirmacao`, o drawer `Painel` e a paleta de comandos.
+- Foco inicial das camadas deixa de depender de um render extra:
+  `ativo: aberto && montado` em `Modal`, `Painel` e `PaletaComandos`.
+- `Botao` variante `perigo` usava `text-white` literal — a única cor fora de
+  token no projeto. Passa a `text-acento-contraste`, acompanhando o tema escuro.
+- `text-2xs` era 11 px, abaixo do piso de 12 px que o próprio `design/SISTEMA.md`
+  declarava. Token corrigido para 12/16 — 29 usos alinhados de uma vez.
+
+### Unificado
+
+- **Um único modal de certificado A1** (`components/fiscal/ModalCertificado.tsx`).
+  Existiam dois, em `/certificados` e `/empresa`, com validações divergentes: o da
+  empresa liberava "Instalar" sem senha e só falhava depois do upload. Agora a
+  regra é uma só — empresa, arquivo e senha antes de habilitar. −254 linhas.
+- **`components/ui/CampoSenha.tsx`**: campo de senha com alternância
+  mostrar/ocultar por ícone, `aria-pressed`, rótulo acessível e `tabindex={-1}`
+  no botão (o Tab vai da senha direto à ação). Adotado no login, no certificado
+  A1 e no cadastro de usuário — antes só o login tinha o recurso, e em texto.
+
+### Melhorado
+
+- Login valida campo vazio **antes** de chamar a API: não gasta tentativa do rate
+  limit e não mistura erro de formulário com resposta 401. A mensagem por campo
+  aparece após a primeira submissão, não durante a digitação.
+- `package.json` renomeado de `notasflow-frontend` para `fluxa-frontend`,
+  encerrando a identidade dividida. Nomes de infraestrutura (banco, env) seguem
+  como `notasflow` de propósito — mudá-los quebraria implantações existentes.
+
+### Testes
+
+Primeira suíte automatizada do front-end (`testes/`, Vitest + Testing Library,
+`npm test`). 8 testes cobrindo o que quebrou: digitação de senha de 14
+caracteres sem perda de foco, alternância de visibilidade, e as regras de
+liberação do envio do A1 nas duas visões. Verifiquei que o teste de foco
+realmente pega o bug — restaurando o array de dependências antigo, ele falha.
+
+---
+
 ## Reconstrução integral — Papel & Grafite
 
 Rebuild completo da interface do Fluxa: 14 rotas, primitivos, shell e camada de estado reescritos do zero. O contrato com a API **não mudou** — nenhum endpoint, parâmetro ou tipo foi alterado, e o backend não precisa de ajuste.
@@ -19,7 +73,7 @@ O documento de referência é `design/SISTEMA.md`: tokens, regras, decisões e a
 
 ### Fundação visual
 
-- Tokens semânticos reescritos em `app/globals.css`: papel neutro, tinta em quatro níveis, um único acento verde e cores de estado estritamente semânticas. Nenhum componente escreve cor por valor.
+- Tokens semânticos reescritos em `app/globals.css`: papel neutro, tinta em quatro níveis, um único acento índigo e cores de estado estritamente semânticas. Nenhum componente escreve cor por valor.
 - Tema claro e escuro calibrados separadamente (não é paleta invertida): no escuro o acento clareia e o texto sobre ele escurece para manter 8,0:1. Contraste medido e registrado — todo texto útil acima de 4,5:1.
 - `--tinta-fraca` rebaixado a papel decorativo/desabilitado (3,1:1); placeholder passa a usar `tinta-suave`.
 - `tailwind.config.ts` substituída com tetos que tornam o erro impossível: `rounded-2xl`/`rounded-3xl` resolvem para 12 px, `font-bold`/`font-black` resolvem para 600, `shadow-sm`…`shadow-2xl` resolvem para `none` (só `nivel1` e `nivel2` elevam).

@@ -17,12 +17,12 @@ import { useAgora } from "@/components/shell/ProvedorAgora";
 import { useSinalizarAtualizacao } from "@/components/shell/BarraAtualizacao";
 import { useSessao } from "@/components/shell/ProvedorSessao";
 import { CartaoCertificado } from "@/components/fiscal/CartaoCertificado";
+import { ModalCertificado } from "@/components/fiscal/ModalCertificado";
 import { PainelDocumento } from "@/components/fiscal/PainelDocumento";
 import { ResumoNSU } from "@/components/fiscal/MedidorNSU";
 import { SeletorPeriodo } from "@/components/fiscal/SeletorPeriodo";
 import { Abas, type Aba } from "@/components/ui/Abas";
 import { Alternador, Caixa, Entrada, Selecao } from "@/components/ui/Campo";
-import { CampoArquivo } from "@/components/ui/CampoArquivo";
 import { Aviso } from "@/components/ui/Aviso";
 import { Botao, BotaoLink } from "@/components/ui/Botao";
 import { CabecalhoPagina, Cartao } from "@/components/ui/Cartao";
@@ -418,7 +418,7 @@ export function Empresa() {
       />
 
       <ModalEditarEmpresa aberto={editarAberto} aoFechar={() => setEditarAberto(false)} empresa={dados} aoSalvar={recarregar} />
-      <ModalCertificado aberto={certificadoAberto} aoFechar={() => setCertificadoAberto(false)} empresaId={dados.id} aoSalvar={recarregar} />
+      <ModalCertificado aberto={certificadoAberto} aoFechar={() => setCertificadoAberto(false)} empresaId={dados.id} aoInstalar={recarregar} />
 
       <DialogoConfirmacao
         aberto={excluirAberto}
@@ -734,88 +734,3 @@ function ModalEditarEmpresa({
     </Modal>
   );
 }
-
-function ModalCertificado({ aberto, aoFechar, empresaId, aoSalvar }: { aberto: boolean; aoFechar: () => void; empresaId: number; aoSalvar: () => void }) {
-  const { avisar } = useToast();
-  const [arquivos, setArquivos] = useState<File[]>([]);
-  const [senha, setSenha] = useState("");
-  const [enviando, setEnviando] = useState(false);
-  const [erro, setErro] = useState<string | null>(null);
-
-  function fechar() {
-    setArquivos([]);
-    setSenha("");
-    setErro(null);
-    aoFechar();
-  }
-
-  async function enviar() {
-    const arquivo = arquivos[0];
-    if (!arquivo) {
-      setErro("Escolha o arquivo .p12 ou .pfx do certificado.");
-      return;
-    }
-    if (!senha) {
-      setErro("Informe a senha do certificado — sem ela não há como abrir o arquivo.");
-      return;
-    }
-    setEnviando(true);
-    setErro(null);
-    try {
-      const criado = await api.enviarCertificado(empresaId, senha, arquivo);
-      avisar({ tom: "ok", titulo: "Certificado instalado", descricao: `Válido até ${dataCurta(criado.validade)}` });
-      aoSalvar();
-      fechar();
-    } catch (falha) {
-      setErro(mensagemDoErro(falha, "instalar o certificado"));
-    } finally {
-      setEnviando(false);
-    }
-  }
-
-  return (
-    <Modal
-      aberto={aberto}
-      aoFechar={fechar}
-      titulo="Certificado A1"
-      descricao="O arquivo é cifrado no servidor e a senha não volta ao navegador nem aparece em tela."
-      largura="media"
-      rodape={
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <Botao variante="sutil" onClick={fechar}>
-            Cancelar
-          </Botao>
-          <Botao variante="primaria" onClick={enviar} carregando={enviando} disabled={arquivos.length === 0}>
-            Instalar certificado
-          </Botao>
-        </div>
-      }
-    >
-      <div className="space-y-4">
-        <CampoArquivo
-          rotulo="Arquivo do certificado"
-          obrigatorio
-          aceita=".p12,.pfx"
-          arquivos={arquivos}
-          aoMudar={(lista) => setArquivos(lista.slice(0, 1))}
-          descricao="Substitui o certificado atual desta empresa."
-        />
-        <Entrada
-          rotulo="Senha do certificado"
-          obrigatorio
-          type="password"
-          autoComplete="off"
-          value={senha}
-          onChange={(evento) => setSenha(evento.target.value)}
-          descricao="Usada uma vez, para abrir o arquivo no servidor."
-        />
-        {erro ? (
-          <p role="alert" className="rounded-controle border border-erro/40 bg-erro-tenue px-3 py-2 text-sm leading-6 text-erro">
-            {erro}
-          </p>
-        ) : null}
-      </div>
-    </Modal>
-  );
-}
-
