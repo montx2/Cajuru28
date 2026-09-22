@@ -146,7 +146,7 @@ Cada valor de `--acento`, `--ok`, `--espera`, `--erro`, `--info` e `--tinta-*` t
 
 Inter (self-hosted, `--fonte-sans`, fallback métrico Arial/system-ui) para interface; JetBrains Mono (`--fonte-mono`) para CNPJ, chave de acesso, NSU, competência e XML.
 
-Escala (`tailwind.config.ts`, em `fontSize`): `2xs` 11/16 · `xs` 12/18 · `sm` 13/20 · `base` 14/22 · `md` 16/24 · `lg` 20/28 · `xl` 26/32 · `2xl` 34/40. `text-sm` (13/20) é o padrão de dados densos. **Nenhum texto útil abaixo de 12 px.**
+Escala (`tailwind.config.ts`, em `fontSize`): `2xs` 12/16 · `xs` 12/18 · `sm` 13/20 · `base` 14/22 · `md` 16/24 · `lg` 20/28 · `xl` 26/32 · `2xl` 34/40. `text-sm` (13/20) é o padrão de dados densos. **Nenhum texto útil abaixo de 12 px.**
 
 Pesos permitidos: **400, 500, 600**. A config rebatiza `bold`/`extrabold`/`black` para 600 e `light`/`thin` para 400 — escrever `font-bold` não produz 700.
 

@@ -13,6 +13,7 @@ import { Aviso } from "@/components/ui/Aviso";
 import { Botao } from "@/components/ui/Botao";
 import { CabecalhoPagina } from "@/components/ui/Cartao";
 import { Alternador, Busca, Entrada, Selecao } from "@/components/ui/Campo";
+import { CampoSenha } from "@/components/ui/CampoSenha";
 import { EstadoVazio } from "@/components/ui/EstadoVazio";
 import { Etiqueta } from "@/components/ui/Etiqueta";
 import { DataHora } from "@/components/ui/Formatadores";
@@ -322,10 +323,9 @@ function ModalUsuario({
       <div className="space-y-4">
         <Entrada rotulo="Nome" obrigatorio value={nome} onChange={(evento) => setNome(evento.target.value)} erro={errosCampo.nome ?? null} autoComplete="off" />
         <Entrada rotulo="E-mail" obrigatorio type="email" inputMode="email" value={email} onChange={(evento) => setEmail(evento.target.value)} erro={errosCampo.email ?? null} autoComplete="off" />
-        <Entrada
+        <CampoSenha
           rotulo={edicao ? "Nova senha (opcional)" : "Senha inicial"}
           obrigatorio={!edicao}
-          type="password"
           value={senha}
           onChange={(evento) => setSenha(evento.target.value)}
           erro={errosCampo.senha ?? null}

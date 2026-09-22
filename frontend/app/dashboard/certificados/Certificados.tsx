@@ -1,31 +1,26 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { dataCurta, numero, plural } from "@/lib/format";
 import { estadoDoCertificado } from "@/lib/estados";
-import { mensagemDoErro } from "@/lib/erros";
 import { MOTIVO_SOMENTE_LEITURA } from "@/lib/papel";
 import { useBuscaUrl } from "@/lib/useBuscaUrl";
 import { useRecurso } from "@/lib/useRecurso";
 import { useUrlEstado } from "@/lib/urlEstado";
 import { useSinalizarAtualizacao } from "@/components/shell/BarraAtualizacao";
 import { useSessao } from "@/components/shell/ProvedorSessao";
+import { ModalCertificado } from "@/components/fiscal/ModalCertificado";
 import { Aviso } from "@/components/ui/Aviso";
 import { Botao } from "@/components/ui/Botao";
 import { CabecalhoPagina } from "@/components/ui/Cartao";
-import { Busca, Entrada } from "@/components/ui/Campo";
-import { CampoArquivo } from "@/components/ui/CampoArquivo";
-import { Combobox } from "@/components/ui/Combobox";
-import { Etiqueta } from "@/components/ui/Etiqueta";
+import { Busca } from "@/components/ui/Campo";
 import { Cnpj, DataHora, Truncado } from "@/components/ui/Formatadores";
 import { GradeKpis, type KpiProps } from "@/components/ui/Kpi";
 import { Icone } from "@/components/ui/Icone";
 import { IndicadorEstado } from "@/components/ui/IndicadorEstado";
-import { Modal } from "@/components/ui/Modal";
 import { Tabela, type ColunaTabela } from "@/components/ui/Tabela";
-import { useToast } from "@/components/ui/Toast";
 import type { CertificadoPainel } from "@/lib/types";
 
 type FiltroCertificado = "" | "validos" | "vencendo" | "vencidos" | "sem";
@@ -309,10 +304,10 @@ export function Certificados() {
         }
       />
 
-      <ModalEnvioCertificado
+      <ModalCertificado
         aberto={envioAberto}
         aoFechar={() => setEnvioAberto(false)}
-        empresaInicial={empresaAlvo}
+        empresaId={empresaAlvo}
         empresas={(empresas.dados ?? []).map((empresa) => ({ valor: String(empresa.id), rotulo: empresa.razao_social, descricao: empresa.cnpj_cpf }))}
         aoInstalar={() => {
           painel.atualizar();
@@ -336,136 +331,4 @@ function compararCertificados(a: CertificadoPainel, b: CertificadoPainel, coluna
     default:
       return 0;
   }
-}
-
-function ModalEnvioCertificado({
-  aberto,
-  aoFechar,
-  empresaInicial,
-  empresas,
-  aoInstalar,
-}: {
-  aberto: boolean;
-  aoFechar: () => void;
-  empresaInicial: number | null;
-  empresas: Array<{ valor: string; rotulo: string; descricao?: string }>;
-  aoInstalar: () => void;
-}) {
-  const { avisar } = useToast();
-  const [empresa, setEmpresa] = useState(empresaInicial ? String(empresaInicial) : "");
-  const [arquivos, setArquivos] = useState<File[]>([]);
-  const [senha, setSenha] = useState("");
-  const [enviando, setEnviando] = useState(false);
-  const [erro, setErro] = useState<string | null>(null);
-
-  // Reabrir para outra empresa não pode manter a seleção anterior.
-  useEffect(() => {
-    if (aberto) setEmpresa(empresaInicial ? String(empresaInicial) : "");
-  }, [aberto, empresaInicial]);
-
-  function fechar() {
-    setArquivos([]);
-    setSenha("");
-    setErro(null);
-    aoFechar();
-  }
-
-  async function instalar() {
-    const arquivo = arquivos[0];
-    const empresaId = Number(empresa);
-    if (!empresaId) {
-      setErro("Escolha a empresa que vai receber o certificado.");
-      return;
-    }
-    if (!arquivo) {
-      setErro("Selecione o arquivo .p12 ou .pfx.");
-      return;
-    }
-    if (!senha) {
-      setErro("Informe a senha do certificado — sem ela o servidor não consegue abrir o arquivo.");
-      return;
-    }
-    setEnviando(true);
-    setErro(null);
-    try {
-      const criado = await api.enviarCertificado(empresaId, senha, arquivo);
-      avisar({ tom: "ok", titulo: "Certificado instalado", descricao: `Válido até ${dataCurta(criado.validade)}` });
-      aoInstalar();
-      fechar();
-    } catch (falha) {
-      setErro(mensagemDoErro(falha, "instalar o certificado"));
-    } finally {
-      setEnviando(false);
-    }
-  }
-
-  const podeInstalar = Boolean(empresa) && arquivos.length > 0 && senha.length > 0;
-
-  return (
-    <Modal
-      aberto={aberto}
-      aoFechar={fechar}
-      titulo="Enviar certificado A1"
-      descricao="O arquivo é cifrado no servidor. A senha é usada uma vez, para abrir o .p12, e nunca volta ao navegador."
-      largura="media"
-      rodape={
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <Botao variante="sutil" onClick={fechar}>
-            Cancelar
-          </Botao>
-          <Botao variante="primaria" onClick={instalar} carregando={enviando} disabled={!podeInstalar} title={podeInstalar ? undefined : "Preencha empresa, arquivo e senha"}>
-            Instalar certificado
-          </Botao>
-        </div>
-      }
-    >
-      <div className="space-y-4">
-        <div>
-          <p className="mb-1.5 text-xs font-medium text-tinta">
-            Empresa <span className="text-erro">*</span>
-          </p>
-          <Combobox
-            rotulo="Empresa"
-            opcoes={empresas}
-            valor={empresa}
-            aoMudar={setEmpresa}
-            placeholder="Buscar por razão social ou CNPJ"
-            vazio="Nenhuma empresa cadastrada"
-            permiteLimpar
-          />
-        </div>
-        <CampoArquivo
-          rotulo="Arquivo do certificado"
-          obrigatorio
-          aceita=".p12,.pfx"
-          arquivos={arquivos}
-          aoMudar={(lista) => setArquivos(lista.slice(0, 1))}
-          descricao="Substitui o certificado atual da empresa escolhida."
-        />
-        <Entrada
-          rotulo="Senha do certificado"
-          obrigatorio
-          type="password"
-          autoComplete="off"
-          value={senha}
-          onChange={(evento) => setSenha(evento.target.value)}
-          descricao="Nenhuma tela exibe esta senha depois de enviada."
-        />
-        {erro ? (
-          <p role="alert" className="flex items-start gap-2 rounded-controle border border-erro/40 bg-erro-tenue px-3 py-2 text-sm leading-6 text-erro">
-            <Icone nome="alerta" className="mt-1 h-4 w-4 flex-none" />
-            <span>{erro}</span>
-          </p>
-        ) : null}
-        {empresa ? (
-          <p className="text-xs text-tinta-suave">
-            Selecionada: <span className="text-tinta">{empresas.find((opcao) => opcao.valor === empresa)?.rotulo ?? "—"}</span>
-            <Etiqueta tom="neutro" className="ml-2">
-              um certificado por empresa
-            </Etiqueta>
-          </p>
-        ) : null}
-      </div>
-    </Modal>
-  );
 }

@@ -21,7 +21,9 @@ const config: Config = {
   theme: {
     // Escala tipográfica do sistema (§5.3). `text-sm` = 13/20 é o padrão de dados.
     fontSize: {
-      "2xs": ["11px", "16px"],
+      // 12px é o piso: nenhum texto do produto desce abaixo disso (WCAG/legibilidade).
+      // `2xs` mantém entrelinha curta para caber em kbd, badge e rótulo de eixo.
+      "2xs": ["12px", "16px"],
       xs: ["12px", "18px"],
       sm: ["13px", "20px"],
       base: ["14px", "22px"],

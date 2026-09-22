@@ -21,7 +21,7 @@ export interface BotaoProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   atalho?: string;
 }
 
-/* Uma primária por tela: `primaria` é o verde do carimbo e só aparece uma vez.
+/* Uma primária por tela: `primaria` é o acento índigo e só aparece uma vez.
    As demais variantes vivem sobre superfície ou sem fundo, para que a hierarquia
    de ação seja lida antes do clique. */
 const VARIANTES: Record<VarianteBotao, string> = {
@@ -30,7 +30,7 @@ const VARIANTES: Record<VarianteBotao, string> = {
   secundaria:
     "border-borda-controle bg-superficie text-tinta hover:border-tinta-suave hover:bg-fundo-afundado active:bg-fundo-afundado",
   sutil: "border-transparent bg-transparent text-tinta-suave hover:bg-fundo-afundado hover:text-tinta-forte active:bg-traco",
-  perigo: "border-erro bg-erro text-white hover:opacity-90 active:opacity-80",
+  perigo: "border-erro bg-erro text-acento-contraste hover:opacity-90 active:opacity-80",
   "perigo-sutil": "border-erro/45 bg-superficie text-erro hover:border-erro hover:bg-erro-tenue active:bg-erro-tenue",
   link: "border-transparent bg-transparent px-0 text-acento underline-offset-4 hover:underline",
 };

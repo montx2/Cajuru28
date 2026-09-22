@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { Botao } from "@/components/ui/Botao";
 import { Entrada } from "@/components/ui/Campo";
+import { CampoSenha } from "@/components/ui/CampoSenha";
 import { Icone } from "@/components/ui/Icone";
 import { LogoFluxa } from "@/components/ui/LogoFluxa";
 
@@ -40,7 +41,9 @@ export function FormularioLogin() {
   const campoEmail = useRef<HTMLInputElement>(null);
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
-  const [senhaVisivel, setSenhaVisivel] = useState(false);
+  // Validação de campo só aparece depois da primeira tentativa de envio: erro
+  // antes de o usuário terminar de digitar é ruído, não ajuda.
+  const [tocado, setTocado] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
 
@@ -64,7 +67,11 @@ export function FormularioLogin() {
 
   async function entrar(evento: React.FormEvent<HTMLFormElement>) {
     evento.preventDefault();
+    setTocado(true);
     setErro(null);
+    // Campo vazio é erro de formulário: resolve aqui, sem gastar uma ida à API
+    // nem consumir o limite de tentativas do rate limit.
+    if (email.trim().length === 0 || senha.length === 0) return;
     setEnviando(true);
     try {
       await api.login(email.trim(), senha);
@@ -102,28 +109,17 @@ export function FormularioLogin() {
               disabled={enviando}
               value={email}
               onChange={(evento) => setEmail(evento.target.value)}
-              erro={erro && email.trim().length === 0 ? "Informe o e-mail usado no escritório." : null}
+              erro={tocado && email.trim().length === 0 ? "Informe o e-mail usado no escritório." : null}
             />
 
-            <Entrada
+            <CampoSenha
               rotulo="Senha"
               obrigatorio
-              type={senhaVisivel ? "text" : "password"}
               autoComplete="current-password"
               disabled={enviando}
               value={senha}
               onChange={(evento) => setSenha(evento.target.value)}
-              erro={erro && senha.length === 0 ? "Informe a senha." : null}
-              sufixo={
-                <button
-                  type="button"
-                  onClick={() => setSenhaVisivel((atual) => !atual)}
-                  aria-pressed={senhaVisivel}
-                  className="flex h-8 min-w-12 items-center justify-center rounded-badge px-2 text-xs font-medium text-tinta-suave transition-colors duration-120 hover:bg-fundo-afundado hover:text-tinta"
-                >
-                  {senhaVisivel ? "Ocultar" : "Mostrar"}
-                </button>
-              }
+              erro={tocado && senha.length === 0 ? "Informe a senha." : null}
             />
 
             {erro ? (
