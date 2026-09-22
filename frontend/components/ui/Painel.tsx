@@ -25,7 +25,7 @@ export interface PainelProps {
  */
 export function Painel({ aberto, aoFechar, titulo, contexto, children, rodape, acoes, className, semPadding }: PainelProps) {
   const [montado, setMontado] = useState(false);
-  const container = useFocoPreso<HTMLDivElement>({ ativo: aberto, aoFechar });
+  const container = useFocoPreso<HTMLDivElement>({ ativo: aberto && montado, aoFechar });
 
   useEffect(() => {
     setMontado(true);

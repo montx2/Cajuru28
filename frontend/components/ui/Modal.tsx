@@ -38,7 +38,7 @@ export interface ModalProps {
  */
 export function Modal({ aberto, aoFechar, titulo, descricao, children, rodape, largura = "media", focoNoFim, className, semPadding }: ModalProps) {
   const [montado, setMontado] = useState(false);
-  const container = useFocoPreso<HTMLDivElement>({ ativo: aberto, aoFechar, destino: focoNoFim ? "ultimo" : "primeiro" });
+  const container = useFocoPreso<HTMLDivElement>({ ativo: aberto && montado, aoFechar, destino: focoNoFim ? "ultimo" : "primeiro" });
 
   useEffect(() => {
     setMontado(true);
