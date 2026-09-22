@@ -1,4 +1,4 @@
-# Diretriz operacional do Cajuru28 (NotasFlow)
+# Diretriz operacional do Cajuru28 (Fluxa)
 
 Este documento é o **norte do produto**. Qualquer funcionalidade nova deve ser
 avaliada contra ele — inclusive sugestões de ferramentas externas, IA e "boas

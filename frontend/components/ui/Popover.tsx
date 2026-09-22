@@ -91,7 +91,7 @@ export function Popover({
           role="dialog"
           aria-label={rotulo}
           className={cn(
-            "absolute top-full z-camada mt-1.5 overflow-hidden rounded-cartao border border-traco bg-superficie shadow-nivel1 animate-subir",
+            "vidro absolute top-full z-camada mt-1.5 overflow-hidden rounded-cartao shadow-nivel1 animate-subir",
             POSICAO[alinhamento],
             largura
           )}

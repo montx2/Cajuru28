@@ -6,6 +6,7 @@ import { api, ApiError } from "@/lib/api";
 import { Botao } from "@/components/ui/Botao";
 import { Entrada } from "@/components/ui/Campo";
 import { Icone } from "@/components/ui/Icone";
+import { LogoFluxa } from "@/components/ui/LogoFluxa";
 
 /**
  * Destino pós-login só aceita caminho interno relativo.
@@ -22,7 +23,7 @@ function mensagemDe(falha: unknown): string {
     case 401:
       return "E-mail ou senha incorretos. Verifique os dados do escritório e tente novamente.";
     case 403:
-      return "Origem não autorizada para esta sessão. Confirme o endereço usado para acessar o NotasFlow.";
+      return "Origem não autorizada para esta sessão. Confirme o endereço usado para acessar o Fluxa.";
     case 429:
       return "Muitas tentativas seguidas. Aguarde alguns instantes e tente novamente.";
     case 0:
@@ -76,16 +77,16 @@ export function FormularioLogin() {
   }
 
   return (
-    <main className="flex min-h-screen items-start justify-center bg-fundo px-4 py-10 sm:items-center sm:py-16">
+    <main className="flex min-h-screen items-start justify-center px-4 py-10 sm:items-center sm:py-16">
       <div className="w-full max-w-formulario">
         <div className="mb-6 flex items-center gap-2.5">
           <span aria-hidden="true" className="flex h-8 w-8 flex-none items-center justify-center rounded-controle border border-grafite-traco bg-grafite text-acento">
-            <Icone nome="certificado" className="h-4 w-4" />
+            <LogoFluxa className="h-4 w-4" />
           </span>
-          <span className="text-base font-semibold tracking-tight text-tinta-forte">NotasFlow</span>
+          <span className="text-base font-semibold tracking-tight text-tinta-forte">Fluxa</span>
         </div>
 
-        <div className="rounded-camada border border-traco bg-superficie p-5 shadow-nivel1 sm:p-6">
+        <div className="vidro rounded-camada p-5 shadow-nivel1 sm:p-6">
           <h1 className="text-lg font-semibold tracking-tight text-tinta-forte">Entrar</h1>
           <p className="mt-1 text-sm text-tinta-suave">Use as credenciais do escritório. A sessão fica em cookie HttpOnly.</p>
 

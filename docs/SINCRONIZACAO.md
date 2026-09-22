@@ -1,4 +1,4 @@
-# Sincronização com a SEFAZ — as regras do jogo e como o NotasFlow cumpre cada uma
+# Sincronização com a SEFAZ — as regras do jogo e como o Fluxa cumpre cada uma
 
 Este documento é a referência operacional de **por que** a importação se
 comporta como se comporta. Ele existe porque os três erros mais caros de quem
@@ -16,7 +16,7 @@ Fontes: Manual dos Contribuintes das APIs do ADN (NFSe), NT 2014.002 /
 
 | Regra do webservice | Consequência para o sistema |
 | --- | --- |
-| Depois de uma consulta, a **próxima consulta do mesmo CNPJ só pode acontecer 1 hora depois**. Consultar antes devolve **cStat 656 – Rejeição: Consumo Indevido**. | O cooldown não é "gentileza", é contrato. O NotasFlow marca `proxima_consulta_em` em toda consulta e **não dispara nada** dentro da janela — nem clique manual, nem agendador. |
+| Depois de uma consulta, a **próxima consulta do mesmo CNPJ só pode acontecer 1 hora depois**. Consultar antes devolve **cStat 656 – Rejeição: Consumo Indevido**. | O cooldown não é "gentileza", é contrato. O Fluxa marca `proxima_consulta_em` em toda consulta e **não dispara nada** dentro da janela — nem clique manual, nem agendador. |
 | **Repetir a consulta antes de 1h zera o cronômetro do bloqueio.** | Por isso o botão "forçar" existe, mas é explícito (`forcar=true`) e fica registrado na execução. Clicar de novo "para ver se já deu" é exatamente o que trava o CNPJ. |
 | A devolução 656 **também traz `ultNSU` e `maxNSU`**. | No bloqueio o sistema **realinha o cursor** com o `ultNSU` devolvido: é o que resolve o caso "outro sistema consultou este CNPJ e o nosso cursor ficou para trás". |
 | `distNSU` anda **em sequência ascendente**; não existe filtro por data. | A competência (mês) **não** pode ser usada como recorte de busca: baixar tudo e filtrar no banco é o que garante que nada se perca. |
@@ -133,9 +133,9 @@ com a frase do formato aceito. A única exceção é a exportação por
 — obrigatórios salvo com `documento_ids` —, `competencia`, `busca`) e devolve:
 
 ```
-NotasFlow/<empresa-slug>/<tipo>/<chave>.xml
-NotasFlow/relacao.csv      ; e BOM — abre direto no Excel brasileiro
-NotasFlow/LEIA-ME.txt      o que o pacote contém e o que falta
+Fluxa/<empresa-slug>/<tipo>/<chave>.xml
+Fluxa/relacao.csv      ; e BOM — abre direto no Excel brasileiro
+Fluxa/LEIA-ME.txt      o que o pacote contém e o que falta
 ```
 
 - O ZIP nasce de um `SELECT` único (`.yield_per(200)`), não de N requests: um

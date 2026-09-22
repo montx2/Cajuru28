@@ -29,7 +29,7 @@ from app.models import Escritorio, Usuario
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Cria o primeiro usuário do NotasFlow")
+    parser = argparse.ArgumentParser(description="Cria o primeiro usuário do Fluxa")
     parser.add_argument("--escritorio", default=None)
     parser.add_argument("--nome", default=None)
     parser.add_argument("--email", default=None)

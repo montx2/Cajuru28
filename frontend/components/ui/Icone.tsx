@@ -1,7 +1,7 @@
 import type { SVGProps } from "react";
 
 /**
- * Ícones do NotasFlow — traço único em grade 24×24, 1,6 px de espessura,
+ * Ícones do Fluxa — traço único em grade 24×24, 1,6 px de espessura,
  * `currentColor` sempre. São desenhados aqui (e não importados de um pacote)
  * por três motivos: o peso visual tem que casar com a tipografia de 13 px das
  * tabelas, o conjunto precisa ser fechado (nada de ícone novo por capricho) e o

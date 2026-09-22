@@ -3,7 +3,7 @@ Login precisa aceitar o e-mail como a pessoa realmente digita.
 
 O cadastro grava sempre minúsculo e sem espaços (bootstrap e UsuarioCriar),
 mas a tela de login mandava o texto cru. Resultado: quem digitava
-"Admin@NotasFlow.local", deixava um espaço no fim, ou colava a senha do
+"Admin@fluxa.local", deixava um espaço no fim, ou colava a senha do
 CREDENCIAIS.txt junto com a quebra de linha, tomava "Email ou senha
 incorretos" com a credencial certa.
 """
@@ -21,7 +21,7 @@ from app.main import app
 from app.models import Escritorio, Usuario
 
 SENHA = "SenhaDeTeste123"
-EMAIL = "admin@notasflow.local"
+EMAIL = "admin@fluxa.local"
 
 
 @pytest.fixture
@@ -65,10 +65,10 @@ def contexto():
     "email_digitado",
     [
         EMAIL,
-        "Admin@NotasFlow.local",
-        "ADMIN@NOTASFLOW.LOCAL",
-        "  admin@notasflow.local  ",
-        "\tadmin@notasflow.local\n",
+        "Admin@fluxa.local",
+        "ADMIN@FLUXA.LOCAL",
+        "  admin@fluxa.local  ",
+        "\tadmin@fluxa.local\n",
     ],
 )
 def test_login_aceita_variacoes_de_caixa_e_espaco(contexto, email_digitado):

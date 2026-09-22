@@ -1,4 +1,4 @@
-"""API FastAPI do NotasFlow."""
+"""API FastAPI do Fluxa."""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ async def ciclo_de_vida(_app: FastAPI):
 
 
 app = FastAPI(
-    title="NotasFlow",
+    title="Fluxa",
     description="Sistema operacional fiscal privado.",
     version="3.2.0",
     lifespan=ciclo_de_vida,
@@ -163,4 +163,4 @@ app.include_router(sistema.router)
 
 @app.get("/saude", tags=["infra"])
 def verificar_saude():
-    return {"status": "ok", "app": "NotasFlow", "ambiente": settings.app_env}
+    return {"status": "ok", "app": "Fluxa", "ambiente": settings.app_env}

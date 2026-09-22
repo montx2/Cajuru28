@@ -1,4 +1,4 @@
-"""Senhas e sessões do NotasFlow.
+"""Senhas e sessões do Fluxa.
 
 Sessões são curtas, vinculadas ao ID imutável do usuário e à versão de sessão
 persistida no banco. Trocar senha/desativar uma conta invalida todos os JWTs

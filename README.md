@@ -1,4 +1,4 @@
-# NotasFlow — Cajuru28
+# Fluxa — Cajuru28
 
 **Sistema operacional fiscal privado**: captura automática de documentos
 fiscais (NFS-e, NFe e CT-e) pelas fontes oficiais ADN/SEFAZ, com certificados

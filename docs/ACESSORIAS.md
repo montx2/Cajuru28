@@ -7,7 +7,7 @@ A integração usa exclusivamente a API oficial documentada em
 
 Um administrador abre **Configurações → Sistema Acessórias**, cola o token
 gerado em **engrenagem → API Token** no Acessórias e salva. O token é enviado
-com `Authorization: Bearer`, cifrado pelo cofre do NotasFlow e nunca devolvido
+com `Authorization: Bearer`, cifrado pelo cofre do Fluxa e nunca devolvido
 ao navegador. Por segurança, somente o host oficial HTTPS é aceito.
 
 ## Empresas

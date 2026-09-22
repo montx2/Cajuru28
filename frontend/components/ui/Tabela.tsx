@@ -99,7 +99,7 @@ const LIMITE_VIRTUALIZACAO = 300;
 const MARGEM_LINHAS = 8;
 
 /**
- * A tabela operacional do NotasFlow.
+ * A tabela operacional do Fluxa.
  *
  * Por que um componente só: linha de 40 px, número à direita, cabeçalho colado,
  * seleção por intervalo com Shift, coluna ocultável persistida, virtualização e

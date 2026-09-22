@@ -24,10 +24,18 @@ const jetbrainsMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: { default: "NotasFlow", template: "%s · NotasFlow" },
+  title: { default: "Fluxa", template: "%s · Fluxa" },
   description: "Captura, validação e fechamento de documentos fiscais eletrônicos.",
-  applicationName: "NotasFlow",
-  icons: { icon: "/icone.png" },
+  applicationName: "Fluxa",
+  icons: {
+    icon: [
+      { url: "/favicon-16.png", sizes: "16x16", type: "image/png" },
+      { url: "/favicon-32.png", sizes: "32x32", type: "image/png" },
+      { url: "/icone-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icone-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+  },
   robots: { index: false, follow: false },
 };
 
@@ -35,14 +43,14 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f7f8f7" },
-    { media: "(prefers-color-scheme: dark)", color: "#0f1513" },
+    { media: "(prefers-color-scheme: light)", color: "#eef1f8" },
+    { media: "(prefers-color-scheme: dark)", color: "#0a0d1c" },
   ],
 };
 
 /* Aplicado antes da primeira pintura: nada de flash branco no tema escuro.
    A sessão vive em cookie HttpOnly — aqui não há token, só preferência visual. */
-const scriptTema = `(function(){try{var k="notasflow:tema";var t=localStorage.getItem(k);var m=window.matchMedia("(prefers-color-scheme: dark)");var aplicar=function(){var escuro=t==="escuro"||((t===null||t==="sistema")&&m.matches);document.documentElement.dataset.tema=escuro?"escuro":"claro";};aplicar();m.addEventListener("change",aplicar);}catch(e){document.documentElement.dataset.tema="claro";}})()`;
+const scriptTema = `(function(){try{var k="fluxa:tema";var t=localStorage.getItem(k);var m=window.matchMedia("(prefers-color-scheme: dark)");var aplicar=function(){var escuro=t==="escuro"||((t===null||t==="sistema")&&m.matches);document.documentElement.dataset.tema=escuro?"escuro":"claro";};aplicar();m.addEventListener("change",aplicar);}catch(e){document.documentElement.dataset.tema="claro";}})()`;
 
 export default function Raiz({ children }: Readonly<{ children: React.ReactNode }>) {
   return (

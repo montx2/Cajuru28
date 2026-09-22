@@ -1,10 +1,10 @@
 @echo off
 chcp 65001 >nul
-title NotasFlow
+title Fluxa
 cd /d "%~dp0"
 
 echo ============================================
-echo   NotasFlow - subindo o sistema
+echo   Fluxa - subindo o sistema
 echo ============================================
 echo.
 
@@ -176,11 +176,11 @@ echo.
 echo ============================================
 echo   PROBLEMA DE PORTA NO WINDOWS
 echo ============================================
-echo O Docker nao conseguiu usar uma das portas. Nao e bug do NotasFlow:
+echo O Docker nao conseguiu usar uma das portas. Nao e bug do Fluxa:
 echo e o Windows (Hyper-V/WinNAT) reservando faixas de portas, ou outro
 echo programa usando a mesma porta.
 echo.
-echo O NotasFlow JA tenta desviar disso sozinho (escolhe outra porta
+echo O Fluxa JA tenta desviar disso sozinho (escolhe outra porta
 echo automaticamente). Como mesmo assim falhou, faca na ordem:
 echo.
 echo   1^) Feche programas que possam usar as portas 3000/8000/5432/6379
@@ -211,7 +211,7 @@ echo ============================================
 echo O Docker gravou "read-only file system" ao acessar o proprio
 echo banco interno ^(meta.db^). Isso acontece quando a maquina virtual
 echo do Docker Desktop travou, ficou sem espaco em disco ou o disco
-echo dela corrompeu. O codigo do NotasFlow nao tem relacao com isso.
+echo dela corrompeu. O codigo do Fluxa nao tem relacao com isso.
 echo.
 echo COMO RESOLVER, na ordem:
 echo   1^) Feche o Docker Desktop pela bandeja ^(Quit Docker Desktop^)
@@ -222,7 +222,7 @@ echo        docker system prune -a
 echo   4^) Reinicie o Windows.
 echo   5^) Ultimo recurso: Docker Desktop ^> Troubleshoot ^>
 echo      "Clean / Purge data" ou reinstale o Docker Desktop.
-echo      Isso apaga as imagens; os dados do NotasFlow ficam nos
+echo      Isso apaga as imagens; os dados do Fluxa ficam nos
 echo      volumes db_data/certificados/xml_saida - faca backup antes.
 echo.
 echo Detalhes em SOLUCAO_DE_PROBLEMAS.md

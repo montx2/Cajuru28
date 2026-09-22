@@ -1,8 +1,8 @@
-# Solução de problemas — NotasFlow
+# Solução de problemas — Fluxa
 
 ## `ports are not available: ... listen tcp 0.0.0.0:3000: bind: An attempt was made to access a socket in a way forbidden by its access permissions`
 
-**Esse erro é do Windows, não do NotasFlow.** Ele aparece ao subir o
+**Esse erro é do Windows, não do Fluxa.** Ele aparece ao subir o
 container do frontend (porta 3000) e tem duas causas comuns:
 
 1. **Faixa de porta reservada pelo Hyper-V/WinNAT** (a mais comum): a cada
@@ -68,7 +68,7 @@ API_PORT=8080        # opcional; se mudar, o frontend é reconstruído sozinho
 
 ## `failed to solve: write /var/lib/desktop-containerd/.../meta.db: read-only file system`
 
-**Esse erro não vem do NotasFlow.** É o Docker Desktop que não conseguiu
+**Esse erro não vem do Fluxa.** É o Docker Desktop que não conseguiu
 escrever no próprio banco interno de metadados (`meta.db`), dentro da máquina
 virtual dele. Nenhuma linha de código ou de `docker-compose.yml` do projeto
 influencia isso.
@@ -122,7 +122,7 @@ Resolve boa parte dos casos em que a VM ficou em estado inconsistente.
 Docker Desktop → Troubleshoot → **Clean / Purge data** (ou reinstalar o
 Docker Desktop).
 
-> ⚠️ Isso apaga imagens, containers **e volumes**. Os dados do NotasFlow
+> ⚠️ Isso apaga imagens, containers **e volumes**. Os dados do Fluxa
 > ficam nos volumes `db_data`, `certificados` e `xml_saida`.
 > **Faça backup antes** (veja abaixo).
 
@@ -213,7 +213,7 @@ Funciona para qualquer usuário e reativa quem estiver inativo.
 
 Alguma porta usada pelo projeto (3000, 8000, 5432 ou 6379) já está ocupada —
 geralmente um Postgres/Redis instalado direto no Windows, ou uma execução
-anterior do próprio NotasFlow.
+anterior do próprio Fluxa.
 
 ```powershell
 PARAR.bat

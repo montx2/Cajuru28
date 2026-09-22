@@ -408,12 +408,12 @@ def test_export_zip_contem_todos_os_xmls_do_periodo(cliente, tmp_path):
     assert len(xmls) == 2
     assert all("ARM-LOGISTICA" in n.upper().replace("_", "-") or "NOTASFLOW/" in n for n in xmls)
     # pasta por empresa + tipo, arquivo = chave de acesso
-    assert all(n.startswith("NotasFlow/") and n.endswith(".xml") for n in xmls)
+    assert all(n.startswith("Fluxa/") and n.endswith(".xml") for n in xmls)
     for nome in xmls:
         assert b"<NFSe" in pacote.read(nome)
 
     assert any(n.endswith("relacao.csv") for n in nomes)
-    relacao = pacote.read("NotasFlow/relacao.csv").decode("utf-8-sig")
+    relacao = pacote.read("Fluxa/relacao.csv").decode("utf-8-sig")
     linhas = [linha for linha in relacao.splitlines() if linha.strip()]
     assert linhas[0].split(";")[0] == "empresa"
     assert len(linhas) == 3  # cabeçalho + 2 notas
@@ -423,6 +423,64 @@ def test_export_zip_contem_todos_os_xmls_do_periodo(cliente, tmp_path):
     # o arquivo temporário do ZIP não fica para trás no disco
     sobras = list(tmp_path.glob("notasflow-export-*"))
     assert sobras == []
+
+
+def test_export_zip_avisa_quando_leiaute_completo_mas_arquivo_sumiu_do_disco(cliente):
+    """
+    O banco pode dizer "leiaute completo" (o XML foi capturado) e o arquivo
+    ainda assim não estar no disco (backup parcial, disco perdido etc.). O
+    pacote não pode fingir que a nota não existe nem mentir "sim" na coluna
+    xml_completo: precisa marcar o caso e avisar no LEIA-ME, senão o contador
+    não tem como saber que falta recapturar aquele XML.
+    """
+    client, empresa_id = cliente["client"], cliente["empresa_id"]
+    db = cliente["db"]
+
+    db.add(
+        DocumentoFiscal(
+            empresa_id=empresa_id,
+            tipo=TipoDocumentoFiscal.NFSE,
+            direcao="tomada",
+            chave_acesso="35260812345678000199550010000000099999999999",
+            nsu="99",
+            data_emissao=datetime(2026, 8, 15, 9, 0, tzinfo=timezone.utc),
+            competencia=date(2026, 8, 1),
+            valor_total=500.0,
+            xml_path="/tmp/este-arquivo-nao-existe-de-verdade.xml",
+            leiaute="completo",
+            numero="999",
+            serie="1",
+            emitente_nome="Fornecedor Teste Ltda",
+            emitente_documento="99999999000188",
+        )
+    )
+    db.commit()
+
+    resposta = client.get("/documentos/exportar", params={"competencia": "08/2026"})
+    assert resposta.status_code == 200, resposta.text
+
+    pacote = zipfile.ZipFile(io.BytesIO(resposta.content))
+    nomes = pacote.namelist()
+
+    # a nota nova não vira arquivo .xml no pacote (não existe o que zipar)...
+    xmls = [n for n in nomes if n.endswith(".xml")]
+    assert not any("099999999999" in n for n in xmls)
+
+    # ...mas aparece na relação, marcada — nunca some em silêncio.
+    relacao = pacote.read("Fluxa/relacao.csv").decode("utf-8-sig")
+    linha_nova = next(linha for linha in relacao.splitlines() if "099999999999" in linha)
+    assert "arquivo-ausente-no-disco" in linha_nova
+
+    leia_me = pacote.read("Fluxa/LEIA-ME.txt").decode("utf-8")
+    assert "1 documento(s) constam como 'XML completo'" in leia_me
+    assert "arquivo-ausente-no-disco" in leia_me
+
+    # o CSV avulso (sem baixar XML nenhum) precisa contar a mesma verdade.
+    csv_resposta = client.get("/documentos/exportar/csv", params={"competencia": "08/2026"})
+    assert csv_resposta.status_code == 200, csv_resposta.text
+    relacao_csv = csv_resposta.content.decode("utf-8-sig")
+    linha_csv = next(linha for linha in relacao_csv.splitlines() if "099999999999" in linha)
+    assert "arquivo-ausente-no-disco" in linha_csv
 
 
 def test_export_sem_empresa_especifica_puxa_todas_do_escritorio(cliente):
@@ -684,6 +742,49 @@ def test_conferencia_competencia_comprova_mes_quando_cursor_esta_em_dia(cliente,
     assert corpo["itens_ok"] == 1
     assert corpo["itens"][0]["status"] == "ok"
     assert corpo["itens"][0]["ultimo_nsu"] == "42"
+
+
+def test_conferencia_competencia_nao_conta_mes_aberto_em_dia_como_pendente(cliente, tmp_path):
+    """
+    Competência do mês corrente (ainda aberta) com cursor em dia deve virar
+    status "parcial" no item — saudável, só falta o mês terminar — e NÃO
+    deve ser somado em `itens_pendentes`. Antes deste fix a tela de
+    Relatórios anunciava "N pendentes" para empresas que já estavam com a
+    varredura em dia, só porque o mês corrente não tinha fechado ainda.
+    """
+    from app.core.tempo import hoje_operacional
+
+    client, db, empresa_id = cliente["client"], cliente["db"], cliente["empresa_id"]
+    pfx = tmp_path / "a1.pfx"
+    pfx.write_bytes(b"fake")
+    db.add(
+        Certificado(
+            empresa_id=empresa_id,
+            arquivo_path=str(pfx),
+            senha_cifrada="x",
+            validade=datetime.now(timezone.utc) + timedelta(days=10),
+            ativo=True,
+        )
+    )
+    estado = sincronizacao.obter_estado(db, empresa_id, TipoDocumentoFiscal.NFSE)
+    estado.ultimo_nsu = "10"
+    estado.max_nsu = "10"
+    estado.ultima_consulta_em = datetime.now(timezone.utc)
+    estado.atualizado_em = estado.ultima_consulta_em
+    db.commit()
+
+    hoje = hoje_operacional()
+    competencia_aberta = f"{hoje.month:02d}/{hoje.year:04d}"
+    resposta = client.get(
+        "/importacoes/conferencia", params={"competencia": competencia_aberta, "tipos": "nfse"}
+    )
+    assert resposta.status_code == 200, resposta.text
+    corpo = resposta.json()
+    assert corpo["status"] == "parcial"
+    assert corpo["itens"][0]["status"] == "parcial"
+    assert corpo["itens_pendentes"] == 0, corpo
+    assert corpo["itens_ok"] == 0
+    assert corpo["itens_criticos"] == 0
 
 
 def test_conferencia_competencia_exige_varredura_depois_do_fechamento(cliente, tmp_path):
@@ -981,10 +1082,23 @@ def test_rebobinar_recusa_cursor_com_varredura_ativa(cliente):
     assert sincronizacao.obter_estado(db, empresa_id, TipoDocumentoFiscal.NFSE).ultimo_nsu == "35"
 
 
+def test_reset_geral_exige_a_frase_que_a_tela_realmente_envia(cliente):
+    """
+    A tela (DialogoConfirmacao, exigirTexto="APAGAR TUDO") sempre manda
+    `confirmar=APAGAR TUDO` — nunca "LIMPAR". Se a API exigisse outra frase,
+    o botão "Executar reset geral" falharia sempre com 422, sem forma de
+    completar a operação pela interface.
+    """
+    client = cliente["client"]
+    errada = client.post("/sistema/reset-geral", params={"confirmar": "LIMPAR", "forcar": "true"})
+    assert errada.status_code == 422
+    assert client.get("/empresas").json()  # nada foi apagado com a frase errada
+
+
 def test_reset_geral_deixa_o_escritorio_sem_empresas(cliente):
     client, db = cliente["client"], cliente["db"]
     assert client.get("/empresas").json()
-    resposta = client.post("/sistema/reset-geral", params={"confirmar": "LIMPAR", "forcar": "true"})
+    resposta = client.post("/sistema/reset-geral", params={"confirmar": "APAGAR TUDO", "forcar": "true"})
     assert resposta.status_code == 200, resposta.text
     corpo = resposta.json()
     assert corpo["empresas"] == 1

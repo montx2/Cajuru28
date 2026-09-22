@@ -230,7 +230,7 @@ export function Combobox({
           </div>
 
           {aberto ? (
-            <div className="absolute left-0 right-0 top-full z-camada mt-1 overflow-hidden rounded-cartao border border-traco bg-superficie shadow-nivel1 animate-subir">
+            <div className="vidro absolute left-0 right-0 top-full z-camada mt-1 overflow-hidden rounded-cartao shadow-nivel1 animate-subir">
               <ul id={idLista} role="listbox" aria-label={rotulo} className="rolagem-fina max-h-72 overflow-y-auto py-1">
                 {carregando ? (
                   <li className="px-3 py-2 text-sm text-tinta-suave" role="presentation">

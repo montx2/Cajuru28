@@ -77,5 +77,5 @@ export function migalhasDoCaminho(caminho: string): Migalha[] {
 }
 
 export function tituloDoCaminho(caminho: string): string {
-  return rotaDoCaminho(caminho)?.titulo ?? "NotasFlow";
+  return rotaDoCaminho(caminho)?.titulo ?? "Fluxa";
 }

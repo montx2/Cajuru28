@@ -402,7 +402,7 @@ def testar_webhook(
             "id": "teste-manual",
             "nivel": "info",
             "categoria": "sistema",
-            "titulo": "Teste do webhook NotasFlow",
+            "titulo": "Teste do webhook Fluxa",
             "detalhe": "Se esta mensagem chegou, os alertas externos estão funcionando.",
             "empresa_razao_social": None,
             "acao_rotulo": "Abrir painel",

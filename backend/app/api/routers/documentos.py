@@ -612,7 +612,7 @@ def exportar_relacao_csv(
         )
 
     caminho, _linhas = _montar_csv_arquivo(consulta)
-    nome = "NotasFlow_relacao_" + re.sub(r"[^0-9A-Za-z_.-]+", "_", periodo.rotulo()) + ".csv"
+    nome = "Fluxa_relacao_" + re.sub(r"[^0-9A-Za-z_.-]+", "_", periodo.rotulo()) + ".csv"
     from starlette.background import BackgroundTask
 
     return FileResponse(
@@ -654,7 +654,7 @@ def exportar_xmls(
     ZIP com **todos** os XMLs do filtro — a resposta para "baixar todos os XMLs
     encontrados", que antes só existia nota a nota.
 
-    Estrutura: `NotasFlow/<empresa>/<tipo>/<chave>.xml`, mais o `relacao.csv`
+    Estrutura: `Fluxa/<empresa>/<tipo>/<chave>.xml`, mais o `relacao.csv`
     (separador `;` + BOM, abre direto no Excel pt-BR). O arquivo é montado em
     streaming no disco temporário e apagado no fim — 25 mil XMLs não cabem na
     memória do container, e um navegador não precisa esperar o ZIP inteiro
@@ -722,7 +722,7 @@ def exportar_xmls(
         incluir_relatorio=incluir_relatorio,
     )
 
-    nome = "NotasFlow_" + re.sub(r"[^0-9A-Za-z_.-]+", "_", periodo.rotulo()) + ".zip"
+    nome = "Fluxa_" + re.sub(r"[^0-9A-Za-z_.-]+", "_", periodo.rotulo()) + ".zip"
     from starlette.background import BackgroundTask
 
     return FileResponse(
@@ -883,7 +883,26 @@ def _cabecalho_relatorio() -> list[str]:
     ]
 
 
-def _linha_relatorio(documento: DocumentoFiscal, empresa: Empresa, arquivo_zip: str) -> list[str]:
+def _linha_relatorio(
+    documento: DocumentoFiscal,
+    empresa: Empresa,
+    arquivo_zip: str,
+    *,
+    arquivo_ausente_no_disco: bool = False,
+) -> list[str]:
+    if arquivo_ausente_no_disco:
+        # O banco diz "XML completo" (leiaute == completo), mas o arquivo não
+        # está no disco na hora de montar o pacote — sem isto o contador via
+        # "sim" e "arquivo" vazio sem entender por quê, achando que o download
+        # simplesmente falhou. Aparece separado de "so-resumo"/"metadados-sem-xml"
+        # porque a causa é outra: perda/ausência do arquivo, não falta de captura.
+        situacao_xml = "arquivo-ausente-no-disco"
+    elif documento.leiaute == "completo":
+        situacao_xml = "sim"
+    elif documento.leiaute == "metadados":
+        situacao_xml = "metadados-sem-xml"
+    else:
+        situacao_xml = "so-resumo"
     return [
         empresa.razao_social,
         empresa.cnpj_cpf,
@@ -900,7 +919,7 @@ def _linha_relatorio(documento: DocumentoFiscal, empresa: Empresa, arquivo_zip: 
         documento.destinatario_nome or "",
         f"{documento.valor_total:.2f}".replace(".", ","),
         "CANCELADA" if documento.status == StatusDocumentoFiscal.CANCELADA else "NORMAL",
-        "sim" if documento.leiaute == "completo" else ("metadados-sem-xml" if documento.leiaute == "metadados" else "so-resumo"),
+        situacao_xml,
         documento.origem or "",
         documento.nsu or "",
         arquivo_zip,
@@ -915,7 +934,14 @@ def _montar_csv_arquivo(consulta) -> tuple[str, int]:
         escritor = csv.writer(arquivo, delimiter=";", lineterminator="\r\n")
         escritor.writerow(_cabecalho_relatorio())
         for documento, empresa in consulta.yield_per(500):
-            escritor.writerow(_linha_relatorio(documento, empresa, ""))
+            # Mesma checagem do ZIP: "leiaute completo" no banco não garante
+            # que o arquivo ainda existe no disco — sem isto o CSV avulso
+            # (sem baixar XML nenhum) mentia "sim" para uma nota cujo XML já
+            # não pode mais ser baixado individualmente.
+            ausente = documento.leiaute == "completo" and not (
+                documento.xml_path and os.path.isfile(documento.xml_path)
+            )
+            escritor.writerow(_linha_relatorio(documento, empresa, "", arquivo_ausente_no_disco=ausente))
             linhas += 1
     return caminho, linhas
 
@@ -933,10 +959,11 @@ def _montar_zip(consulta, periodo, *, incluir_relatorio: bool) -> str:
     escritor.writerow(_cabecalho_relatorio())
 
     usados: set[str] = set()
+    arquivos_ausentes = 0
     with zipfile.ZipFile(caminho, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as pacote:
         for documento, empresa in consulta.yield_per(200):
             nome_arquivo = f"{documento.chave_acesso}.xml"
-            pasta = f"NotasFlow/{_slug(empresa.razao_social)}/{documento.tipo.value}"
+            pasta = f"Fluxa/{_slug(empresa.razao_social)}/{documento.tipo.value}"
             endereco = f"{pasta}/{nome_arquivo}"
             if endereco in usados:  # chave repetida entre empresas diferentes já tem pasta própria
                 endereco = f"{pasta}/{documento.id}_{nome_arquivo}"
@@ -959,6 +986,12 @@ def _montar_zip(consulta, periodo, *, incluir_relatorio: bool) -> str:
                 # fingir que JSON é XML), entregamos sua representação
                 # normalizada e deixamos isso explícito no relatório.
                 arquivo_relatorio = ""
+                # Caso diferente do de cima: o banco registra leiaute "completo"
+                # (o XML foi capturado), mas o arquivo sumiu do disco (disco
+                # cheio, restauração parcial, etc.). Sem marcar isso a nota some
+                # do pacote em silêncio e a coluna "xml_completo" mentia "sim".
+                if documento.leiaute == "completo":
+                    arquivos_ausentes += 1
                 if documento.leiaute == "metadados":
                     endereco_metadados = f"{pasta}/metadados/{documento.id}_{documento.chave_acesso}.json"
                     pacote.writestr(
@@ -987,25 +1020,45 @@ def _montar_zip(consulta, periodo, *, incluir_relatorio: bool) -> str:
                     )
                     arquivo_relatorio = endereco_metadados
 
-            escritor.writerow(_linha_relatorio(documento, empresa, arquivo_relatorio))
+            escritor.writerow(
+                _linha_relatorio(
+                    documento,
+                    empresa,
+                    arquivo_relatorio,
+                    arquivo_ausente_no_disco=(documento.leiaute == "completo" and not conteudo),
+                )
+            )
 
         if incluir_relatorio:
             # BOM: sem ele o Excel pt-BR abre "empresa;razao" numa coluna só.
-            pacote.writestr("NotasFlow/relacao.csv", "\ufeff" + relatorio.getvalue())
+            pacote.writestr("Fluxa/relacao.csv", "\ufeff" + relatorio.getvalue())
             pacote.writestr(
-                "NotasFlow/LEIA-ME.txt",
-                _leia_me(periodo, len(usados)),
+                "Fluxa/LEIA-ME.txt",
+                _leia_me(periodo, len(usados), arquivos_ausentes),
             )
     return caminho
 
-def _leia_me(periodo, quantidade: int) -> str:
+def _leia_me(periodo, quantidade: int, arquivos_ausentes: int = 0) -> str:
+    aviso_ausentes = (
+        (
+            f"\nATENÇÃO: {arquivos_ausentes} documento(s) constam como 'XML completo'\n"
+            "no cadastro, mas o arquivo não foi encontrado no disco na hora de\n"
+            "gerar este pacote (procure 'arquivo-ausente-no-disco' na coluna\n"
+            "xml_completo da relacao.csv). Confira o backup/disco do servidor;\n"
+            "não há como recuperar o arquivo original sem capturar de novo pela\n"
+            "SEFAZ, dentro do horizonte de distribuição.\n"
+        )
+        if arquivos_ausentes > 0
+        else ""
+    )
     return (
-        "NotasFlow — pacote de XMLs fiscais\n"
+        "Fluxa — pacote de XMLs fiscais\n"
         "====================================\n"
         f"Período (competência): {periodo.rotulo()}\n"
         f"Documentos no pacote: {quantidade}\n"
-        f"Gerado em: {datetime.now(timezone.utc):%d/%m/%Y %H:%M} UTC\n\n"
-        "Estrutura: NotasFlow/<empresa>/<tipo>/<chave>.xml\n"
+        f"Gerado em: {datetime.now(timezone.utc):%d/%m/%Y %H:%M} UTC\n"
+        f"{aviso_ausentes}\n"
+        "Estrutura: Fluxa/<empresa>/<tipo>/<chave>.xml\n"
         "relacao.csv abre direto no Excel (separador ';').\n\n"
         "Notas com 'so-resumo' na coluna xml_completo: a SEFAZ distribui o\n"
         "resumo até que a nota seja manifestada. Use o botão 'completar XML'\n"

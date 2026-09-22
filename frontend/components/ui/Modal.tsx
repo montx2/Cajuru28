@@ -61,7 +61,7 @@ export function Modal({ aberto, aoFechar, titulo, descricao, children, rodape, l
         aria-labelledby={idTitulo}
         aria-describedby={descricao ? `${idTitulo}-descricao` : undefined}
         className={cn(
-          "relative my-auto flex max-h-[calc(100vh-3rem)] w-full flex-col overflow-hidden rounded-camada border border-traco bg-superficie-alta shadow-nivel2 animate-subir",
+          "vidro relative my-auto flex max-h-[calc(100vh-3rem)] w-full flex-col overflow-hidden rounded-camada shadow-nivel2 animate-subir",
           LARGURAS[largura],
           className
         )}

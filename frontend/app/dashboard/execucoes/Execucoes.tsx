@@ -580,7 +580,7 @@ function DetalheExecucao({ execucao, agora }: { execucao: ExecucaoImportacao; ag
       </dl>
 
       <div className="border-t border-traco pt-4 text-xs">
-        <Link href={`/dashboard/documentos?empresa_id=${execucao.empresa_id}`} className="font-medium text-acento underline-offset-4 hover:underline">
+        <Link href={`/dashboard/documentos?empresa=${execucao.empresa_id}`} className="font-medium text-acento underline-offset-4 hover:underline">
           Ver documentos desta empresa
         </Link>
       </div>

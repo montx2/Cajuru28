@@ -1060,8 +1060,12 @@ def conferir_competencia(
     itens_criticos = sum(1 for item in itens if item.status in criticos_status)
     itens_ok = sum(1 for item in itens if item.status == "ok")
     itens_parciais = sum(1 for item in itens if item.status == "parcial")
-    itens_pendentes = len(itens) - itens_ok - itens_criticos
+    # "parcial" é saudável — cursor em dia, só aguardando o fechamento do mês —
+    # não é uma pendência real. Contá-lo aqui fazia a tela anunciar "N
+    # pendentes" para empresas que já estão em dia, só porque o mês corrente
+    # ainda não terminou.
     pendencias_reais = len(itens) - itens_ok - itens_criticos - itens_parciais
+    itens_pendentes = pendencias_reais
 
     if not itens:
         status_geral = "critico"

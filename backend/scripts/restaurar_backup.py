@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Restaura um pacote NotasFlow v2 somente em destino vazio e explícito.
+"""Restaura um pacote Fluxa v2 somente em destino vazio e explícito.
 
 Não é endpoint HTTP e não sobrescreve uma operação viva: use numa cópia nova
 em recuperação, depois faça a validação funcional antes de apontar o proxy.
@@ -114,7 +114,7 @@ def _restaurar_objetos(conteudo: Path, destino_dados: Path) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Valida ou restaura backup cifrado NotasFlow v2")
+    parser = argparse.ArgumentParser(description="Valida ou restaura backup cifrado Fluxa v2")
     parser.add_argument("--arquivo", required=True, type=Path, help="pacote .tar.gz.enc")
     parser.add_argument("--checksum", help="SHA-256 do banco ou metadata S3; recomendado")
     parser.add_argument("--validar", action="store_true", help="só valida cifra, manifesto e hashes")

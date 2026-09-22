@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# NotasFlow — Atualiza o código (git pull) e reconstrói os containers.
+# Fluxa — Atualiza o código (git pull) e reconstrói os containers.
 set -euo pipefail
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "============================================"
-echo "  NotasFlow - Atualizando o sistema"
+echo "  Fluxa - Atualizando o sistema"
 echo "============================================"
 
 if command -v git >/dev/null 2>&1; then

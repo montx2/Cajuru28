@@ -1,10 +1,10 @@
 @echo off
 chcp 65001 >nul
-title NotasFlow - Atualizar
+title Fluxa - Atualizar
 cd /d "%~dp0"
 
 echo ============================================
-echo   NotasFlow - Atualizando o sistema
+echo   Fluxa - Atualizando o sistema
 echo ============================================
 echo.
 echo Seus dados NAO serao apagados (banco, certificados e XMLs

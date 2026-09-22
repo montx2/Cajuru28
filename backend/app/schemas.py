@@ -28,7 +28,7 @@ class LoginRequest(BaseModel):
     @field_validator("email")
     @classmethod
     def email_normalizado(cls, v: str) -> str:
-        # O usuário digita "Admin@NotasFlow.local " com maiúscula, espaço no
+        # O usuário digita "Admin@Fluxa.local " com maiúscula, espaço no
         # fim, ou o autofill do navegador capitaliza a primeira letra. O
         # cadastro (bootstrap/UsuarioCriar) grava sempre minúsculo e sem
         # espaços — normalizar aqui é o que faz os dois lados baterem.

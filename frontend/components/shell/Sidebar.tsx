@@ -7,6 +7,7 @@ import { numero } from "@/lib/format";
 import { GRUPOS, rotasDoMenu } from "@/lib/rotas";
 import { Dica } from "@/components/ui/Dica";
 import { Icone } from "@/components/ui/Icone";
+import { LogoFluxa } from "@/components/ui/LogoFluxa";
 import { useSessao } from "./ProvedorSessao";
 import { useContagemAlertas } from "./ProvedorAlertas";
 
@@ -32,14 +33,14 @@ export function Sidebar({ aberta, aoFechar, colapsada, aoAlternarColapso }: Side
   const rotas = rotasDoMenu(papel);
 
   const conteudo = (
-    <div className={cn("flex h-full flex-col bg-grafite text-sobre-grafite", colapsada ? "w-14" : "w-60")}>
+    <div className={cn("vidro-grafite flex h-full flex-col text-sobre-grafite", colapsada ? "w-14" : "w-60")}>
       <div className={cn("flex h-14 flex-none items-center gap-2 border-b border-grafite-traco px-3", colapsada && "justify-center px-0")}>
         <span aria-hidden="true" className="flex h-7 w-7 flex-none items-center justify-center rounded-controle border border-grafite-traco bg-grafite-alta text-acento">
-          <Icone nome="certificado" className="h-4 w-4" />
+          <LogoFluxa className="h-4 w-4" />
         </span>
         {colapsada ? null : (
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-semibold tracking-tight text-sobre-grafite">NotasFlow</span>
+            <span className="block truncate text-sm font-semibold tracking-tight text-sobre-grafite">Fluxa</span>
             <span className="block truncate text-2xs text-sobre-grafite/60">Operação fiscal</span>
           </span>
         )}

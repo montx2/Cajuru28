@@ -1,4 +1,4 @@
-# Como atualizar o NotasFlow sem reinstalar tudo
+# Como atualizar o Fluxa sem reinstalar tudo
 
 **Resposta curta:** rode `ATUALIZAR.bat`. Só isso.
 
