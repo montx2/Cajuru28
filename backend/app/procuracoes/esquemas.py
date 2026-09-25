@@ -178,6 +178,8 @@ class LinhaSaida(Base):
     situacao: str
     data_validade: date | None = None
     dias_para_vencer: int | None = None
+    prazo_aceite_ate: date | None = None
+    dias_para_aceite: int | None = None
     outorgado_documento: str = ""
     protocolo: str = ""
     origem_dado: str = ""

@@ -1,12 +1,17 @@
 import type {
+  AgenteProcuracao,
   AlertasResposta,
   BackupsResposta,
   BackupRegistro,
+  ConfiguracaoProcuracoes,
+  CredencialAgente,
+  CredencialIntegracao,
   Certificado,
   CertificadoPainel,
   ConferenciaCompetencia,
   ConsultaCNPJ,
   DirecaoDocumento,
+  DetalheProcuracao,
   DocumentoDetalhe,
   DocumentoFiscal,
   Empresa,
@@ -20,7 +25,17 @@ import type {
   FechamentoMensal,
   InfoSistema,
   ItemImportacaoLote,
+  JobProcuracao,
+  JobProcuracaoDetalhe,
   KpisDashboard,
+  ListaProcuracoes,
+  ModeloProcuracao,
+  NotificacaoProcuracao,
+  PassoRoteiro,
+  ProcessarPendenciasResultado,
+  ResultadoSincronizacaoProcuracoes,
+  ResumoProcuracoes,
+  SituacaoOpcaoProcuracao,
   LoteEmpresasResposta,
   PainelOperacional,
   CentralExecucoes,
@@ -45,6 +60,15 @@ import type {
  *   apontando para a API (ex.: `http://localhost:8000`).
  */
 const BASE_URL = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
+
+/**
+ * Endereço absoluto de um recurso da API, para uso em `href`/`src` — download
+ * de evidência, por exemplo, precisa de navegação do próprio navegador (com
+ * cookie de sessão), não de `fetch`.
+ */
+export function urlDaApi(caminho: string): string {
+  return `${BASE_URL}${caminho.startsWith("/") ? caminho : `/${caminho}`}`;
+}
 
 export class ApiError extends Error {
   status: number;
@@ -568,6 +592,167 @@ export const api = {
   testarBackup: (id: number) =>
     chamar<{ ok: boolean; detalhe: string }>(`/sistema/backups/${id}/testar`, {
       method: "POST",
+    }),
+
+  /* ── Procurações RFB ───────────────────────────────────────────────────
+   *
+   * Leituras do painel, operação da fila e administração do módulo. A
+   * execução no portal não passa por aqui: ela acontece na estação, conduzida
+   * pelo Cajuru Agent, com o operador autenticando-se no ambiente oficial.
+   */
+
+  resumoProcuracoes: () => chamar<ResumoProcuracoes>("/procuracoes/resumo"),
+
+  listarProcuracoes: (filtros: {
+    situacao?: string;
+    busca?: string;
+    com_job?: boolean | null;
+    pagina?: number;
+    tamanho?: number;
+  } = {}) => chamar<ListaProcuracoes>(`/procuracoes${montarParams(filtros)}`),
+
+  situacoesProcuracao: () => chamar<SituacaoOpcaoProcuracao[]>("/procuracoes/situacoes"),
+
+  detalheProcuracao: (empresaId: number) =>
+    chamar<DetalheProcuracao>(`/procuracoes/empresas/${empresaId}`),
+
+  roteiroProcuracao: (fase?: string) =>
+    chamar<{ passos: PassoRoteiro[]; aviso: string }>(`/procuracoes/roteiro${montarParams({ fase })}`),
+
+  listarJobsProcuracao: (filtros: { status?: string; empresa_id?: number; limite?: number } = {}) =>
+    chamar<JobProcuracao[]>(`/procuracoes/jobs${montarParams(filtros)}`),
+
+  jobProcuracao: (jobId: number) =>
+    chamar<JobProcuracaoDetalhe>(`/procuracoes/jobs/${jobId}`),
+
+  criarJobProcuracao: (empresa_id: number, opcoes: { forcar_nova_outorga?: boolean; modelo_id?: number | null } = {}) =>
+    chamar<JobProcuracao>("/procuracoes/jobs", {
+      method: "POST",
+      body: JSON.stringify({ empresa_id, ...opcoes }),
+    }),
+
+  processarPendencias: (opcoes: { limite?: number; empresa_ids?: number[] } = {}) =>
+    chamar<ProcessarPendenciasResultado>("/procuracoes/processar-pendencias", {
+      method: "POST",
+      body: JSON.stringify(opcoes),
+    }),
+
+  retomarJobProcuracao: (jobId: number) =>
+    chamar<JobProcuracao>(`/procuracoes/jobs/${jobId}/retomar`, { method: "POST", body: "{}" }),
+
+  cancelarJobProcuracao: (jobId: number, motivo: string) =>
+    chamar<JobProcuracao>(`/procuracoes/jobs/${jobId}/cancelar`, {
+      method: "POST",
+      body: JSON.stringify({ motivo }),
+    }),
+
+  reprocessarJobProcuracao: (jobId: number) =>
+    chamar<JobProcuracao>(`/procuracoes/jobs/${jobId}/reprocessar`, { method: "POST", body: "{}" }),
+
+  intervencaoJobProcuracao: (jobId: number, motivo: string) =>
+    chamar<JobProcuracao>(`/procuracoes/jobs/${jobId}/intervencao`, {
+      method: "POST",
+      body: JSON.stringify({ motivo }),
+    }),
+
+  // Registro manual: o operador concluiu no portal e informa o que o portal
+  // devolveu. Sem protocolo ou texto de confirmação a API recusa.
+  registrarOutorga: (jobId: number, dados: { protocolo?: string; confirmacao_portal?: string }) =>
+    chamar<JobProcuracao>(`/procuracoes/jobs/${jobId}/registrar-outorga`, {
+      method: "POST",
+      body: JSON.stringify(dados),
+    }),
+
+  registrarAceite: (jobId: number, dados: { confirmacao_portal?: string }) =>
+    chamar<JobProcuracao>(`/procuracoes/jobs/${jobId}/registrar-aceite`, {
+      method: "POST",
+      body: JSON.stringify(dados),
+    }),
+
+  configuracaoProcuracoes: () => chamar<ConfiguracaoProcuracoes>("/procuracoes/configuracao"),
+
+  salvarConfiguracaoProcuracoes: (dados: Partial<ConfiguracaoProcuracoes>) =>
+    chamar<ConfiguracaoProcuracoes>("/procuracoes/configuracao", {
+      method: "PUT",
+      body: JSON.stringify(dados),
+    }),
+
+  modelosProcuracao: () => chamar<ModeloProcuracao[]>("/procuracoes/modelos"),
+
+  salvarModeloProcuracao: (dados: Partial<ModeloProcuracao> & { nome: string }, id?: number) =>
+    chamar<ModeloProcuracao>(id ? `/procuracoes/modelos/${id}` : "/procuracoes/modelos", {
+      method: id ? "PUT" : "POST",
+      body: JSON.stringify(dados),
+    }),
+
+  excluirModeloProcuracao: (id: number) =>
+    chamar<void>(`/procuracoes/modelos/${id}`, { method: "DELETE" }),
+
+  integracoesProcuracao: () => chamar<CredencialIntegracao[]>("/procuracoes/integracoes"),
+
+  salvarIntegracaoProcuracao: (dados: {
+    fonte: string;
+    base_url?: string;
+    segredo?: string;
+    identificador?: string;
+    ativo?: boolean;
+    opcoes?: Record<string, string>;
+  }) =>
+    chamar<CredencialIntegracao>("/procuracoes/integracoes", {
+      method: "PUT",
+      body: JSON.stringify(dados),
+    }),
+
+  removerIntegracaoProcuracao: (fonte: string) =>
+    chamar<void>(`/procuracoes/integracoes/${fonte}`, { method: "DELETE" }),
+
+  testarIntegracaoProcuracao: (fonte: string) =>
+    chamar<{ ok: boolean; detalhe: string; codigo: string | null }>(
+      `/procuracoes/integracoes/${fonte}/testar`,
+      { method: "POST", body: "{}" }
+    ),
+
+  sincronizarProcuracoes: (fonte: string) =>
+    chamar<ResultadoSincronizacaoProcuracoes>("/procuracoes/sincronizar", {
+      method: "POST",
+      body: JSON.stringify({ fonte }),
+    }),
+
+  importarPlanilhaProcuracoes: (arquivo: File) => {
+    const corpo = new FormData();
+    corpo.append("arquivo", arquivo);
+    return chamar<ResultadoSincronizacaoProcuracoes>("/procuracoes/importar-planilha", {
+      method: "POST",
+      body: corpo,
+    });
+  },
+
+  agentesProcuracao: () => chamar<AgenteProcuracao[]>("/procuracoes/agentes"),
+
+  matricularAgente: (nome: string, identificador?: string) =>
+    chamar<CredencialAgente>("/procuracoes/agentes", {
+      method: "POST",
+      body: JSON.stringify({ nome, ...(identificador ? { identificador } : {}) }),
+    }),
+
+  revogarAgente: (id: number, motivo: string) =>
+    chamar<AgenteProcuracao>(`/procuracoes/agentes/${id}/revogar`, {
+      method: "POST",
+      body: JSON.stringify({ motivo }),
+    }),
+
+  requisitosAgente: () =>
+    chamar<{ passos: Array<{ chave: string; titulo: string; acao: string }>; url_manual: string; url_teste: string }>(
+      "/procuracoes/agentes/requisitos"
+    ),
+
+  notificacoesProcuracao: (apenasAbertas = true) =>
+    chamar<NotificacaoProcuracao[]>(`/procuracoes/notificacoes${montarParams({ apenas_abertas: apenasAbertas })}`),
+
+  reconhecerNotificacaoProcuracao: (id: number) =>
+    chamar<NotificacaoProcuracao>(`/procuracoes/notificacoes/${id}/reconhecer`, {
+      method: "POST",
+      body: "{}",
     }),
 
   saudeDetalhada: () =>

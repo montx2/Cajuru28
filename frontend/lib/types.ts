@@ -709,3 +709,283 @@ export interface BackupsResposta {
   saude: SaudeBackup;
   registros: BackupRegistro[];
 }
+
+/* ── Procurações RFB ─────────────────────────────────────────────────────── */
+
+/**
+ * Espelho fiel de `backend/app/procuracoes/esquemas.py`. Campo que não existe
+ * lá não existe aqui: tipo otimista vira `undefined` em produção e a tela
+ * mostra "—" sem ninguém entender por quê.
+ */
+
+export type SituacaoAutorizacao =
+  | "sem_autorizacao"
+  | "em_analise"
+  | "aguardando_aceite"
+  | "ativa"
+  | "expirada"
+  | "cancelada"
+  | "rejeitada"
+  | "erro"
+  | "intervencao_manual";
+
+export interface ResumoProcuracoes {
+  total_empresas: number;
+  sem_autorizacao: number;
+  em_analise: number;
+  aguardando_aceite: number;
+  ativas: number;
+  expiradas: number;
+  /** Ativas que vencem dentro da janela configurada de alerta. */
+  vencendo: number;
+  canceladas: number;
+  jobs_na_fila: number;
+  jobs_aguardando_humano: number;
+  jobs_com_erro: number;
+  jobs_concluidos_24h: number;
+  agentes_online: number;
+  agentes_total: number;
+  agentes_com_assinador: number;
+  certificados_disponiveis: number;
+  certificados_vencendo: number;
+  notificacoes_abertas: number;
+  duracao_media_minutos: number;
+  taxa_sucesso: number;
+}
+
+export interface LinhaProcuracao {
+  empresa_id: number;
+  razao_social: string;
+  documento: string;
+  uf: string;
+  situacao: SituacaoAutorizacao | string;
+  data_validade: string | null;
+  dias_para_vencer: number | null;
+  /** Relógio dos 30 dias; só vem preenchido enquanto o aceite está pendente. */
+  prazo_aceite_ate: string | null;
+  dias_para_aceite: number | null;
+  outorgado_documento: string;
+  protocolo: string;
+  origem_dado: string;
+  sincronizado_em: string | null;
+  job_id: number | null;
+  job_status: string;
+  job_etapa: string;
+  job_modo: string;
+  job_atualizado_em: string | null;
+  certificado_disponivel: boolean;
+  servicos: number;
+}
+
+export interface ListaProcuracoes {
+  itens: LinhaProcuracao[];
+  total: number;
+  pagina: number;
+  tamanho: number;
+}
+
+export interface EventoJobProcuracao {
+  id: number;
+  job_id: number;
+  quando: string | null;
+  tipo: string;
+  etapa: string;
+  status_anterior: string;
+  status_novo: string;
+  mensagem: string;
+  codigo_erro: string;
+  ator: string;
+}
+
+export interface EvidenciaJob {
+  id: number;
+  etapa: string;
+  tipo: string;
+  sha256: string;
+  tamanho_bytes: number;
+  url_observada: string;
+  criado_em: string | null;
+}
+
+export interface PassoRoteiro {
+  etapa: string;
+  fase: string;
+  titulo: string;
+  instrucao: string;
+  url: string;
+  confirmacao: string;
+  executor: "operador" | "sistema";
+  certificado: "cliente" | "contabilidade";
+}
+
+export interface JobProcuracao {
+  id: number;
+  status: string;
+  fase: string;
+  etapa_atual: string;
+  modo: string;
+  tentativas: number;
+  codigo_erro: string;
+  classe_erro: string;
+  mensagem_erro: string;
+  motivo_intervencao: string;
+  criado_em: string | null;
+  iniciado_em: string | null;
+  finalizado_em: string | null;
+  agente_id: number | null;
+  vigencia_ate: string | null;
+  protocolo: string;
+}
+
+export interface JobProcuracaoDetalhe extends JobProcuracao {
+  empresa_id: number;
+  empresa_nome: string;
+  empresa_documento: string;
+  escopo_servicos: string;
+  servicos: Array<Record<string, string>>;
+  outorgado_documento: string;
+  outorgado_nome: string;
+  certificado_thumbprint: string;
+  proxima_tentativa_em: string | null;
+  eventos: EventoJobProcuracao[];
+  evidencias: EvidenciaJob[];
+  roteiro: PassoRoteiro[];
+}
+
+export interface CertificadoInventario {
+  id: number;
+  agente_id: number;
+  thumbprint: string;
+  titular_nome: string;
+  documento: string;
+  valido_ate: string | null;
+  situacao: string;
+  tipo: string;
+}
+
+export interface DetalheProcuracao {
+  empresa: LinhaProcuracao;
+  permissoes: Array<{ codigo: string; rotulo: string }>;
+  jobs: JobProcuracao[];
+  eventos: EventoJobProcuracao[];
+  certificados: CertificadoInventario[];
+}
+
+export interface AgenteProcuracao {
+  id: number;
+  identificador: string;
+  nome: string;
+  hostname: string;
+  usuario_windows: string;
+  sistema_operacional: string;
+  versao_agente: string;
+  versao_navegador: string;
+  versao_assinador: string;
+  assinador_ok: boolean;
+  assinador_detalhe: string;
+  jobs_em_andamento: number;
+  ativo: boolean;
+  revogado_em: string | null;
+  revogado_motivo: string;
+  ultimo_heartbeat_em: string | null;
+  criado_em: string | null;
+  situacao: "online" | "ocioso" | "offline" | "revogado" | string;
+  certificados: number;
+}
+
+/** Só existe na resposta da matrícula: o segredo não volta em nenhuma leitura. */
+export interface CredencialAgente {
+  agente: AgenteProcuracao;
+  segredo: string;
+  aviso: string;
+}
+
+export interface ConfiguracaoProcuracoes {
+  id: number;
+  outorgado_documento: string;
+  outorgado_nome: string;
+  modo_padrao: "assistido" | "consulta_api" | "nao_assistido";
+  modo_efetivo: string;
+  fundamento_politica: string;
+  processamento_automatico: boolean;
+  sincronizacao_automatica: boolean;
+  hora_sincronizacao: number;
+  intervalo_entre_jobs_segundos: number;
+  max_jobs_simultaneos: number;
+  max_jobs_por_agente: number;
+  max_tentativas: number;
+  timeout_etapa_segundos: number;
+  timeout_job_segundos: number;
+  heartbeat_tolerancia_segundos: number;
+  alerta_dias: string;
+  assinador_versao_minima: string;
+  assinador_exigido: boolean;
+  autorizacao_formal_rfb: boolean;
+  autorizacao_formal_referencia: string;
+  atualizado_em: string | null;
+}
+
+export interface ModeloProcuracao {
+  id: number;
+  nome: string;
+  descricao: string;
+  vigencia_meses: number;
+  escopo_servicos: string;
+  padrao: boolean;
+  ativo: boolean;
+  servicos: Array<{ codigo: string; rotulo: string }>;
+  criado_em: string | null;
+  atualizado_em: string | null;
+}
+
+export interface CredencialIntegracao {
+  fonte: string;
+  rotulo: string;
+  base_url: string;
+  identificador: string;
+  configurado: boolean;
+  ativo: boolean;
+  opcoes: Record<string, unknown>;
+  ultima_utilizacao_em: string | null;
+  ultimo_erro: string;
+  atualizado_em: string | null;
+}
+
+export interface ResultadoSincronizacaoProcuracoes {
+  fonte: string;
+  recebidos: number;
+  criados: number;
+  atualizados: number;
+  inalterados: number;
+  ignorados: number;
+  invalidos: number;
+  mensagem: string;
+  erros: Array<{ documento: string; codigo: string; mensagem: string }>;
+}
+
+export interface ProcessarPendenciasResultado {
+  avaliadas: number;
+  criados: number;
+  ja_na_fila: number;
+  ignoradas: number;
+  bloqueados_por_certificado: number;
+  motivos: Record<string, number>;
+  job_ids: number[];
+}
+
+export interface NotificacaoProcuracao {
+  id: number;
+  tipo: string;
+  nivel: string;
+  titulo: string;
+  detalhe: string;
+  empresa_id: number | null;
+  job_id: number | null;
+  criado_em: string | null;
+  reconhecida_em: string | null;
+}
+
+export interface SituacaoOpcaoProcuracao {
+  valor: SituacaoAutorizacao;
+  rotulo: string;
+}

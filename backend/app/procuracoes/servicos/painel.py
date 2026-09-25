@@ -78,6 +78,10 @@ class LinhaEmpresa:
     situacao: str
     data_validade: date | None
     dias_para_vencer: int | None
+    #: Relógio dos 30 dias: a Receita cancela sozinha a autorização que o
+    #: outorgado não validar. É a informação mais acionável da tabela.
+    prazo_aceite_ate: date | None
+    dias_para_aceite: int | None
     outorgado_documento: str
     protocolo: str
     origem_dado: str
@@ -89,6 +93,22 @@ class LinhaEmpresa:
     job_atualizado_em: datetime | None
     certificado_disponivel: bool
     servicos: int = 0
+
+
+def _prazo_aceite(autorizacao) -> date | None:
+    """Só faz sentido enquanto o aceite está pendente.
+
+    Depois de ativa, mostrar o prazo confundiria: o relógio parou de correr e
+    o operador ficaria procurando uma ação que não existe mais.
+    """
+    if autorizacao is None or not autorizacao.prazo_aceite_ate:
+        return None
+    if autorizacao.situacao not in {
+        StatusAutorizacao.EM_ANALISE.value,
+        StatusAutorizacao.AGUARDANDO_ACEITE.value,
+    }:
+        return None
+    return autorizacao.prazo_aceite_ate
 
 
 @dataclass
@@ -360,6 +380,12 @@ def listar(
             ),
             data_validade=validade,
             dias_para_vencer=(validade - referencia).days if validade else None,
+            prazo_aceite_ate=_prazo_aceite(autorizacao),
+            dias_para_aceite=(
+                (_prazo_aceite(autorizacao) - referencia).days
+                if _prazo_aceite(autorizacao)
+                else None
+            ),
             outorgado_documento=autorizacao.outorgado_documento if autorizacao else outorgado,
             protocolo=autorizacao.protocolo if autorizacao else "",
             origem_dado=autorizacao.origem_dado if autorizacao else "",
@@ -484,6 +510,12 @@ def detalhar(
         ),
         data_validade=validade,
         dias_para_vencer=(validade - referencia).days if validade else None,
+        prazo_aceite_ate=_prazo_aceite(autorizacao),
+        dias_para_aceite=(
+            (_prazo_aceite(autorizacao) - referencia).days
+            if _prazo_aceite(autorizacao)
+            else None
+        ),
         outorgado_documento=(
             autorizacao.outorgado_documento if autorizacao else config.outorgado_documento
         ),
