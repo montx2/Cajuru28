@@ -635,6 +635,10 @@ class IntegracaoErro(Base):
         ForeignKey("procuracao_integracao_jobs.id", ondelete="CASCADE"), index=True
     )
     documento: Mapped[str] = mapped_column(String(30), default="")
+    #: Nome como a fonte o escreveu. Sem ele, uma pendência é só um CNPJ solto:
+    #: o operador precisa saber *de quem* é o documento para decidir se cadastra
+    #: a empresa ou se aquela linha não é cliente do escritório.
+    nome: Mapped[str] = mapped_column(String(255), default="", server_default="")
     codigo: Mapped[str] = mapped_column(String(60), default="")
     mensagem: Mapped[str] = mapped_column(Text, default="")
     quando: Mapped[datetime] = mapped_column(

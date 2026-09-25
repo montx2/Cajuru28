@@ -20,6 +20,9 @@ interface Props {
   aoSalvar: () => void;
 }
 
+/** Espelha `MIN_SEGREDO_INTEGRACAO` do contrato (backend/esquemas.py). */
+const MIN_SEGREDO = 8;
+
 /**
  * Área administrativa do módulo.
  *
@@ -64,10 +67,36 @@ export function ConfiguracaoProcuracoes({ aberta, aoFechar, aoSalvar }: Props) {
     }
   }
 
+  /**
+   * As duas regras abaixo são as mesmas do contrato (`CredencialEntrada`).
+   * Repeti-las aqui não é duplicação inútil: é o que evita uma ida ao
+   * servidor para receber um 422 por algo que dá para dizer na hora.
+   */
+  const urlNormalizada = baseUrl.trim();
+  const erroUrl =
+    urlNormalizada && !/^https:\/\//i.test(urlNormalizada)
+      ? urlNormalizada.toLowerCase().startsWith("http://")
+        ? "Use HTTPS: credencial não trafega em texto claro."
+        : "Comece com https:// — ex.: https://" + urlNormalizada.replace(/^\/+/, "")
+      : "";
+  const erroSegredo =
+    segredo.trim() && segredo.trim().length < MIN_SEGREDO
+      ? `Faltam ${MIN_SEGREDO - segredo.trim().length} caractere(s): o token completo tem pelo menos ${MIN_SEGREDO}.`
+      : "";
+  const podeGravarCredencial = Boolean(segredo.trim()) && !erroUrl && !erroSegredo;
+
+  function completarEsquema() {
+    const texto = baseUrl.trim();
+    if (!texto || /^https?:\/\//i.test(texto)) return;
+    // "admin.jettax360.com.br" é o que se copia da barra do navegador.
+    setBaseUrl(`https://${texto.replace(/^\/+/, "")}`);
+  }
+
   async function salvarIntegracao() {
+    if (!podeGravarCredencial) return;
     setSalvando(true);
     try {
-      await api.salvarIntegracaoProcuracao({ fonte, base_url: baseUrl.trim(), segredo: segredo.trim() });
+      await api.salvarIntegracaoProcuracao({ fonte, base_url: urlNormalizada, segredo: segredo.trim() });
       avisar({ tom: "ok", titulo: "Credencial gravada", descricao: "O segredo é cifrado no cofre e nunca mais é exibido." });
       setSegredo("");
       integracoes.atualizar();
@@ -249,6 +278,13 @@ export function ConfiguracaoProcuracoes({ aberta, aoFechar, aoSalvar }: Props) {
 
           <section className="space-y-3">
             <h3 className="text-xs font-semibold uppercase tracking-[.04em] text-tinta-fraca">Fontes de dados</h3>
+            <Aviso tom="info" icone="alerta" titulo="Jettax 360 não publica API de procurações">
+              A tela <span className="font-mono text-2xs">prevention/ecac/procurations</span> existe no painel, mas o
+              fornecedor não documenta endpoint público para ela — só integrações de entrada por token (Acessórias, SIEG).
+              Enquanto não houver contrato publicado, use <span className="font-medium">Importar lista</span> na tela de
+              Procurações: cola-se o que está na tela (ou o CSV exportado) e o resultado é o mesmo dado governado, com
+              idempotência e histórico.
+            </Aviso>
             <ul className="space-y-2">
               {(integracoes.dados ?? []).map((item) => (
                 <li key={item.fonte} className="flex flex-wrap items-center justify-between gap-2 rounded-controle border border-borda-controle p-2.5">
@@ -290,9 +326,11 @@ export function ConfiguracaoProcuracoes({ aberta, aoFechar, aoSalvar }: Props) {
                 rotulo="Base URL"
                 value={baseUrl}
                 onChange={(evento) => setBaseUrl(evento.target.value)}
+                onBlur={completarEsquema}
                 disabled={somenteLeitura}
                 placeholder="https://…"
                 descricao="Obrigatoriamente HTTPS."
+                erro={erroUrl || null}
               />
               <Entrada
                 rotulo="Credencial"
@@ -301,10 +339,23 @@ export function ConfiguracaoProcuracoes({ aberta, aoFechar, aoSalvar }: Props) {
                 value={segredo}
                 onChange={(evento) => setSegredo(evento.target.value)}
                 disabled={somenteLeitura}
-                descricao="Cifrada no cofre; nunca volta na API."
+                descricao={`Cifrada no cofre; nunca volta na API. Mínimo de ${MIN_SEGREDO} caracteres.`}
+                erro={erroSegredo || null}
               />
               <div className="sm:col-span-3">
-                <Botao variante="secundaria" tamanho="sm" carregando={salvando} disabled={somenteLeitura || !segredo.trim()} onClick={salvarIntegracao} iconeEsquerda={<Icone nome="chave" className="h-4 w-4" />}>
+                <Botao
+                  variante="secundaria"
+                  tamanho="sm"
+                  carregando={salvando}
+                  disabled={somenteLeitura || !podeGravarCredencial}
+                  title={
+                    somenteLeitura
+                      ? MOTIVO_SOMENTE_LEITURA
+                      : erroUrl || erroSegredo || (!segredo.trim() ? "Informe a credencial do fornecedor" : undefined)
+                  }
+                  onClick={salvarIntegracao}
+                  iconeEsquerda={<Icone nome="chave" className="h-4 w-4" />}
+                >
                   Gravar credencial
                 </Botao>
               </div>

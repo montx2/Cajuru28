@@ -23,6 +23,7 @@ import { IndicadorEstado } from "@/components/ui/IndicadorEstado";
 import { Tabela, type ColunaTabela } from "@/components/ui/Tabela";
 import { useToast } from "@/components/ui/Toast";
 import { ConfiguracaoProcuracoes } from "./ConfiguracaoProcuracoes";
+import { ImportarLista } from "./ImportarLista";
 import { PainelJob } from "./PainelJob";
 import type { LinhaProcuracao } from "@/lib/types";
 
@@ -63,6 +64,7 @@ export function Procuracoes() {
 
   const [jobAberto, setJobAberto] = useState<number | null>(null);
   const [configAberta, setConfigAberta] = useState(false);
+  const [importacaoAberta, setImportacaoAberta] = useState(false);
   const [processando, setProcessando] = useState(false);
 
   const resumo = useRecurso(() => api.resumoProcuracoes(), []);
@@ -322,6 +324,19 @@ export function Procuracoes() {
             </Link>
             <Botao
               variante="sutil"
+              onClick={() => setImportacaoAberta(true)}
+              disabled={somenteLeitura}
+              title={
+                somenteLeitura
+                  ? MOTIVO_SOMENTE_LEITURA
+                  : "Traz a relação de procurações do painel do fornecedor, por colagem ou arquivo"
+              }
+              iconeEsquerda={<Icone nome="importacao" className="h-4 w-4" />}
+            >
+              Importar lista
+            </Botao>
+            <Botao
+              variante="sutil"
               onClick={() => setConfigAberta(true)}
               iconeEsquerda={<Icone nome="configuracoes" className="h-4 w-4" />}
             >
@@ -471,6 +486,7 @@ export function Procuracoes() {
 
       <PainelJob jobId={jobAberto} aoFechar={() => setJobAberto(null)} aoMudar={recarregar} />
       <ConfiguracaoProcuracoes aberta={configAberta} aoFechar={() => setConfigAberta(false)} aoSalvar={recarregar} />
+      <ImportarLista aberta={importacaoAberta} aoFechar={() => setImportacaoAberta(false)} aoImportar={recarregar} />
     </div>
   );
 }

@@ -951,6 +951,34 @@ export interface CredencialIntegracao {
   atualizado_em: string | null;
 }
 
+export interface PassoRequisitoAgente {
+  chave: string;
+  titulo: string;
+  acao: string;
+}
+
+/**
+ * Resposta de `GET /procuracoes/agentes/requisitos`.
+ *
+ * O nome do campo é `assinador`, não `passos`: o cliente declarava `passos` e
+ * a tela de Estações quebrava (`undefined.slice`) justamente quando havia
+ * estação sem Assinador apto — o único momento em que o roteiro aparece.
+ */
+export interface RequisitosAgente {
+  assinador: PassoRequisitoAgente[];
+  url_local: string;
+  manual: string;
+  verificacao_oficial: string;
+}
+
+export interface PendenciaImportacao {
+  documento: string;
+  /** Nome como a fonte escreveu — é o que permite reconhecer o cliente. */
+  nome?: string;
+  codigo: string;
+  mensagem: string;
+}
+
 export interface ResultadoSincronizacaoProcuracoes {
   fonte: string;
   recebidos: number;
@@ -960,7 +988,7 @@ export interface ResultadoSincronizacaoProcuracoes {
   ignorados: number;
   invalidos: number;
   mensagem: string;
-  erros: Array<{ documento: string; codigo: string; mensagem: string }>;
+  erros: PendenciaImportacao[];
 }
 
 export interface ProcessarPendenciasResultado {

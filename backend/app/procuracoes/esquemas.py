@@ -323,20 +323,61 @@ class EvidenciaSaida(Base):
 # --------------------------------------------------------------------------
 
 
+#: Tamanho mínimo de um segredo de integração. Não é número mágico: abaixo
+#: disso o valor digitado é quase sempre um engano (nome do sistema, "teste",
+#: usuário), e um token real de qualquer um dos fornecedores é muito maior.
+MIN_SEGREDO_INTEGRACAO = 8
+
+
 class CredencialEntrada(Base):
+    """Credencial de fonte externa.
+
+    As duas regras abaixo já existiam; o que mudou é **a mensagem**. Um 422 que
+    diz apenas "valor inválido" obriga o operador a adivinhar qual dos três
+    campos está errado — e foi exatamente o que aconteceu em produção.
+    """
+
     fonte: Literal["jettax360", "integra_contador"]
     base_url: str = Field("", max_length=500)
     identificador: str = Field("", max_length=255)
-    segredo: str = Field(..., min_length=8, max_length=500)
+    segredo: str = Field(..., max_length=500)
     opcoes: dict[str, Any] = Field(default_factory=dict)
     ativo: bool = True
+
+    @field_validator("segredo")
+    @classmethod
+    def _segredo_utilizavel(cls, valor: str) -> str:
+        texto = (valor or "").strip()
+        if not texto:
+            raise ValueError(
+                "Informe o token/segredo da integração. Ele é cifrado no cofre e "
+                "nunca mais aparece em tela, log ou resposta da API."
+            )
+        if len(texto) < MIN_SEGREDO_INTEGRACAO:
+            raise ValueError(
+                f"O segredo da integração precisa de pelo menos "
+                f"{MIN_SEGREDO_INTEGRACAO} caracteres (recebido: {len(texto)}). "
+                "Cole o token completo entregue pelo fornecedor."
+            )
+        return texto
 
     @field_validator("base_url")
     @classmethod
     def _https(cls, valor: str) -> str:
-        if valor and not valor.startswith("https://"):
-            raise ValueError("A URL da integração deve usar HTTPS.")
-        return valor.rstrip("/")
+        texto = (valor or "").strip()
+        if not texto:
+            return ""
+        if texto.startswith("http://"):
+            raise ValueError(
+                "A URL da integração precisa usar HTTPS. Troque 'http://' por "
+                "'https://' — credencial não trafega em texto claro."
+            )
+        if not texto.startswith("https://"):
+            raise ValueError(
+                f"A URL da integração precisa começar com 'https://' "
+                f"(recebido: '{texto[:60]}'). Exemplo: https://{texto[:60]}"
+            )
+        return texto.rstrip("/")
 
 
 class CredencialSaida(Base):
@@ -371,6 +412,29 @@ class SincronizacaoSaida(Base):
     erros: list[dict[str, str]] = Field(default_factory=list)
 
 
+#: Fontes que entram por texto/arquivo, sem credencial. `jettax360` aqui não é
+#: chamada de API: é a lista **do painel do Jettax** trazida pelo operador, e
+#: por isso vale a mesma precedência da fonte Jettax na reconciliação.
+FONTES_MANUAIS = ("jettax360", "planilha")
+
+
+class ImportarListaEntrada(Base):
+    """Importação da lista copiada da tela do fornecedor."""
+
+    texto: str = Field(..., min_length=3, max_length=2_000_000)
+    fonte: Literal["jettax360", "planilha"] = "jettax360"
+    #: Declarar a aba de origem é o que permite importar uma colagem que só
+    #: tem nome e documento. Vazio = deduzir do próprio texto.
+    situacao_padrao: Literal["", "ativa", "expirada"] = ""
+
+    @field_validator("texto")
+    @classmethod
+    def _tem_conteudo(cls, valor: str) -> str:
+        if not (valor or "").strip():
+            raise ValueError("Cole a lista copiada da tela antes de importar.")
+        return valor
+
+
 class TesteIntegracaoSaida(Base):
     fonte: str
     ok: bool
@@ -383,15 +447,31 @@ class TesteIntegracaoSaida(Base):
 
 
 class AgenteEntrada(Base):
+    """Matrícula de estação.
+
+    `identificador` é **opcional de propósito**: quem o gera é o servidor
+    (`srv_agentes.gerar_identificador`). O operador não tem como saber um hash
+    hexadecimal de 32 caracteres antes de a estação existir, e deixar o cliente
+    escolher o próprio identificador abriria espaço para colisão e para palpite
+    entre escritórios. Ele continua sendo aceito quando informado porque
+    **re-credenciar** a mesma máquina (mesmo identificador, segredo novo) é o
+    caminho de rotação já implementado em `registrar_agente`.
+    """
+
     nome: str = Field(..., min_length=2, max_length=80)
-    identificador: Annotated[str, Field(min_length=16, max_length=64)]
+    identificador: Annotated[str, Field(max_length=64)] = ""
 
     @field_validator("identificador")
     @classmethod
     def _hex(cls, valor: str) -> str:
-        texto = valor.strip().lower()
+        texto = (valor or "").strip().lower()
+        if not texto:
+            return ""
         if not re.fullmatch(r"[0-9a-f]{16,64}", texto):
-            raise ValueError("Identificador deve ser hexadecimal de 16 a 64 caracteres.")
+            raise ValueError(
+                "Identificador de estação deve ser hexadecimal de 16 a 64 caracteres. "
+                "Deixe em branco para o Cajuru28 gerar um."
+            )
         return texto
 
 

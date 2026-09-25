@@ -98,23 +98,59 @@ def normalizar_identificador(valor: str) -> str:
     return texto
 
 
+#: 16 bytes = 32 caracteres hexadecimais. Cabe no contrato `[0-9a-f]{16,64}`
+#: que `normalizar_identificador` exige e que o login HMAC já valida, e tem
+#: entropia suficiente para nunca colidir na prática.
+BYTES_IDENTIFICADOR = 16
+
+
+def gerar_identificador() -> str:
+    """Identificador de estação gerado pelo servidor.
+
+    Quem gera é o servidor, não o cliente. Três razões: o operador não teria
+    como inventar um hash hexadecimal antes de a estação existir; identificador
+    escolhido pelo cliente é palpitável (`estacao01`) e colidível entre
+    escritórios; e o instalador (`instalar_agent.ps1 -Identificador`) já espera
+    receber pronto o valor que a tela exibe depois da matrícula.
+    """
+    return secrets.token_hex(BYTES_IDENTIFICADOR)
+
+
+def _identificador_inedito(db: Session) -> str:
+    """Gera até acertar um valor livre. Na prática acerta de primeira."""
+    for _ in range(8):
+        candidato = gerar_identificador()
+        existe = (
+            db.query(Agente.id).filter(Agente.identificador == candidato).first()
+        )
+        if existe is None:
+            return candidato
+    raise RuntimeError("Não foi possível gerar um identificador de estação livre.")
+
+
 def registrar_agente(
     db: Session,
     escritorio_id: int,
     *,
     nome: str,
-    identificador: str,
+    identificador: str = "",
     hostname: str = "",
     usuario_windows: str = "",
     sistema_operacional: str = "",
 ) -> CredencialNova:
     """Cadastra (ou re-credencia) uma estação e devolve o segredo em claro.
 
-    Re-credenciar é o caminho de rotação: mesma máquina, segredo novo,
+    Sem `identificador`, o servidor gera um — é o caminho normal da tela
+    "Matricular estação". Informando o identificador de uma estação existente,
+    o que acontece é **rotação**: mesma máquina, segredo novo,
     `versao_credencial` incrementada — as assinaturas antigas param de valer
     imediatamente.
     """
-    ident = normalizar_identificador(identificador)
+    ident = (
+        normalizar_identificador(identificador)
+        if str(identificador or "").strip()
+        else _identificador_inedito(db)
+    )
     agente = (
         db.query(Agente)
         .filter(Agente.escritorio_id == escritorio_id, Agente.identificador == ident)

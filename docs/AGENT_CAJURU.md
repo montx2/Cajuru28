@@ -42,8 +42,18 @@ está em <https://www.frameworkdemoiselle.gov.br/v3/signer/demo/>.
 ### 3.1 No Cajuru28
 
 **Procurações → Estações → Matricular estação.** Dê um nome que identifique a
-máquina física ("PC Fiscal 01"). A tela mostra o **identificador** e o
-**segredo**.
+máquina física ("PC Fiscal 01") — é o **único** campo do formulário. A tela
+responde com o **identificador** e o **segredo**, e monta o comando pronto do
+instalador com os dois já preenchidos.
+
+**Quem gera o identificador é o servidor**, não o operador e não a estação:
+`secrets.token_hex(16)` (32 caracteres hexadecimais), com unicidade garantida
+no banco. O motivo é prático antes de ser teórico — ninguém tem como saber um
+hash antes de a estação existir, e identificador escolhido à mão (`estacao01`)
+colide entre escritórios e é palpitável. O campo `identificador` do
+`POST /procuracoes/agentes` continua aceito quando enviado, e serve a um caso
+só: **re-credenciar** a mesma máquina, mantendo o identificador e trocando o
+segredo.
 
 > O segredo aparece **uma única vez**. Não há tela, log ou endpoint que o
 > recupere. Perdeu? Gere outra credencial — a anterior deixa de valer no mesmo
