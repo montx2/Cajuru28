@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { FormularioLogin } from "./FormularioLogin";
 
 export const metadata: Metadata = {
-  title: "Entrar · Fluxa",
+  title: "Entrar",
 };
 
 /* `useSearchParams` exige fronteira de Suspense no build estático do App Router. */

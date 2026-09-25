@@ -45,3 +45,8 @@ npm-debug.log*
 # venv local de diagnóstico
 backend/.venv/
 backend/.env.dev-preview
+
+# Base e evidências de preview local (nunca versionadas)
+backend/preview.db*
+backend/dados_preview/
+backend/tmp_check.db

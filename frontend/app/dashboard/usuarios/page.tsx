@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { Usuarios } from "./Usuarios";
 
 export const metadata: Metadata = {
-  title: "Equipe · Fluxa",
+  title: "Equipe",
 };
 
 /* Busca, filtro e ordenação vivem na URL. */

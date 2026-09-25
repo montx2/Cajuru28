@@ -119,6 +119,25 @@ class Settings(BaseSettings):
     bootstrap_email: str = ""
     bootstrap_senha: str = ""
 
+    # ---------------- Procurações RFB ----------------
+    # Interruptor geral do módulo. Desligado, nenhuma task periódica roda e
+    # nenhuma estação recebe trabalho — é o "scheduler desligável" exigido
+    # para manutenção do portal ou período de apuração crítico.
+    procuracoes_ativo: bool = True
+    # Manutenção automática (varredura de leases, vencimentos, nonces).
+    procuracoes_manutencao_a_cada_minutos: int = 10
+    # Sincronização automática com as fontes configuradas (hora local do
+    # escritório vem da configuração por escritório; aqui é só o gatilho).
+    procuracoes_sincronizacao_a_cada_horas: int = 6
+    # Evidências de execução (captura de tela/HTML). Prazo de retenção: são
+    # dado pessoal com finalidade operacional, não trilha de auditoria — a
+    # trilha (procuracao_job_eventos) nunca é expurgada.
+    procuracoes_evidencia_retencao_dias: int = 180
+    procuracoes_evidencia_max_mb: int = 8
+    # Teto de jobs entregues por ciclo em todo o escritório. Protege o portal
+    # da RFB de rajada e o escritório de abrir 50 navegadores ao mesmo tempo.
+    procuracoes_max_jobs_por_ciclo: int = 20
+
     # ---------------- Backup recuperável ----------------
     backup_ativo: bool = True
     backup_hora: int = 3
@@ -235,6 +254,29 @@ class Settings(BaseSettings):
             problemas.append("BACKUP_S3_ENDPOINT_URL deve usar HTTPS em produção")
         if self.alerta_webhook_url and not self.alerta_webhook_url.startswith("https://"):
             problemas.append("ALERTA_WEBHOOK_URL deve usar HTTPS")
+        if self.procuracoes_ativo:
+            if not 1 <= self.procuracoes_manutencao_a_cada_minutos <= 1440:
+                problemas.append(
+                    "PROCURACOES_MANUTENCAO_A_CADA_MINUTOS deve ficar entre 1 e 1440"
+                )
+            if not 1 <= self.procuracoes_sincronizacao_a_cada_horas <= 168:
+                problemas.append(
+                    "PROCURACOES_SINCRONIZACAO_A_CADA_HORAS deve ficar entre 1 e 168"
+                )
+            if not 1 <= self.procuracoes_evidencia_max_mb <= 32:
+                problemas.append("PROCURACOES_EVIDENCIA_MAX_MB deve ficar entre 1 e 32")
+            if not 1 <= self.procuracoes_evidencia_retencao_dias <= 3650:
+                problemas.append(
+                    "PROCURACOES_EVIDENCIA_RETENCAO_DIAS deve ficar entre 1 e 3650: "
+                    "evidência do portal é dado pessoal e não pode ser eterna"
+                )
+            if not 1 <= self.procuracoes_max_jobs_por_ciclo <= 500:
+                problemas.append("PROCURACOES_MAX_JOBS_POR_CICLO deve ficar entre 1 e 500")
+            if not self.vault_master_key.strip():
+                problemas.append(
+                    "VAULT_MASTER_KEY é obrigatória com o módulo de procurações ativo: "
+                    "credenciais de integração e evidências são cifradas com ela"
+                )
         if self.bootstrap_senha and (len(self.bootstrap_senha) < 14 or self.bootstrap_senha == "troque-esta-senha"):
             problemas.append("BOOTSTRAP_SENHA configurada é fraca")
 

@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { Empresas } from "./Empresas";
 
 export const metadata: Metadata = {
-  title: "Empresas · Fluxa",
+  title: "Empresas",
 };
 
 /* Busca, situação, ordenação e página vivem na URL. */

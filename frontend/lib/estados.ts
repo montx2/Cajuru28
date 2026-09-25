@@ -342,3 +342,112 @@ export function estadoDeIntegracao(status: string | null | undefined): EstadoVis
   }
   return { tom: "neutro", rotulo: status as string, icone: "info" };
 }
+
+/* ── Procurações RFB ─────────────────────────────────────────────────────── */
+
+/**
+ * Situação da autorização perante a Receita.
+ *
+ * "Em análise" e "aguardando aceite" são âmbar, não vermelho: o pedido está
+ * correto e o relógio de 30 dias está correndo. Pintar de vermelho faria o
+ * operador refazer uma outorga que já existe — e outorga duplicada é confusão
+ * no portal do cliente.
+ */
+export function estadoDaAutorizacao(situacao: string): EstadoVisual {
+  switch (situacao) {
+    case "ativa":
+      return { tom: "ok", rotulo: "Ativa", icone: "verificar-circulo" };
+    case "em_analise":
+      return { tom: "espera", rotulo: "Em análise", icone: "ampulheta" };
+    case "aguardando_aceite":
+      return { tom: "espera", rotulo: "Aguardando aceite", icone: "ampulheta" };
+    case "sem_autorizacao":
+      return { tom: "neutro", rotulo: "Sem autorização", icone: "cadeado" };
+    case "expirada":
+      return { tom: "erro", rotulo: "Expirada", icone: "relogio" };
+    case "cancelada":
+      return { tom: "neutro", rotulo: "Cancelada", icone: "negar" };
+    case "rejeitada":
+      return { tom: "erro", rotulo: "Rejeitada", icone: "negar" };
+    case "intervencao_manual":
+      return { tom: "espera", rotulo: "Intervenção manual", icone: "alerta" };
+    case "erro":
+      return { tom: "erro", rotulo: "Erro", icone: "negar" };
+    default:
+      return { tom: "neutro", rotulo: String(situacao || "Desconhecida"), icone: "info" };
+  }
+}
+
+/**
+ * Estado do job na fila.
+ *
+ * Os estados em que a bola está com o humano (`pronto_para_operacao`,
+ * `aguardando_assinatura`, `aguardando_validacao`, `intervencao_manual`) são
+ * âmbar: nada quebrou, alguém precisa agir. Os estados em que a máquina
+ * trabalha pulsam — é o único movimento contínuo do produto.
+ */
+export function estadoDoJobProcuracao(status: string): EstadoVisual {
+  switch (status) {
+    case "pendente":
+      return { tom: "neutro", rotulo: "Pendente", icone: "fila" };
+    case "aguardando_agente":
+      return { tom: "info", rotulo: "Aguardando estação", icone: "trabalhador" };
+    case "atribuido":
+      return { tom: "info", rotulo: "Atribuído", icone: "trabalhador", pulsa: true };
+    case "verificando_pre_requisitos":
+      return { tom: "info", rotulo: "Verificando pré-requisitos", icone: "lista-verificacao", pulsa: true };
+    case "pronto_para_operacao":
+      return { tom: "espera", rotulo: "Pronto — sua vez", icone: "alvo" };
+    case "autenticando":
+      return { tom: "info", rotulo: "Autenticando no portal", icone: "chave", pulsa: true };
+    case "preenchendo":
+      return { tom: "info", rotulo: "Preenchendo", icone: "editar", pulsa: true };
+    case "aguardando_assinatura":
+      return { tom: "espera", rotulo: "Aguardando assinatura", icone: "certificado" };
+    case "assinado":
+      return { tom: "ok", rotulo: "Assinado", icone: "verificar-circulo" };
+    case "aguardando_validacao":
+      return { tom: "espera", rotulo: "Aguardando aceite", icone: "ampulheta" };
+    case "validando":
+      return { tom: "info", rotulo: "Validando", icone: "lista-verificacao", pulsa: true };
+    case "concluido":
+      return { tom: "ok", rotulo: "Concluído", icone: "verificar-circulo" };
+    case "falhou":
+      return { tom: "erro", rotulo: "Falhou", icone: "negar" };
+    case "cancelado":
+      return { tom: "neutro", rotulo: "Cancelado", icone: "negar" };
+    case "intervencao_manual":
+      return { tom: "espera", rotulo: "Precisa de você", icone: "alerta" };
+    default:
+      return { tom: "neutro", rotulo: String(status || "—"), icone: "info" };
+  }
+}
+
+/** Estação (Cajuru Agent) — silêncio prolongado não é "tudo bem". */
+export function estadoDaEstacao(situacao: string): EstadoVisual {
+  switch (situacao) {
+    case "online":
+      return { tom: "ok", rotulo: "Online", icone: "monitor" };
+    case "ocioso":
+      return { tom: "info", rotulo: "Ociosa", icone: "monitor" };
+    case "offline":
+      return { tom: "erro", rotulo: "Sem comunicação", icone: "negar" };
+    case "revogado":
+      return { tom: "neutro", rotulo: "Revogada", icone: "cadeado" };
+    default:
+      return { tom: "neutro", rotulo: String(situacao || "—"), icone: "info" };
+  }
+}
+
+/**
+ * Prazo de aceite: a Receita cancela a autorização não validada em 30 dias.
+ * O rótulo é a contagem regressiva porque "faltam 3 dias" é acionável e
+ * "25/10/2026" exige que o operador faça a conta.
+ */
+export function estadoDoPrazoAceite(dias: number | null): EstadoVisual | null {
+  if (dias === null || dias === undefined) return null;
+  if (dias < 0) return { tom: "erro", rotulo: "Prazo vencido", icone: "relogio" };
+  if (dias <= 3) return { tom: "erro", rotulo: `Aceite em ${dias}d`, icone: "relogio" };
+  if (dias <= 10) return { tom: "espera", rotulo: `Aceite em ${dias}d`, icone: "ampulheta" };
+  return { tom: "info", rotulo: `Aceite em ${dias}d`, icone: "calendario" };
+}

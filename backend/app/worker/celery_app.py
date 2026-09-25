@@ -35,11 +35,49 @@ AGENDA = {
     },
 }
 
+# Procurações RFB. Fica fora do dicionário acima para que
+# `PROCURACOES_ATIVO=false` realmente **desagende** as tasks, em vez de
+# deixá-las rodando e retornando cedo — o operador que desliga o módulo
+# durante uma manutenção do portal não quer ver as execuções no log.
+if settings.procuracoes_ativo:
+    AGENDA.update(
+        {
+            "procuracoes-manutencao": {
+                "task": "procuracoes_manutencao",
+                "schedule": timedelta(
+                    minutes=max(1, int(settings.procuracoes_manutencao_a_cada_minutos))
+                ),
+                "options": {
+                    "expires": int(settings.procuracoes_manutencao_a_cada_minutos * 60)
+                },
+            },
+            "procuracoes-sincronizar": {
+                "task": "procuracoes_sincronizar",
+                "schedule": timedelta(
+                    hours=max(1, int(settings.procuracoes_sincronizacao_a_cada_horas))
+                ),
+                "options": {
+                    "expires": int(settings.procuracoes_sincronizacao_a_cada_horas * 3600)
+                },
+            },
+            "procuracoes-enfileirar": {
+                "task": "procuracoes_enfileirar_pendencias",
+                "schedule": timedelta(hours=1),
+                "options": {"expires": 3600},
+            },
+            "procuracoes-verificar-estacoes": {
+                "task": "procuracoes_verificar_estacoes",
+                "schedule": timedelta(minutes=15),
+                "options": {"expires": 900},
+            },
+        }
+    )
+
 celery_app = Celery(
     "notasflow",
     broker=settings.redis_url,
     backend=settings.redis_url,
-    include=["app.worker.tasks"],
+    include=["app.worker.tasks", "app.worker.procuracoes_tasks"],
 )
 celery_app.conf.update(
     task_track_started=True,

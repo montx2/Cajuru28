@@ -22,6 +22,8 @@ from app.api.routers import (
     importacoes,
     metricas,
     painel,
+    procuracoes,
+    procuracoes_agent,
     relatorios,
     sistema,
     usuarios,
@@ -156,6 +158,10 @@ app.include_router(documentos.router)
 app.include_router(importacoes.router)
 app.include_router(dashboard.router)
 app.include_router(painel.router)
+app.include_router(procuracoes.router)
+# O Agent não é um navegador: autentica por HMAC + nonce, sem cookie, e por
+# isso passa longe do CSRF por Origin acima. Ver docs/AGENT_CAJURU.md.
+app.include_router(procuracoes_agent.router)
 app.include_router(alertas.router)
 app.include_router(relatorios.router)
 app.include_router(sistema.router)

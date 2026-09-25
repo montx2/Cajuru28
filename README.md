@@ -124,3 +124,17 @@ segredos fortes e um volume dedicado de backup. Veja
 [`docs/DEPLOY_PRODUCAO.md`](docs/DEPLOY_PRODUCAO.md).
 
 Consulte `docs/ARQUITETURA.md` e `docs/SINCRONIZACAO.md` para detalhes técnicos.
+
+### Procurações RFB
+
+Gestão das Autorizações de Acesso da Receita Federal — quem da carteira ainda
+não autorizou a contabilidade, o que falta em cada caso e o que vence nos
+próximos 90 dias. A execução no portal é **assistida**: o sistema prepara tudo
+e conduz o operador, que pratica o ato no ambiente oficial com o certificado do
+cliente (IN RFB nº 2.320/2026, art. 13).
+
+- [`docs/PROCURACOES_RFB.md`](docs/PROCURACOES_RFB.md) — arquitetura e fluxo
+- [`docs/PROCURACOES_CONFORMIDADE.md`](docs/PROCURACOES_CONFORMIDADE.md) — base legal
+- [`docs/AGENT_CAJURU.md`](docs/AGENT_CAJURU.md) — estação Windows
+- [`docs/PROCURACOES_INTEGRACOES.md`](docs/PROCURACOES_INTEGRACOES.md) — SERPRO, Jettax
+- [`docs/PROCURACOES_OPERACAO.md`](docs/PROCURACOES_OPERACAO.md) — troubleshooting e recuperação

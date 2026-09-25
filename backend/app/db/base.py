@@ -22,6 +22,11 @@ def criar_tabelas() -> None:
     # Base deste módulo.
     from app import models  # noqa: F401
 
+    # Os modelos do módulo Procurações RFB vivem em pacote próprio (fronteira
+    # de domínio), mas compartilham o mesmo metadata — precisam ser importados
+    # aqui para que create_all os enxergue.
+    from app.procuracoes import modelos as modelos_procuracoes  # noqa: F401
+
     Base.metadata.create_all(bind=engine)
     # Colunas novas em tabelas que já existiam não aparecem no create_all;
     # o ALTER TABLE idempotente abaixo cobre bancos já populados.
