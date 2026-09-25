@@ -191,7 +191,42 @@ def aplicar_migracoes() -> None:
     _normalizar_valor_total_numerico()
     _criar_indices()
     _preencher_competencia_faltante()
+    _apagar_credenciais_jettax()
     _semear_sincronizacoes()
+
+
+def _apagar_credenciais_jettax() -> None:
+    """Remove credenciais da integração Jettax 360 (removida do produto).
+
+    A decisão é do dono do produto: não existe endpoint público documentado
+    para a tela de procurações do painel, então o Jettax passa a ser apenas
+    **procedência de dado** (importação manual). Segredo de integração que não
+    se usa não fica guardado no cofre. Idempotente: rodar de novo não encontra
+    nada e não falha.
+    """
+    if "procuracao_credenciais_integracao" not in _tabelas_existentes():
+        return
+    try:
+        with engine.begin() as conexao:
+            resultado = conexao.execute(
+                text(
+                    "DELETE FROM procuracao_credenciais_integracao "
+                    "WHERE fonte = 'jettax360'"
+                )
+            )
+        if resultado.rowcount:
+            log.info(
+                "Migração: %d credencial(is) jettax360 removida(s) da tabela "
+                "procuracao_credenciais_integracao",
+                resultado.rowcount,
+            )
+    except Exception as exc:  # noqa: BLE001 — limpeza não pode derrubar o startup
+        log.warning("Migração: limpeza de credenciais jettax360 pulada (%s)", exc)
+
+
+def _tabelas_existentes() -> set[str]:
+    inspetor = inspect(engine)
+    return set(inspetor.get_table_names())
 
 
 def _garantir_valores_enum() -> None:

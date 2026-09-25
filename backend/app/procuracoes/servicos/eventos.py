@@ -3,7 +3,7 @@ Trilha do job e notificações internas.
 
 Duas garantias:
 
-- **toda** mudança de status passa por `registrar_transicao`, então não existe
+- **toda** mudança de status passa por `registrar_evento`, então não existe
   job que mudou de estado sem linha de evento;
 - nada de segredo entra em `detalhe_json`: o dicionário passa por um filtro de
   chaves sensíveis antes de virar texto.
@@ -91,6 +91,66 @@ def _serializar(dados: Mapping[str, Any] | None) -> str:
     except (TypeError, ValueError):
         texto = "{}"
     return texto[:8000]
+
+
+def rotulo_do_ator(
+    db: Session, eventos: list, *, usuario_ids: set[int] | None = None
+) -> dict[int, str]:
+    """Resolve `usuario_id` → nome, para a trilha falar de gente.
+
+    A trilha de auditoria guarda o ator como `operador:<id>` — identificador
+    estável, sem vazar nome em log. Mas a tela precisa falar "Ana", não
+    "operador:7". A resolução acontece na saída, nunca na persistência.
+    """
+    ids = {
+        evento.usuario_id
+        for evento in eventos
+        if getattr(evento, "usuario_id", None) is not None
+    }
+    if usuario_ids:
+        ids |= {i for i in usuario_ids if i is not None}
+    if not ids:
+        return {}
+    from app.models import Usuario
+
+    return {
+        linha[0]: linha[1]
+        for linha in db.query(Usuario.id, Usuario.nome).filter(Usuario.id.in_(ids)).all()
+    }
+
+
+def descrever_ator(ator: str, usuario_id: int | None, nomes: dict[int, str]) -> str:
+    """Traduz `ator` bruto em rótulo humano, sem consulta adicional."""
+    texto = (ator or "").strip()
+    if usuario_id is not None and usuario_id in nomes:
+        return nomes[usuario_id]
+    if texto.startswith("operador:"):
+        return f"Operador #{texto.split(':', 1)[1]}"
+    if texto.startswith("agente:"):
+        return f"Estação #{texto.split(':', 1)[1]}"
+    if texto == "agendador":
+        return "Agendador"
+    if texto == "sistema":
+        return "Sistema"
+    return texto or "Sistema"
+
+
+def para_saida(db: Session, eventos: list) -> list:
+    """Eventos ORM → `EventoSaida` com `ator_rotulo` resolvido.
+
+    Único ponto de montagem: o painel do job e o detalhe da empresa usam a
+    mesma tradução, então a trilha nunca aparece "crua" em uma tela e legível
+    na outra.
+    """
+    from app.procuracoes.esquemas import EventoSaida
+
+    nomes = rotulo_do_ator(db, eventos)
+    saida = []
+    for evento in eventos:
+        item = EventoSaida.model_validate(evento)
+        item.ator_rotulo = descrever_ator(evento.ator, evento.usuario_id, nomes)
+        saida.append(item)
+    return saida
 
 
 def registrar_evento(

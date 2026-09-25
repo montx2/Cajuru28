@@ -795,6 +795,10 @@ export interface EventoJobProcuracao {
   mensagem: string;
   codigo_erro: string;
   ator: string;
+  /** Nome resolvido pelo backend ("Ana", "Estação PC Fiscal 01", "Sistema"). */
+  ator_rotulo: string;
+  /** Presente quando quem provocou foi uma pessoa — a tela mostra "você". */
+  usuario_id: number | null;
 }
 
 export interface EvidenciaJob {
@@ -889,7 +893,7 @@ export interface AgenteProcuracao {
   revogado_motivo: string;
   ultimo_heartbeat_em: string | null;
   criado_em: string | null;
-  situacao: "online" | "ocioso" | "offline" | "revogado" | string;
+  situacao: "online" | "processando" | "offline" | "revogado" | string;
   certificados: number;
 }
 

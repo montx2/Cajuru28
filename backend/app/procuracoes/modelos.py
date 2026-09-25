@@ -598,7 +598,7 @@ class SessaoNavegador(Base):
 
 
 class IntegracaoJob(Base):
-    """Execução de uma sincronização com fonte externa (Jettax, SERPRO…)."""
+    """Execução de uma sincronização com fonte externa (SERPRO, lista importada…)."""
 
     __tablename__ = "procuracao_integracao_jobs"
 

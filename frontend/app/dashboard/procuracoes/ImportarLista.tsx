@@ -25,10 +25,19 @@ const FONTES = [
   { valor: "planilha", rotulo: "Planilha do escritório" },
 ];
 
+/**
+ * De qual aba do painel a colagem veio. O painel tem duas abas — "Com
+ * procuração" e "Sem procuração" — e a de procurações ainda filtra por
+ * situação (Expirado, Na validade…). A aba declarada aqui só decide as
+ * linhas em que a situação não aparece no próprio texto: quem cola a aba
+ * "Sem procuração" está afirmando, pelo nome da aba, que o cliente não
+ * autorizou — e isso vira `sem_autorizacao`, não "situação indeterminada".
+ */
 const SITUACOES_DA_ABA = [
-  { valor: "", rotulo: "Detectar pelo texto (recomendado)" },
-  { valor: "ativa", rotulo: "Copiei de uma aba de procurações ativas" },
-  { valor: "expirada", rotulo: "Copiei de uma aba de procurações expiradas" },
+  { valor: "", rotulo: "Aba “Com procuração” — detectar pelo texto (recomendado)" },
+  { valor: "expirada", rotulo: "Aba “Com procuração” com filtro Expirado" },
+  { valor: "ativa", rotulo: "Aba “Com procuração” com filtro Na validade" },
+  { valor: "sem_procuracao", rotulo: "Aba “Sem procuração”" },
 ];
 
 /** Pendência que o operador resolve cadastrando a empresa. */
@@ -156,8 +165,11 @@ export function ImportarLista({ aberta, aoFechar, aoImportar }: Props) {
         <Aviso tom="info" icone="cadeado" titulo="Como copiar do painel do Jettax">
           Abra <span className="font-mono text-2xs">Prevenção → e-CAC → Procurações</span>, selecione a tabela inteira
           (inclusive as colunas <span className="font-medium">INÍCIO</span>, <span className="font-medium">VENCIMENTO</span> e{" "}
-          <span className="font-medium">SITUAÇÃO</span>) e cole aqui. A lista é paginada e dividida em abas: cole uma
-          página de cada vez — o sistema usa o CNPJ/CPF como chave, então repetir uma página não cria duplicata.
+          <span className="font-medium">SITUAÇÃO</span>) e cole aqui. O painel divide a lista em abas —{" "}
+          <span className="font-medium">Com procuração</span> e <span className="font-medium">Sem procuração</span> — e
+          pagina os resultados: cole uma página de cada vez, informando acima de qual aba ela veio. A chave é o
+          CNPJ/CPF, então colar a mesma página de novo não cria duplicata — e a barra de filtros que vier junto na
+          colagem é descartada sem alterar as linhas.
         </Aviso>
 
         <div className="grid gap-3 sm:grid-cols-2">

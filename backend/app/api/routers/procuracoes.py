@@ -38,6 +38,7 @@ from app.models import Empresa, Usuario
 from app.procuracoes import esquemas as esq
 from app.procuracoes import portal
 from app.procuracoes.estados import (
+    ESTADOS_TERMINAIS,
     FUNDAMENTO_IN_2320,
     CodigoErro,
     ModoOperacao,
@@ -176,7 +177,7 @@ def detalhar(
         empresa=esq.LinhaSaida.model_validate(detalhe.linha),
         permissoes=[esq.PermissaoSaida.model_validate(item) for item in detalhe.permissoes],
         jobs=[esq.JobResumoSaida.model_validate(item) for item in detalhe.jobs],
-        eventos=[esq.EventoSaida.model_validate(item) for item in detalhe.eventos],
+        eventos=srv_eventos.para_saida(db, detalhe.eventos),
         certificados=[esq.CertificadoSaida.model_validate(item) for item in detalhe.certificados],
     )
 
@@ -337,7 +338,7 @@ def detalhar_job(
     detalhe.empresa_nome = empresa.razao_social if empresa else ""
     detalhe.empresa_documento = empresa.cnpj_cpf if empresa else ""
     detalhe.servicos = servicos if isinstance(servicos, list) else []
-    detalhe.eventos = [esq.EventoSaida.model_validate(evento) for evento in eventos]
+    detalhe.eventos = srv_eventos.para_saida(db, eventos)
     detalhe.evidencias = [esq.EvidenciaSaida.model_validate(item) for item in evidencias]
     detalhe.roteiro = portal.roteiro_serializado(job.fase)
     return detalhe
@@ -435,13 +436,19 @@ def marcar_intervencao(
     escritorio_id: int = Depends(escritorio_id_atual),
     usuario: Usuario = _ESCRITA,
 ):
-    """O operador assume a sessão — usado quando o portal pede algo a mais."""
+    """A pessoa assume o processo — esteja ele numa estação ou na fila.
+
+    O código padrão é `INTERVENCAO_SOLICITADA`, com texto honesto: nada de
+    desafio do portal aconteceu, foi decisão de quem assumiu. Se o motivo for
+    outro (ex.: certificado ambíguo), o chamador informa o código do catálogo.
+    """
     job = _job(db, escritorio_id, job_id)
     srv_fila.pedir_intervencao(
         db,
         job,
         entrada.motivo or "Assumido manualmente pelo operador.",
-        codigo=CodigoErro.PORTAL_DESAFIO_ADICIONAL,
+        codigo=entrada.codigo_erro or CodigoErro.INTERVENCAO_SOLICITADA,
+        usuario_id=usuario.id,
     )
     auditoria.registrar(
         db,
@@ -459,17 +466,23 @@ def marcar_intervencao(
 @router.post("/jobs/{job_id}/registrar-outorga", response_model=esq.JobResumoSaida)
 def registrar_outorga(
     job_id: int,
-    entrada: esq.ResultadoEntrada,
+    entrada: esq.ConfirmacaoManualEntrada,
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
     usuario: Usuario = _ESCRITA,
 ):
-    """Fecha a fase 1 a partir da confirmação que o operador viu na tela."""
+    """Fecha a fase 1 a partir da confirmação que o operador viu na tela.
+
+    Caminho do escritório sem estação: a outorga é feita à mão no portal
+    oficial e registrada aqui, com protocolo ou texto de confirmação. Sem
+    confirmação a API recusa — nenhum marco é gravado "de boa fé".
+    """
     job = _job(db, escritorio_id, job_id)
-    if entrada.resultado != "outorga_registrada":
-        raise HTTPException(status_code=422, detail="Resultado incompatível com esta ação.")
-    if StatusJob(job.status) in {StatusJob.CONCLUIDO, StatusJob.CANCELADO}:
-        raise HTTPException(status_code=409, detail="Job já encerrado.")
+    if StatusJob(job.status) in ESTADOS_TERMINAIS:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Job já encerrado em '{job.status}'. Use Reprocessar para criar outro.",
+        )
     srv_eventos.registrar_evento(
         db,
         job,
@@ -498,15 +511,18 @@ def registrar_outorga(
 @router.post("/jobs/{job_id}/registrar-aceite", response_model=esq.JobResumoSaida)
 def registrar_aceite(
     job_id: int,
-    entrada: esq.ResultadoEntrada,
+    entrada: esq.ConfirmacaoManualEntrada,
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
     usuario: Usuario = _ESCRITA,
 ):
     """Fecha a fase 2 — a autorização passa a ATIVA."""
     job = _job(db, escritorio_id, job_id)
-    if entrada.resultado != "aceite_registrado":
-        raise HTTPException(status_code=422, detail="Resultado incompatível com esta ação.")
+    if StatusJob(job.status) in ESTADOS_TERMINAIS:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Job já encerrado em '{job.status}'. Use Reprocessar para criar outro.",
+        )
     srv_eventos.registrar_evento(
         db,
         job,
@@ -514,6 +530,7 @@ def registrar_aceite(
         mensagem=entrada.confirmacao_portal or "Aceite confirmado pelo operador.",
         ator=f"operador:{usuario.id}",
         usuario_id=usuario.id,
+        detalhe={"protocolo": entrada.protocolo or None},
     )
     srv_fila.registrar_aceite(db, job, usuario_id=usuario.id)
     auditoria.registrar(
@@ -841,6 +858,19 @@ def salvar_integracao(
     )
 
 
+def _fonte_remota_valida(fonte: str) -> None:
+    """Só existe credencial para integração remota — e hoje é uma só."""
+    if fonte not in FONTES_REMOTAS:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"'{fonte}' não é uma integração remota deste produto. "
+                f"Disponíveis: {', '.join(FONTES_REMOTAS)}. "
+                "Listas do painel do Jettax entram por 'Importar lista', sem credencial."
+            ),
+        )
+
+
 @router.delete("/integracoes/{fonte}", status_code=204)
 def remover_integracao(
     fonte: str,
@@ -848,6 +878,7 @@ def remover_integracao(
     escritorio_id: int = Depends(escritorio_id_atual),
     usuario: Usuario = _ADMIN,
 ):
+    _fonte_remota_valida(fonte)
     registro = obter_credencial(db, escritorio_id, fonte)
     if registro is None:
         raise HTTPException(status_code=404, detail="Integração não configurada.")
@@ -871,6 +902,7 @@ def testar_integracao(
     escritorio_id: int = Depends(escritorio_id_atual),
     usuario: Usuario = _ADMIN,
 ):
+    _fonte_remota_valida(fonte)
     try:
         cliente = construir(db, escritorio_id, fonte)
         mensagem = cliente.testar()
@@ -952,10 +984,15 @@ def sincronizar(
 
 def _situacao_declarada(valor: str) -> StatusAutorizacao | None:
     """Converte a aba declarada pelo operador em situação do domínio."""
-    if not valor:
+    texto = (valor or "").strip()
+    if not texto:
         return None
+    if texto == "sem_procuracao":
+        # Aba "Sem procuração" do painel: a própria aba declara que o cliente
+        # não autorizou — não é situação indeterminada.
+        return StatusAutorizacao.SEM_AUTORIZACAO
     try:
-        return StatusAutorizacao(valor)
+        return StatusAutorizacao(texto)
     except ValueError:
         return None
 
@@ -995,14 +1032,32 @@ async def importar_planilha(
     (precedência `jettax360`); montado à mão é planilha. Quem sabe a origem é
     o operador, então ele declara — nada aqui é adivinhado pela extensão.
     """
-    nome_fonte = fonte_declarada if fonte_declarada in esq.FONTES_MANUAIS else "planilha"
+    nome_fonte = (fonte_declarada or "").strip()
+    if nome_fonte not in esq.FONTES_MANUAIS:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Fonte declarada '{nome_fonte}' inválida. Use uma de: "
+                f"{', '.join(esq.FONTES_MANUAIS)} — quem sabe a origem do "
+                "arquivo é o operador."
+            ),
+        )
+    situacao = _situacao_declarada(situacao_padrao)
+    if (situacao_padrao or "").strip() and situacao is None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Situação declarada '{situacao_padrao}' inválida. Use: "
+                "ativa, expirada ou sem_procuracao (aba 'Sem procuração')."
+            ),
+        )
     conteudo = await arquivo.read()
     try:
         fonte = criar_fonte_texto(
             conteudo,
             nome_arquivo=arquivo.filename or "planilha.csv",
             origem=ROTULOS.get(nome_fonte, nome_fonte),
-            situacao_padrao=_situacao_declarada(situacao_padrao),
+            situacao_padrao=situacao,
         )
         resultado = srv_sinc.sincronizar(
             db, escritorio_id, nome_fonte, fonte, origem="upload"

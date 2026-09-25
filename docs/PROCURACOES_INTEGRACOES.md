@@ -192,10 +192,17 @@ aguenta, porque é o que a tela real produz:
 - CNPJ e CPF misturados, com ou sem máscara;
 - linha de cabeçalho (`EMPRESA CLIENTE INÍCIO VENCIMENTO SITUAÇÃO`), rodapé de
   paginação (`1 2 3 … 12`), contadores e o `Sim`/`Não` da coluna CLIENTE;
+- a **barra de filtros** que o recorte traz entre uma página e outra
+  (`Empresa / Situação=Expirado / Todos / Gerar Relatório`) é ruído
+  descartado — o valor do filtro não é atribuído à linha anterior;
 - duas datas na linha = início + vencimento (invertidas, são corrigidas); uma
   só = vencimento;
-- `situacao_padrao` declara de qual aba veio a colagem, e só se aplica às linhas
-  em que a situação não aparece no texto;
+- `situacao_padrao` declara de qual aba do painel veio a colagem —
+  "" (detectar), `expirada` (filtro Expirado), `ativa` (filtro Na validade)
+  ou `sem_procuracao` (aba **Sem procuração**) — e só se aplica às linhas
+  em que a situação não aparece no texto: a aba "Sem procuração" é
+  afirmação do painel de que o outorgante não autorizou, e vira
+  `sem_autorizacao`, nunca "situação indeterminada";
 - **vencimento no passado vence o rótulo**: "ativa" com data vencida entra como
   `expirada`.
 
@@ -222,29 +229,28 @@ obrigações e emissão. Criar um registro pela metade contaminaria relatórios 
 rotinas a jusante. O documento vira pendência **com o nome lido**, que é o que
 permite reconhecer o cliente e decidir.
 
-#### Caminho B — adaptador automático (não implementado, deliberadamente)
+#### Caminho B — API remota (removido do produto, deliberadamente)
 
-`app/procuracoes/integracoes/jettax.py` é um **adaptador dirigido por
-configuração**: base URL, token e rotas vêm do cofre e do campo `opcoes`; sem
-credencial ele **falha fechado**, com mensagem explícita — não finge sucesso nem
-devolve lista vazia silenciosa. A base URL é validada (HTTPS obrigatório, sem
-credencial embutida, sem endereço de rede interna — defesa contra SSRF).
+A regra vigente é **zero chamada remota ao Jettax 360 em código, tela e
+documentação, e zero credencial do fornecedor no banco**. A migração de
+referência (`app/db/migracoes.py`, `_apagar_credenciais_jettax`) apaga da
+tabela de credenciais qualquer registro `jettax360` que exista de instalações
+antigas — segredo que não se usa não fica no cofre. O `jettax360` que ainda
+aparece no código é **rótulo de procedência** na reconciliação (de quem veio o
+dado importado), nunca fonte remota: `FONTES_REMOTAS` contém apenas
+`integra_contador`.
 
-Ele **não tem rota de procurações escrita**, e não terá por adivinhação. Para
-ligar o caminho B é preciso, antes, uma captura real do painel (DevTools → aba
-Network → a requisição da tela → *Copy as cURL* + o JSON de resposta). Com isso:
-
-1. método, caminho e parâmetros (`page`, `tab`) conferidos contra o tráfego real;
-2. forma de autenticação observada (cookie de sessão? header?);
-3. nomes de campo e formato de data do JSON;
-4. paginação e limites.
-
-Quando isso existir, o adaptador passa a ser preenchido **rotulado como
-comportamento observado do painel, não como API oficial publicada**: sujeito a
-mudar sem aviso, sem compromisso de compatibilidade do fornecedor, com o
-caminho A permanecendo como via de contingência. O acesso usa a conta e os
-dados do próprio escritório — nada de sessão de terceiro, CAPTCHA contornado ou
-automação disfarçada.
+Se um dia o fornecedor publicar contrato para essa tela, o caminho é o mesmo de
+qualquer integração nova — e nada por adivinhação. Antes de qualquer linha de
+código: captura real do painel (DevTools → aba Network → a requisição da tela →
+*Copy as cURL* + o JSON de resposta) conferindo método, caminho, parâmetros
+(`page`, `tab`), autenticação, forma dos campos, datas e paginação. A
+implementação nasceria **rotulada como comportamento observado do painel, não
+como API oficial publicada** — sujeita a mudar sem aviso, sem compromisso de
+compatibilidade, com o caminho A permanecendo como via de contingência. O
+acesso usaria a conta e os dados do próprio escritório: nada de sessão de
+terceiro, CAPTCHA contornado ou automação disfarçada. E, por tocar o ambiente
+RFB por intermediação, a IN RFB nº 2.320/2026 seria avaliada antes.
 
 ### O caminho que funciona hoje, em CSV
 
