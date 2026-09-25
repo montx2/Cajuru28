@@ -19,7 +19,10 @@
     Endereço HTTPS do Cajuru28. Ex.: https://cajuru.suaempresa.com.br
 
 .PARAMETER Identificador
-    Identificador da estação, gerado em Procurações -> Estações.
+    Identificador da estação. Quem o gera é o servidor, no momento da
+    matrícula: em Procurações -> Estações, clique em "Matricular estação",
+    informe só o nome da máquina e copie o comando pronto que a tela exibe.
+    São 32 caracteres hexadecimais; não invente nem edite esse valor.
 
 .PARAMETER Segredo
     Segredo exibido uma única vez no momento da matrícula.
@@ -60,9 +63,12 @@ if ($ServidorUrl -notmatch '^https://') {
     throw "ServidorUrl precisa comecar com https:// (recebido: $ServidorUrl). " +
           "A credencial da estacao nunca deve trafegar em texto claro."
 }
-if ($Identificador.Length -lt 16) {
-    throw "Identificador invalido. Copie exatamente o valor gerado no Cajuru28."
+if ($Identificador -notmatch '^[0-9a-fA-F]{16,64}$') {
+    throw "Identificador invalido: '$Identificador'. O valor e gerado pelo Cajuru28 " +
+          "na matricula da estacao (Procuracoes -> Estacoes -> Matricular estacao) e tem " +
+          "32 caracteres hexadecimais. Copie o comando pronto exibido na tela."
 }
+$Identificador = $Identificador.ToLower()
 Escrever-Ok "Servidor: $ServidorUrl"
 Escrever-Ok "Estacao : $NomeEstacao"
 

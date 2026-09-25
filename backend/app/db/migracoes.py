@@ -32,6 +32,11 @@ _COLUNAS_POR_TABELA: dict[str, list[tuple[str, str]]] = {
     "procuracao_agentes": [
         ("assinador_pendencias", "VARCHAR(255) NOT NULL DEFAULT ''"),
     ],
+    # Pendência de importação sem o nome do cliente é um CNPJ solto na tela:
+    # a coluna entrou depois para que o operador saiba de quem é o documento.
+    "procuracao_integracao_erros": [
+        ("nome", "VARCHAR(255) NOT NULL DEFAULT ''"),
+    ],
     "documentos_fiscais": [
         ("status", "VARCHAR(20) NOT NULL DEFAULT 'normal'"),
         ("motivo_cancelamento", "TEXT"),

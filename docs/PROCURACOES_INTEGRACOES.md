@@ -137,39 +137,116 @@ a ação de correção — é o que transforma "não funciona" em tarefa.
 
 ## 3. Jettax 360 — sem API pública documentada
 
-**Status:** **não há documentação pública** de API REST. O material do
-fornecedor menciona "API aberta" em linguagem de marketing; a central de ajuda
-documenta integração com a Acessórias por `apiToken`, não um contrato de
-consulta de procurações.
+**Status (verificado em setembro de 2026): não existe API REST pública
+documentada para a tela de procurações.** A busca cobriu o site do fornecedor,
+a central de ajuda e os artefatos de API que ele publica. O que existe:
+
+| Artefato | O que é | Serve para procurações? |
+|---|---|---|
+| Coleção Postman "Morfeu" (`morfeu-api.jettax.com.br`, 2020) | Único contrato público: DAS, captura de NFS-e/NF-e, header `Authorization` | **Não.** Nenhuma rota de procuração. |
+| Integrações por `apiToken` (Acessórias, SIEG) | Terceiros **enviando** dados *para* a Jettax | **Não.** Sentido oposto ao necessário. |
+| "API aberta" no material comercial | Linguagem de marketing, sem contrato publicado | **Não.** |
+
+A tela em questão é `admin.jettax360.com.br/prevention/ecac/procurations`.
+A [documentação oficial do menu][ajuda] descreve **o que ela mostra**, nunca
+como obtê-la por programa:
+
+- colunas **EMPRESA · CLIENTE · INÍCIO · VENCIMENTO · SITUAÇÃO**, onde EMPRESA é
+  o nome tal como consta no e-CAC e CLIENTE indica se o outorgante também é
+  cliente cadastrado na Jettax;
+- quatro totalizadores — Ativas de Clientes, Expiradas de Clientes, Ativas não
+  Clientes, Expiradas não Clientes — que correspondem ao parâmetro `tab` da URL;
+- filtros por Empresa, Situação, "É Cliente na Jettax" e Vencimento (30/60/90);
+- a relação cobre apenas os outorgantes ligados ao **certificado principal** e é
+  **reprocessada mensalmente, no dia 25**.
+
+Duas consequências práticas: a lista não é tempo real (reprocessada no dia 25),
+e ela inclui outorgantes que **não são clientes do escritório** — daí a coluna
+CLIENTE e a regra de pendência descrita adiante.
+
+[ajuda]: https://jettax360-help.freshdesk.com/support/solutions/articles/151000009202-como-funciona-o-menu-procurações
 
 ### Consequência de projeto
 
 Inventar endpoint seria criar dependência fictícia que quebra no primeiro
-contato com a realidade. Em vez disso:
+contato com a realidade. Em vez disso o módulo tem **dois caminhos**, e o que
+está ligado por padrão é o que não depende de contrato nenhum.
 
-- `app/procuracoes/integracoes/jettax.py` é um **adaptador dirigido por
-  configuração**: base URL, token e rotas vêm do cofre e do campo `opcoes`;
-- sem credencial, ele **falha fechado** com mensagem explícita — não finge
-  sucesso, não devolve lista vazia silenciosa;
-- a base URL passa por validação: HTTPS obrigatório, sem credencial embutida na
-  URL, sem endereço de rede interna (defesa contra SSRF);
-- o mapeamento de campos é configurável, porque o formato só será conhecido
-  quando houver documentação.
+#### Caminho A — importação da lista (disponível, é o que se usa hoje)
 
-### O que falta, exatamente
+`POST /procuracoes/importar-lista`, tela **Procurações → Importar lista**:
 
-1. documentação oficial do endpoint de listagem de clientes/procurações;
-2. formato de autenticação (header? query? OAuth?);
-3. contrato de resposta (nomes de campo, formato de data, paginação);
-4. limites de uso e política de retentativa;
-5. credenciais do escritório.
+```json
+{"texto": "…colagem da tela…", "fonte": "jettax360", "situacao_padrao": ""}
+```
 
-Com esses cinco itens, a integração é uma edição no adaptador — nenhuma outra
-parte do módulo muda.
+O leitor vive em `app/procuracoes/integracoes/planilha.py` — **a mesma peça que
+já lia CSV**, estendida em vez de duplicada. `FontePlanilha` (arquivo) e
+`FonteColagem` (texto) entregam o mesmo tipo de registro ao
+`servicos/sincronizacao.py`, então idempotência, precedência, auditoria e
+histórico de job são exatamente os mesmos dos outros canais. O que o leitor
+aguenta, porque é o que a tela real produz:
 
-### O caminho que funciona hoje
+- **nome numa linha, documento na seguinte** (o recorte vertical do navegador);
+- tudo na mesma linha, separado por `;`, `,`, tabulação ou espaços;
+- CNPJ e CPF misturados, com ou sem máscara;
+- linha de cabeçalho (`EMPRESA CLIENTE INÍCIO VENCIMENTO SITUAÇÃO`), rodapé de
+  paginação (`1 2 3 … 12`), contadores e o `Sim`/`Não` da coluna CLIENTE;
+- duas datas na linha = início + vencimento (invertidas, são corrigidas); uma
+  só = vencimento;
+- `situacao_padrao` declara de qual aba veio a colagem, e só se aplica às linhas
+  em que a situação não aparece no texto;
+- **vencimento no passado vence o rótulo**: "ativa" com data vencida entra como
+  `expirada`.
 
-**Importação de planilha CSV**, sem credencial nenhuma:
+Rodar duas vezes não duplica: a chave é o documento normalizado, e páginas
+sobrepostas convergem para o mesmo registro. O mesmo vale para o arquivo
+exportado, em `POST /procuracoes/importar-planilha` (campos `fonte_declarada` e
+`situacao_padrao` no multipart).
+
+Cada execução grava um `procuracao_integracao_job` (`origem="colagem"`) e, para
+cada linha não aproveitada, um `procuracao_integracao_erro` com documento, nome
+lido, código e motivo:
+
+| Código | Quando | O que fazer |
+|---|---|---|
+| `EMPRESA_NAO_CADASTRADA` | Documento não está na carteira | Cadastrar em Empresas (com UF) e reimportar |
+| `DOCUMENTO_INVALIDO` | Dígito verificador não fecha num valor sem máscara | Conferir o valor na origem |
+| `SITUACAO_INDETERMINADA` | A linha não trazia situação nem data | Reimportar declarando a aba de origem |
+| `FONTE_MENOR_PRECEDENCIA` | Já havia dado de fonte superior | Nada; é o comportamento correto |
+
+**Documento sem empresa correspondente não cria empresa.** A decisão é
+deliberada: a lista do Jettax mistura clientes e não clientes, e `Empresa` é
+entidade fiscal que exige UF e cadastro completo para entrar em apuração,
+obrigações e emissão. Criar um registro pela metade contaminaria relatórios e
+rotinas a jusante. O documento vira pendência **com o nome lido**, que é o que
+permite reconhecer o cliente e decidir.
+
+#### Caminho B — adaptador automático (não implementado, deliberadamente)
+
+`app/procuracoes/integracoes/jettax.py` é um **adaptador dirigido por
+configuração**: base URL, token e rotas vêm do cofre e do campo `opcoes`; sem
+credencial ele **falha fechado**, com mensagem explícita — não finge sucesso nem
+devolve lista vazia silenciosa. A base URL é validada (HTTPS obrigatório, sem
+credencial embutida, sem endereço de rede interna — defesa contra SSRF).
+
+Ele **não tem rota de procurações escrita**, e não terá por adivinhação. Para
+ligar o caminho B é preciso, antes, uma captura real do painel (DevTools → aba
+Network → a requisição da tela → *Copy as cURL* + o JSON de resposta). Com isso:
+
+1. método, caminho e parâmetros (`page`, `tab`) conferidos contra o tráfego real;
+2. forma de autenticação observada (cookie de sessão? header?);
+3. nomes de campo e formato de data do JSON;
+4. paginação e limites.
+
+Quando isso existir, o adaptador passa a ser preenchido **rotulado como
+comportamento observado do painel, não como API oficial publicada**: sujeito a
+mudar sem aviso, sem compromisso de compatibilidade do fornecedor, com o
+caminho A permanecendo como via de contingência. O acesso usa a conta e os
+dados do próprio escritório — nada de sessão de terceiro, CAPTCHA contornado ou
+automação disfarçada.
+
+### O caminho que funciona hoje, em CSV
 
 ```csv
 cnpj;razao_social;situacao;data_validade;servicos
@@ -182,8 +259,7 @@ cnpj;razao_social;situacao;data_validade;servicos
 - documento com ou sem máscara, validado por dígito verificador;
 - **validade vencida vence o rótulo**: linha marcada "ativa" com data passada
   entra como `expirada`;
-- documento fora da carteira vira `ignorado` com motivo, nunca empresa
-  fantasma.
+- documento fora da carteira vira pendência com motivo, nunca empresa fantasma.
 
 ---
 

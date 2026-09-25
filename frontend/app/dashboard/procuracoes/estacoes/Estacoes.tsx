@@ -195,9 +195,9 @@ export function Estacoes() {
           titulo={`${numero(semAssinador.length)} ${plural(semAssinador.length, "estação está", "estações estão")} sem Assinador apto`}
         >
           Enquanto o diagnóstico não passar, nenhum job é entregue a essas máquinas — o processo pararia no meio, com o portal aberto.
-          {requisitos.dados ? (
+          {(requisitos.dados?.assinador ?? []).length > 0 ? (
             <ol className="mt-2 space-y-1 text-xs">
-              {requisitos.dados.passos.slice(0, 4).map((passo) => (
+              {(requisitos.dados?.assinador ?? []).slice(0, 4).map((passo) => (
                 <li key={passo.chave}>
                   <span className="font-medium">{passo.titulo}:</span> {passo.acao}
                 </li>

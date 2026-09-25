@@ -69,6 +69,27 @@ nenhuma fonte foi sincronizada, ela não existe para o sistema. Rode
 
 ---
 
+### 2.5 Importação do Jettax trouxe menos do que a tela mostra
+
+A tela **Procurações → Importar lista** devolve, ao fim de cada execução, o que
+entrou e o que ficou de fora com o motivo de cada linha. O mesmo fica gravado em
+`procuracao_integracao_jobs` / `procuracao_integracao_erros`.
+
+| Sintoma | Causa | Conduta |
+|---|---|---|
+| Muitas linhas em "documento fora da carteira" | A lista do Jettax inclui outorgantes que não são clientes do escritório | Normal. Cadastre em **Empresas** só quem for cliente e reimporte |
+| "Situação indeterminada" | A colagem não pegou a coluna SITUAÇÃO nem as datas | Reimporte escolhendo a aba de origem em **Situação da aba** |
+| "Documento inválido" | Dígito verificador não fecha num valor sem máscara | Confira o valor no painel de origem |
+| Contagem menor que a da tela | A tela é paginada | Cole uma página por vez; repetir página não duplica |
+| Nada mudou (tudo "sem mudança") | Dado igual ao que já existia, ou fonte de precedência maior já tinha confirmado | Comportamento correto — veja a precedência em `PROCURACOES_INTEGRACOES.md` §5 |
+
+A lista do Jettax é reprocessada pelo fornecedor **mensalmente, no dia 25**, e
+cobre apenas os outorgantes ligados ao certificado principal. Importar todo dia
+não traz novidade; o canal oficial para conferência pontual é o Integra
+Contador.
+
+---
+
 ## 3. Recuperação de falhas
 
 ### 3.1 O que se recupera sozinho

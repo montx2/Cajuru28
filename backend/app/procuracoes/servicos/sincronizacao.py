@@ -141,6 +141,22 @@ def sincronizar(
     resultado.recebidos = len(registros)
     indice = _indice_de_empresas(db, escritorio_id)
 
+    # Fonte que lê texto livre sabe distinguir "linha que não é cliente" de
+    # "linha que é cliente mas não deu para interpretar". A segunda não pode
+    # sumir em silêncio: entra no relatório com o motivo e o que fazer.
+    for pendencia in _pendencias_da_fonte(fonte):
+        resultado.recebidos += 1
+        resultado.ignorados += 1
+        _registrar_erro(
+            db,
+            registro_job,
+            resultado,
+            documento=str(pendencia.get("documento", ""))[:30],
+            nome=str(pendencia.get("nome", "")),
+            codigo=str(pendencia.get("codigo", "LEITURA_INCOMPLETA")),
+            mensagem=str(pendencia.get("mensagem", "")),
+        )
+
     for bruto in registros:
         try:
             item = bruto.normalizado()
@@ -164,10 +180,18 @@ def sincronizar(
                 registro_job,
                 resultado,
                 documento=item.documento,
+                nome=item.razao_social,
                 codigo="EMPRESA_NAO_CADASTRADA",
                 mensagem=(
-                    "A fonte retornou um documento que não existe na carteira. "
-                    "Cadastre a empresa para que ela entre no controle de procurações."
+                    # Por que pendência e não cadastro automático: `Empresa.uf` é
+                    # obrigatória (vira `cUFAutor` na consulta à SEFAZ) e nenhuma
+                    # fonte de procuração informa UF; além disso a empresa nasceria
+                    # com `sincronizar_automaticamente` ligado, entrando sozinha nas
+                    # janelas de consumo. Listas de procuração também trazem
+                    # outorgantes que não são clientes do escritório.
+                    "Documento fora da carteira. Cadastre a empresa em Empresas "
+                    "(com UF) e rode a importação de novo — ela será associada "
+                    "pelo CNPJ/CPF normalizado."
                 ),
             )
             continue
@@ -221,6 +245,19 @@ def sincronizar(
     return resultado
 
 
+def _pendencias_da_fonte(fonte: FonteProcuracoes) -> list[dict[str, str]]:
+    """Diagnóstico opcional da fonte — nem toda fonte tem o que relatar."""
+    metodo = getattr(fonte, "pendencias_de_leitura", None)
+    if not callable(metodo):
+        return []
+    try:
+        itens = metodo()
+    except Exception:  # pragma: no cover - diagnóstico nunca derruba a carga
+        log.warning("procuracao_pendencias_de_leitura_falhou", exc_info=True)
+        return []
+    return [item for item in (itens or []) if isinstance(item, dict)]
+
+
 def _indice_de_empresas(db: Session, escritorio_id: int) -> dict[str, Empresa]:
     empresas = (
         db.query(Empresa)
@@ -238,18 +275,25 @@ def _registrar_erro(
     documento: str,
     codigo: str,
     mensagem: str,
+    nome: str = "",
 ) -> None:
     if len(resultado.erros) < MAX_ERROS_REGISTRADOS:
         db.add(
             IntegracaoErro(
                 integracao_job_id=registro_job.id,
                 documento=documento[:30],
+                nome=(nome or "")[:255],
                 codigo=codigo[:60],
                 mensagem=mensagem[:1000],
             )
         )
         resultado.erros.append(
-            {"documento": documento, "codigo": codigo, "mensagem": mensagem}
+            {
+                "documento": documento,
+                "nome": nome or "",
+                "codigo": codigo,
+                "mensagem": mensagem,
+            }
         )
 
 

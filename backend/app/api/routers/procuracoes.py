@@ -19,7 +19,16 @@ import json
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+)
 from sqlalchemy.orm import Session
 
 from app.api.deps import escritorio_id_atual, requer_escrita, requer_papel, usuario_atual
@@ -32,11 +41,12 @@ from app.procuracoes.estados import (
     FUNDAMENTO_IN_2320,
     CodigoErro,
     ModoOperacao,
+    StatusAutorizacao,
     StatusJob,
     avaliar_modo,
 )
 from app.procuracoes.integracoes.base import FonteError
-from app.procuracoes.integracoes.planilha import FontePlanilha
+from app.procuracoes.integracoes.planilha import FonteColagem, criar_fonte_texto
 from app.procuracoes.integracoes.registro import (
     FONTES_REMOTAS,
     ROTULOS,
@@ -940,19 +950,62 @@ def sincronizar(
     )
 
 
+def _situacao_declarada(valor: str) -> StatusAutorizacao | None:
+    """Converte a aba declarada pelo operador em situação do domínio."""
+    if not valor:
+        return None
+    try:
+        return StatusAutorizacao(valor)
+    except ValueError:
+        return None
+
+
+def _resposta_importacao(
+    resultado: srv_sinc.ResultadoSincronizacao, aviso: str = ""
+) -> esq.SincronizacaoSaida:
+    mensagem = resultado.mensagem
+    if aviso:
+        mensagem = f"{mensagem} ({aviso})"
+    return esq.SincronizacaoSaida(
+        fonte=resultado.fonte,
+        recebidos=resultado.recebidos,
+        criados=resultado.criados,
+        atualizados=resultado.atualizados,
+        inalterados=resultado.inalterados,
+        ignorados=resultado.ignorados,
+        invalidos=resultado.invalidos,
+        mensagem=mensagem,
+        erros=resultado.erros[:100],
+    )
+
+
 @router.post("/importar-planilha", response_model=esq.SincronizacaoSaida)
 async def importar_planilha(
     arquivo: UploadFile = File(...),
+    fonte_declarada: str = Form("planilha"),
+    situacao_padrao: str = Form(""),
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
     usuario: Usuario = _ESCRITA,
 ):
-    """Caminho que funciona sem nenhuma credencial externa: CSV exportado."""
+    """Caminho que funciona sem nenhuma credencial externa: arquivo exportado.
+
+    `fonte_declarada` existe porque o **mesmo arquivo** vale coisas diferentes
+    na reconciliação: exportado do painel do Jettax ele é dado do Jettax
+    (precedência `jettax360`); montado à mão é planilha. Quem sabe a origem é
+    o operador, então ele declara — nada aqui é adivinhado pela extensão.
+    """
+    nome_fonte = fonte_declarada if fonte_declarada in esq.FONTES_MANUAIS else "planilha"
     conteudo = await arquivo.read()
     try:
-        fonte = FontePlanilha(conteudo, nome_arquivo=arquivo.filename or "planilha.csv")
+        fonte = criar_fonte_texto(
+            conteudo,
+            nome_arquivo=arquivo.filename or "planilha.csv",
+            origem=ROTULOS.get(nome_fonte, nome_fonte),
+            situacao_padrao=_situacao_declarada(situacao_padrao),
+        )
         resultado = srv_sinc.sincronizar(
-            db, escritorio_id, "planilha", fonte, origem="upload"
+            db, escritorio_id, nome_fonte, fonte, origem="upload"
         )
     except FonteError as exc:
         db.commit()
@@ -963,20 +1016,49 @@ async def importar_planilha(
         "procuracao.importacao.planilha",
         entidade="procuracao_integracao",
         entidade_id=None,
-        detalhe=resultado.resumo, escritorio_id=escritorio_id,
+        detalhe=f"{nome_fonte}: {resultado.resumo}", escritorio_id=escritorio_id,
     )
     db.commit()
-    return esq.SincronizacaoSaida(
-        fonte=resultado.fonte,
-        recebidos=resultado.recebidos,
-        criados=resultado.criados,
-        atualizados=resultado.atualizados,
-        inalterados=resultado.inalterados,
-        ignorados=resultado.ignorados,
-        invalidos=resultado.invalidos,
-        mensagem=resultado.mensagem,
-        erros=resultado.erros[:100],
+    aviso = fonte.aviso_de_leitura() if isinstance(fonte, FonteColagem) else ""
+    return _resposta_importacao(resultado, aviso)
+
+
+@router.post("/importar-lista", response_model=esq.SincronizacaoSaida)
+def importar_lista(
+    entrada: esq.ImportarListaEntrada,
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+    usuario: Usuario = _ESCRITA,
+):
+    """Importa a lista **copiada da tela** do fornecedor.
+
+    Existe porque o painel do Jettax 360 não publica API de procurações: a
+    lista sai da tela, paginada (`?page=`) e dividida em abas (`&tab=`). Colar
+    página por página é seguro — a chave é o CNPJ/CPF normalizado, então
+    repetir a mesma página não duplica nada.
+    """
+    try:
+        fonte = FonteColagem(
+            entrada.texto,
+            origem=ROTULOS.get(entrada.fonte, entrada.fonte),
+            situacao_padrao=_situacao_declarada(entrada.situacao_padrao),
+        )
+        resultado = srv_sinc.sincronizar(
+            db, escritorio_id, entrada.fonte, fonte, origem="colagem"
+        )
+    except FonteError as exc:
+        db.commit()
+        raise _erro_fonte(exc)
+    auditoria.registrar(
+        db,
+        usuario,
+        "procuracao.importacao.lista",
+        entidade="procuracao_integracao",
+        entidade_id=None,
+        detalhe=f"{entrada.fonte}: {resultado.resumo}", escritorio_id=escritorio_id,
     )
+    db.commit()
+    return _resposta_importacao(resultado, fonte.aviso_de_leitura())
 
 
 # ---------------------------------------------------------------------------

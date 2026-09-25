@@ -1,5 +1,46 @@
-import { ApiError } from "./api";
+import { ApiError, type ProblemaValidacao } from "./api";
 import type { Tom } from "./estados";
+
+/**
+ * Nome do campo como o operador o vê na tela. O contrato usa `snake_case`;
+ * mostrar "base_url" numa mensagem de erro é jogar o vocabulário do banco na
+ * cara de quem só quer saber onde clicar.
+ */
+const ROTULO_DO_CAMPO: Record<string, string> = {
+  base_url: "Base URL",
+  segredo: "Credencial",
+  identificador: "Identificador",
+  fonte: "Fonte",
+  texto: "Lista colada",
+  situacao_padrao: "Situação da aba",
+  nome: "Nome",
+  outorgado_documento: "CNPJ/CPF da contabilidade",
+  alerta_dias: "Janelas de alerta",
+  arquivo: "Arquivo",
+  data_inicio: "Data inicial",
+  data_fim: "Data final",
+  competencia: "Competência",
+};
+
+export function rotuloDoCampo(campo: string): string {
+  const limpo = campo.trim();
+  if (!limpo) return "";
+  const conhecido = ROTULO_DO_CAMPO[limpo];
+  if (conhecido) return conhecido;
+  return limpo
+    .split(" → ")
+    .map((parte) => parte.replace(/_/g, " "))
+    .join(" → ")
+    .replace(/^./, (letra) => letra.toUpperCase());
+}
+
+/**
+ * Campos recusados pela API, para a tela destacar o que precisa de conserto.
+ * Vazio quando o erro não é de validação.
+ */
+export function problemasDeValidacao(erro: unknown): ProblemaValidacao[] {
+  return erro instanceof ApiError ? erro.problemas : [];
+}
 
 export interface ErroDescrito {
   titulo: string;
@@ -58,14 +99,48 @@ export function descreverErro(erro: unknown, contexto = "carregar estes dados"):
           tom: "erro",
           detalhe: erro.message,
         };
-      case 422:
+      case 422: {
+        // O 422 do Pydantic sempre diz qual campo e por quê. Antes esta
+        // resposta era descartada e a tela mostrava um texto fixo sobre
+        // "período e competência" — inútil em formulário que não tem período,
+        // e foi o que fez o operador tentar a mesma credencial cinco vezes.
+        const campos = erro.problemas.filter((item) => item.mensagem);
+        if (campos.length === 1) {
+          const [problema] = campos;
+          const rotulo = rotuloDoCampo(problema.campo);
+          return {
+            titulo: rotulo ? `Campo recusado: ${rotulo}` : "Dado recusado pela API",
+            causa: problema.mensagem,
+            proximoPasso: rotulo
+              ? `Ajuste "${rotulo}" e envie novamente.`
+              : "Ajuste o dado informado e envie novamente.",
+            tom: "erro",
+            detalhe: erro.message,
+          };
+        }
+        if (campos.length > 1) {
+          return {
+            titulo: `${campos.length} campos recusados`,
+            causa: campos
+              .map((item) => `${rotuloDoCampo(item.campo) || "campo"}: ${item.mensagem}`)
+              .join(" · "),
+            proximoPasso: `Corrija ${campos
+              .map((item) => rotuloDoCampo(item.campo) || "o campo indicado")
+              .join(", ")} e envie novamente.`,
+            tom: "erro",
+            detalhe: erro.message,
+          };
+        }
         return {
           titulo: "A API recusou os parâmetros",
-          causa: "Algum filtro obrigatório está ausente ou em formato diferente do esperado (período em AAAA-MM-DD, competência em MM/AAAA).",
+          causa:
+            erro.message ||
+            "Algum filtro obrigatório está ausente ou em formato diferente do esperado (período em AAAA-MM-DD, competência em MM/AAAA).",
           proximoPasso: "Confira o período e os filtros destacados abaixo e envie novamente.",
           tom: "erro",
           detalhe: erro.message,
         };
+      }
       case 429:
         return {
           titulo: "Consulta na janela oficial da SEFAZ",
@@ -103,10 +178,16 @@ export function descreverErro(erro: unknown, contexto = "carregar estes dados"):
 }
 
 /**
- * Frase curta para avisos flutuantes: título + próximo passo, sem o detalhe
- * técnico (esse fica na tela de erro, onde há espaço para ele).
+ * Frase para avisos flutuantes: título + próximo passo, sem o detalhe técnico
+ * (esse fica na tela de erro, onde há espaço para ele).
+ *
+ * Exceção deliberada: em erro de validação a **causa** é a informação que
+ * resolve ("a URL precisa começar com https://"). Omiti-la transformava o
+ * aviso em ruído — o operador lia "confira os campos" sem saber qual.
  */
 export function mensagemDoErro(erro: unknown, contexto?: string): string {
   const descrito = descreverErro(erro, contexto);
-  return `${descrito.titulo}. ${descrito.proximoPasso}`;
+  const ehValidacao = erro instanceof ApiError && erro.status === 422 && erro.problemas.length > 0;
+  const partes = ehValidacao ? [descrito.causa, descrito.proximoPasso] : [descrito.proximoPasso];
+  return [`${descrito.titulo}.`, ...partes.filter(Boolean)].join(" ");
 }

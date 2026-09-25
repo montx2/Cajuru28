@@ -33,6 +33,7 @@ import type {
   NotificacaoProcuracao,
   PassoRoteiro,
   ProcessarPendenciasResultado,
+  RequisitosAgente,
   ResultadoSincronizacaoProcuracoes,
   ResumoProcuracoes,
   SituacaoOpcaoProcuracao,
@@ -70,11 +71,26 @@ export function urlDaApi(caminho: string): string {
   return `${BASE_URL}${caminho.startsWith("/") ? caminho : `/${caminho}`}`;
 }
 
+/** Um campo recusado pela validação da API, já legível. */
+export interface ProblemaValidacao {
+  /** Nome do campo como o contrato o chama (`base_url`, `segredo`, …). */
+  campo: string;
+  mensagem: string;
+}
+
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  /**
+   * Campos recusados, quando a API respondeu 422 com o array `detail` do
+   * Pydantic. Guardar a estrutura (e não só a frase concatenada) é o que
+   * permite a tela dizer *qual* campo está errado e destacá-lo.
+   */
+  problemas: ProblemaValidacao[];
+
+  constructor(status: number, message: string, problemas: ProblemaValidacao[] = []) {
     super(message);
     this.status = status;
+    this.problemas = problemas;
   }
 
   /**
@@ -164,16 +180,28 @@ async function chamar<T>(caminho: string, opcoes: OpcoesChamada = {}): Promise<T
   if (!resposta.ok) {
     const corpo = await resposta.json().catch(() => ({}));
     let detalhe: unknown = corpo.detail ?? "Erro inesperado na API";
+    const problemas: ProblemaValidacao[] = [];
     // A localização vinda do Pydantic evita mensagens vagas em formulários extensos.
     if (Array.isArray(detalhe)) {
-      detalhe = detalhe
-        .map((item: unknown) => {
-          if (typeof item !== "object" || item === null) return String(item);
-          const erro = item as { msg?: unknown; loc?: unknown[] };
-          const local = erro.loc?.filter((parte) => parte !== "body").join(" → ");
-          const mensagem = typeof erro.msg === "string" ? erro.msg : "valor inválido";
-          return local ? `${local}: ${mensagem}` : mensagem;
-        })
+      for (const item of detalhe) {
+        if (typeof item !== "object" || item === null) {
+          problemas.push({ campo: "", mensagem: String(item) });
+          continue;
+        }
+        const erro = item as { msg?: unknown; loc?: unknown[] };
+        const campo = (erro.loc ?? [])
+          .filter((parte) => parte !== "body" && parte !== "query" && parte !== "path")
+          .join(" → ");
+        // O Pydantic prefixa "Value error, " nas mensagens de validador
+        // customizado; ela não acrescenta nada para quem está na tela.
+        const mensagem = (typeof erro.msg === "string" ? erro.msg : "valor inválido").replace(
+          /^Value error,\s*/i,
+          ""
+        );
+        problemas.push({ campo, mensagem });
+      }
+      detalhe = problemas
+        .map((item) => (item.campo ? `${item.campo}: ${item.mensagem}` : item.mensagem))
         .join("; ");
     }
     const mensagensStatus: Partial<Record<number, string>> = {
@@ -182,7 +210,7 @@ async function chamar<T>(caminho: string, opcoes: OpcoesChamada = {}): Promise<T
       429: "A consulta ainda está na janela de consumo. O sistema retoma automaticamente.",
     };
     const mensagem = mensagensStatus[resposta.status] ?? (typeof detalhe === "string" ? detalhe : "A API devolveu uma resposta inválida.");
-    throw new ApiError(resposta.status, mensagem);
+    throw new ApiError(resposta.status, mensagem, problemas);
   }
 
   if (resposta.status === 204) return undefined as T;
@@ -718,17 +746,44 @@ export const api = {
       body: JSON.stringify({ fonte }),
     }),
 
-  importarPlanilhaProcuracoes: (arquivo: File) => {
+  importarPlanilhaProcuracoes: (
+    arquivo: File,
+    opcoes: { fonte?: string; situacaoPadrao?: string } = {}
+  ) => {
     const corpo = new FormData();
     corpo.append("arquivo", arquivo);
+    // Quem sabe de onde o arquivo veio é o operador: o mesmo CSV vale como
+    // dado do Jettax (precedência maior) ou como planilha do escritório.
+    corpo.append("fonte_declarada", opcoes.fonte ?? "planilha");
+    corpo.append("situacao_padrao", opcoes.situacaoPadrao ?? "");
     return chamar<ResultadoSincronizacaoProcuracoes>("/procuracoes/importar-planilha", {
       method: "POST",
       body: corpo,
     });
   },
 
+  /** Importa a lista copiada da tela do fornecedor (sem credencial nenhuma). */
+  importarListaProcuracoes: (dados: {
+    texto: string;
+    fonte?: string;
+    situacao_padrao?: string;
+  }) =>
+    chamar<ResultadoSincronizacaoProcuracoes>("/procuracoes/importar-lista", {
+      method: "POST",
+      body: JSON.stringify({
+        texto: dados.texto,
+        fonte: dados.fonte ?? "jettax360",
+        situacao_padrao: dados.situacao_padrao ?? "",
+      }),
+    }),
+
   agentesProcuracao: () => chamar<AgenteProcuracao[]>("/procuracoes/agentes"),
 
+  /**
+   * Matrícula de estação. O identificador é gerado pelo servidor e volta na
+   * resposta — só se informa aqui para **re-credenciar** uma estação que já
+   * existe (mesma máquina, segredo novo).
+   */
   matricularAgente: (nome: string, identificador?: string) =>
     chamar<CredencialAgente>("/procuracoes/agentes", {
       method: "POST",
@@ -741,10 +796,7 @@ export const api = {
       body: JSON.stringify({ motivo }),
     }),
 
-  requisitosAgente: () =>
-    chamar<{ passos: Array<{ chave: string; titulo: string; acao: string }>; url_manual: string; url_teste: string }>(
-      "/procuracoes/agentes/requisitos"
-    ),
+  requisitosAgente: () => chamar<RequisitosAgente>("/procuracoes/agentes/requisitos"),
 
   notificacoesProcuracao: (apenasAbertas = true) =>
     chamar<NotificacaoProcuracao[]>(`/procuracoes/notificacoes${montarParams({ apenas_abertas: apenasAbertas })}`),
