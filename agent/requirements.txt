@@ -1,0 +1,3 @@
+# Dependências do Cajuru Agent. Propositalmente curtas: quanto menos código de
+# terceiros roda ao lado dos certificados, menor a superfície de ataque.
+httpx==0.28.1
