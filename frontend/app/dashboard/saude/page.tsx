@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Saude } from "./Saude";
 
 export const metadata: Metadata = {
-  title: "Saúde · Fluxa",
+  title: "Saúde",
 };
 
 /* Tela sem filtros de URL: lê o estado atual do ambiente. */

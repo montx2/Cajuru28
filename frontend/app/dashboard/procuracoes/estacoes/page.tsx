@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { Estacoes } from "./Estacoes";
 
 export const metadata: Metadata = {
-  title: "Estações · Procurações RFB · Fluxa",
+  title: "Estações · Procurações RFB",
 };
 
 export default function PaginaEstacoes() {

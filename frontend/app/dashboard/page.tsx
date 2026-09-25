@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { Painel } from "./Painel";
 
 export const metadata: Metadata = {
-  title: "Painel · Fluxa",
+  title: "Painel",
 };
 
 /* Filtros de competência vivem na URL: `useSearchParams` pede fronteira de Suspense. */

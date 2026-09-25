@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { Configuracoes } from "./Configuracoes";
 
 export const metadata: Metadata = {
-  title: "Configurações · Fluxa",
+  title: "Configurações",
 };
 
 /* A aba ativa vive na URL: link de alerta cai direto na seção certa. */

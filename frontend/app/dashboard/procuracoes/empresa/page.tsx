@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { EmpresaProcuracao } from "./EmpresaProcuracao";
 
 export const metadata: Metadata = {
-  title: "Procuração da empresa · Fluxa",
+  title: "Procuração da empresa",
 };
 
 export default function PaginaEmpresaProcuracao() {

@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { Procuracoes } from "./Procuracoes";
 
 export const metadata: Metadata = {
-  title: "Procurações RFB · Fluxa",
+  title: "Procurações RFB",
 };
 
 /* Situação, busca e página vivem na URL — o link do alerta cai no recorte certo. */
