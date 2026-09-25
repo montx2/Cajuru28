@@ -4,7 +4,7 @@ import { useCallback, useState } from "react";
 import { api, urlDaApi } from "@/lib/api";
 import { mensagemDoErro } from "@/lib/erros";
 import { dataCurta } from "@/lib/format";
-import { estadoDoJobProcuracao } from "@/lib/estados";
+import { estadoDoJobProcuracao, fraseDoCodigoErro, nomeDoAtor } from "@/lib/estados";
 import { MOTIVO_SOMENTE_LEITURA } from "@/lib/papel";
 import { useRecurso } from "@/lib/useRecurso";
 import { useSessao } from "@/components/shell/ProvedorSessao";
@@ -37,13 +37,17 @@ interface Props {
  * 3. **a trilha** — cada transição, quem fez, quando e com qual código.
  */
 export function PainelJob({ jobId, aoFechar, aoMudar }: Props) {
-  const { somenteLeitura } = useSessao();
+  const { usuario, somenteLeitura } = useSessao();
   const { avisar } = useToast();
   const [protocolo, setProtocolo] = useState("");
   const [confirmacao, setConfirmacao] = useState("");
   const [enviando, setEnviando] = useState(false);
 
   const job = useRecurso(() => (jobId ? api.jobProcuracao(jobId) : Promise.resolve(null)), [jobId]);
+  const estacoes = useRecurso(
+    () => (jobId ? api.agentesProcuracao() : Promise.resolve([])),
+    [jobId]
+  );
   const dados = job.dados;
 
   const executar = useCallback(
@@ -68,10 +72,22 @@ export function PainelJob({ jobId, aoFechar, aoMudar }: Props) {
   if (!jobId) return null;
 
   const fase = dados?.fase ?? "outorga";
-  const podeRegistrarOutorga = dados?.status === "aguardando_assinatura" || dados?.status === "preenchendo";
-  const podeRegistrarAceite = dados?.status === "aguardando_validacao" || dados?.status === "validando";
   const emIntervencao = dados?.status === "intervencao_manual";
+  // Em intervenção manual os formulários seguem liberados: o operador pode
+  // decidir fazer o ato no portal por conta própria e registrar aqui o que a
+  // Receita devolveu (IN RFB 2.320/2026: nada de marco sem confirmação real).
+  const podeRegistrarOutorga =
+    dados?.status === "aguardando_assinatura" ||
+    dados?.status === "preenchendo" ||
+    (emIntervencao && fase === "outorga");
+  const podeRegistrarAceite =
+    dados?.status === "aguardando_validacao" || dados?.status === "validando" || (emIntervencao && fase === "aceite");
   const terminal = dados?.status === "concluido" || dados?.status === "cancelado" || dados?.status === "falhou";
+  const esperandoEstacao = dados?.status === "pendente" || dados?.status === "aguardando_agente";
+  /** Sem estação viva, "aguardando estação" é promessa que não se cumpre. */
+  const semEstacaoUtil = (estacoes.dados ?? []).every(
+    (item) => !item.ativo || item.situacao === "revogado" || item.situacao === "offline"
+  );
 
   return (
     <Painel
@@ -146,14 +162,36 @@ export function PainelJob({ jobId, aoFechar, aoMudar }: Props) {
             <Aviso
               tom={dados.codigo_erro === "PORTAL_ALTERADO" ? "erro" : "espera"}
               icone="alerta"
-              titulo={dados.codigo_erro ?? "Processo interrompido"}
+              titulo={fraseDoCodigoErro(dados.codigo_erro) || "Processo interrompido"}
             >
               {dados.mensagem_erro}
+              {dados.codigo_erro ? (
+                <span className="mt-1 block font-mono text-2xs text-tinta-fraca">código: {dados.codigo_erro}</span>
+              ) : null}
               {dados.codigo_erro === "PORTAL_ALTERADO" ? (
                 <span className="mt-1 block text-xs">
                   O adaptador do portal precisa de manutenção. Nenhum job é retomado às cegas — ver docs/PROCURACOES_RFB.md.
                 </span>
               ) : null}
+            </Aviso>
+          ) : null}
+
+          {esperandoEstacao && semEstacaoUtil ? (
+            <Aviso tom="espera" icone="trabalhador" titulo="Este processo espera uma estação — e nenhuma está de pé">
+              O passo a passo no portal roda num computador com o Cajuru Agent instalado. Duas saídas, escolha uma:
+              <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                <li>
+                  instalar o Agent em uma máquina que fica ligada — veja{" "}
+                  <a href="/dashboard/procuracoes/estacoes" className="text-acento underline-offset-4 hover:underline">
+                    Estações
+                  </a>
+                  ;
+                </li>
+                <li>
+                  fazer a outorga direto no portal da Receita e registrar aqui o resultado — use{" "}
+                  <span className="font-medium">Assumir</span> e depois informe o protocolo que a Receita devolver.
+                </li>
+              </ul>
             </Aviso>
           ) : null}
 
@@ -228,7 +266,10 @@ export function PainelJob({ jobId, aoFechar, aoMudar }: Props) {
                 {podeRegistrarOutorga ? "Registrar a outorga" : "Registrar o aceite"}
               </h3>
               <p className="mt-1 text-xs leading-5 text-tinta-suave">
-                Informe o que o portal devolveu. Sem protocolo nem texto de confirmação o registro é recusado — é o que impede marcar como
+                {emIntervencao
+                  ? "Fez o ato direto no portal da Receita? Informe aqui o que a Receita devolveu — o processo segue do ponto em que está."
+                  : "Informe o que o portal devolveu."}{" "}
+                Sem protocolo nem texto de confirmação o registro é recusado — é o que impede marcar como
                 concluído algo que a Receita não registrou.
               </p>
               <div className="mt-3 space-y-2">
@@ -303,27 +344,40 @@ export function PainelJob({ jobId, aoFechar, aoMudar }: Props) {
               Trilha do processo
             </h3>
             <ol className="space-y-2 border-l border-borda-controle pl-3">
-              {dados.eventos.map((evento) => (
-                <li key={evento.id} className="relative text-xs">
-                  <span className="absolute -left-[17px] top-1.5 h-1.5 w-1.5 rounded-full bg-borda-controle" />
-                  <p className="text-tinta">
-                    {evento.status_novo ? (
-                      <>
-                        <span className="text-tinta-fraca">{evento.status_anterior || "—"}</span>
-                        {" → "}
-                        <span className="font-medium">{evento.status_novo}</span>
-                      </>
-                    ) : (
-                      <span className="font-medium">{evento.tipo}</span>
-                    )}
-                    {evento.codigo_erro ? <span className="ml-1 text-erro">({evento.codigo_erro})</span> : null}
-                  </p>
-                  {evento.mensagem ? <p className="mt-0.5 text-tinta-suave">{evento.mensagem}</p> : null}
-                  <p className="mt-0.5 text-tinta-fraca">
-                    <DataHora iso={evento.quando} /> · {evento.ator || "sistema"}
-                  </p>
-                </li>
-              ))}
+              {dados.eventos.map((evento) => {
+                const anterior = evento.status_anterior
+                  ? estadoDoJobProcuracao(evento.status_anterior).rotulo
+                  : null;
+                const novo = evento.status_novo
+                  ? estadoDoJobProcuracao(evento.status_novo).rotulo
+                  : evento.tipo;
+                // A frase do catálogo traduz o código; a mensagem do evento já
+                // costuma ser a explicação gravada na hora — não repetir.
+                const frase = fraseDoCodigoErro(evento.codigo_erro);
+                const mostrarFrase = frase && frase !== evento.mensagem;
+                return (
+                  <li key={evento.id} className="relative text-xs">
+                    <span className="absolute -left-[17px] top-1.5 h-1.5 w-1.5 rounded-full bg-borda-controle" />
+                    <p className="text-tinta">
+                      {anterior ? (
+                        <>
+                          <span className="text-tinta-fraca">{anterior}</span>
+                          {" → "}
+                        </>
+                      ) : null}
+                      <span className="font-medium">{novo}</span>
+                      {evento.codigo_erro ? (
+                        <span className="ml-1 font-mono text-2xs text-tinta-fraca">({evento.codigo_erro})</span>
+                      ) : null}
+                    </p>
+                    {mostrarFrase ? <p className="mt-0.5 text-tinta-suave">{frase}</p> : null}
+                    {evento.mensagem ? <p className="mt-0.5 text-tinta-suave">{evento.mensagem}</p> : null}
+                    <p className="mt-0.5 text-tinta-fraca">
+                      <DataHora iso={evento.quando} /> · {nomeDoAtor(evento, usuario?.id ?? null)}
+                    </p>
+                  </li>
+                );
+              })}
             </ol>
           </section>
         </div>

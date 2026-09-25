@@ -491,3 +491,149 @@ def test_situacoes_expostas_batem_com_o_dominio(api):
     # A aparência (cor/ícone) é decidida no frontend, em lib/estados.ts: a API
     # entrega vocabulário, não estilo.
     assert all(item["rotulo"] for item in itens)
+
+
+# ---------------------------------------------------------------------------
+# Intervenção pedida por PESSOA (não pela estação) e ciclo manual sem Agent
+#
+# Regressão da trilha real da R10 NOGUEIRA: o endpoint de intervenção caía na
+# rede de segurança porque `pendente`/`aguardando_agente` não aceitavam
+# intervenção — e gravava evento sem estado anterior, ator "sistema" e código
+# de desafio de portal que nunca aconteceu.
+# ---------------------------------------------------------------------------
+
+
+def _job_da_fila(cliente, indice: int = 0) -> int:
+    """Job em `aguardando_agente` **sem estação nenhuma** — o cenário do
+    escritório que nunca instalou o Agent.
+
+    Nasce por POST /jobs (e não por 'Processar pendências') porque o botão em
+    massa já roda a triagem de certificado: sem frota, o job nasceria travado
+    em intervenção por `CERTIFICADO_NAO_ENCONTRADO`. Aqui interessa o estado
+    de fila puro, esperando estação que não existe."""
+    cliente.put(
+        "/procuracoes/configuracao",
+        json={"outorgado_documento": OUTORGADO, "outorgado_nome": "CONTABILIDADE CAJURU LTDA"},
+    ).raise_for_status()
+    itens = cliente.get("/procuracoes?tamanho=10").json()["itens"]
+    resposta = cliente.post(
+        "/procuracoes/jobs", json={"empresa_id": itens[indice]["empresa_id"]}
+    )
+    assert resposta.status_code == 201, resposta.text
+    return resposta.json()["id"]
+
+
+def test_operador_assume_job_que_nenhuma_estacao_pegou(api):
+    cliente = api["cliente"]
+    job_id = _job_da_fila(cliente)
+    assert cliente.get(f"/procuracoes/jobs/{job_id}").json()["status"] == (
+        "aguardando_agente"
+    )
+
+    resposta = cliente.post(
+        f"/procuracoes/jobs/{job_id}/intervencao",
+        json={"motivo": "Vou fazer no portal agora."},
+    )
+    assert resposta.status_code == 200, resposta.text
+    assert resposta.json()["status"] == "intervencao_manual"
+
+    detalhe = cliente.get(f"/procuracoes/jobs/{job_id}").json()
+    evento = next(
+        item for item in detalhe["eventos"] if item["status_novo"] == "intervencao_manual"
+    )
+    # Trilha honesta: estado anterior preservado, autor humano, código que
+    # descreve o que aconteceu — nenhum desafio de portal inventado.
+    assert evento["status_anterior"] == "aguardando_agente"
+    assert evento["ator"] == "operador:1"
+    assert evento["usuario_id"] == 1
+    assert evento["ator_rotulo"] == "Admin"
+    assert evento["codigo_erro"] == "INTERVENCAO_SOLICITADA"
+    assert evento["tipo"] != "intervencao_forcada"
+    assert "PORTAL_DESAFIO_ADICIONAL" not in json.dumps(detalhe["eventos"])
+
+
+def test_intervencao_aceita_codigo_do_catalogo_quando_o_motivo_e_outro(api):
+    cliente = api["cliente"]
+    job_id = _job_da_fila(cliente)
+
+    resposta = cliente.post(
+        f"/procuracoes/jobs/{job_id}/intervencao",
+        json={
+            "motivo": "Há dois certificados desta empresa na frota.",
+            "codigo_erro": "CERTIFICADO_AMBIGUO",
+        },
+    )
+    assert resposta.status_code == 200, resposta.text
+    evento = next(
+        item
+        for item in cliente.get(f"/procuracoes/jobs/{job_id}").json()["eventos"]
+        if item["status_novo"] == "intervencao_manual"
+    )
+    assert evento["codigo_erro"] == "CERTIFICADO_AMBIGUO"
+
+    # Código inventado não vira métrica: 422 na borda.
+    outro = _job_da_fila(cliente, indice=1)
+    inventado = cliente.post(
+        f"/procuracoes/jobs/{outro}/intervencao",
+        json={"motivo": "x", "codigo_erro": "CODIGO_QUE_NAO_EXISTE"},
+    )
+    assert inventado.status_code == 422
+
+
+def test_registro_manual_do_ciclo_inteiro_sem_nenhuma_estacao(api):
+    """O escritório que nunca instalou o Agent precisa conseguir registrar a
+    outorga feita à mão e fechar o job — com protocolo, sem estação nenhuma."""
+    cliente = api["cliente"]
+    job_id = _job_da_fila(cliente)
+    cliente.post(f"/procuracoes/jobs/{job_id}/intervencao", json={}).raise_for_status()
+
+    # Sem confirmação do portal, nenhum marco é gravado.
+    recusa = cliente.post(f"/procuracoes/jobs/{job_id}/registrar-outorga", json={})
+    assert recusa.status_code == 422
+
+    outorga = cliente.post(
+        f"/procuracoes/jobs/{job_id}/registrar-outorga",
+        json={
+            "protocolo": "2026.000123456",
+            "confirmacao_portal": "Autorização registrada. Situação: Em Análise.",
+        },
+    )
+    assert outorga.status_code == 200, outorga.text
+    assert outorga.json()["status"] == "aguardando_validacao"
+    assert outorga.json()["protocolo"] == "2026.000123456"
+
+    detalhe = cliente.get(f"/procuracoes/jobs/{job_id}").json()
+    assinado = next(
+        item for item in detalhe["eventos"] if item["status_novo"] == "assinado"
+    )
+    assert assinado["status_anterior"] == "intervencao_manual"
+    assert assinado["ator"] == "operador:1"
+
+    def _linha(job_id):
+        itens = cliente.get("/procuracoes?tamanho=200").json()["itens"]
+        return next(item for item in itens if item["job_id"] == job_id)
+
+    assert _linha(job_id)["situacao"] == "em_analise"
+
+    aceite = cliente.post(
+        f"/procuracoes/jobs/{job_id}/registrar-aceite",
+        json={"confirmacao_portal": "Autorização validada. Situação: Ativa."},
+    )
+    assert aceite.status_code == 200, aceite.text
+    assert aceite.json()["status"] == "concluido"
+    assert _linha(job_id)["situacao"] == "ativa"
+    assert _linha(job_id)["protocolo"] == "2026.000123456"
+
+
+def test_registro_manual_em_job_encerrado_e_recusado(api):
+    cliente = api["cliente"]
+    job_id = _job_da_fila(cliente)
+    cliente.post(
+        f"/procuracoes/jobs/{job_id}/cancelar", json={"motivo": "Desistência."}
+    ).raise_for_status()
+
+    resposta = cliente.post(
+        f"/procuracoes/jobs/{job_id}/registrar-outorga",
+        json={"protocolo": "2026.1", "confirmacao_portal": "texto"},
+    )
+    assert resposta.status_code == 409

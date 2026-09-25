@@ -135,7 +135,13 @@ class FontePlanilha:
 
     nome = "planilha"
 
-    def __init__(self, conteudo: bytes, *, nome_arquivo: str = "planilha.csv"):
+    def __init__(
+        self,
+        conteudo: bytes,
+        *,
+        nome_arquivo: str = "planilha.csv",
+        situacao_padrao: StatusAutorizacao | None = None,
+    ):
         if not conteudo:
             raise FonteError("Arquivo vazio.", status_code=422)
         if len(conteudo) > LIMITE_BYTES:
@@ -145,7 +151,9 @@ class FontePlanilha:
             )
         self.conteudo = conteudo
         self.nome_arquivo = nome_arquivo
-
+        #: Aba declarada pelo operador: vale para as linhas cuja coluna
+        #: situação veio vazia. A linha continua mandando mais que a declaração.
+        self.situacao_padrao = situacao_padrao
     def testar(self) -> str:
         registros = self.listar()
         return f"{len(registros)} linha(s) válida(s) reconhecida(s) em {self.nome_arquivo}."
@@ -231,10 +239,11 @@ class FontePlanilha:
             return ""
         return str(linha.get(coluna) or "").strip()
 
-    @staticmethod
-    def _situacao(texto: str, validade: date | None) -> StatusAutorizacao:
+    def _situacao(self, texto: str, validade: date | None) -> StatusAutorizacao:
         alvo = _ALIAS_SITUACAO.get(_chave(texto).replace("_", " "))
         if alvo is None:
+            if not texto and self.situacao_padrao is not None:
+                return self.situacao_padrao
             return situacao_por_validade(validade, ativa=bool(validade))
         if alvo is StatusAutorizacao.ATIVA and validade and validade < date.today():
             return StatusAutorizacao.EXPIRADA
@@ -300,7 +309,12 @@ _PADRAO_DATA = re.compile(
 _TEM_MASCARA = re.compile(r"[./-]")
 
 #: Texto que aparece na tela mas não é dado: cabeçalho de coluna, paginação,
-#: totalizador, rótulo de filtro, botão. Comparado depois de `_chave`.
+#: totalizador, rótulo de filtro, botão, nome de aba, breadcrumb. Comparado
+#: depois de `_chave`. Vocabulário observado na tela real
+#: (`admin.jettax360.com.br/prevention/ecac/procurations`): a coluna
+#: OUTORGADO vem vazia (`-`), CLIENTE é selo Sim/Não, a aba "Sem procuração"
+#: traz `Certificado do Cliente` e os filtros repetem os mesmos tokens dos
+#: dados — por isso tudo isso precisa estar aqui.
 _RUIDO_EXATO: frozenset[str] = frozenset(
     {
         "empresa", "empresas", "cliente", "clientes", "nome", "razao_social",
@@ -315,6 +329,16 @@ _RUIDO_EXATO: frozenset[str] = frozenset(
         "e_cliente", "ativas_de_clientes", "expiradas_de_clientes",
         "ativas_nao_clientes", "expiradas_nao_clientes", "prevencao", "ecac",
         "e_cac", "por_pagina", "linhas_por_pagina", "itens_por_pagina",
+        # Coluna OUTORGADO (sempre vazia na tela) e cabeçalho da segunda aba.
+        "outorgado", "outorgada", "outorgante", "certificado_vinculado",
+        # Valores da coluna CERTIFICADO VINCULADO — não são nomes.
+        "certificado_do_cliente", "certificado_principal",
+        "certificado_da_empresa", "sem_certificado",
+        # Barra de filtros e botões da tela atual.
+        "gerar_relatorio", "gerar_relatorios", "relatorio", "procure_pela_empresa",
+        "procure_pela_empresa_", "tipo", "periodo", "ordenar_por",
+        # Nomes das abas e miolo do breadcrumb — anunciam tabela nova.
+        "com_procuracao", "sem_procuracao", "procuracoes_e_cac",
     }
 )
 
@@ -333,10 +357,13 @@ _RUIDO_PADRAO: tuple[re.Pattern[str], ...] = (
 )
 
 
-#: Subconjunto do ruído que indica **começo de tabela ou troca de página**.
-#: Encontrar um destes zera qualquer nome pendente: o que veio antes era
-#: cabeçalho, totalizador ou filtro, não o nome de um cliente. Fora daqui
-#: ficam "sim"/"não", que são *valores* da coluna CLIENTE no meio da linha.
+#: Subconjunto do ruído que indica **começo de tabela, troca de aba ou troca
+#: de página**. Encontrar um destes zera qualquer nome pendente **e desliga a
+#: ligação com o documento anterior**: o que veio antes era cabeçalho,
+#: totalizador, filtro ou título de aba — e um `Expirado` ou data solta que
+#: vier depois não pode contaminar o último cliente da tabela anterior.
+#: Fora daqui ficam "sim"/"não", que são *valores* da coluna CLIENTE no meio
+#: da linha.
 _CABECALHOS_TABELA: frozenset[str] = frozenset(
     {
         "empresa", "empresas", "cliente", "clientes", "nome", "razao_social",
@@ -345,6 +372,10 @@ _CABECALHOS_TABELA: frozenset[str] = frozenset(
         "status", "acoes", "acao", "e_cliente_na_jettax", "e_cliente",
         "ativas_de_clientes", "expiradas_de_clientes", "ativas_nao_clientes",
         "expiradas_nao_clientes",
+        "outorgado", "outorgada", "certificado_vinculado",
+        # Abas e breadcrumb: anunciam que uma tabela (outra) começa.
+        "com_procuracao", "sem_procuracao", "procuracoes_e_cac",
+        "prevencao", "ecac", "e_cac",
     }
 )
 
@@ -597,15 +628,23 @@ class FonteColagem:
 
             if _eh_ruido(fragmento):
                 if _reinicia_tabela(fragmento):
-                    # Cabeçalho de coluna ou marca de paginação: o que estava
-                    # pendente era enfeite de tela (totalizador, filtro), não
-                    # nome de cliente.
+                    # Cabeçalho de coluna, título de aba, breadcrumb ou marca
+                    # de paginação: o que estava pendente era enfeite de tela
+                    # (totalizador, filtro), não nome de cliente — e qualquer
+                    # situação/data que vier a seguir já não pertence ao último
+                    # documento lido.
                     nome_pendente = ""
+                    atual = None
                 continue
 
             situacao = _situacao_do_fragmento(fragmento)
             datas = _datas_do_fragmento(fragmento)
-            if (situacao is not None or datas) and atual is not None:
+            # Data e situação só contam depois que um documento foi lido, e só
+            # se ligam ao documento **imediatamente** anterior — nada pendente
+            # no meio. Sem isto, o `Expirado` e os rótulos da barra de filtros
+            # (que usa os mesmos tokens dos dados) virariam a situação do
+            # último cliente da tabela anterior.
+            if (situacao is not None or datas) and atual is not None and not nome_pendente:
                 self._absorver(atual, fragmento)
                 continue
 
@@ -702,5 +741,9 @@ def criar_fonte_texto(
     """
     texto = decodificar(conteudo) if isinstance(conteudo, (bytes, bytearray)) else str(conteudo)
     if _cabecalho_tem_documento(texto):
-        return FontePlanilha(texto.encode("utf-8"), nome_arquivo=nome_arquivo)
+        return FontePlanilha(
+            texto.encode("utf-8"),
+            nome_arquivo=nome_arquivo,
+            situacao_padrao=situacao_padrao,
+        )
     return FonteColagem(texto, origem=origem, situacao_padrao=situacao_padrao)

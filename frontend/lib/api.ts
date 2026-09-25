@@ -645,7 +645,11 @@ export const api = {
     chamar<DetalheProcuracao>(`/procuracoes/empresas/${empresaId}`),
 
   roteiroProcuracao: (fase?: string) =>
-    chamar<{ passos: PassoRoteiro[]; aviso: string }>(`/procuracoes/roteiro${montarParams({ fase })}`),
+    chamar<{
+      passos: PassoRoteiro[];
+      fundamento: string;
+      urls_oficiais: { portal_servicos: string; ecac: string };
+    }>(`/procuracoes/roteiro${montarParams({ fase })}`),
 
   listarJobsProcuracao: (filtros: { status?: string; empresa_id?: number; limite?: number } = {}) =>
     chamar<JobProcuracao[]>(`/procuracoes/jobs${montarParams(filtros)}`),
@@ -719,8 +723,8 @@ export const api = {
   integracoesProcuracao: () => chamar<CredencialIntegracao[]>("/procuracoes/integracoes"),
 
   salvarIntegracaoProcuracao: (dados: {
-    fonte: string;
-    base_url?: string;
+    /** Única integração remota do módulo (o Jettax entra por importação). */
+    fonte: "integra_contador";
     segredo?: string;
     identificador?: string;
     ativo?: boolean;
@@ -735,12 +739,12 @@ export const api = {
     chamar<void>(`/procuracoes/integracoes/${fonte}`, { method: "DELETE" }),
 
   testarIntegracaoProcuracao: (fonte: string) =>
-    chamar<{ ok: boolean; detalhe: string; codigo: string | null }>(
+    chamar<{ fonte: string; ok: boolean; mensagem: string }>(
       `/procuracoes/integracoes/${fonte}/testar`,
       { method: "POST", body: "{}" }
     ),
 
-  sincronizarProcuracoes: (fonte: string) =>
+  sincronizarProcuracoes: (fonte: "integra_contador") =>
     chamar<ResultadoSincronizacaoProcuracoes>("/procuracoes/sincronizar", {
       method: "POST",
       body: JSON.stringify({ fonte }),
@@ -798,8 +802,8 @@ export const api = {
 
   requisitosAgente: () => chamar<RequisitosAgente>("/procuracoes/agentes/requisitos"),
 
-  notificacoesProcuracao: (apenasAbertas = true) =>
-    chamar<NotificacaoProcuracao[]>(`/procuracoes/notificacoes${montarParams({ apenas_abertas: apenasAbertas })}`),
+  notificacoesProcuracao: (abertas = true) =>
+    chamar<NotificacaoProcuracao[]>(`/procuracoes/notificacoes${montarParams({ abertas })}`),
 
   reconhecerNotificacaoProcuracao: (id: number) =>
     chamar<NotificacaoProcuracao>(`/procuracoes/notificacoes/${id}/reconhecer`, {

@@ -3,6 +3,7 @@ import { contagemRegressiva, numero, tempoRelativo } from "./format";
 import type {
   DocumentoFiscal,
   EstadoSincronizacao,
+  EventoJobProcuracao,
   NivelAlerta,
   ResumoCertificado,
   StatusExecucao,
@@ -428,8 +429,8 @@ export function estadoDaEstacao(situacao: string): EstadoVisual {
   switch (situacao) {
     case "online":
       return { tom: "ok", rotulo: "Online", icone: "monitor" };
-    case "ocioso":
-      return { tom: "info", rotulo: "Ociosa", icone: "monitor" };
+    case "processando":
+      return { tom: "info", rotulo: "Processando", icone: "monitor", pulsa: true };
     case "offline":
       return { tom: "erro", rotulo: "Sem comunicação", icone: "negar" };
     case "revogado":
@@ -450,4 +451,63 @@ export function estadoDoPrazoAceite(dias: number | null): EstadoVisual | null {
   if (dias <= 3) return { tom: "erro", rotulo: `Aceite em ${dias}d`, icone: "relogio" };
   if (dias <= 10) return { tom: "espera", rotulo: `Aceite em ${dias}d`, icone: "ampulheta" };
   return { tom: "info", rotulo: `Aceite em ${dias}d`, icone: "calendario" };
+}
+
+/**
+ * Frase do catálogo de erros — espelho fiel de `REGRAS`/`CodigoErro` no
+ * backend (`app/procuracoes/estados.py`). A trilha de auditoria mostra esta
+ * frase em vez do código cru: `PORTAL_DESAFIO_ADICIONAL` não diz ao operador
+ * o que fazer; "A Receita apresentou um desafio adicional…" diz.
+ */
+export const FRASE_CODIGO_ERRO: Record<string, string> = {
+  CERTIFICADO_EXPIRADO: "O certificado A1 desta empresa está vencido. Renove e recadastre antes de reprocessar.",
+  CERTIFICADO_NAO_ENCONTRADO: "Nenhum certificado A1 desta empresa foi encontrado na estação designada.",
+  CERTIFICADO_INVALIDO: "O arquivo não é um certificado A1 ICP-Brasil legível.",
+  CERTIFICADO_NAO_CORRESPONDE: "O certificado disponível não pertence ao CNPJ desta empresa. Operação interrompida.",
+  CERTIFICADO_AMBIGUO: "Mais de um certificado atende ao CNPJ desta empresa. Escolha explicitamente qual usar.",
+  CERTIFICADO_INDISPONIVEL: "O certificado está cadastrado mas não pôde ser aberto na estação neste momento.",
+  SENHA_INVALIDA: "A senha guardada para este certificado foi recusada. Regrave a senha no cofre da estação.",
+  ASSINADOR_NAO_INSTALADO: "O Assinador SERPRO não está instalado nesta estação.",
+  ASSINADOR_PARADO: "O Assinador SERPRO está instalado mas não está em execução.",
+  ASSINADOR_VERSAO_INCOMPATIVEL: "A versão do Assinador SERPRO nesta estação está abaixo da versão mínima configurada.",
+  ASSINADOR_SEM_CONEXAO_LOCAL: "O Assinador SERPRO não respondeu na porta local. Verifique firewall e a autorização do navegador.",
+  ASSINATURA_RECUSADA: "A assinatura foi recusada pelo Assinador. Nada foi outorgado.",
+  ASSINATURA_NAO_CONFIRMADA: "Não houve confirmação efetiva da assinatura. O job NÃO é marcado como assinado.",
+  PORTAL_INDISPONIVEL: "O Portal de Serviços da Receita Federal não respondeu.",
+  PORTAL_ALTERADO: "O fluxo da Receita mudou. É necessária manutenção do adaptador RFB antes de continuar.",
+  PORTAL_DESAFIO_ADICIONAL: "A Receita apresentou um desafio adicional de segurança. Só uma pessoa pode resolvê-lo.",
+  PORTAL_SESSAO_EXPIRADA: "A sessão no portal expirou antes da conclusão.",
+  PORTAL_ACESSO_NEGADO: "O portal negou o acesso com esta identidade. Verifique regularidade cadastral do CNPJ/CPF.",
+  AGENTE_INDISPONIVEL: "Nenhuma estação habilitada estava disponível para este job.",
+  AGENTE_SEM_RESPOSTA: "A estação parou de responder no meio do job. O estado foi preservado.",
+  AGENTE_REVOGADO: "A estação que executava este job teve o acesso revogado.",
+  TEMPO_ESGOTADO: "A etapa passou do tempo limite configurado.",
+  FALHA_DE_REDE: "Falha de rede entre a estação e o destino.",
+  AUTORIZACAO_JA_EXISTE: "Já existe autorização vigente para esta empresa. Nada foi criado — o job foi encerrado.",
+  JOB_DUPLICADO: "Já havia um job ativo para esta empresa. Este foi descartado sem efeito.",
+  INTEGRACAO_NAO_CONFIGURADA: "A fonte de dados de procurações não está configurada.",
+  INTEGRACAO_RECUSOU: "A fonte externa recusou a consulta.",
+  MODO_AUTOMATICO_VEDADO:
+    "A execução não assistida do ato de outorga está vedada pela IN RFB nº 2.320/2026. O job segue em modo assistido, conduzido por uma pessoa.",
+  OPERACAO_CANCELADA_PELO_OPERADOR: "Operação cancelada pelo operador.",
+  DADOS_INSUFICIENTES: "Faltam dados obrigatórios para montar a autorização (outorgado, vigência ou serviços).",
+  INTERVENCAO_SOLICITADA:
+    "Intervenção pedida por uma pessoa do escritório. O processo parou e aguarda ação humana — nenhum desafio do portal foi detectado.",
+};
+
+/** Frase do catálogo para o código; o próprio código quando desconhecido. */
+export function fraseDoCodigoErro(codigo: string | null | undefined): string {
+  const chave = (codigo ?? "").trim();
+  if (!chave) return "";
+  return FRASE_CODIGO_ERRO[chave] ?? chave;
+}
+
+/**
+ * Como chamar quem provocou o evento na trilha. O backend já resolve o nome
+ * em `ator_rotulo` ("Ana", "Estação PC Fiscal 01", "Sistema"); aqui só falta
+ * decidir entre o nome e "você" — que depende de quem está olhando.
+ */
+export function nomeDoAtor(evento: Pick<EventoJobProcuracao, "ator" | "ator_rotulo" | "usuario_id">, idDoUsuarioLogado?: number | null): string {
+  if (idDoUsuarioLogado != null && evento.usuario_id === idDoUsuarioLogado) return "você";
+  return evento.ator_rotulo || evento.ator || "Sistema";
 }

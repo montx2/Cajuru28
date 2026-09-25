@@ -32,6 +32,14 @@ descobrir qual certificado usar, lembrar de sincronizar.
 | O módulo está ligado? | `PROCURACOES_ATIVO` | `true` e reiniciar worker/beat |
 | Os limites estão apertados? | Configurar → Processos simultâneos | aumentar com parcimônia |
 
+Sem estação nenhuma de pé, o painel do job diz isso na cara e oferece as duas
+saídas honestas: **instalar o Agent** em uma máquina que fica ligada (Estações),
+ou **fazer a outorga direto no portal** e registrar aqui — assumir o job e
+informar o protocolo que a Receita devolver. O grafo admite intervenção manual
+de qualquer estado não-terminal, e o registro manual de outorga/aceite continua
+exigindo protocolo ou texto de confirmação: sem prova da Receita, nenhum marco
+de conclusão é gravado (IN RFB nº 2.320/2026).
+
 ### 2.2 Job parado com código
 
 | Código | Significado | Ação |
@@ -41,10 +49,11 @@ descobrir qual certificado usar, lembrar de sincronizar.
 | `CERTIFICADO_AMBIGUO` | dois A1 vigentes do mesmo CNPJ | fixar qual usar na tela da empresa |
 | `ASSINADOR_NAO_INSTALADO` | diagnóstico reprovado | `AGENT_CAJURU.md` §6 |
 | `PORTAL_ALTERADO` | a Receita mudou a tela | manutenção do adaptador (§5) |
-| `DESAFIO_DE_SEGURANCA` | CAPTCHA/MFA/verificação | concluir no portal e registrar manualmente |
-| `CONFIRMACAO_AUSENTE` | operador não informou protocolo nem texto | retomar e registrar |
+| `PORTAL_DESAFIO_ADICIONAL` | CAPTCHA/MFA/verificação adicional | concluir no portal e registrar manualmente |
+| `INTERVENCAO_SOLICITADA` | uma pessoa do escritório assumiu o job | seguir o roteiro no painel e registrar |
+| `DADOS_INSUFICIENTES` | falta dado obrigatório (outorgado, vigência…) | completar em Configurações |
+| `ASSINATURA_NAO_CONFIRMADA` | não houve confirmação real da assinatura | o job **não** foi marcado como assinado; refazer no portal |
 | `JOB_DUPLICADO` | já havia processo ativo | usar o existente |
-| `OUTORGADO_NAO_CONFIGURADO` | falta o CNPJ da contabilidade | Configurar |
 
 Todo job tem a trilha completa no painel lateral: cada transição, com ator,
 etapa, mensagem e código.
