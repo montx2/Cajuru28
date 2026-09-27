@@ -542,6 +542,7 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
   const pastaRef = useRef<HTMLInputElement>(null);
   const [certificados, setCertificados] = useState<File[]>([]);
   const [arquivosIgnorados, setArquivosIgnorados] = useState(0);
+  const [substituidosDaPasta, setSubstituidosDaPasta] = useState(0);
   const [planilhas, setPlanilhas] = useState<File[]>([]);
   const [senha, setSenha] = useState("");
   const [ufPadrao, setUfPadrao] = useState("");
@@ -568,16 +569,18 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
 
   function receberPasta(lista: FileList | null) {
     if (!lista) return;
-    const { certificados: encontrados, ignorados } = certificadosDaPasta(lista);
+    const { certificados: encontrados, ignorados, substituidos } = certificadosDaPasta(lista);
     // A pasta substitui a seleção: quem escolheu pasta quer o lote da pasta.
     setCertificados(encontrados);
     setArquivosIgnorados(ignorados);
+    setSubstituidosDaPasta(substituidos);
     if (pastaRef.current) pastaRef.current.value = "";
   }
 
   function limpar() {
     setCertificados([]);
     setArquivosIgnorados(0);
+    setSubstituidosDaPasta(0);
     setPlanilhas([]);
     setSenha("");
     setUfPadrao("");
@@ -652,8 +655,13 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
               </p>
               {arquivosIgnorados > 0 ? (
                 <p className="mt-1 text-2xs text-tinta-fraca">
-                  {numero(arquivosIgnorados)} {plural(arquivosIgnorados, "arquivo ignorado", "arquivos ignorados")} — não
-                  {" "}{plural(arquivosIgnorados, "é certificado", "são certificados")}.
+                  {plural(arquivosIgnorados, "arquivo ignorado — não é certificado", "arquivos ignorados — não são certificados")}.
+                </p>
+              ) : null}
+              {substituidosDaPasta > 0 ? (
+                <p className="mt-1 text-2xs text-tinta-fraca">
+                  {plural(substituidosDaPasta, "versão antiga ficou de fora", "versões antigas ficaram de fora")} — de cada
+                  CNPJ, só a versão mais recente é enviada.
                 </p>
               ) : null}
               {acimaDoLote ? (
@@ -756,7 +764,17 @@ function ResultadoLote({ resultado }: { resultado: LoteEmpresasResposta }) {
             </tr>
           </thead>
           <tbody>
-            {resultado.itens.map((item: ItemLoteEmpresas, indice) => (
+            {resultado.itens.map((item: ItemLoteEmpresas, indice) => {
+              const vencido = item.validade ? new Date(item.validade).getTime() < Date.now() : false;
+              const tomItem =
+                item.status === "erro"
+                  ? "erro"
+                  : item.status === "substituido" || item.status === "ja_existia"
+                    ? "neutro"
+                    : vencido
+                      ? "espera"
+                      : "ok";
+              return (
               <tr key={`${item.cnpj_cpf}-${indice}`} className="border-b border-traco last:border-0">
                 <td className="px-3 py-2 text-xs text-tinta-suave">{item.origem}</td>
                 <th scope="row" className="px-3 py-2 text-left font-normal">
@@ -764,7 +782,7 @@ function ResultadoLote({ resultado }: { resultado: LoteEmpresasResposta }) {
                   <Cnpj valor={item.cnpj_cpf} copiar={false} className="text-xs text-tinta-suave" />
                 </th>
                 <td className="px-3 py-2">
-                  <Etiqueta tom={item.status === "erro" ? "erro" : item.status === "ja_existia" ? "neutro" : "ok"}>
+                  <Etiqueta tom={tomItem} titulo={vencido && item.status !== "erro" ? "Certificado vencido" : undefined}>
                     {ROTULO_STATUS_LOTE[item.status] ?? item.status}
                   </Etiqueta>
                 </td>
@@ -774,7 +792,8 @@ function ResultadoLote({ resultado }: { resultado: LoteEmpresasResposta }) {
                   </span>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>

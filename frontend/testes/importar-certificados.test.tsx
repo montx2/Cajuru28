@@ -38,8 +38,14 @@ function montar() {
   );
 }
 
-const PFX = (nome: string) =>
-  new File([new Uint8Array([1, 2, 3, 4])], nome, { type: "application/octet-stream" });
+const AGORA = Date.now();
+const ONTEM = AGORA - 24 * 60 * 60 * 1000;
+
+const PFX = (nome: string, modificado = AGORA) =>
+  new File([new Uint8Array([1, 2, 3, 4])], nome, {
+    type: "application/octet-stream",
+    lastModified: modificado,
+  });
 
 describe("seleção da pasta de certificados", () => {
   it("lê só os .pfx/.p12 e conta o resto como ignorado", () => {
@@ -59,6 +65,41 @@ describe("seleção da pasta de certificados", () => {
     const { certificados, ignorados } = certificadosDaPasta([PFX("leia-me.txt")]);
     expect(certificados).toEqual([]);
     expect(ignorados).toBe(1);
+  });
+
+  it("com o antigo e o atualizado da mesma empresa, só o atualizado segue", () => {
+    const antigo = PFX("12345678000195-antigo.pfx", ONTEM);
+    const atualizado = PFX("12345678000195-atualizado.pfx", AGORA);
+    const { certificados, substituidos, substituicoes } = certificadosDaPasta([antigo, atualizado]);
+
+    expect(certificados.map((arquivo) => arquivo.name)).toEqual(["12345678000195-atualizado.pfx"]);
+    expect(substituidos).toBe(1);
+    expect(substituicoes[0].cnpj).toBe("12345678000195");
+    expect(substituicoes[0].descartados.map((arquivo) => arquivo.name)).toEqual([
+      "12345678000195-antigo.pfx",
+    ]);
+  });
+
+  it("data declarada no nome vale mais que a data de modificação", () => {
+    // O antigo foi baixado hoje; o atualizado foi copiado há tempos — mas
+    // o nome diz qual versão é qual.
+    const recuperadoAgora = PFX("12345678000195_2025.pfx", AGORA);
+    const copiadoAntes = PFX("12345678000195_2027.pfx", ONTEM);
+    const { certificados, substituidos } = certificadosDaPasta([recuperadoAgora, copiadoAntes]);
+
+    expect(certificados.map((arquivo) => arquivo.name)).toEqual(["12345678000195_2027.pfx"]);
+    expect(substituidos).toBe(1);
+  });
+
+  it("empresas diferentes não são agrupadas", () => {
+    const { certificados, substituidos, substituicoes } = certificadosDaPasta([
+      PFX("12345678000195.pfx"),
+      PFX("11444777000161.pfx"),
+    ]);
+
+    expect(certificados).toHaveLength(2);
+    expect(substituidos).toBe(0);
+    expect(substituicoes).toEqual([]);
   });
 });
 

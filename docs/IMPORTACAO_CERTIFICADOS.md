@@ -14,6 +14,12 @@ escritório já mantém.
    - Chrome, Edge e Safari abrem o seletor de pastas. No Firefox (e em
      qualquer dúvida) use **"Ou arquivos individuais"** e selecione os
      arquivos — o caminho garantido.
+   - **Certificado antigo e atualizado na mesma pasta?** De cada CNPJ, só a
+     versão mais recente é enviada — a tela conta quantas versões antigas
+     ficaram de fora. Se duas versões chegarem ao lote mesmo assim, quem
+     decide é o próprio certificado: sobrevive a de maior validade real
+     (X.509), e a descartada aparece no resultado como "Versão antiga", com
+     a data até a qual a mantida vale.
 2. **Planilha de senhas** (opcional, `.csv`/`.txt`) — anexe a planilha que já
    existe no escritório. Formatos aceitos, com ou sem acento no cabeçalho,
    separados por `;`, `,` ou tabulação:
@@ -35,9 +41,11 @@ escritório já mantém.
 
 ### Sem surpresas
 
-- Prévia antes do envio: quantos certificados, quantos ignorados, o que
-  falta para habilitar o botão (o título do botão diz o motivo).
+- Prévia antes do envio: quantos certificados, quantos ignorados, quantas
+  versões antigas descartadas, o que falta para habilitar o botão (o título
+  do botão diz o motivo).
 - Resultado por item: criadas, certificados anexados, falhas com motivo —
-  uma nota que falha nunca para as demais.
+  uma nota que falha nunca para as demais. Certificado vencido entra com
+  aviso explícito ("EXPIRADO — venceu em dd/mm/aaaa"), sem passar por cima.
 - Certificado sai da máquina apenas no momento do envio, cifrado no
   descanso (Fernet) e com senha guardada em cofre — nunca em log.

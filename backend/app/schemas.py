@@ -203,7 +203,7 @@ class ItemLoteEmpresas(BaseModel):
     cnpj_cpf: str = ""
     razao_social: str = ""
     uf: str = ""
-    status: str  # criada | certificado_atualizado | ja_existia | erro
+    status: str  # criada | certificado_atualizado | ja_existia | substituido | erro
     mensagem: str = ""
     empresa_id: int | None = None
     certificado_id: int | None = None

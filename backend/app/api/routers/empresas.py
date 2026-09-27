@@ -17,6 +17,7 @@ import csv
 import io
 import os
 import unicodedata
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
@@ -374,11 +375,16 @@ async def importar_empresas_em_massa(
     resultados: list[ItemLoteEmpresas] = []
     vistos: set[str] = set()
 
-    # 1) Arquivos .pfx — empresas + certificados
-    for arquivo in arquivos:
+    # 1) Arquivos .pfx — empresas + certificados. A pasta pode trazer o
+    # certificado antigo e o atualizado do mesmo CNPJ: sobrevive a versão de
+    # maior validade real (X.509), não a primeira da lista.
+    for passo in await _escolher_versoes(arquivos, senha=senha, linhas_csv=linhas_csv):
+        if isinstance(passo, ItemLoteEmpresas):
+            resultados.append(passo)
+            continue
         resultados.append(
             await _processar_pfx(
-                arquivo,
+                passo,
                 senha=senha,
                 uf_padrao=uf_padrao,
                 linhas_csv=linhas_csv,
@@ -400,9 +406,14 @@ async def importar_empresas_em_massa(
     certificados = sum(1 for r in resultados if r.status == "certificado_atualizado")
     ja_existiam = sum(1 for r in resultados if r.status == "ja_existia")
     erros = sum(1 for r in resultados if r.status == "erro")
+    substituidos = sum(1 for r in resultados if r.status == "substituido")
     auditoria.registrar(
         db, usuario, "empresas_lote",
-        detalhe=f"{len(resultados)} itens: {criadas} criadas, {certificados} certificados, {erros} erros",
+        detalhe=(
+            f"{len(resultados)} itens: {criadas} criadas, {certificados} certificados, "
+            f"{erros} erros"
+            + (f", {substituidos} versões antigas descartadas" if substituidos else "")
+        ),
     )
     db.commit()
 
@@ -483,6 +494,69 @@ def cadastrar_empresas_de_pendencias(
         erros=erros,
         itens=resultados,
     )
+
+
+async def _escolher_versoes(
+    arquivos: list[UploadFile],
+    *,
+    senha: str,
+    linhas_csv: dict[str, dict],
+) -> list[UploadFile | ItemLoteEmpresas]:
+    """
+    A pasta do escritório costuma ter o certificado antigo e o atualizado do
+    mesmo CNPJ. Quem decide qual fica é o próprio X.509, não a ordem em que o
+    navegador listou os arquivos: para cada CNPJ com mais de uma versão,
+    sobrevive a de maior validade e as demais entram no resultado como
+    "substituido" — o operador vê o que ficou de fora e até quando o mantido
+    vale. Arquivo que nem abre com a senha do CNPJ não é candidata; se
+    nenhuma abrir, a primeira segue para o `_processar_pfx` produzir o erro
+    de senha honesto.
+    """
+    plano: list[UploadFile | ItemLoteEmpresas] = list(arquivos)
+    grupos: dict[str, list[int]] = {}
+    for indice, arquivo in enumerate(arquivos):
+        nome = (arquivo.filename or "").lower()
+        if not nome.endswith((".pfx", ".p12")):
+            continue  # extensão errada segue para o _processar_pfx dar o erro honesto
+        cnpj = cnpj_de_nome_arquivo(arquivo.filename or "")
+        if cnpj:
+            grupos.setdefault(cnpj, []).append(indice)
+
+    for cnpj, indices in grupos.items():
+        if len(indices) < 2:
+            continue
+        senha_cnpj = ((linhas_csv.get(cnpj) or {}).get("senha") or senha).strip()
+        abertos: dict[int, datetime] = {}
+        for indice in indices:
+            conteudo = await arquivos[indice].read()
+            await arquivos[indice].seek(0)
+            try:
+                abertos[indice] = extrair_identidade(conteudo, senha_cnpj).validade_utc
+            except ValueError:
+                continue
+        vencedor = max(abertos, key=abertos.get) if abertos else indices[0]
+        nome_vencedor = arquivos[vencedor].filename or "arquivo.pfx"
+        validade_vencedor = abertos.get(vencedor)
+        for indice in indices:
+            if indice == vencedor:
+                continue
+            if validade_vencedor is not None:
+                mensagem = (
+                    f"Versão antiga deixada de fora: {nome_vencedor} vale até "
+                    f"{validade_vencedor.strftime('%d/%m/%Y')}."
+                )
+            else:
+                mensagem = (
+                    f"Outra versão do mesmo CNPJ ({nome_vencedor}) foi processada no lugar."
+                )
+            plano[indice] = ItemLoteEmpresas(
+                origem=arquivos[indice].filename or "arquivo.pfx",
+                cnpj_cpf=cnpj,
+                status="substituido",
+                mensagem=mensagem,
+                validade=abertos.get(indice),
+            )
+    return plano
 
 
 async def _processar_pfx(
@@ -582,16 +656,22 @@ async def _processar_pfx(
     db.add(certificado)
     db.flush()
 
+    venceu = identidade.validade_utc.strftime("%d/%m/%Y")
+    if identidade.validade_utc <= datetime.now(timezone.utc):
+        mensagem = (
+            f"Certificado EXPIRADO (venceu em {venceu}) — vinculado, mas não serve para "
+            f"capturar: envie a versão atualizada e ele assume no lugar."
+        )
+    else:
+        mensagem = f"Certificado vinculado (válido até {venceu})."
+
     return ItemLoteEmpresas(
         origem=nome,
         cnpj_cpf=cnpj,
         razao_social=empresa.razao_social,
         uf=empresa.uf,
         status="criada" if criada_agora else "certificado_atualizado",
-        mensagem=(
-            f"Certificado vinculado (válido até "
-            f"{identidade.validade_utc.strftime('%d/%m/%Y')})."
-        ),
+        mensagem=mensagem,
         empresa_id=empresa.id,
         certificado_id=certificado.id,
         validade=identidade.validade_utc,

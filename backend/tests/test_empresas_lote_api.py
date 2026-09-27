@@ -33,7 +33,7 @@ def _der_octet_string(dados: bytes) -> bytes:
     return b"\x04" + bytes([len(dados)]) + dados
 
 
-def _pfx(cnpj: str, razao: str, senha: str = SENHA) -> bytes:
+def _pfx(cnpj: str, razao: str, senha: str = SENHA, validade_dias: int = 365) -> bytes:
     chave = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     nome = x509.Name(
         [
@@ -42,14 +42,20 @@ def _pfx(cnpj: str, razao: str, senha: str = SENHA) -> bytes:
         ]
     )
     agora = datetime.now(timezone.utc)
+    # Vencido (validade_dias < 0): a vigência começa antes do vencimento.
+    inicio = (
+        agora - timedelta(days=1)
+        if validade_dias >= 0
+        else agora + timedelta(days=validade_dias - 1)
+    )
     cert = (
         x509.CertificateBuilder()
         .subject_name(nome)
         .issuer_name(nome)
         .public_key(chave.public_key())
         .serial_number(x509.random_serial_number())
-        .not_valid_before(agora - timedelta(days=1))
-        .not_valid_after(agora + timedelta(days=365))
+        .not_valid_before(inicio)
+        .not_valid_after(agora + timedelta(days=validade_dias))
         .add_extension(
             x509.SubjectAlternativeName(
                 [x509.OtherName(OID_CNPJ, _der_octet_string(cnpj.encode()))]
@@ -428,3 +434,59 @@ def test_planilha_sem_cabecalho_e_sem_documento_nao_inventa_nada(cliente):
     assert resposta.status_code == 200
     # O certificado entrou com a senha global; a planilha virou nada.
     assert resposta.json()["criadas"] == 1
+
+def test_lote_pasta_com_versao_antiga_e_atualizada_mantem_a_atual(cliente):
+    """A pasta traz o certificado antigo e o atualizado do mesmo CNPJ: sobrevive
+    o de maior validade real — não o primeiro da lista."""
+    client, db, _ = cliente
+
+    resposta = client.post(
+        "/empresas/lote",
+        data={"senha": SENHA, "uf_padrao": "SP"},
+        files=[
+            ("arquivos", (f"{CNPJ_A}-antigo.pfx", _pfx(CNPJ_A, "ALFA SERVICOS LTDA", validade_dias=30), "application/octet-stream")),
+            ("arquivos", (f"{CNPJ_A}-atualizado.pfx", _pfx(CNPJ_A, "ALFA SERVICOS LTDA", validade_dias=400), "application/octet-stream")),
+        ],
+    )
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["erros"] == 0
+    assert corpo["criadas"] == 1
+
+    por_origem = {item["origem"]: item for item in corpo["itens"]}
+    atualizado = por_origem[f"{CNPJ_A}-atualizado.pfx"]
+    assert atualizado["status"] == "criada"
+    assert "válido até" in atualizado["mensagem"]
+
+    antigo = por_origem[f"{CNPJ_A}-antigo.pfx"]
+    assert antigo["status"] == "substituido"
+    assert f"{CNPJ_A}-atualizado.pfx" in antigo["mensagem"]
+    assert "vale até" in antigo["mensagem"]
+
+    # Só a versão atualizada chegou ao cofre.
+    certificados = db.query(Certificado).all()
+    assert len(certificados) == 1
+    agora_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+    delta = (certificados[0].validade - agora_naive).days
+    assert 398 <= delta <= 400
+
+
+def test_lote_certificado_expirado_entra_com_aviso_claro(cliente):
+    """Vincular um certificado vencido não é erro do lote, mas o item precisa
+    dizer que ele não serve para capturar."""
+    client, db, _ = cliente
+
+    resposta = client.post(
+        "/empresas/lote",
+        data={"senha": SENHA, "uf_padrao": "SP"},
+        files=[
+            ("arquivos", (f"{CNPJ_A}.pfx", _pfx(CNPJ_A, "ALFA SERVICOS LTDA", validade_dias=-10), "application/octet-stream")),
+        ],
+    )
+
+    assert resposta.status_code == 200
+    item = resposta.json()["itens"][0]
+    assert item["status"] == "criada"
+    assert "EXPIRADO" in item["mensagem"]
+    assert "venceu em" in item["mensagem"]

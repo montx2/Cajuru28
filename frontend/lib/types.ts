@@ -315,7 +315,7 @@ export interface ItemLoteEmpresas {
   cnpj_cpf: string;
   razao_social: string;
   uf: string;
-  status: "criada" | "certificado_atualizado" | "ja_existia" | "erro";
+  status: "criada" | "certificado_atualizado" | "ja_existia" | "substituido" | "erro";
   mensagem: string;
   empresa_id: number | null;
   certificado_id: number | null;
@@ -338,6 +338,10 @@ export const ROTULO_TIPO: Record<TipoDocumentoFiscal, string> = {
 };
 
 export const ROTULO_STATUS_LOTE: Record<string, string> = {
+  criada: "Criada",
+  certificado_atualizado: "Certificado atualizado",
+  ja_existia: "Já existia",
+  substituido: "Versão antiga",
   enfileirada: "Enfileirada",
   em_andamento: "Já estava em andamento",
   ja_em_andamento: "Já estava em andamento",
