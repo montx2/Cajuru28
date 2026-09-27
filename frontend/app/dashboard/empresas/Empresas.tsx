@@ -1,9 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { dataCurta, formatarCnpjCpf, numero, plural, somenteDigitos } from "@/lib/format";
+import {
+  ATRIBUTOS_SELETOR_DE_PASTA,
+  LIMITE_CERTIFICADOS_POR_LOTE,
+  certificadosDaPasta,
+} from "@/lib/pastaCertificados";
 import { estadoDaSincronizacao, estadoDoCertificado, type EstadoVisual } from "@/lib/estados";
 import { mensagemDoErro } from "@/lib/erros";
 import { MOTIVO_SOMENTE_LEITURA } from "@/lib/papel";
@@ -532,9 +537,11 @@ function ModalNovaEmpresa({ aberto, aoFechar, aoCriar }: { aberto: boolean; aoFe
   );
 }
 
-function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: boolean; aoFechar: () => void; aoImportar: () => void }) {
+export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: boolean; aoFechar: () => void; aoImportar: () => void }) {
   const { avisar } = useToast();
+  const pastaRef = useRef<HTMLInputElement>(null);
   const [certificados, setCertificados] = useState<File[]>([]);
+  const [arquivosIgnorados, setArquivosIgnorados] = useState(0);
   const [planilhas, setPlanilhas] = useState<File[]>([]);
   const [senha, setSenha] = useState("");
   const [ufPadrao, setUfPadrao] = useState("");
@@ -542,10 +549,35 @@ function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: boolean
   const [erro, setErro] = useState<string | null>(null);
   const [resultado, setResultado] = useState<LoteEmpresasResposta | null>(null);
 
-  const podeEnviar = certificados.length > 0 && senha.trim().length > 0 && ufPadrao !== "";
+  // A senha global só é exigida quando não há planilha de senhas: o formato
+  // `documento;senha` (com ou sem cabeçalho) cobre o lote inteiro sozinho.
+  const senhasNaPlanilha = planilhas.length > 0;
+  const acimaDoLote = certificados.length > LIMITE_CERTIFICADOS_POR_LOTE;
+  const podeEnviar =
+    certificados.length > 0 && !acimaDoLote && ufPadrao !== "" && (senha.trim().length > 0 || senhasNaPlanilha);
+  const motivoBloqueio =
+    certificados.length === 0
+      ? "Escolha a pasta (ou os arquivos) dos certificados"
+      : acimaDoLote
+        ? `A pasta tem ${numero(certificados.length)} certificados — o limite por lote é ${LIMITE_CERTIFICADOS_POR_LOTE}. Importe em etapas.`
+        : ufPadrao === ""
+          ? "Escolha a UF padrão"
+          : !senha.trim() && !senhasNaPlanilha
+            ? "Informe a senha dos certificados ou envie a planilha de senhas"
+            : undefined;
+
+  function receberPasta(lista: FileList | null) {
+    if (!lista) return;
+    const { certificados: encontrados, ignorados } = certificadosDaPasta(lista);
+    // A pasta substitui a seleção: quem escolheu pasta quer o lote da pasta.
+    setCertificados(encontrados);
+    setArquivosIgnorados(ignorados);
+    if (pastaRef.current) pastaRef.current.value = "";
+  }
 
   function limpar() {
     setCertificados([]);
+    setArquivosIgnorados(0);
     setPlanilhas([]);
     setSenha("");
     setUfPadrao("");
@@ -588,14 +620,18 @@ function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: boolean
       rodape={
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs text-tinta-suave">
-            {resultado ? "Lote processado — revise os itens antes de fechar." : "A senha vale para todos os arquivos deste lote."}
+            {resultado
+              ? "Lote processado — revise os itens antes de fechar."
+              : senhasNaPlanilha
+                ? "As senhas vêm da planilha; a senha abaixo fica de reserva."
+                : "A senha informada vale para todos os arquivos deste lote."}
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <Botao variante="sutil" onClick={fechar}>
               {resultado ? "Concluir" : "Cancelar"}
             </Botao>
             {resultado ? null : (
-              <Botao variante="primaria" onClick={enviar} carregando={enviando} disabled={!podeEnviar} title={podeEnviar ? undefined : "Envie ao menos um certificado, a senha e a UF padrão"}>
+              <Botao variante="primaria" onClick={enviar} carregando={enviando} disabled={!podeEnviar} title={podeEnviar ? undefined : motivoBloqueio}>
                 Importar lote
               </Botao>
             )}
@@ -607,31 +643,65 @@ function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: boolean
         <ResultadoLote resultado={resultado} />
       ) : (
         <div className="space-y-4">
+          <div className="flex flex-wrap items-center gap-3 rounded-controle border border-borda-controle p-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm text-tinta">Pasta dos certificados no computador</p>
+              <p className="mt-0.5 text-xs leading-5 text-tinta-suave">
+                Um clique na pasta e pronto: só os <span className="font-medium">.pfx/.p12</span> são lidos — o resto
+                da pasta é ignorado. O CNPJ e a razão social saem do próprio certificado.
+              </p>
+              {arquivosIgnorados > 0 ? (
+                <p className="mt-1 text-2xs text-tinta-fraca">
+                  {numero(arquivosIgnorados)} {plural(arquivosIgnorados, "arquivo ignorado", "arquivos ignorados")} — não
+                  {" "}{plural(arquivosIgnorados, "é certificado", "são certificados")}.
+                </p>
+              ) : null}
+              {acimaDoLote ? (
+                <p role="alert" className="mt-1 text-xs text-erro">
+                  {motivoBloqueio}
+                </p>
+              ) : null}
+            </div>
+            <input
+              ref={pastaRef}
+              type="file"
+              className="hidden"
+              {...ATRIBUTOS_SELETOR_DE_PASTA}
+              onChange={(evento) => receberPasta(evento.target.files)}
+            />
+            <Botao
+              variante="primaria"
+              tamanho="sm"
+              onClick={() => pastaRef.current?.click()}
+              iconeEsquerda={<Icone nome="pasta" className="h-4 w-4" />}
+            >
+              Escolher pasta
+            </Botao>
+          </div>
+
           <CampoArquivo
-            rotulo="Certificados A1"
-            obrigatorio
+            rotulo="Ou arquivos individuais"
             aceita=".p12,.pfx"
             multiplo
             arquivos={certificados}
             aoMudar={setCertificados}
-            descricao="Um arquivo por empresa. O CNPJ sai do próprio certificado."
+            descricao="Arraste aqui se preferir. Um arquivo por empresa."
           />
           <CampoArquivo
-            rotulo="Planilha de empresas (opcional)"
-            aceita=".csv,.xlsx,.xls"
+            rotulo="Planilha de senhas (opcional)"
+            aceita=".csv,.txt"
             arquivos={planilhas}
             aoMudar={(arquivos) => setPlanilhas(arquivos.slice(0, 1))}
-            descricao="Colunas aceitas: razao_social, cnpj_cpf, uf. Complementa o que o certificado não traz."
+            descricao="Colunas cnpj_cpf e senha (cabeçalho com esses nomes) ou o formato seco documento;senha. A senha da planilha vale por arquivo; sem planilha, usa a senha informada abaixo."
           />
           <div className="grid gap-4 sm:grid-cols-2">
             <Entrada
               rotulo="Senha dos certificados"
-              obrigatorio
               type="password"
               autoComplete="off"
               value={senha}
               onChange={(evento) => setSenha(evento.target.value)}
-              descricao="Usada só para abrir os arquivos; não é guardada no navegador."
+              descricao="Usada só para abrir os arquivos; não é guardada no navegador. Sem senha aqui, cada arquivo usa a senha da planilha."
             />
             <Selecao
               rotulo="UF padrão"

@@ -335,3 +335,96 @@ def test_lote_texto_cadastra_as_pendencias_da_importacao(cliente, monkeypatch):
 def test_lote_texto_recusa_corpo_vazio(cliente):
     client, _, _ = cliente
     assert client.post("/empresas/lote-texto", json={"empresas": []}).status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Planilha de senhas: o formato que existe na mesa do escritório, não o ideal
+# ---------------------------------------------------------------------------
+
+
+def test_planilha_de_senhas_com_virgula_e_cabecalho_acentuado(cliente):
+    """Export que vem com `,` e "Razão Social" com acento também tem de valer."""
+    client, db, escritorio_id = cliente
+    csv_virgula = (
+        "Razão Social,CNPJ,Senha\n"
+        f"ALFA SERVICOS LTDA,{CNPJ_A},{SENHA}\n"
+    )
+
+    resposta = client.post(
+        "/empresas/lote",
+        data={"senha": "senha-global-nao-usada", "uf_padrao": "MG"},
+        files=[
+            ("arquivos", (f"{CNPJ_A}.pfx", _pfx(CNPJ_A, "ALFA SERVICOS LTDA"), "application/octet-stream")),
+            ("csv_arquivo", ("senhas.csv", csv_virgula, "text/csv")),
+        ],
+    )
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["erros"] == 0
+    # A senha que abriu o arquivo foi a da planilha — a global é descartável.
+    assert corpo["criadas"] == 1
+    empresa = db.query(Empresa).filter_by(cnpj_cpf=CNPJ_A).one()
+    assert empresa.razao_social == "ALFA SERVICOS LTDA"
+
+
+def test_planilha_de_senhas_sem_cabecalho_documento_ponto_e_virgula_senha(cliente):
+    """A planilha mais comum que existe: duas colunas, sem título nenhum."""
+    client, db, escritorio_id = cliente
+    csv_seco = f"12.345.678/0001-95;{SENHA}\n11.444.777/0001-61;{SENHA}\n"
+
+    resposta = client.post(
+        "/empresas/lote",
+        data={"senha": "", "uf_padrao": "PR"},
+        files=[
+            ("arquivos", (f"{CNPJ_A}.pfx", _pfx(CNPJ_A, "ALFA SERVICOS LTDA"), "application/octet-stream")),
+            ("arquivos", (f"{CNPJ_B}.pfx", _pfx(CNPJ_B, "BETA COMERCIO LTDA"), "application/octet-stream")),
+            ("csv_arquivo", ("senhas.csv", csv_seco, "text/csv")),
+        ],
+    )
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    # Sem senha global e sem cabeçalho: as senhas da planilha abriram os dois.
+    assert corpo["erros"] == 0
+    assert corpo["criadas"] == 2
+    assert db.query(Certificado).count() == 2
+
+
+def test_planilha_de_senhas_com_terceira_coluna_uf(cliente):
+    """`documento;senha;uf` sem cabeçalho: a UF da planilha vale."""
+    client, db, escritorio_id = cliente
+    csv_uf = f"{CNPJ_A};{SENHA};BA\n"
+
+    resposta = client.post(
+        "/empresas/lote",
+        data={"senha": "", "uf_padrao": ""},
+        files=[
+            ("arquivos", (f"{CNPJ_A}.pfx", _pfx(CNPJ_A, "ALFA SERVICOS LTDA"), "application/octet-stream")),
+            ("csv_arquivo", ("senhas.csv", csv_uf, "text/csv")),
+        ],
+    )
+
+    assert resposta.status_code == 200
+    assert resposta.json()["erros"] == 0
+    empresa = db.query(Empresa).filter_by(cnpj_cpf=CNPJ_A).one()
+    assert empresa.uf == "BA"
+
+
+def test_planilha_sem_cabecalho_e_sem_documento_nao_inventa_nada(cliente):
+    """Três colunas que não são documento;senha;uf = formato desconhecido: nada."""
+    client, db, _ = cliente
+    csv_ambiguo = "ALFA;ALFA SERVICOS;2020\n"
+
+    resposta = client.post(
+        "/empresas/lote",
+        data={"senha": SENHA, "uf_padrao": "SP"},
+        files=[
+            ("arquivos", (f"{CNPJ_A}.pfx", _pfx(CNPJ_A, "ALFA SERVICOS LTDA"), "application/octet-stream")),
+            ("csv_arquivo", ("senhas.csv", csv_ambiguo, "text/csv")),
+        ],
+    )
+
+    assert resposta.status_code == 200
+    # O certificado entrou com a senha global; a planilha virou nada.
+    assert resposta.json()["criadas"] == 1

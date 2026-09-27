@@ -16,6 +16,7 @@ from __future__ import annotations
 import csv
 import io
 import os
+import unicodedata
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
@@ -610,12 +611,11 @@ async def _ler_csv(arquivo: UploadFile | None) -> dict[str, dict]:
     except UnicodeDecodeError:
         texto = conteudo.decode("latin-1", errors="replace")
 
-    leitor = csv.reader(io.StringIO(texto), delimiter=";")
-    linhas = [linha for linha in leitor if any(celula.strip() for celula in linha)]
+    linhas = _linhas_do_csv(texto)
     if not linhas:
         return {}
 
-    cabecalho = [c.strip().lower().replace(" ", "_") for c in linhas[0]]
+    cabecalho = [_normalizar_cabecalho(celula) for celula in linhas[0]]
     indice = {
         "razao": _indice_ou(cabecalho, ("razao_social", "razaosocial", "nome", "empresa", "razao")),
         "cnpj": _indice_ou(cabecalho, ("cnpj_cpf", "cnpj", "cpf", "documento", "doc")),
@@ -623,7 +623,10 @@ async def _ler_csv(arquivo: UploadFile | None) -> dict[str, dict]:
         "senha": _indice_ou(cabecalho, ("senha", "password")),
     }
     if indice["cnpj"] is None:
-        return {}  # sem coluna de documento, nada a fazer
+        # Sem cabeçalho reconhecível, resta o formato curto da "planilha de
+        # senhas": `documento;senha` (ou `documento;senha;uf`). Qualquer coisa
+        # mais ambígua não é interpretada — adivinhar coluna é inventar dado.
+        return _ler_csv_sem_cabecalho(linhas)
 
     resultado: dict[str, dict] = {}
     for numero, linha in enumerate(linhas[1:], start=2):
@@ -642,6 +645,58 @@ async def _ler_csv(arquivo: UploadFile | None) -> dict[str, dict]:
             "razao_social": valor("razao"),
             "uf": valor("uf").upper(),
             "senha": valor("senha"),
+            "linha_csv": numero,
+        }
+    return resultado
+
+
+def _separador_do_csv(texto: str) -> str:
+    """`;` é o padrão de planilha brasileira — `,` aparece em export de fora.
+
+    Quem tem mais ocorrências NA PRIMEIRA LINHA com conteúdo vence; empate
+    fica com `;`. Tab é o terceiro candidato (copiar-e-colar do Excel).
+    """
+    primeira = next((linha for linha in texto.splitlines() if linha.strip()), "")
+    contagens = {
+        ";": primeira.count(";"),
+        ",": primeira.count(","),
+        "\t": primeira.count("\t"),
+    }
+    return max(contagens, key=lambda separador: contagens[separador])
+
+
+def _linhas_do_csv(texto: str) -> list[list[str]]:
+    leitor = csv.reader(io.StringIO(texto), delimiter=_separador_do_csv(texto))
+    return [linha for linha in leitor if any(celula.strip() for celula in linha)]
+
+
+def _normalizar_cabecalho(celula: str) -> str:
+    """minúsculo, sem acento, espaços viram `_` — "Razão Social" → "razao_social"."""
+    texto = unicodedata.normalize("NFD", celula.strip().lower())
+    sem_acento = "".join(caractere for caractere in texto if not unicodedata.combining(caractere))
+    return sem_acento.replace(" ", "_")
+
+
+def _ler_csv_sem_cabecalho(linhas: list[list[str]]) -> dict[str, dict]:
+    resultado: dict[str, dict] = {}
+    for numero, linha in enumerate(linhas, start=1):
+        if len(linha) < 2:
+            continue
+        try:
+            cnpj = normalizar_documento(linha[0])
+        except ValueError:
+            continue
+        if not validar_documento(cnpj) or cnpj in resultado:
+            continue
+        uf = linha[2].strip().upper() if len(linha) >= 3 else ""
+        if len(linha) >= 3 and uf not in _UFS_VALIDAS:
+            # Terceira coluna que não é UF = formato desconhecido: não inventa.
+            continue
+        resultado[cnpj] = {
+            "cnpj": cnpj,
+            "razao_social": "",
+            "uf": uf,
+            "senha": linha[1].strip(),
             "linha_csv": numero,
         }
     return resultado
