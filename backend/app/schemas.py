@@ -2,7 +2,7 @@ from datetime import date, datetime
 import re
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.documentos import normalizar_cnpj, normalizar_documento
 from app.models import (
@@ -217,6 +217,24 @@ class LoteEmpresasResposta(BaseModel):
     ja_existiam: int
     erros: int
     itens: list[ItemLoteEmpresas]
+
+
+class PendenciaEmpresaEntrada(BaseModel):
+    """Uma empresa que uma lista importada trouxe e a carteira ainda não tem.
+
+    `razao_social` é o nome **como a fonte escreveu** — é o que permite ao
+    operador reconhecer o cliente na pendência e decidir cadastrá-lo.
+    """
+
+    documento: str = Field(min_length=1, max_length=30)
+    razao_social: str = Field(default="", max_length=255)
+
+
+class LoteTextoEntrada(BaseModel):
+    """Corpo de `POST /empresas/lote-texto` — o botão 'Cadastrar estas empresas'
+    do resultado de uma importação de lista (procurações, relatórios)."""
+
+    empresas: list[PendenciaEmpresaEntrada] = Field(min_length=1, max_length=2000)
 
 
 # ---------- Certificado ----------
@@ -696,7 +714,7 @@ class EmpresaRanking(BaseModel):
 class AlertaItem(BaseModel):
     id: str
     nivel: str  # critico | atencao | info
-    categoria: str  # certificado | cadastro | sefaz | distribuicao | sincronismo | xml | execucao | sistema
+    categoria: str  # certificado | cadastro | sefaz | distribuicao | sincronismo | xml | execucao | sistema | procuracao
     titulo: str
     detalhe: str
     empresa_id: int | None = None

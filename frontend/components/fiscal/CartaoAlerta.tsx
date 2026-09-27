@@ -19,6 +19,7 @@ const ROTA_POR_CATEGORIA: Record<string, string> = {
   xml: "/dashboard/documentos?leiaute=resumo",
   execucao: "/dashboard/execucoes",
   sistema: "/dashboard/saude",
+  procuracao: "/dashboard/procuracoes",
 };
 
 const FAIXA: Record<string, string> = {

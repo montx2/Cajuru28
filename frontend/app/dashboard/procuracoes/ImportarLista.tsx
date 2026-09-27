@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { mensagemDoErro } from "@/lib/erros";
 import { numero, plural } from "@/lib/format";
@@ -8,7 +8,7 @@ import { MOTIVO_SOMENTE_LEITURA } from "@/lib/papel";
 import { useSessao } from "@/components/shell/ProvedorSessao";
 import { Aviso } from "@/components/ui/Aviso";
 import { Botao } from "@/components/ui/Botao";
-import { Area, Selecao } from "@/components/ui/Campo";
+import { Area, Caixa, Selecao } from "@/components/ui/Campo";
 import { Icone } from "@/components/ui/Icone";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
@@ -64,7 +64,24 @@ export function ImportarLista({ aberta, aoFechar, aoImportar }: Props) {
   const [situacaoPadrao, setSituacaoPadrao] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [resultado, setResultado] = useState<ResultadoSincronizacaoProcuracoes | null>(null);
+  const [pendenciasSelecionadas, setPendenciasSelecionadas] = useState<string[]>([]);
   const arquivoRef = useRef<HTMLInputElement>(null);
+
+  // Novo resultado: as pendências nascem todas marcadas. O caminho de um
+  // clique é o padrão; desmarcar é a exceção — a lista do painel inclui
+  // outorgantes que não são clientes do escritório, e é o operador quem sabe
+  // quais são.
+  useEffect(() => {
+    if (!resultado) {
+      setPendenciasSelecionadas([]);
+      return;
+    }
+    setPendenciasSelecionadas(
+      resultado.erros
+        .filter((item) => item.codigo === PENDENCIA_SEM_EMPRESA)
+        .map((item) => item.documento)
+    );
+  }, [resultado]);
 
   const linhasColadas = useMemo(
     () => texto.split("\n").filter((linha) => linha.trim()).length,
@@ -115,6 +132,39 @@ export function ImportarLista({ aberta, aoFechar, aoImportar }: Props) {
     } finally {
       setEnviando(false);
       if (arquivoRef.current) arquivoRef.current.value = "";
+    }
+  }
+
+  /**
+   * O fechamento do ciclo em um clique: cadastra as pendências marcadas (nome
+   * e documento vieram com a lista; a UF o servidor descobre pelo CNPJ) e
+   * importa a mesma colagem de novo — a colagem ainda está na caixa, e as
+   * linhas que viraram pendência agora encontram dono. Quem a consulta
+   * pública não resolve continua pendência, dizendo o que falta.
+   */
+  async function cadastrarPendencias() {
+    const marcadas = (resultado?.erros ?? []).filter(
+      (item) => item.codigo === PENDENCIA_SEM_EMPRESA && pendenciasSelecionadas.includes(item.documento)
+    );
+    if (marcadas.length === 0) return;
+    setEnviando(true);
+    try {
+      const lote = await api.cadastrarEmpresasPendencias(
+        marcadas.map((item) => ({ documento: item.documento, razao_social: item.nome || "" }))
+      );
+      avisar({
+        tom: lote.erros > 0 ? "espera" : "ok",
+        titulo: `${numero(lote.criadas)} ${plural(lote.criadas, "empresa cadastrada", "empresas cadastradas")}`,
+        descricao:
+          lote.erros > 0
+            ? `${numero(lote.erros)} sem UF confirmada — cadastre em Empresas. A lista foi importada de novo.`
+            : "A lista da caixa foi importada de novo para valer as novas empresas.",
+      });
+      await importarTexto();
+    } catch (erro) {
+      avisar({ tom: "erro", titulo: "Cadastro recusado", descricao: mensagemDoErro(erro, "cadastrar as empresas") });
+    } finally {
+      setEnviando(false);
     }
   }
 
@@ -255,19 +305,63 @@ export function ImportarLista({ aberta, aoFechar, aoImportar }: Props) {
                 titulo={`${numero(semEmpresa.length)} ${plural(semEmpresa.length, "documento fora da carteira", "documentos fora da carteira")}`}
               >
                 Nada foi criado por conta própria: a empresa precisa de UF e de cadastro completo para entrar nas
-                rotinas fiscais, e a lista do Jettax inclui outorgantes que não são clientes do escritório. Cadastre em{" "}
-                <span className="font-medium">Empresas</span> quem for cliente e importe de novo.
-                <ul className="mt-2 space-y-1">
-                  {semEmpresa.slice(0, 12).map((item) => (
-                    <li key={item.documento} className="font-mono text-2xs">
-                      {item.documento}
-                      {item.nome ? <span className="font-sans text-tinta-suave"> · {item.nome}</span> : null}
+                rotinas fiscais. Marque quem é cliente do escritório e cadastre num clique — a UF é descoberta pelo
+                CNPJ e a lista é importada de novo em seguida.
+                <ul className="mt-2 max-h-56 space-y-0.5 overflow-y-auto">
+                  {semEmpresa.map((item) => (
+                    <li key={item.documento}>
+                      <Caixa
+                        compacta
+                        rotulo={
+                          <span className="font-mono text-2xs">
+                            {item.documento}
+                            {item.nome ? <span className="font-sans text-tinta-suave"> · {item.nome}</span> : null}
+                          </span>
+                        }
+                        checked={pendenciasSelecionadas.includes(item.documento)}
+                        disabled={somenteLeitura || enviando}
+                        onChange={() =>
+                          setPendenciasSelecionadas((atual) =>
+                            atual.includes(item.documento)
+                              ? atual.filter((documento) => documento !== item.documento)
+                              : [...atual, item.documento]
+                          )
+                        }
+                      />
                     </li>
                   ))}
                 </ul>
-                {semEmpresa.length > 12 ? (
-                  <p className="mt-1 text-2xs text-tinta-suave">e mais {numero(semEmpresa.length - 12)}…</p>
-                ) : null}
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <Botao
+                    variante="primaria"
+                    tamanho="sm"
+                    carregando={enviando}
+                    disabled={somenteLeitura || pendenciasSelecionadas.length === 0}
+                    title={
+                      somenteLeitura
+                        ? MOTIVO_SOMENTE_LEITURA
+                        : pendenciasSelecionadas.length === 0
+                          ? "Marque ao menos uma empresa"
+                          : undefined
+                    }
+                    onClick={cadastrarPendencias}
+                    iconeEsquerda={<Icone nome="adicionar" className="h-4 w-4" />}
+                  >
+                    Cadastrar {plural(pendenciasSelecionadas.length, "empresa", "empresas")} e importar de novo
+                  </Botao>
+                  <Botao
+                    variante="sutil"
+                    tamanho="sm"
+                    disabled={somenteLeitura || enviando}
+                    onClick={() =>
+                      setPendenciasSelecionadas((atual) =>
+                        atual.length === semEmpresa.length ? [] : semEmpresa.map((item) => item.documento)
+                      )
+                    }
+                  >
+                    {pendenciasSelecionadas.length === semEmpresa.length ? "Desmarcar todas" : "Marcar todas"}
+                  </Botao>
+                </div>
               </Aviso>
             ) : null}
 

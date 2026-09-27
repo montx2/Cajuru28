@@ -270,3 +270,68 @@ def test_criacao_preenche_ibge_vindo_da_consulta_publica(monkeypatch):
     dados = _completar_dados_empresa(EmpresaCriar(cnpj_cpf="12.345.678/0001-99"))
 
     assert dados["codigo_ibge"] == "3114205"
+
+
+def test_lote_texto_cadastra_as_pendencias_da_importacao(cliente, monkeypatch):
+    """O botão 'Cadastrar estas empresas' do resultado da importação de lista.
+
+    Nome e CNPJ vieram com a lista; a UF é descoberta pelo CNPJ. Quem a
+    consulta pública não resolve volta como pendência explicando o que falta
+    — nada de empresa fiscalmente incompleta por palpite.
+    """
+    client, db, escritorio_id = cliente
+    from app.api.routers import empresas as router_empresas
+
+    consultadas: list[str] = []
+
+    def _consulta(cnpj: str):
+        consultadas.append(cnpj)
+        if cnpj == "41470879000112":
+            return DadosCNPJ(documento=cnpj, uf="MG", municipio="Belo Horizonte")
+        return None  # a outra não tem retorno público
+
+    monkeypatch.setattr(router_empresas, "consultar_cnpj", _consulta)
+    db.add(Empresa(escritorio_id=escritorio_id, razao_social="CLIENTE ANTIGO LTDA", cnpj_cpf="12345678000195", uf="PR"))
+    db.commit()
+
+    resposta = client.post(
+        "/empresas/lote-texto",
+        json={
+            "empresas": [
+                {"documento": "41.470.879/0001-12", "razao_social": "ACAIZIM LTDA"},
+                {"documento": "65375901000103", "razao_social": "ARF PARTICIPACOES LTDA"},
+                {"documento": "12345678000195", "razao_social": "JÁ EXISTE LTDA"},
+                {"documento": "12.345.678/0001-00", "razao_social": "DOCUMENTO ERRADO"},
+            ]
+        },
+    )
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["total"] == 4
+    assert corpo["criadas"] == 1
+    assert corpo["ja_existiam"] == 1
+    assert corpo["erros"] == 2
+
+    por_documento = {item["cnpj_cpf"]: item for item in corpo["itens"]}
+    # Mascarado ou não: a chave é o documento normalizado.
+    acaizim = por_documento["41470879000112"]
+    assert acaizim["status"] == "criada"
+    assert acaizim["uf"] == "MG"
+    # A razão social é a da lista — é assim que o operador reconhece o cliente.
+    criada = db.query(Empresa).filter_by(cnpj_cpf="41470879000112").one()
+    assert criada.razao_social == "ACAIZIM LTDA"
+    # Sem UF confirmada: pendência, não palpite.
+    arf = por_documento["65375901000103"]
+    assert arf["status"] == "erro"
+    assert "UF" in arf["mensagem"]
+    assert db.query(Empresa).filter_by(cnpj_cpf="65375901000103").first() is None
+    # A consulta pública só roda para quem precisa de UF.
+    assert "41470879000112" in consultadas
+    assert "65375901000103" in consultadas
+    assert "12345678000195" not in consultadas
+
+
+def test_lote_texto_recusa_corpo_vazio(cliente):
+    client, _, _ = cliente
+    assert client.post("/empresas/lote-texto", json={"empresas": []}).status_code == 422

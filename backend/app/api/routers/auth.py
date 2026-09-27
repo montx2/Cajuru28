@@ -92,6 +92,32 @@ def login(
     return TokenResponse()
 
 
+@router.post("/renovar", response_model=TokenResponse)
+def renovar_sessao(
+    response: Response,
+    usuario: Usuario = Depends(usuario_atual),
+):
+    """
+    Sessão deslizante: enquanto o operador está usando o sistema, a sessão
+    não expira por idade.
+
+    O painel chama este endpoint periodicamente (só com a aba visível). Cada
+    renovação troca o cookie por um token novo — o prazo de 20 min conta a
+    partir da última atividade, não do login. Quem para de usar, expira no
+    prazo normal; quem clica em "Sair" invalida tudo (`versao_sessao`), e uma
+    sessão já expirada **não** renova — por isso não há aqui como estender
+    sessão sem uma válida na mão. Não gera linha de auditoria: renovar não é
+    autenticar-se de novo, e o trail de login continuaria legível.
+    """
+    token = criar_token_acesso(
+        usuario_id=usuario.id,
+        escritorio_id=usuario.escritorio_id,
+        versao_sessao=usuario.versao_sessao,
+    )
+    _definir_cookie_sessao(response, token)
+    return TokenResponse()
+
+
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 def logout(
     response: Response,

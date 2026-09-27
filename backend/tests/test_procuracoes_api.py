@@ -637,3 +637,150 @@ def test_registro_manual_em_job_encerrado_e_recusado(api):
         json={"protocolo": "2026.1", "confirmacao_portal": "texto"},
     )
     assert resposta.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# Fila de atenção: o módulo de procurações não pode viver só na própria tela
+# ---------------------------------------------------------------------------
+
+
+def _autorizacao(api, **campos):
+    from datetime import date
+
+    empresa = (
+        api["db"].query(Empresa).filter_by(cnpj_cpf=campos.get("outorgante_documento", CLIENTE)).first()
+        or api["db"].query(Empresa).filter_by(cnpj_cpf=CLIENTE).one()
+    )
+    padrao = dict(
+        escritorio_id=api["escritorio"].id,
+        empresa_id=empresa.id,
+        outorgante_documento=CLIENTE,
+        outorgante_nome="CLIENTE UM LTDA",
+        outorgado_documento=OUTORGADO,
+        outorgado_nome="CONTABILIDADE CAJURU LTDA",
+        situacao="ativa",
+        data_validade=date.today(),
+        prazo_aceite_ate=None,
+    )
+    padrao.update(campos)
+    autorizacao = m.Autorizacao(**padrao)
+    api["db"].add(autorizacao)
+    api["db"].commit()
+    api["db"].refresh(autorizacao)
+    return autorizacao
+
+
+def test_alertas_incluem_processo_esperando_uma_pessoa(api):
+    """A fila 'Precisa da sua atenção' leva direto ao processo parado."""
+    job_id = _job_da_fila(api["cliente"])
+    resposta = api["cliente"].post(
+        f"/procuracoes/jobs/{job_id}/intervencao",
+        json={"motivo": "Assumido pelo operador."},
+    )
+    assert resposta.status_code == 200
+
+    alertas = api["cliente"].get("/alertas").json()["itens"]
+    item = next(a for a in alertas if a["id"] == f"proc-job-{job_id}")
+    assert item["nivel"] == "atencao"
+    assert item["categoria"] == "procuracao"
+    assert "esperando você" in item["titulo"]
+    # O clique da fila abre o processo — não a tela genérica.
+    assert item["acao_href"] == f"/dashboard/procuracoes?job={job_id}"
+    assert item["acao_rotulo"] == "Abrir processo"
+
+
+def test_alertas_agregam_quando_sao_muitos_processos(api):
+    cliente = api["cliente"]
+    cliente.put(
+        "/procuracoes/configuracao",
+        json={"outorgado_documento": OUTORGADO, "outorgado_nome": "CONTABILIDADE CAJURU LTDA"},
+    )
+    base = 11122233000
+    for indice in range(6):
+        api["db"].add(
+            Empresa(
+                escritorio_id=api["escritorio"].id,
+                razao_social=f"EMPRESA EM LOTE {indice + 1} LTDA",
+                cnpj_cpf=f"{base + indice:014d}",
+                uf="MG",
+            )
+        )
+    api["db"].commit()
+
+    itens = cliente.get("/procuracoes?tamanho=20").json()["itens"]
+    assert len(itens) >= 6
+    for item in itens[:6]:
+        resposta = cliente.post("/procuracoes/jobs", json={"empresa_id": item["empresa_id"]})
+        assert resposta.status_code == 201, resposta.text
+        job_id = resposta.json()["id"]
+        assert (
+            cliente.post(f"/procuracoes/jobs/{job_id}/intervencao", json={"motivo": "x"}).status_code
+            == 200
+        )
+
+    alertas = api["cliente"].get("/alertas").json()["itens"]
+    agregado = next(a for a in alertas if a["id"] == "proc-jobs-agregado")
+    assert "6 processos" in agregado["titulo"]
+    # Parede de alerta individual não: um só item, com saída clara.
+    assert not any(a["id"].startswith("proc-job-") for a in alertas)
+
+
+def test_alertas_denunciam_autorizacao_expirando_e_prazo_de_aceite(api):
+    from datetime import date, timedelta
+
+    cliente_dois = "98765432000110"
+    terceira = Empresa(
+        escritorio_id=api["escritorio"].id,
+        razao_social="CLIENTE TRES LTDA",
+        cnpj_cpf="04278288000111",
+        uf="MG",
+    )
+    api["db"].add(terceira)
+    api["db"].commit()
+    api["db"].refresh(terceira)
+
+    _autorizacao(api, data_validade=date.today() + timedelta(days=10))
+    _autorizacao(
+        api,
+        outorgante_documento=cliente_dois,
+        situacao="em_analise",
+        data_validade=None,
+        prazo_aceite_ate=date.today() + timedelta(days=5),
+    )
+
+    alertas = api["cliente"].get("/alertas").json()["itens"]
+
+    expirando = next(a for a in alertas if a["id"] == "proc-autorizacoes-expirando")
+    assert "expiram" in expirando["titulo"]
+    aceite = next(a for a in alertas if a["id"].startswith("proc-aceite-prazo"))
+    assert "Aceite em 5d" in aceite["titulo"]
+
+    urgente = _autorizacao(
+        api,
+        outorgante_documento=terceira.cnpj_cpf,
+        situacao="em_analise",
+        data_validade=None,
+        prazo_aceite_ate=date.today() + timedelta(days=2),
+    )
+    alertas = api["cliente"].get("/alertas").json()["itens"]
+    critico = next(a for a in alertas if a["id"] == f"proc-aceite-urgente-{urgente.id}")
+    assert critico["nivel"] == "critico"
+
+
+def test_alertas_denunciam_estacao_muda_com_job_preso_na_fila(api):
+    """Estação registrada que não fala + processo esperando: dois alertas, uma saída."""
+    matricula = api["cliente"].post(
+        "/procuracoes/agentes", json={"nome": "PC FISCAL 01"}
+    )
+    assert matricula.status_code == 201
+
+    job_id = _job_da_fila(api["cliente"])  # fica em aguardando_agente
+
+    alertas = api["cliente"].get("/alertas").json()["itens"]
+    mudas = next(a for a in alertas if a["id"] == "proc-estacoes-mudas")
+    assert "Nenhuma estação" in mudas["titulo"]
+    assert mudas["acao_href"] == "/dashboard/procuracoes/estacoes"
+    presos = next(a for a in alertas if a["id"] == "proc-jobs-sem-estacao")
+    assert "esperando estação" in presos["titulo"]
+    # O job em fila não vira alerta de "esperando você": ele espera máquina.
+    assert not any(a["id"] == f"proc-job-{job_id}" for a in alertas)

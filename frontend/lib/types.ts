@@ -501,6 +501,7 @@ export const ROTULO_CATEGORIA_ALERTA: Record<string, string> = {
   xml: "XML",
   execucao: "Execução",
   sistema: "Sistema",
+  procuracao: "Procuração RFB",
 };
 
 // ---------------------------------------------------------------

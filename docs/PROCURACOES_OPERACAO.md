@@ -32,6 +32,10 @@ descobrir qual certificado usar, lembrar de sincronizar.
 | O módulo está ligado? | `PROCURACOES_ATIVO` | `true` e reiniciar worker/beat |
 | Os limites estão apertados? | Configurar → Processos simultâneos | aumentar com parcimônia |
 
+A fila **"Precisa da sua atenção"** (`/atencao`, sino e Painel) já inclui o
+módulo: processo esperando você (o clique abre o painel do próprio job),
+autorização expirando, prazo de aceite correndo e estação muda.
+
 Sem estação nenhuma de pé, o painel do job diz isso na cara e oferece as duas
 saídas honestas: **instalar o Agent** em uma máquina que fica ligada (Estações),
 ou **fazer a outorga direto no portal** e registrar aqui — assumir o job e

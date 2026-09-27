@@ -45,6 +45,7 @@ from app.schemas import (
     EstadoSincronizacaoResposta,
     ItemLoteEmpresas,
     LoteEmpresasResposta,
+    LoteTextoEntrada,
 )
 from app.api.routers.importacoes import estados_do_escritorio
 from app.services.cnpj import consultar_cnpj
@@ -414,6 +415,75 @@ async def importar_empresas_em_massa(
     )
 
 
+@router.post("/lote-texto", response_model=LoteEmpresasResposta)
+def cadastrar_empresas_de_pendencias(
+    dados: LoteTextoEntrada,
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+    usuario: Usuario = Depends(requer_escrita),
+):
+    """
+    O botão "Cadastrar estas empresas" do resultado de uma importação de lista.
+
+    A lista importada (procurações do painel, relatórios) já trouxe nome e
+    CNPJ de quem está fora da carteira — este endpoint cadastra quem o
+    operador marcou, sem redigitação. A UF vem da consulta pública pelo CNPJ;
+    sem UF confirmada a empresa **não** é criada (cadastro fiscal incompleto
+    contaminaria apuração e emissão) e a pendência continua dizendo o que
+    falta. A razão social é a da lista: a fonte já a escreveu como o
+    escritório a reconhece.
+    """
+    resultados: list[ItemLoteEmpresas] = []
+    vistos: set[str] = set()
+    for pendencia in dados.empresas:
+        try:
+            documento = normalizar_documento(pendencia.documento)
+        except ValueError:
+            resultados.append(
+                ItemLoteEmpresas(
+                    origem="Pendência da importação",
+                    cnpj_cpf=pendencia.documento.strip()[:30],
+                    razao_social=pendencia.razao_social.strip()[:255],
+                    status="erro",
+                    mensagem="Documento inválido: confira o valor na origem.",
+                )
+            )
+            continue
+        resultados.append(
+            _criar_empresa_de_linha(
+                documento,
+                {"razao_social": pendencia.razao_social.strip()},
+                db,
+                escritorio_id,
+                vistos,
+                origem="Pendência da importação",
+            )
+        )
+
+    criadas = sum(1 for r in resultados if r.status == "criada")
+    ja_existiam = sum(1 for r in resultados if r.status == "ja_existia")
+    erros = sum(1 for r in resultados if r.status == "erro")
+    auditoria.registrar(
+        db,
+        usuario,
+        "empresas_lote_pendencias",
+        detalhe=(
+            f"{len(resultados)} pendências: {criadas} criadas, "
+            f"{ja_existiam} já existiam, {erros} sem UF/documento"
+        ),
+    )
+    db.commit()
+
+    return LoteEmpresasResposta(
+        total=len(resultados),
+        criadas=criadas,
+        certificados=0,
+        ja_existiam=ja_existiam,
+        erros=erros,
+        itens=resultados,
+    )
+
+
 async def _processar_pfx(
     arquivo: UploadFile,
     *,
@@ -626,16 +696,33 @@ def _criar_empresa_de_linha(
     escritorio_id: int,
     vistos: set[str],
     uf_padrao: str = "",
+    origem: str | None = None,
 ) -> ItemLoteEmpresas:
-    origem = f"CSV linha {linha.get('linha_csv', '?')}"
+    origem = origem or f"CSV linha {linha.get('linha_csv', '?')}"
+    razao = (linha.get("razao_social") or "").strip()
+
+    # Já cadastrada: nada a descobrir fora daqui — a UF que vale é a que o
+    # escritório mantém, e a consulta pública é dispensável.
+    existente = (
+        db.query(Empresa)
+        .filter(Empresa.escritorio_id == escritorio_id, Empresa.cnpj_cpf == cnpj)
+        .first()
+    )
+    if existente is not None:
+        empresa, _ = _obter_ou_criar_empresa(db, escritorio_id, cnpj, razao, "", vistos)
+        return ItemLoteEmpresas(
+            origem=origem,
+            cnpj_cpf=cnpj,
+            razao_social=empresa.razao_social,
+            uf=empresa.uf,
+            status="ja_existia",
+            empresa_id=empresa.id,
+        )
+
     publico = None
     if not (linha.get("uf") or uf_padrao):
         publico = _consulta_publica(cnpj)
-    razao = (
-        linha.get("razao_social")
-        or (publico.razao_social if publico else "")
-        or ""
-    ).strip()
+    razao = razao or (publico.razao_social if publico else "")
     uf = (linha.get("uf") or uf_padrao or (publico.uf if publico else "")).upper()
 
     if not razao:

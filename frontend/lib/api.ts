@@ -292,6 +292,15 @@ export const api = {
 
   logout: () => chamar<void>("/auth/logout", { method: "POST" }),
 
+  /**
+   * Sessão deslizante: o painel chama periodicamente (aba visível) para o
+   * prazo contar da última atividade — usar o sistema não vira login a cada
+   * 20 min. Falha silenciosa de propósito: sessão realmente expirada cai no
+   * fluxo normal de 401.
+   */
+  renovarSessao: () =>
+    chamar<void>("/auth/renovar", { method: "POST", silencioso: true }),
+
   quemSouEu: () => chamar<UsuarioAtual>("/auth/me"),
 
   /**
@@ -782,6 +791,18 @@ export const api = {
     }),
 
   agentesProcuracao: () => chamar<AgenteProcuracao[]>("/procuracoes/agentes"),
+
+  /**
+   * O botão "Cadastrar estas empresas" do resultado da importação: nome e
+   * documento vieram com a lista, a UF o servidor descobre pelo CNPJ.
+   */
+  cadastrarEmpresasPendencias: (
+    empresas: Array<{ documento: string; razao_social: string }>
+  ) =>
+    chamar<LoteEmpresasResposta>("/empresas/lote-texto", {
+      method: "POST",
+      body: JSON.stringify({ empresas }),
+    }),
 
   /**
    * Matrícula de estação. O identificador é gerado pelo servidor e volta na
