@@ -564,7 +564,7 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
         : ufPadrao === ""
           ? "Escolha a UF padrão"
           : !senha.trim() && !senhasNaPlanilha
-            ? "Informe a senha dos certificados ou envie a planilha de senhas"
+            ? "Informe a senha dos certificados ou envie ao menos uma planilha de senhas"
             : undefined;
 
   function receberPasta(lista: FileList | null) {
@@ -598,7 +598,7 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
     setEnviando(true);
     setErro(null);
     try {
-      const lote = await api.importarEmpresasEmMassa(certificados, planilhas[0] ?? null, senha.trim(), ufPadrao);
+      const lote = await api.importarEmpresasEmMassa(certificados, planilhas, senha.trim(), ufPadrao);
       setResultado(lote);
       avisar({
         tom: lote.erros > 0 ? "espera" : "ok",
@@ -618,7 +618,7 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
       aberto={aberto}
       aoFechar={fechar}
       titulo="Importar empresas em massa"
-      descricao="Envie os certificados A1 (.p12/.pfx) do escritório e, se quiser, uma planilha com razão social, CNPJ e UF."
+      descricao="Envie os certificados A1 (.p12/.pfx) do escritório e, se quiser, as planilhas de senhas (a atual e a antiga)."
       largura="larga"
       rodape={
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -626,7 +626,7 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
             {resultado
               ? "Lote processado — revise os itens antes de fechar."
               : senhasNaPlanilha
-                ? "As senhas vêm da planilha; a senha abaixo fica de reserva."
+                ? "As senhas vêm das planilhas anexadas; a senha abaixo fica de reserva."
                 : "A senha informada vale para todos os arquivos deste lote."}
           </p>
           <div className="flex flex-wrap items-center gap-2">
@@ -696,11 +696,12 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
             descricao="Arraste aqui se preferir. Um arquivo por empresa."
           />
           <CampoArquivo
-            rotulo="Planilha de senhas (opcional)"
+            rotulo="Planilhas de senhas (opcional)"
             aceita=".csv,.txt"
+            multiplo
             arquivos={planilhas}
-            aoMudar={(arquivos) => setPlanilhas(arquivos.slice(0, 1))}
-            descricao="Colunas cnpj_cpf e senha (cabeçalho com esses nomes) ou o formato seco documento;senha. A senha da planilha vale por arquivo; sem planilha, usa a senha informada abaixo."
+            aoMudar={setPlanilhas}
+            descricao="Pode anexar mais de uma — a atual e a antiga, por exemplo. Colunas cnpj_cpf e senha (cabeçalho com esses nomes) ou o formato seco documento;senha. A senha que abrir o certificado é a usada; sem planilha, usa a senha informada abaixo."
           />
           <div className="grid gap-4 sm:grid-cols-2">
             <Entrada

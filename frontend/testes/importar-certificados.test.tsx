@@ -123,7 +123,7 @@ describe("lote com planilha de senhas", () => {
     const campoCertificados = await screen.findByLabelText(/ou arquivos individuais/i);
     await usuario.upload(campoCertificados, [PFX("12345678000195.pfx"), PFX("98765432000110.pfx")]);
 
-    const planilha = screen.getByLabelText(/planilha de senhas/i);
+    const planilha = screen.getByLabelText(/planilhas? de senhas/i);
     await usuario.upload(planilha, new File(["cnpj;senha\n12345678000195;abc"], "senhas.csv", { type: "text/csv" }));
 
     await usuario.selectOptions(screen.getByLabelText(/uf padrão/i), "MG");
@@ -133,11 +133,32 @@ describe("lote com planilha de senhas", () => {
     await usuario.click(screen.getByRole("button", { name: /importar lote/i }));
 
     await waitFor(() => expect(importarEmpresasEmMassa).toHaveBeenCalledTimes(1));
-    const [arquivos, csv, senha, uf] = importarEmpresasEmMassa.mock.calls[0];
+    const [arquivos, planilhas, senha, uf] = importarEmpresasEmMassa.mock.calls[0];
     expect(arquivos).toHaveLength(2);
-    expect((csv as File).name).toBe("senhas.csv");
+    expect((planilhas as File[]).map((arquivo) => arquivo.name)).toEqual(["senhas.csv"]);
     expect(senha).toBe("");
     expect(uf).toBe("MG");
+  });
+
+  it("aceita a planilha atual e a antiga no mesmo lote", async () => {
+    const usuario = userEvent.setup();
+    montar();
+
+    const campoCertificados = await screen.findByLabelText(/ou arquivos individuais/i);
+    await usuario.upload(campoCertificados, PFX("12345678000195.pfx"));
+
+    const planilha = screen.getByLabelText(/planilhas de senhas/i);
+    await usuario.upload(planilha, [
+      new File(["cnpj;senha\n12345678000195;atual"], "atual.csv", { type: "text/csv" }),
+      new File(["cnpj;senha\n12345678000195;antiga"], "antiga.csv", { type: "text/csv" }),
+    ]);
+
+    await usuario.selectOptions(screen.getByLabelText(/uf padrão/i), "MG");
+    await usuario.click(screen.getByRole("button", { name: /importar lote/i }));
+
+    await waitFor(() => expect(importarEmpresasEmMassa).toHaveBeenCalledTimes(1));
+    const [, planilhas] = importarEmpresasEmMassa.mock.calls[0];
+    expect((planilhas as File[]).map((arquivo) => arquivo.name)).toEqual(["atual.csv", "antiga.csv"]);
   });
 
   it("sem planilha e sem senha, o botão explica o que falta", async () => {
@@ -150,7 +171,7 @@ describe("lote com planilha de senhas", () => {
 
     const botao = screen.getByRole("button", { name: /importar lote/i });
     expect(botao).toBeDisabled();
-    expect(botao).toHaveAttribute("title", "Informe a senha dos certificados ou envie a planilha de senhas");
+    expect(botao).toHaveAttribute("title", "Informe a senha dos certificados ou envie ao menos uma planilha de senhas");
     expect(importarEmpresasEmMassa).not.toHaveBeenCalled();
   });
 });

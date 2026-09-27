@@ -240,7 +240,7 @@ def test_lote_csv_cria_empresa_sem_certificado(cliente):
     resposta = client.post(
         "/empresas/lote",
         data={"senha": "", "uf_padrao": "SP"},
-        files=[("csv_arquivo", ("empresas.csv", csv, "text/csv"))],
+        files=[("csv_arquivos", ("empresas.csv", csv, "text/csv"))],
     )
     assert resposta.status_code == 200
     corpo = resposta.json()
@@ -361,7 +361,7 @@ def test_planilha_de_senhas_com_virgula_e_cabecalho_acentuado(cliente):
         data={"senha": "senha-global-nao-usada", "uf_padrao": "MG"},
         files=[
             ("arquivos", (f"{CNPJ_A}.pfx", _pfx(CNPJ_A, "ALFA SERVICOS LTDA"), "application/octet-stream")),
-            ("csv_arquivo", ("senhas.csv", csv_virgula, "text/csv")),
+            ("csv_arquivos", ("senhas.csv", csv_virgula, "text/csv")),
         ],
     )
 
@@ -385,7 +385,7 @@ def test_planilha_de_senhas_sem_cabecalho_documento_ponto_e_virgula_senha(client
         files=[
             ("arquivos", (f"{CNPJ_A}.pfx", _pfx(CNPJ_A, "ALFA SERVICOS LTDA"), "application/octet-stream")),
             ("arquivos", (f"{CNPJ_B}.pfx", _pfx(CNPJ_B, "BETA COMERCIO LTDA"), "application/octet-stream")),
-            ("csv_arquivo", ("senhas.csv", csv_seco, "text/csv")),
+            ("csv_arquivos", ("senhas.csv", csv_seco, "text/csv")),
         ],
     )
 
@@ -407,7 +407,7 @@ def test_planilha_de_senhas_com_terceira_coluna_uf(cliente):
         data={"senha": "", "uf_padrao": ""},
         files=[
             ("arquivos", (f"{CNPJ_A}.pfx", _pfx(CNPJ_A, "ALFA SERVICOS LTDA"), "application/octet-stream")),
-            ("csv_arquivo", ("senhas.csv", csv_uf, "text/csv")),
+            ("csv_arquivos", ("senhas.csv", csv_uf, "text/csv")),
         ],
     )
 
@@ -427,7 +427,7 @@ def test_planilha_sem_cabecalho_e_sem_documento_nao_inventa_nada(cliente):
         data={"senha": SENHA, "uf_padrao": "SP"},
         files=[
             ("arquivos", (f"{CNPJ_A}.pfx", _pfx(CNPJ_A, "ALFA SERVICOS LTDA"), "application/octet-stream")),
-            ("csv_arquivo", ("senhas.csv", csv_ambiguo, "text/csv")),
+            ("csv_arquivos", ("senhas.csv", csv_ambiguo, "text/csv")),
         ],
     )
 
@@ -490,3 +490,84 @@ def test_lote_certificado_expirado_entra_com_aviso_claro(cliente):
     assert item["status"] == "criada"
     assert "EXPIRADO" in item["mensagem"]
     assert "venceu em" in item["mensagem"]
+
+def test_duas_planilhas_a_senha_certa_pode_estar_na_antiga(cliente):
+    """A empresa trocou a senha ao renovar o certificado: a senha que abre
+    está na planilha antiga — e é ela que tem que ir para o cofre."""
+    from app.core.vault import decifrar_segredo
+
+    client, db, _ = cliente
+    senha_certa = "senha-nova"
+    csv_atual = f"cnpj;senha\n{CNPJ_A};senha-trocada\n"
+    csv_antiga = f"cnpj;senha\n{CNPJ_A};{senha_certa}\n"
+
+    resposta = client.post(
+        "/empresas/lote",
+        data={"senha": "", "uf_padrao": "SP"},
+        files=[
+            ("arquivos", (f"{CNPJ_A}.pfx", _pfx(CNPJ_A, "ALFA SERVICOS LTDA", senha=senha_certa), "application/octet-stream")),
+            ("csv_arquivos", ("atual.csv", csv_atual, "text/csv")),
+            ("csv_arquivos", ("antiga.csv", csv_antiga, "text/csv")),
+        ],
+    )
+
+    assert resposta.status_code == 200
+    item = resposta.json()["itens"][0]
+    assert item["status"] == "criada"
+    certificado = db.query(Certificado).one()
+    assert decifrar_segredo(certificado.senha_cifrada) == senha_certa
+
+
+def test_antigo_e_atualizado_com_senhas_de_planilhas_diferentes(cliente):
+    """O caso completo do escritório: o certificado antigo abre com a senha
+    da planilha antiga, o atualizado com a da planilha nova — sobrevive o de
+    maior validade, com a senha dele no cofre."""
+    from app.core.vault import decifrar_segredo
+
+    client, db, _ = cliente
+    pfx_antigo = _pfx(CNPJ_A, "ALFA SERVICOS LTDA", senha="senha-velha", validade_dias=30)
+    pfx_atualizado = _pfx(CNPJ_A, "ALFA SERVICOS LTDA", senha="senha-nova", validade_dias=400)
+    csv_antiga = f"cnpj;senha\n{CNPJ_A};senha-velha\n"
+    csv_nova = f"cnpj;senha\n{CNPJ_A};senha-nova\n"
+
+    resposta = client.post(
+        "/empresas/lote",
+        data={"senha": "", "uf_padrao": "SP"},
+        files=[
+            ("arquivos", (f"{CNPJ_A}-antigo.pfx", pfx_antigo, "application/octet-stream")),
+            ("arquivos", (f"{CNPJ_A}-atualizado.pfx", pfx_atualizado, "application/octet-stream")),
+            ("csv_arquivos", ("antiga.csv", csv_antiga, "text/csv")),
+            ("csv_arquivos", ("nova.csv", csv_nova, "text/csv")),
+        ],
+    )
+
+    assert resposta.status_code == 200
+    por_origem = {item["origem"]: item for item in resposta.json()["itens"]}
+    assert por_origem[f"{CNPJ_A}-atualizado.pfx"]["status"] == "criada"
+    assert por_origem[f"{CNPJ_A}-antigo.pfx"]["status"] == "substituido"
+
+    certificado = db.query(Certificado).one()
+    assert decifrar_segredo(certificado.senha_cifrada) == "senha-nova"
+    agora_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+    assert (certificado.validade - agora_naive).days >= 398
+
+
+def test_nenhuma_senha_das_planilhas_abre_conta_quantas_foram_testadas(cliente):
+    client, db, _ = cliente
+    csv_1 = f"cnpj;senha\n{CNPJ_A};errada-1\n"
+    csv_2 = f"cnpj;senha\n{CNPJ_A};errada-2\n"
+
+    resposta = client.post(
+        "/empresas/lote",
+        data={"senha": "", "uf_padrao": "SP"},
+        files=[
+            ("arquivos", (f"{CNPJ_A}.pfx", _pfx(CNPJ_A, "ALFA SERVICOS LTDA", senha="a-certa"), "application/octet-stream")),
+            ("csv_arquivos", ("1.csv", csv_1, "text/csv")),
+            ("csv_arquivos", ("2.csv", csv_2, "text/csv")),
+        ],
+    )
+
+    assert resposta.status_code == 200
+    item = resposta.json()["itens"][0]
+    assert item["status"] == "erro"
+    assert "Foram testadas 2 senha(s) declaradas" in item["mensagem"]

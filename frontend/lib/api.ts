@@ -339,7 +339,7 @@ export const api = {
 
   importarEmpresasEmMassa: (
     arquivos: File[],
-    csv: File | null,
+    planilhas: File[],
     senha: string,
     ufPadrao: string
   ) => {
@@ -347,7 +347,7 @@ export const api = {
     form.append("senha", senha);
     form.append("uf_padrao", ufPadrao);
     for (const arquivo of arquivos) form.append("arquivos", arquivo);
-    if (csv) form.append("csv_arquivo", csv);
+    for (const planilha of planilhas) form.append("csv_arquivos", planilha);
     return chamar<LoteEmpresasResposta>("/empresas/lote", { method: "POST", body: form });
   },
 

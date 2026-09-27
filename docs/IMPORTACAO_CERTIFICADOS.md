@@ -20,8 +20,9 @@ escritório já mantém.
      decide é o próprio certificado: sobrevive a de maior validade real
      (X.509), e a descartada aparece no resultado como "Versão antiga", com
      a data até a qual a mantida vale.
-2. **Planilha de senhas** (opcional, `.csv`/`.txt`) — anexe a planilha que já
-   existe no escritório. Formatos aceitos, com ou sem acento no cabeçalho,
+2. **Planilhas de senhas** (opcional, `.csv`/`.txt`) — anexe a planilha que
+   já existe no escritório — pode anexar **mais de uma** (a atual e a
+   antiga, por exemplo). Formatos aceitos, com ou sem acento no cabeçalho,
    separados por `;`, `,` ou tabulação:
    - Com cabeçalho: `cnpj_cpf;senha` (aceita também `cnpj`, `cpf`,
      `documento`, `doc` na primeira coluna; `razao` e `uf` são opcionais).
@@ -30,13 +31,18 @@ escritório já mantém.
    informa a UF.
 4. **Importar lote** — um clique.
 
-### Senhas: individual > global
+### Senhas: a que abre é a certa
 
-- A **senha individual** da planilha casa com o certificado pelo **CNPJ no
-  nome do arquivo** (ex.: `12345678000195.pfx`). Sem casamento, a senha
-  global assume — não há tentativa em loop.
-- A **senha global** só é exigida quando não há planilha. Com planilha
-  anexada o campo fica opcional.
+- A senha individual casa com o certificado pelo **CNPJ no nome do
+  arquivo** (ex.: `12345678000195.pfx`). Com duas planilhas anexadas, as
+  senhas de **ambas** são testadas, na ordem em que foram anexadas — a
+  primeira que abre o certificado é a usada e é a que vai para o cofre.
+  Todas as candidatas foram declaradas pelo operador: não há adivinhação.
+- Isso cobre o caso da renovação: o certificado antigo abre com a senha da
+  planilha antiga, o atualizado com a da planilha nova — e entre as versões,
+  sobrevive a de maior validade.
+- A **senha global** é a última candidata e só é exigida quando não há
+  planilha. Nenhuma senha abre? O item diz quantas foram testadas.
 - Planilha em Excel (`.xlsx`)? Salve como CSV antes — o sistema lê texto.
 
 ### Sem surpresas
