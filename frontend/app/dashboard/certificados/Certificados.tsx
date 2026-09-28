@@ -12,6 +12,7 @@ import { useUrlEstado } from "@/lib/urlEstado";
 import { useSinalizarAtualizacao } from "@/components/shell/BarraAtualizacao";
 import { useSessao } from "@/components/shell/ProvedorSessao";
 import { ModalCertificado } from "@/components/fiscal/ModalCertificado";
+import { ModalImportacaoLote } from "@/app/dashboard/empresas/Empresas";
 import { Aviso } from "@/components/ui/Aviso";
 import { Botao } from "@/components/ui/Botao";
 import { CabecalhoPagina } from "@/components/ui/Cartao";
@@ -51,6 +52,7 @@ export function Certificados() {
   const sentido = ler("sentido") === "desc" ? "desc" : "asc";
 
   const [envioAberto, setEnvioAberto] = useState(false);
+  const [loteAberto, setLoteAberto] = useState(false);
   const [empresaAlvo, setEmpresaAlvo] = useState<number | null>(null);
 
   const painel = useRecurso(() => api.painelCertificados(), []);
@@ -229,6 +231,15 @@ export function Certificados() {
               Atualizar
             </Botao>
             <Botao
+              variante="sutil"
+              onClick={() => setLoteAberto(true)}
+              disabled={somenteLeitura}
+              title={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : "Importar certificados em massa"}
+              iconeEsquerda={<Icone nome="pasta" className="h-4 w-4" />}
+            >
+              Importar lote
+            </Botao>
+            <Botao
               variante="primaria"
               onClick={() => {
                 setEmpresaAlvo(null);
@@ -310,6 +321,15 @@ export function Certificados() {
         empresaId={empresaAlvo}
         empresas={(empresas.dados ?? []).map((empresa) => ({ valor: String(empresa.id), rotulo: empresa.razao_social, descricao: empresa.cnpj_cpf }))}
         aoInstalar={() => {
+          painel.atualizar();
+          empresas.atualizar();
+        }}
+      />
+
+      <ModalImportacaoLote
+        aberto={loteAberto}
+        aoFechar={() => setLoteAberto(false)}
+        aoImportar={() => {
           painel.atualizar();
           empresas.atualizar();
         }}

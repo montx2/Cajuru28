@@ -3,8 +3,8 @@
  * senhas que o escritório já tem.
  *
  * O contrato travado aqui: a senha global é reserva — quando a planilha traz
- * as senhas (cnpj;senha), o lote sai sem digitar nada; e a pasta entrega só
- * .pfx/.p12, o resto é contado como ignorado e nunca sai da máquina.
+ * as senhas (cnpj;senha), o lote sai sem digitar nada; e se não houver senha nem
+ * planilha, o lote sai para dedução automática por padrões heurísticos.
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
@@ -161,7 +161,7 @@ describe("lote com planilha de senhas", () => {
     expect((planilhas as File[]).map((arquivo) => arquivo.name)).toEqual(["atual.csv", "antiga.csv"]);
   });
 
-  it("sem planilha e sem senha, o botão explica o que falta", async () => {
+  it("permite importar lote sem planilha e sem senha global, identificando senhas automaticamente", async () => {
     const usuario = userEvent.setup();
     montar();
 
@@ -170,8 +170,21 @@ describe("lote com planilha de senhas", () => {
     await usuario.selectOptions(screen.getByLabelText(/uf padrão/i), "MG");
 
     const botao = screen.getByRole("button", { name: /importar lote/i });
+    expect(botao).toBeEnabled();
+    await usuario.click(botao);
+
+    await waitFor(() => expect(importarEmpresasEmMassa).toHaveBeenCalledTimes(1));
+    const [arquivos, planilhas, senha, uf] = importarEmpresasEmMassa.mock.calls[0];
+    expect(arquivos).toHaveLength(1);
+    expect(planilhas).toHaveLength(0);
+    expect(senha).toBe("");
+    expect(uf).toBe("MG");
+  });
+
+  it("sem certificados selecionados, o botão fica desabilitado explicando o que falta", async () => {
+    montar();
+    const botao = screen.getByRole("button", { name: /importar lote/i });
     expect(botao).toBeDisabled();
-    expect(botao).toHaveAttribute("title", "Informe a senha dos certificados ou envie ao menos uma planilha de senhas");
-    expect(importarEmpresasEmMassa).not.toHaveBeenCalled();
+    expect(botao).toHaveAttribute("title", "Escolha a pasta (ou os arquivos) dos certificados");
   });
 });
