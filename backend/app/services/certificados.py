@@ -139,12 +139,11 @@ class IdentidadeCertificado:
     evidencia_documento: str
 
 
-def extrair_identidade(pfx_bytes: bytes, senha: str) -> IdentidadeCertificado:
-    """Extrai CNPJ/CPF e razão social sem adivinhar senha ou modificar dados."""
+def extrair_identidade(pfx_bytes: bytes, senha: str | None) -> IdentidadeCertificado:
+    """Extrai CNPJ/CPF e razão social a partir de uma senha ou sem senha."""
+    encoded_senha = (senha or "").encode("utf-8") if senha is not None else None
     try:
-        chave, cert, _ = pkcs12.load_key_and_certificates(
-            pfx_bytes, (senha or "").encode("utf-8")
-        )
+        chave, cert, _ = pkcs12.load_key_and_certificates(pfx_bytes, encoded_senha)
     except Exception as exc:  # noqa: BLE001
         raise ValueError(
             "Não foi possível abrir o certificado com a senha informada "
@@ -238,9 +237,31 @@ def extrair_identidade(pfx_bytes: bytes, senha: str) -> IdentidadeCertificado:
     )
 
 
+def abrir_pfx_tentando_senhas(
+    pfx_bytes: bytes, candidatas: list[str]
+) -> tuple[IdentidadeCertificado, str]:
+    """Testa a lista de senhas candidatas até encontrar a que abre o PFX."""
+    for tentativa in candidatas:
+        try:
+            return extrair_identidade(pfx_bytes, tentativa), (tentativa or "")
+        except ValueError:
+            continue
+    detalhe = (
+        f" Foram testadas {len(candidatas)} senha(s) candidatas "
+        "(padrões nome+ano, planilhas anexadas e senhas comuns)."
+        if len(candidatas) > 1
+        else ""
+    )
+    raise ValueError(
+        "Não foi possível abrir o certificado com a senha informada "
+        f"(senha incorreta ou arquivo corrompido).{detalhe}"
+    )
+
+
 # Reexports estáveis para importadores e testes que historicamente importavam
 # os validadores deste módulo.
 __all__ = [
-    "cnpj_de_nome_arquivo", "extrair_identidade", "guardar_pfx_protegido",
-    "ler_pfx_protegido", "normalizar_cnpj", "validar_cnpj", "validar_cpf", "validar_documento",
+    "abrir_pfx_tentando_senhas", "cnpj_de_nome_arquivo", "extrair_identidade",
+    "guardar_pfx_protegido", "ler_pfx_protegido", "normalizar_cnpj",
+    "validar_cnpj", "validar_cpf", "validar_documento",
 ]

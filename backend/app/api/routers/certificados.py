@@ -11,7 +11,8 @@ from app.db.session import get_db
 from app.models import Certificado, Empresa, Usuario
 from app.schemas import CertificadoResposta, ResumoCertificado, ResumoCertificadoPainel
 from app.services import auditoria
-from app.services.certificados import extrair_identidade, guardar_pfx_protegido
+from app.services.certificados import abrir_pfx_tentando_senhas, guardar_pfx_protegido
+from app.services.senhas import construir_candidatas_pfx
 
 _LIMITE_BYTES_PFX = 30 * 1024 * 1024
 
@@ -21,16 +22,18 @@ router = APIRouter(prefix="/certificados", tags=["certificados"])
 @router.post("", response_model=CertificadoResposta, status_code=status.HTTP_201_CREATED)
 async def enviar_certificado(
     empresa_id: int = Form(...),
-    senha: str = Form(...),
+    senha: str = Form(""),
     arquivo: UploadFile = File(...),
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
     usuario: Usuario = Depends(requer_escrita),
 ):
     """
-    Recebe o .pfx e a senha em texto puro apenas nesta requisição (via
-    HTTPS). A senha é cifrada e o arquivo original nunca é devolvido —
-    dali em diante, só o cofre sabe abri-lo.
+    Recebe o .pfx e a senha em texto puro apenas nesta requisição (via HTTPS).
+    Se a senha não for informada ou estiver incompleta, o sistema tenta os
+    padrões comuns de mercado (ex: EMPRESA2026, EMPRESA26, EMPRESA25) baseados
+    no nome da empresa e do arquivo. A senha efetiva é cifrada e o arquivo
+    original nunca é devolvido em claro.
     """
     empresa = (
         db.query(Empresa)
@@ -45,10 +48,18 @@ async def enviar_certificado(
     if len(pfx_bytes) > _LIMITE_BYTES_PFX:
         raise HTTPException(status_code=413, detail="O certificado excede o limite de 30 MB.")
 
+    candidatas = construir_candidatas_pfx(
+        nome_arquivo=arquivo.filename or "",
+        cnpj=empresa.cnpj_cpf,
+        razao_social=empresa.razao_social,
+        senha_global=senha,
+    )
+
     try:
-        identidade = extrair_identidade(pfx_bytes, senha)
+        identidade, senha_efetiva = abrir_pfx_tentando_senhas(pfx_bytes, candidatas)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     if identidade.documento != empresa.cnpj_cpf:
         # Um A1 é uma credencial fiscal: aceitar o de outra empresa permitiria
         # consultas e captura sob uma identidade diferente da cadastrada.
@@ -71,7 +82,7 @@ async def enviar_certificado(
     certificado = Certificado(
         empresa_id=empresa_id,
         arquivo_path=caminho_arquivo,
-        senha_cifrada=cifrar_segredo(senha),
+        senha_cifrada=cifrar_segredo(senha_efetiva),
         validade=validade,
         ativo=True,
         # A extração da identidade acima É a validação: o .pfx abriu, a chave

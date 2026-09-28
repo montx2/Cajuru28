@@ -13,7 +13,7 @@
  */
 
 /** Espelha `_LIMITE_ARQUIVOS` do contrato (`api/routers/empresas.py`). */
-export const LIMITE_CERTIFICADOS_POR_LOTE = 200;
+export const LIMITE_CERTIFICADOS_POR_LOTE = 500;
 
 export const EXTENSOES_CERTIFICADO = [".pfx", ".p12"] as const;
 

@@ -545,27 +545,20 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
   const [substituidosDaPasta, setSubstituidosDaPasta] = useState(0);
   const [planilhas, setPlanilhas] = useState<File[]>([]);
   const [senha, setSenha] = useState("");
-  const [ufPadrao, setUfPadrao] = useState("");
+  const [ufPadrao, setUfPadrao] = useState("SP");
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [resultado, setResultado] = useState<LoteEmpresasResposta | null>(null);
 
-  // A senha global só é exigida quando não há planilha de senhas: o formato
-  // `documento;senha` (com ou sem cabeçalho) cobre o lote inteiro sozinho.
   const senhasNaPlanilha = planilhas.length > 0;
   const acimaDoLote = certificados.length > LIMITE_CERTIFICADOS_POR_LOTE;
-  const podeEnviar =
-    certificados.length > 0 && !acimaDoLote && ufPadrao !== "" && (senha.trim().length > 0 || senhasNaPlanilha);
+  const podeEnviar = certificados.length > 0 && !acimaDoLote;
   const motivoBloqueio =
     certificados.length === 0
       ? "Escolha a pasta (ou os arquivos) dos certificados"
       : acimaDoLote
         ? `A pasta tem ${numero(certificados.length)} certificados — o limite por lote é ${LIMITE_CERTIFICADOS_POR_LOTE}. Importe em etapas.`
-        : ufPadrao === ""
-          ? "Escolha a UF padrão"
-          : !senha.trim() && !senhasNaPlanilha
-            ? "Informe a senha dos certificados ou envie ao menos uma planilha de senhas"
-            : undefined;
+        : undefined;
 
   function receberPasta(lista: FileList | null) {
     if (!lista) return;
@@ -583,7 +576,7 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
     setSubstituidosDaPasta(0);
     setPlanilhas([]);
     setSenha("");
-    setUfPadrao("");
+    setUfPadrao("SP");
     setErro(null);
     setResultado(null);
   }
@@ -618,16 +611,18 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
       aberto={aberto}
       aoFechar={fechar}
       titulo="Importar empresas em massa"
-      descricao="Envie os certificados A1 (.p12/.pfx) do escritório e, se quiser, as planilhas de senhas (a atual e a antiga)."
+      descricao="Envie a pasta de certificados A1 (.pfx/.p12). A senha é identificada automaticamente (padrão EMPRESA2026, EMPRESA26, EMPRESA25, senhas das planilhas ou comuns)."
       largura="larga"
       rodape={
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs text-tinta-suave">
             {resultado
               ? "Lote processado — revise os itens antes de fechar."
-              : senhasNaPlanilha
-                ? "As senhas vêm das planilhas anexadas; a senha abaixo fica de reserva."
-                : "A senha informada vale para todos os arquivos deste lote."}
+              : senha.trim()
+                ? "A senha informada vale como prioritária para este lote."
+                : senhasNaPlanilha
+                  ? "As senhas vêm das planilhas anexadas e padrões automáticos."
+                  : "As senhas serão identificadas automaticamente (padrão EMPRESA2026, EMPRESA26, EMPRESA25, etc.)."}
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <Botao variante="sutil" onClick={fechar}>
@@ -697,20 +692,20 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
           />
           <CampoArquivo
             rotulo="Planilhas de senhas (opcional)"
-            aceita=".csv,.txt"
+            aceita=".xlsx,.xlsm,.xls,.csv,.txt"
             multiplo
             arquivos={planilhas}
             aoMudar={setPlanilhas}
-            descricao="Pode anexar mais de uma — a atual e a antiga, por exemplo. Colunas cnpj_cpf e senha (cabeçalho com esses nomes) ou o formato seco documento;senha. A senha que abrir o certificado é a usada; sem planilha, usa a senha informada abaixo."
+            descricao="Planilhas Excel (.xlsx) ou CSV/TXT com colunas CNPJ, Razão Social, Senha e UF. O sistema cruza os dados automaticamente com os certificados."
           />
           <div className="grid gap-4 sm:grid-cols-2">
             <Entrada
-              rotulo="Senha dos certificados"
+              rotulo="Senha dos certificados (opcional)"
               type="password"
               autoComplete="off"
               value={senha}
               onChange={(evento) => setSenha(evento.target.value)}
-              descricao="Usada só para abrir os arquivos; não é guardada no navegador. Sem senha aqui, cada arquivo usa a senha da planilha."
+              descricao="Opcional. Se não informada, o sistema tenta automaticamente padrões como EMPRESA2026, EMPRESA26, EMPRESA25, senhas das planilhas ou comuns."
             />
             <Selecao
               rotulo="UF padrão"
