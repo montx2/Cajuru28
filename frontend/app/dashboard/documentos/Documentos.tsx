@@ -17,6 +17,7 @@ import { useSinalizarAtualizacao } from "@/components/shell/BarraAtualizacao";
 import { useSessao } from "@/components/shell/ProvedorSessao";
 import { PainelDocumento } from "@/components/fiscal/PainelDocumento";
 import { SeletorPeriodo } from "@/components/fiscal/SeletorPeriodo";
+import { ModalImportarXmls } from "@/app/dashboard/importacoes/ImportarXmls";
 import { Botao, BotaoLink } from "@/components/ui/Botao";
 import { CabecalhoPagina, Cartao } from "@/components/ui/Cartao";
 import { Busca, Selecao } from "@/components/ui/Campo";
@@ -87,6 +88,7 @@ export function Documentos() {
   const [erroExportacao, setErroExportacao] = useState<string | null>(null);
   const [baixando, setBaixando] = useState(false);
 
+  const [importacaoXmlAberta, setImportacaoXmlAberta] = useState(false);
   const [excluirLote, setExcluirLote] = useState<number[] | null>(null);
   const [excluirUm, setExcluirUm] = useState<DocumentoDetalhe | null>(null);
   const [enviandoExclusao, setEnviandoExclusao] = useState(false);
@@ -409,12 +411,21 @@ export function Documentos() {
               Exportar CSV
             </Botao>
             <Botao
-              variante="primaria"
+              variante="secundaria"
               onClick={() => estimarExportacao("xml")}
               disabled={!pronto}
-              iconeEsquerda={<Icone nome="documento" className="h-4 w-4" />}
+              iconeEsquerda={<Icone nome="baixar" className="h-4 w-4" />}
             >
               Baixar XML do filtro
+            </Botao>
+            <Botao
+              variante="primaria"
+              onClick={() => setImportacaoXmlAberta(true)}
+              disabled={somenteLeitura}
+              title={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined}
+              iconeEsquerda={<Icone nome="importacao" className="h-4 w-4" />}
+            >
+              Importar notas
             </Botao>
           </div>
         }
@@ -603,6 +614,15 @@ export function Documentos() {
         aoFechar={() => definir({ doc: null })}
         aoExcluir={somenteLeitura ? undefined : (detalhe) => setExcluirUm(detalhe)}
         somenteLeitura={somenteLeitura}
+      />
+
+      <ModalImportarXmls
+        aberto={importacaoXmlAberta}
+        aoFechar={() => setImportacaoXmlAberta(false)}
+        aoConcluir={() => {
+          documentos.atualizar();
+          resumo.atualizar();
+        }}
       />
 
       <Modal

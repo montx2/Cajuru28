@@ -544,8 +544,6 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
   const [arquivosIgnorados, setArquivosIgnorados] = useState(0);
   const [substituidosDaPasta, setSubstituidosDaPasta] = useState(0);
   const [planilhas, setPlanilhas] = useState<File[]>([]);
-  const [senha, setSenha] = useState("");
-  const [ufPadrao, setUfPadrao] = useState("SP");
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [resultado, setResultado] = useState<LoteEmpresasResposta | null>(null);
@@ -575,8 +573,6 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
     setArquivosIgnorados(0);
     setSubstituidosDaPasta(0);
     setPlanilhas([]);
-    setSenha("");
-    setUfPadrao("SP");
     setErro(null);
     setResultado(null);
   }
@@ -591,7 +587,7 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
     setEnviando(true);
     setErro(null);
     try {
-      const lote = await api.importarEmpresasEmMassa(certificados, planilhas, senha.trim(), ufPadrao);
+      const lote = await api.importarEmpresasEmMassa(certificados, planilhas);
       setResultado(lote);
       avisar({
         tom: lote.erros > 0 ? "espera" : "ok",
@@ -611,18 +607,16 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
       aberto={aberto}
       aoFechar={fechar}
       titulo="Importar empresas em massa"
-      descricao="Envie a pasta de certificados A1 (.pfx/.p12). A senha é identificada automaticamente (padrão EMPRESA2026, EMPRESA26, EMPRESA25, senhas das planilhas ou comuns)."
+      descricao="Envie a pasta de certificados A1 (.pfx/.p12). O CNPJ e a razão social saem do certificado; a UF é consultada automaticamente."
       largura="larga"
       rodape={
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs text-tinta-suave">
             {resultado
               ? "Lote processado — revise os itens antes de fechar."
-              : senha.trim()
-                ? "A senha informada vale como prioritária para este lote."
-                : senhasNaPlanilha
-                  ? "As senhas vêm das planilhas anexadas e padrões automáticos."
-                  : "As senhas serão identificadas automaticamente (padrão EMPRESA2026, EMPRESA26, EMPRESA25, etc.)."}
+              : senhasNaPlanilha
+                ? "A planilha de apoio será usada para abrir os certificados deste lote."
+                : "As senhas são identificadas automaticamente. Se algum arquivo não abrir, anexe uma planilha de apoio e tente de novo."}
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <Botao variante="sutil" onClick={fechar}>
@@ -691,31 +685,13 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
             descricao="Arraste aqui se preferir. Um arquivo por empresa."
           />
           <CampoArquivo
-            rotulo="Planilhas de senhas (opcional)"
+            rotulo="Planilha de apoio (opcional)"
             aceita=".xlsx,.xlsm,.xls,.csv,.txt"
             multiplo
             arquivos={planilhas}
             aoMudar={setPlanilhas}
-            descricao="Planilhas Excel (.xlsx) ou CSV/TXT com colunas CNPJ, Razão Social, Senha e UF. O sistema cruza os dados automaticamente com os certificados."
+            descricao="Anexe apenas se tiver uma planilha já usada pelo escritório. Ela pode informar CNPJ e senha para abrir certificados que não forem identificados automaticamente; a UF só é usada como apoio se a consulta pública não a encontrar."
           />
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Entrada
-              rotulo="Senha dos certificados (opcional)"
-              type="password"
-              autoComplete="off"
-              value={senha}
-              onChange={(evento) => setSenha(evento.target.value)}
-              descricao="Opcional. Se não informada, o sistema tenta automaticamente padrões como EMPRESA2026, EMPRESA26, EMPRESA25, senhas das planilhas ou comuns."
-            />
-            <Selecao
-              rotulo="UF padrão"
-              obrigatorio
-              value={ufPadrao}
-              onChange={(evento) => setUfPadrao(evento.target.value)}
-              descricao="Aplicada às empresas sem UF na planilha."
-              opcoes={[{ valor: "", rotulo: "Selecione a UF" }, ...UFS.map((item) => ({ valor: item.sigla, rotulo: `${item.sigla} · ${item.nome}` }))]}
-            />
-          </div>
           {erro ? (
             <p role="alert" className="rounded-controle border border-erro/40 bg-erro-tenue px-3 py-2 text-sm leading-6 text-erro">
               {erro}

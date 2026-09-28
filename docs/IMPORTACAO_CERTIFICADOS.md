@@ -1,57 +1,50 @@
 # Importação de empresas + certificados por lote
 
-Tela: **Empresas → Importar lote**. O fluxo inteiro cabe em duas escolhas:
-a **pasta dos certificados** no computador e a **planilha de senhas** que o
-escritório já mantém.
+Tela: **Empresas → Importar em massa**. O fluxo começa somente pela pasta de
+certificados no computador. Ele não pede uma senha única para o lote nem uma UF
+padrão: esses dois campos levavam a escolhas que não valem para todas as
+empresas.
 
 ## Como importar
 
-1. **Escolher pasta** — seleciona a pasta onde estão os certificados
+1. **Escolher pasta** — selecione a pasta onde estão os certificados
    (`.pfx`/`.p12`). Só esses dois tipos são lidos; todo o resto da pasta
-   (PDFs, planilhas, atalhos) é contado como *ignorado* e **nunca sai da
-   máquina**. Limite de 200 certificados por lote — acima disso o envio fica
-   bloqueado com o motivo na tela.
-   - Chrome, Edge e Safari abrem o seletor de pastas. No Firefox (e em
-     qualquer dúvida) use **"Ou arquivos individuais"** e selecione os
-     arquivos — o caminho garantido.
-   - **Certificado antigo e atualizado na mesma pasta?** De cada CNPJ, só a
-     versão mais recente é enviada — a tela conta quantas versões antigas
-     ficaram de fora. Se duas versões chegarem ao lote mesmo assim, quem
-     decide é o próprio certificado: sobrevive a de maior validade real
-     (X.509), e a descartada aparece no resultado como "Versão antiga", com
-     a data até a qual a mantida vale.
-2. **Planilhas de senhas** (opcional, `.csv`/`.txt`) — anexe a planilha que
-   já existe no escritório — pode anexar **mais de uma** (a atual e a
-   antiga, por exemplo). Formatos aceitos, com ou sem acento no cabeçalho,
-   separados por `;`, `,` ou tabulação:
-   - Com cabeçalho: `cnpj_cpf;senha` (aceita também `cnpj`, `cpf`,
-     `documento`, `doc` na primeira coluna; `razao` e `uf` são opcionais).
-   - Sem cabeçalho: `documento;senha` ou `documento;senha;uf`.
-3. **UF padrão** — obrigatória, usada quando o certificado/planilha não
-   informa a UF.
-4. **Importar lote** — um clique.
+   (PDFs, planilhas e atalhos) é contado como *ignorado* e **nunca sai da
+   máquina**. O limite é de 200 certificados por lote.
+   - Chrome, Edge e Safari abrem o seletor de pastas. No Firefox, ou se
+     preferir, use **"Ou arquivos individuais"**.
+   - Se houver certificado antigo e atualizado do mesmo CNPJ, a versão com
+     maior validade real (X.509) é a escolhida; a outra aparece no resultado
+     como *Versão antiga*.
+2. **Planilha de apoio (opcional)** — anexe-a apenas quando o escritório já
+   possui uma relação de certificados. Ela pode conter `cnpj;senha` para abrir
+   arquivos cuja senha não foi identificada automaticamente. A coluna `uf` é
+   aceita como apoio pontual, sem obrigar uma UF padrão para todo o lote.
+   - São aceitos `.xlsx`, `.xlsm`, `.xls`, `.csv` e `.txt`, com `;`, `,` ou
+     tabulação.
+   - Exemplos: `cnpj_cpf;senha` ou `cnpj_cpf;senha;uf`. Razão social é
+     opcional.
+3. **Importar lote** — um clique. O CNPJ e a razão social vêm do certificado;
+   a UF é consultada automaticamente pelo CNPJ.
 
-### Senhas: a que abre é a certa
+## Senhas e UF sem suposições
 
-- A senha individual casa com o certificado pelo **CNPJ no nome do
-  arquivo** (ex.: `12345678000195.pfx`). Com duas planilhas anexadas, as
-  senhas de **ambas** são testadas, na ordem em que foram anexadas — a
-  primeira que abre o certificado é a usada e é a que vai para o cofre.
-  Todas as candidatas foram declaradas pelo operador: não há adivinhação.
-- Isso cobre o caso da renovação: o certificado antigo abre com a senha da
-  planilha antiga, o atualizado com a da planilha nova — e entre as versões,
-  sobrevive a de maior validade.
-- A **senha global** é a última candidata e só é exigida quando não há
-  planilha. Nenhuma senha abre? O item diz quantas foram testadas.
-- Planilha em Excel (`.xlsx`)? Salve como CSV antes — o sistema lê texto.
+- O sistema tenta padrões seguros conhecidos e as senhas declaradas na
+  planilha, na ordem em que as planilhas foram anexadas. A primeira que abre o
+  certificado é a guardada de forma cifrada no cofre.
+- Se um certificado não abrir, inclua sua senha na planilha de apoio e importe
+  novamente o arquivo. Não há uma "senha global" na tela porque ela pode estar
+  errada para as demais empresas do lote.
+- A UF é necessária internamente para a consulta NF-e/CT-e, mas não é inferida
+  como `SP`. Se a consulta pública não encontrá-la, o item informa o problema;
+  nesse caso inclua `CNPJ` e `UF` na planilha de apoio e importe apenas aquele
+  certificado outra vez.
 
-### Sem surpresas
+## Resultado e segurança
 
-- Prévia antes do envio: quantos certificados, quantos ignorados, quantas
-  versões antigas descartadas, o que falta para habilitar o botão (o título
-  do botão diz o motivo).
-- Resultado por item: criadas, certificados anexados, falhas com motivo —
-  uma nota que falha nunca para as demais. Certificado vencido entra com
-  aviso explícito ("EXPIRADO — venceu em dd/mm/aaaa"), sem passar por cima.
-- Certificado sai da máquina apenas no momento do envio, cifrado no
-  descanso (Fernet) e com senha guardada em cofre — nunca em log.
+- O resultado é exibido por arquivo: empresas criadas, certificados vinculados,
+  versões antigas e falhas com o motivo. Uma falha não interrompe os outros
+  itens do lote.
+- Certificados vencidos entram com aviso explícito e não são usados na captura.
+- O certificado sai da máquina somente no envio, é cifrado no armazenamento e
+  sua senha nunca vai para logs.
