@@ -172,6 +172,20 @@ def test_lote_sem_uf_confirmada_nao_inventa_estado(cliente, monkeypatch):
     assert db.query(Empresa).count() == 0
 
 
+def test_lote_recusa_o_601o_certificado(cliente):
+    """O limite exibido pela tela precisa ser aplicado também na API."""
+    client, _, _ = cliente
+    arquivos = [
+        ("arquivos", (f"certificado-{indice}.pfx", b"x", "application/octet-stream"))
+        for indice in range(601)
+    ]
+
+    resposta = client.post("/empresas/lote", files=arquivos)
+
+    assert resposta.status_code == 400
+    assert resposta.json()["detail"] == "Limite de 600 arquivos por lote."
+
+
 def test_lote_cria_empresas_e_vincula_certificado(cliente, tmp_path):
     client, db, escritorio_id = cliente
 

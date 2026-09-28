@@ -10,7 +10,7 @@ empresas.
 1. **Escolher pasta** — selecione a pasta onde estão os certificados
    (`.pfx`/`.p12`). Só esses dois tipos são lidos; todo o resto da pasta
    (PDFs, planilhas e atalhos) é contado como *ignorado* e **nunca sai da
-   máquina**. O limite é de 200 certificados por lote.
+   máquina**. O limite é de 600 certificados por lote.
    - Chrome, Edge e Safari abrem o seletor de pastas. No Firefox, ou se
      preferir, use **"Ou arquivos individuais"**.
    - Se houver certificado antigo e atualizado do mesmo CNPJ, a versão com

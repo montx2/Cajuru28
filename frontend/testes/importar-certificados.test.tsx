@@ -11,7 +11,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ModalImportacaoLote } from "@/app/dashboard/empresas/Empresas";
 import { ProvedorToast } from "@/components/ui/Toast";
-import { certificadosDaPasta } from "@/lib/pastaCertificados";
+import { certificadosDaPasta, LIMITE_CERTIFICADOS_POR_LOTE } from "@/lib/pastaCertificados";
 
 const importarEmpresasEmMassa = vi.fn();
 
@@ -48,6 +48,10 @@ const PFX = (nome: string, modificado = AGORA) =>
   });
 
 describe("seleção da pasta de certificados", () => {
+  it("aceita até 600 certificados no mesmo lote", () => {
+    expect(LIMITE_CERTIFICADOS_POR_LOTE).toBe(600);
+  });
+
   it("lê só os .pfx/.p12 e conta o resto como ignorado", () => {
     const tudo = [
       PFX("12345678000195.pfx"),
