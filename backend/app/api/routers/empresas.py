@@ -16,6 +16,8 @@ from __future__ import annotations
 import csv
 import io
 import os
+import unicodedata
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
@@ -45,6 +47,7 @@ from app.schemas import (
     EstadoSincronizacaoResposta,
     ItemLoteEmpresas,
     LoteEmpresasResposta,
+    LoteTextoEntrada,
 )
 from app.api.routers.importacoes import estados_do_escritorio
 from app.services.cnpj import consultar_cnpj
@@ -336,7 +339,7 @@ async def importar_empresas_em_massa(
     uf_padrao: str = Form("SP"),
     senha: str = Form(""),
     arquivos: list[UploadFile] = File(default=[]),
-    csv_arquivo: UploadFile | None = File(default=None),
+    csv_arquivos: list[UploadFile] = File(default=[]),
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
     usuario: Usuario = Depends(requer_escrita),
@@ -347,9 +350,11 @@ async def importar_empresas_em_massa(
     - `arquivos`: um ou mais .pfx/.p12 (A1). Para cada um, abre com a
       `senha`, extrai CNPJ/razão social do certificado, cria a empresa e
       grava o certificado cifrado.
-    - `csv_arquivo`: opcional, texto com colunas
-      `razao_social;cnpj_cpf;uf` (ou nome;cnpj;uf) e, opcionalmente, `senha`
-      individual. Linhas sem certificado ainda cadastram a empresa.
+    - `csv_arquivos`: opcional, uma ou mais planilhas de senhas (a atual e a
+      antiga, por exemplo) com colunas `razao_social;cnpj_cpf;uf` (ou
+      nome;cnpj;uf) e, opcionalmente, `senha` individual. As senhas de todas
+      as planilhas são candidatas; a que abre o certificado é a guardada.
+      Linhas sem certificado ainda cadastram a empresa.
     - `uf_padrao`: fallback opcional. Se ficar vazio, a UF é tentada pelo CNPJ
       e só as empresas sem retorno público pedem correção manual.
     """
@@ -357,7 +362,7 @@ async def importar_empresas_em_massa(
     if uf_padrao and uf_padrao not in _UFS_VALIDAS:
         raise HTTPException(status_code=400, detail=f"UF padrão inválida: {uf_padrao!r}")
 
-    if not arquivos and csv_arquivo is None:
+    if not arquivos and not csv_arquivos:
         raise HTTPException(
             status_code=400, detail="Envie ao menos um arquivo .pfx ou um CSV."
         )
@@ -368,15 +373,20 @@ async def importar_empresas_em_massa(
         )
 
     # Linhas do CSV por CNPJ (senha/UF/razão por empresa, se informadas)
-    linhas_csv = await _ler_csv(csv_arquivo) if csv_arquivo else {}
+    linhas_csv = await _fundir_planilhas(csv_arquivos)
     resultados: list[ItemLoteEmpresas] = []
     vistos: set[str] = set()
 
-    # 1) Arquivos .pfx — empresas + certificados
-    for arquivo in arquivos:
+    # 1) Arquivos .pfx — empresas + certificados. A pasta pode trazer o
+    # certificado antigo e o atualizado do mesmo CNPJ: sobrevive a versão de
+    # maior validade real (X.509), não a primeira da lista.
+    for passo in await _escolher_versoes(arquivos, senha=senha, linhas_csv=linhas_csv):
+        if isinstance(passo, ItemLoteEmpresas):
+            resultados.append(passo)
+            continue
         resultados.append(
             await _processar_pfx(
-                arquivo,
+                passo,
                 senha=senha,
                 uf_padrao=uf_padrao,
                 linhas_csv=linhas_csv,
@@ -398,9 +408,14 @@ async def importar_empresas_em_massa(
     certificados = sum(1 for r in resultados if r.status == "certificado_atualizado")
     ja_existiam = sum(1 for r in resultados if r.status == "ja_existia")
     erros = sum(1 for r in resultados if r.status == "erro")
+    substituidos = sum(1 for r in resultados if r.status == "substituido")
     auditoria.registrar(
         db, usuario, "empresas_lote",
-        detalhe=f"{len(resultados)} itens: {criadas} criadas, {certificados} certificados, {erros} erros",
+        detalhe=(
+            f"{len(resultados)} itens: {criadas} criadas, {certificados} certificados, "
+            f"{erros} erros"
+            + (f", {substituidos} versões antigas descartadas" if substituidos else "")
+        ),
     )
     db.commit()
 
@@ -411,6 +426,180 @@ async def importar_empresas_em_massa(
         ja_existiam=ja_existiam,
         erros=erros,
         itens=resultados,
+    )
+
+
+@router.post("/lote-texto", response_model=LoteEmpresasResposta)
+def cadastrar_empresas_de_pendencias(
+    dados: LoteTextoEntrada,
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+    usuario: Usuario = Depends(requer_escrita),
+):
+    """
+    O botão "Cadastrar estas empresas" do resultado de uma importação de lista.
+
+    A lista importada (procurações do painel, relatórios) já trouxe nome e
+    CNPJ de quem está fora da carteira — este endpoint cadastra quem o
+    operador marcou, sem redigitação. A UF vem da consulta pública pelo CNPJ;
+    sem UF confirmada a empresa **não** é criada (cadastro fiscal incompleto
+    contaminaria apuração e emissão) e a pendência continua dizendo o que
+    falta. A razão social é a da lista: a fonte já a escreveu como o
+    escritório a reconhece.
+    """
+    resultados: list[ItemLoteEmpresas] = []
+    vistos: set[str] = set()
+    for pendencia in dados.empresas:
+        try:
+            documento = normalizar_documento(pendencia.documento)
+        except ValueError:
+            resultados.append(
+                ItemLoteEmpresas(
+                    origem="Pendência da importação",
+                    cnpj_cpf=pendencia.documento.strip()[:30],
+                    razao_social=pendencia.razao_social.strip()[:255],
+                    status="erro",
+                    mensagem="Documento inválido: confira o valor na origem.",
+                )
+            )
+            continue
+        resultados.append(
+            _criar_empresa_de_linha(
+                documento,
+                {"razao_social": pendencia.razao_social.strip()},
+                db,
+                escritorio_id,
+                vistos,
+                origem="Pendência da importação",
+            )
+        )
+
+    criadas = sum(1 for r in resultados if r.status == "criada")
+    ja_existiam = sum(1 for r in resultados if r.status == "ja_existia")
+    erros = sum(1 for r in resultados if r.status == "erro")
+    auditoria.registrar(
+        db,
+        usuario,
+        "empresas_lote_pendencias",
+        detalhe=(
+            f"{len(resultados)} pendências: {criadas} criadas, "
+            f"{ja_existiam} já existiam, {erros} sem UF/documento"
+        ),
+    )
+    db.commit()
+
+    return LoteEmpresasResposta(
+        total=len(resultados),
+        criadas=criadas,
+        certificados=0,
+        ja_existiam=ja_existiam,
+        erros=erros,
+        itens=resultados,
+    )
+
+
+async def _escolher_versoes(
+    arquivos: list[UploadFile],
+    *,
+    senha: str,
+    linhas_csv: dict[str, dict],
+) -> list[UploadFile | ItemLoteEmpresas]:
+    """
+    A pasta do escritório costuma ter o certificado antigo e o atualizado do
+    mesmo CNPJ. Quem decide qual fica é o próprio X.509, não a ordem em que o
+    navegador listou os arquivos: para cada CNPJ com mais de uma versão,
+    sobrevive a de maior validade e as demais entram no resultado como
+    "substituido" — o operador vê o que ficou de fora e até quando o mantido
+    vale. Arquivo que nem abre com a senha do CNPJ não é candidata; se
+    nenhuma abrir, a primeira segue para o `_processar_pfx` produzir o erro
+    de senha honesto.
+    """
+    plano: list[UploadFile | ItemLoteEmpresas] = list(arquivos)
+    grupos: dict[str, list[int]] = {}
+    for indice, arquivo in enumerate(arquivos):
+        nome = (arquivo.filename or "").lower()
+        if not nome.endswith((".pfx", ".p12")):
+            continue  # extensão errada segue para o _processar_pfx dar o erro honesto
+        cnpj = cnpj_de_nome_arquivo(arquivo.filename or "")
+        if cnpj:
+            grupos.setdefault(cnpj, []).append(indice)
+
+    for cnpj, indices in grupos.items():
+        if len(indices) < 2:
+            continue
+        candidatas = _senhas_candidatas(linhas_csv.get(cnpj) or {}, senha)
+        abertos: dict[int, datetime] = {}
+        for indice in indices:
+            conteudo = await arquivos[indice].read()
+            await arquivos[indice].seek(0)
+            try:
+                # A versão antiga costuma abrir com a senha da planilha
+                # antiga, e a atualizada com a da planilha nova: quem decide
+                # qual é qual é a validade do próprio X.509.
+                identidade, _ = _abrir_com_alguma_senha(conteudo, candidatas)
+                abertos[indice] = identidade.validade_utc
+            except ValueError:
+                continue
+        vencedor = max(abertos, key=abertos.get) if abertos else indices[0]
+        nome_vencedor = arquivos[vencedor].filename or "arquivo.pfx"
+        validade_vencedor = abertos.get(vencedor)
+        for indice in indices:
+            if indice == vencedor:
+                continue
+            if validade_vencedor is not None:
+                mensagem = (
+                    f"Versão antiga deixada de fora: {nome_vencedor} vale até "
+                    f"{validade_vencedor.strftime('%d/%m/%Y')}."
+                )
+            else:
+                mensagem = (
+                    f"Outra versão do mesmo CNPJ ({nome_vencedor}) foi processada no lugar."
+                )
+            plano[indice] = ItemLoteEmpresas(
+                origem=arquivos[indice].filename or "arquivo.pfx",
+                cnpj_cpf=cnpj,
+                status="substituido",
+                mensagem=mensagem,
+                validade=abertos.get(indice),
+            )
+    return plano
+
+
+def _senhas_candidatas(linha_csv: dict, senha_global: str) -> list[str]:
+    """
+    Senhas DECLARADAS para um CNPJ: as das planilhas anexadas (atual e
+    antiga, se houverem) e, por último, a senha global do formulário. Não é
+    adivinhação nem força bruta — cada candidata foi escrita pelo operador, e
+    a que abre o certificado é a que vai para o cofre.
+    """
+    candidatas: list[str] = []
+    for senha in [(s or "").strip() for s in linha_csv.get("senhas", [])]:
+        if senha and senha not in candidatas:
+            candidatas.append(senha)
+    senha_global = (senha_global or "").strip()
+    if senha_global and senha_global not in candidatas:
+        candidatas.append(senha_global)
+    return candidatas
+
+
+def _abrir_com_alguma_senha(
+    conteudo: bytes, candidatas: list[str]
+) -> tuple[object, str]:
+    """Abre o PFX com a primeira senha declarada que servir."""
+    for tentativa in candidatas:
+        try:
+            return extrair_identidade(conteudo, tentativa), tentativa
+        except ValueError:
+            continue
+    detalhe = (
+        f" Foram testadas {len(candidatas)} senha(s) declaradas para este CNPJ "
+        "(as das planilhas anexadas e a senha global)."
+        if len(candidatas) > 1
+        else ""
+    )
+    raise ValueError(
+        "Não foi possível abrir o certificado com a senha informada "
+        f"(senha incorreta ou arquivo corrompido).{detalhe}"
     )
 
 
@@ -440,15 +629,15 @@ async def _processar_pfx(
     if not conteudo:
         return ItemLoteEmpresas(origem=nome, status="erro", mensagem="Arquivo vazio.")
 
-    # Senha que o usuário informou (compartilhada). Se o CSV tiver senha
-    # individual para o CNPJ do arquivo, ela tem prioridade — mas é sempre
-    # uma senha EXPLÍCITA, nunca uma lista tentada em loop.
+    # As senhas declaradas para este CNPJ (planilhas anexadas + senha
+    # global): a primeira que abre o certificado é a efetiva — a certa pode
+    # estar na planilha antiga quando a empresa trocou de senha ao renovar.
     cnpj_nome = cnpj_de_nome_arquivo(nome)
     linha_csv = linhas_csv.get(cnpj_nome, {})
-    senha_efetiva = (linha_csv.get("senha") or senha).strip()
+    candidatas = _senhas_candidatas(linha_csv, senha)
 
     try:
-        identidade = extrair_identidade(conteudo, senha_efetiva)
+        identidade, senha_efetiva = _abrir_com_alguma_senha(conteudo, candidatas)
         # Revalida contra o CNPJ do nome do arquivo: se o X.509 diz outra
         # coisa, o certificado manda, mas avisamos no resultado.
         cnpj = identidade.documento
@@ -511,20 +700,54 @@ async def _processar_pfx(
     db.add(certificado)
     db.flush()
 
+    venceu = identidade.validade_utc.strftime("%d/%m/%Y")
+    if identidade.validade_utc <= datetime.now(timezone.utc):
+        mensagem = (
+            f"Certificado EXPIRADO (venceu em {venceu}) — vinculado, mas não serve para "
+            f"capturar: envie a versão atualizada e ele assume no lugar."
+        )
+    else:
+        mensagem = f"Certificado vinculado (válido até {venceu})."
+
     return ItemLoteEmpresas(
         origem=nome,
         cnpj_cpf=cnpj,
         razao_social=empresa.razao_social,
         uf=empresa.uf,
         status="criada" if criada_agora else "certificado_atualizado",
-        mensagem=(
-            f"Certificado vinculado (válido até "
-            f"{identidade.validade_utc.strftime('%d/%m/%Y')})."
-        ),
+        mensagem=mensagem,
         empresa_id=empresa.id,
         certificado_id=certificado.id,
         validade=identidade.validade_utc,
     )
+
+
+async def _fundir_planilhas(arquivos: list[UploadFile]) -> dict[str, dict]:
+    """
+    Uma ou mais planilhas de senhas (a atual e a antiga, por exemplo) viram
+    um dicionário único por CNPJ. Razão social e UF vêm da primeira planilha
+    que as trouxe; as senhas de TODAS viram candidatas, na ordem em que
+    foram anexadas — quem decide qual abre é o certificado.
+    """
+    fundido: dict[str, dict] = {}
+    for arquivo in arquivos:
+        for cnpj, linha in (await _ler_csv(arquivo)).items():
+            if cnpj not in fundido:
+                fundido[cnpj] = {
+                    "cnpj": cnpj,
+                    "razao_social": (linha.get("razao_social") or "").strip(),
+                    "uf": (linha.get("uf") or "").strip().upper(),
+                    "senhas": [],
+                    "linha_csv": linha.get("linha_csv"),
+                }
+            atual = fundido[cnpj]
+            for chave in ("razao_social", "uf"):
+                if not atual.get(chave) and linha.get(chave):
+                    atual[chave] = linha[chave]
+            senha = (linha.get("senha") or "").strip()
+            if senha and senha not in atual["senhas"]:
+                atual["senhas"].append(senha)
+    return fundido
 
 
 async def _ler_csv(arquivo: UploadFile | None) -> dict[str, dict]:
@@ -540,12 +763,11 @@ async def _ler_csv(arquivo: UploadFile | None) -> dict[str, dict]:
     except UnicodeDecodeError:
         texto = conteudo.decode("latin-1", errors="replace")
 
-    leitor = csv.reader(io.StringIO(texto), delimiter=";")
-    linhas = [linha for linha in leitor if any(celula.strip() for celula in linha)]
+    linhas = _linhas_do_csv(texto)
     if not linhas:
         return {}
 
-    cabecalho = [c.strip().lower().replace(" ", "_") for c in linhas[0]]
+    cabecalho = [_normalizar_cabecalho(celula) for celula in linhas[0]]
     indice = {
         "razao": _indice_ou(cabecalho, ("razao_social", "razaosocial", "nome", "empresa", "razao")),
         "cnpj": _indice_ou(cabecalho, ("cnpj_cpf", "cnpj", "cpf", "documento", "doc")),
@@ -553,7 +775,10 @@ async def _ler_csv(arquivo: UploadFile | None) -> dict[str, dict]:
         "senha": _indice_ou(cabecalho, ("senha", "password")),
     }
     if indice["cnpj"] is None:
-        return {}  # sem coluna de documento, nada a fazer
+        # Sem cabeçalho reconhecível, resta o formato curto da "planilha de
+        # senhas": `documento;senha` (ou `documento;senha;uf`). Qualquer coisa
+        # mais ambígua não é interpretada — adivinhar coluna é inventar dado.
+        return _ler_csv_sem_cabecalho(linhas)
 
     resultado: dict[str, dict] = {}
     for numero, linha in enumerate(linhas[1:], start=2):
@@ -572,6 +797,58 @@ async def _ler_csv(arquivo: UploadFile | None) -> dict[str, dict]:
             "razao_social": valor("razao"),
             "uf": valor("uf").upper(),
             "senha": valor("senha"),
+            "linha_csv": numero,
+        }
+    return resultado
+
+
+def _separador_do_csv(texto: str) -> str:
+    """`;` é o padrão de planilha brasileira — `,` aparece em export de fora.
+
+    Quem tem mais ocorrências NA PRIMEIRA LINHA com conteúdo vence; empate
+    fica com `;`. Tab é o terceiro candidato (copiar-e-colar do Excel).
+    """
+    primeira = next((linha for linha in texto.splitlines() if linha.strip()), "")
+    contagens = {
+        ";": primeira.count(";"),
+        ",": primeira.count(","),
+        "\t": primeira.count("\t"),
+    }
+    return max(contagens, key=lambda separador: contagens[separador])
+
+
+def _linhas_do_csv(texto: str) -> list[list[str]]:
+    leitor = csv.reader(io.StringIO(texto), delimiter=_separador_do_csv(texto))
+    return [linha for linha in leitor if any(celula.strip() for celula in linha)]
+
+
+def _normalizar_cabecalho(celula: str) -> str:
+    """minúsculo, sem acento, espaços viram `_` — "Razão Social" → "razao_social"."""
+    texto = unicodedata.normalize("NFD", celula.strip().lower())
+    sem_acento = "".join(caractere for caractere in texto if not unicodedata.combining(caractere))
+    return sem_acento.replace(" ", "_")
+
+
+def _ler_csv_sem_cabecalho(linhas: list[list[str]]) -> dict[str, dict]:
+    resultado: dict[str, dict] = {}
+    for numero, linha in enumerate(linhas, start=1):
+        if len(linha) < 2:
+            continue
+        try:
+            cnpj = normalizar_documento(linha[0])
+        except ValueError:
+            continue
+        if not validar_documento(cnpj) or cnpj in resultado:
+            continue
+        uf = linha[2].strip().upper() if len(linha) >= 3 else ""
+        if len(linha) >= 3 and uf not in _UFS_VALIDAS:
+            # Terceira coluna que não é UF = formato desconhecido: não inventa.
+            continue
+        resultado[cnpj] = {
+            "cnpj": cnpj,
+            "razao_social": "",
+            "uf": uf,
+            "senha": linha[1].strip(),
             "linha_csv": numero,
         }
     return resultado
@@ -626,16 +903,33 @@ def _criar_empresa_de_linha(
     escritorio_id: int,
     vistos: set[str],
     uf_padrao: str = "",
+    origem: str | None = None,
 ) -> ItemLoteEmpresas:
-    origem = f"CSV linha {linha.get('linha_csv', '?')}"
+    origem = origem or f"CSV linha {linha.get('linha_csv', '?')}"
+    razao = (linha.get("razao_social") or "").strip()
+
+    # Já cadastrada: nada a descobrir fora daqui — a UF que vale é a que o
+    # escritório mantém, e a consulta pública é dispensável.
+    existente = (
+        db.query(Empresa)
+        .filter(Empresa.escritorio_id == escritorio_id, Empresa.cnpj_cpf == cnpj)
+        .first()
+    )
+    if existente is not None:
+        empresa, _ = _obter_ou_criar_empresa(db, escritorio_id, cnpj, razao, "", vistos)
+        return ItemLoteEmpresas(
+            origem=origem,
+            cnpj_cpf=cnpj,
+            razao_social=empresa.razao_social,
+            uf=empresa.uf,
+            status="ja_existia",
+            empresa_id=empresa.id,
+        )
+
     publico = None
     if not (linha.get("uf") or uf_padrao):
         publico = _consulta_publica(cnpj)
-    razao = (
-        linha.get("razao_social")
-        or (publico.razao_social if publico else "")
-        or ""
-    ).strip()
+    razao = razao or (publico.razao_social if publico else "")
     uf = (linha.get("uf") or uf_padrao or (publico.uf if publico else "")).upper()
 
     if not razao:

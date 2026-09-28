@@ -18,7 +18,7 @@ Quatro princípios de projeto:
 
 from datetime import date, datetime, time, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
@@ -43,6 +43,8 @@ from app.schemas import (
     ExecucaoImportacaoResposta,
     ImportacaoSelecionadas,
     ImportacaoSolicitar,
+    ImportacaoXmlResposta,
+    ItemImportacaoXml,
     ItemConferenciaCompetencia,
     ItemImportacaoLote,
     ItemImportacaoSelecionada,
@@ -52,6 +54,17 @@ from app.schemas import (
     ResumoSincronizacao,
 )
 from app.services import fila, sincronizacao
+from app.services.importadores.xml_manual import (
+    LIMITE_BYTES_LOTE,
+    LIMITE_BYTES_XML,
+    LIMITE_XMLS,
+    casar_com_empresa,
+    classificar_xml,
+    converter_xml,
+    documento_com_direcao,
+    extrair_xmls_do_zip,
+    gravar_documento,
+)
 from app.services.periodo import (
     Periodo,
     PeriodoInvalido,
@@ -61,6 +74,13 @@ from app.services.periodo import (
 from app.services.referencia import data_referencia_sql
 
 router = APIRouter(prefix="/importacoes", tags=["importações"])
+
+# leiaute do XML -> tipo do documento
+_TIPO_DO_LEIAUTE = {
+    "nfe": TipoDocumentoFiscal.NFE,
+    "cte": TipoDocumentoFiscal.CTE,
+    "nfse": TipoDocumentoFiscal.NFSE,
+}
 
 # Mantido por compatibilidade: a janela agora é calculada pelo estado de
 # sincronização (uma linha por empresa+tipo), não por varredura do histórico.
@@ -243,6 +263,156 @@ def solicitar_importacao_em_lote(
     )
     db.commit()
     return resultados
+
+
+@router.post("/xml", response_model=ImportacaoXmlResposta)
+async def importar_xmls(
+    arquivos: list[UploadFile] = File(default=[]),
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+    usuario: Usuario = Depends(requer_escrita),
+):
+    """
+    Importa XMLs prontos — ZIP ou arquivos .xml exportados de outro sistema.
+
+    Para o escritório que deixa outro sistema (ex.: Jettax360) com a consulta
+    à SEFAZ — dois robôs no mesmo certificado geram 656, consumo indevido.
+    As notas chegam como arquivo, são lidas com os mesmos conversores das
+    fontes oficiais e gravadas sem duplicar. O casamento com a empresa é pelo
+    destinatário (ou emitente, quando é nota prestada); CNPJ fora do cadastro
+    volta como item "sem_empresa" — nada é importado para a empresa errada.
+    """
+    if not arquivos:
+        raise HTTPException(status_code=400, detail="Envie um .zip ou arquivos .xml.")
+
+    itens: list[ItemImportacaoXml] = []
+    xmls: list[tuple[str, bytes]] = []
+    for upload in arquivos:
+        nome = (upload.filename or "arquivo").strip()
+        conteudo = await upload.read()
+        if nome.lower().endswith(".zip"):
+            if len(conteudo) > LIMITE_BYTES_LOTE:
+                raise HTTPException(status_code=413, detail="ZIP maior que 100 MB.")
+            try:
+                do_zip = extrair_xmls_do_zip(conteudo)
+            except ValueError as exc:
+                itens.append(ItemImportacaoXml(origem=nome, status="erro", mensagem=str(exc)))
+                continue
+            for nome_interno, dados in do_zip:
+                if len(dados) > LIMITE_BYTES_XML:
+                    itens.append(
+                        ItemImportacaoXml(origem=nome_interno, status="erro", mensagem="XML maior que 2 MB.")
+                    )
+                else:
+                    xmls.append((nome_interno, dados))
+        elif nome.lower().endswith(".xml"):
+            if len(conteudo) > LIMITE_BYTES_XML:
+                itens.append(ItemImportacaoXml(origem=nome, status="erro", mensagem="XML maior que 2 MB."))
+            else:
+                xmls.append((nome, conteudo))
+        else:
+            itens.append(
+                ItemImportacaoXml(
+                    origem=nome,
+                    status="ignorado",
+                    mensagem="Não é .xml nem .zip — o arquivo não foi enviado.",
+                )
+            )
+
+    if len(xmls) > LIMITE_XMLS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{len(xmls)} XMLs de uma vez; o limite é {LIMITE_XMLS}. Importe em etapas.",
+        )
+
+    for nome, dados in xmls:
+        itens.append(_importar_um_xml(db, escritorio_id, nome, dados))
+
+    importados = sum(1 for item in itens if item.status == "importado")
+    duplicadas = sum(1 for item in itens if item.status == "duplicada")
+    sem_empresa = sum(1 for item in itens if item.status == "sem_empresa")
+    nao_reconhecidos = sum(1 for item in itens if item.status == "nao_reconhecido")
+    erros = sum(1 for item in itens if item.status == "erro")
+    auditoria.registrar(
+        db,
+        usuario,
+        "importacoes_xml",
+        detalhe=(
+            f"{len(xmls)} XMLs: {importados} importados, {duplicadas} já existiam, "
+            f"{sem_empresa} sem empresa, {nao_reconhecidos} não reconhecidos, {erros} erros"
+        ),
+    )
+    db.commit()
+
+    return ImportacaoXmlResposta(
+        total=len(itens),
+        importados=importados,
+        duplicadas=duplicadas,
+        sem_empresa=sem_empresa,
+        nao_reconhecidos=nao_reconhecidos,
+        erros=erros,
+        itens=itens,
+    )
+
+
+def _importar_um_xml(
+    db: Session, escritorio_id: int, nome: str, dados: bytes
+) -> ItemImportacaoXml:
+    """Um XML do lote: erros de leitura viram item do resultado, nunca erro 500."""
+    tipo = classificar_xml(dados)
+    if not tipo:
+        return ItemImportacaoXml(
+            origem=nome,
+            status="nao_reconhecido",
+            mensagem="Leiaute não reconhecido — esperamos NF-e, CT-e ou NFS-e do leiaute nacional.",
+        )
+    try:
+        doc = converter_xml(dados, tipo)
+    except ValueError as exc:
+        return ItemImportacaoXml(origem=nome, tipo=tipo, status="erro", mensagem=str(exc))
+    if doc is None or not (doc.chave_acesso or "").strip():
+        return ItemImportacaoXml(
+            origem=nome,
+            tipo=tipo,
+            status="nao_reconhecido",
+            mensagem="Não achamos a chave de acesso no XML.",
+        )
+
+    empresa, direcao = casar_com_empresa(db, escritorio_id, doc)
+    if empresa is None:
+        documento_de = (doc.destinatario_documento or doc.emitente_documento or "").strip()
+        return ItemImportacaoXml(
+            origem=nome,
+            tipo=tipo,
+            chave=doc.chave_acesso,
+            cnpj_cpf=documento_de,
+            status="sem_empresa",
+            mensagem="CNPJ/CPF do documento não está no cadastro deste escritório.",
+        )
+
+    doc = documento_com_direcao(doc, direcao)
+    resultado = gravar_documento(db, empresa, _TIPO_DO_LEIAUTE[tipo], doc, nome)
+    if resultado == "sem_data":
+        return ItemImportacaoXml(
+            origem=nome,
+            tipo=tipo,
+            chave=doc.chave_acesso,
+            status="erro",
+            mensagem="Data de emissão ilegível no XML.",
+        )
+    return ItemImportacaoXml(
+        origem=nome,
+        tipo=tipo,
+        chave=doc.chave_acesso,
+        razao_social=empresa.razao_social,
+        cnpj_cpf=empresa.cnpj_cpf,
+        status="importado" if resultado == "importado" else "duplicada",
+        mensagem=(
+            "Nota gravada no acervo."
+            if resultado == "importado"
+            else "Já estava no acervo; a fonte ficou registrada."
+        ),
+    )
 
 
 @router.post("/rebobinar", response_model=list[ItemRebobinarCursor])

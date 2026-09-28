@@ -551,25 +551,13 @@ def detalhar(
     trilha = []
     if jobs:
         ids = [job.id for job in jobs]
-        trilha = [
-            {
-                "id": evento.id,
-                "job_id": evento.job_id,
-                "quando": evento.quando,
-                "tipo": evento.tipo,
-                "etapa": evento.etapa,
-                "status_anterior": evento.status_anterior,
-                "status_novo": evento.status_novo,
-                "mensagem": evento.mensagem,
-                "codigo_erro": evento.codigo_erro,
-                "ator": evento.ator,
-            }
-            for evento in db.query(JobEvento)
+        trilha = (
+            db.query(JobEvento)
             .filter(JobEvento.job_id.in_(ids))
             .order_by(JobEvento.quando.desc(), JobEvento.id.desc())
             .limit(120)
             .all()
-        ]
+        )
 
     certificados = [
         {

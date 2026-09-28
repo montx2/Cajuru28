@@ -558,10 +558,11 @@ toda sexta-feira.
 
 ## 15. Limitações conhecidas
 
-1. **Jettax 360 não publica API REST documentada.** O adaptador existe e é
-   plugável por configuração, mas falha fechado enquanto não houver credencial
-   e documentação do fornecedor. O caminho que funciona hoje sem nenhuma
-   credencial é a importação de planilha CSV.
+1. **Jettax 360 não publica API REST documentada.** Não existe adaptador
+   remoto — e a decisão é não ter: sem contrato publicado, a entrada é
+   **importação da lista** (colagem da tela ou CSV exportado), sem credencial
+   de terceiro no cofre. A migração de referência apaga credenciais `jettax360`
+   de instalações antigas.
 2. **O Integra Contador só consulta.** Não existe serviço oficial de criação,
    assinatura ou validação de autorização — por isso a fase de execução é
    assistida.

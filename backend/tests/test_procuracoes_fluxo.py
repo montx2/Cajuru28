@@ -652,3 +652,37 @@ def test_detalhe_traz_jobs_e_trilha(ambiente):
     assert detalhe is not None
     assert detalhe.linha.razao_social == "CLIENTE A LTDA"
     assert detalhe.jobs and detalhe.eventos
+
+
+def test_rede_de_seguranca_preserva_estado_anterior_e_ator_real(ambiente):
+    """`_forcar_intervencao` existe para estado inesperado não virar job
+    perdido. Um acionamento dela é sinal de bug — por isso o evento nasce com
+    tipo próprio, estado anterior preservado e o ator REAL (nunca 'sistema'
+    por conta de um ato humano)."""
+    db = ambiente["db"]
+    usuario = ambiente["usuario"]
+    resultado = srv_fila.criar_job(db, ambiente["escritorio"].id, ambiente["empresa_a"])
+    assert resultado.criado
+    job = resultado.job
+    # Caminho manual completo: assumir → outorga → aceite → concluído.
+    srv_fila.pedir_intervencao(db, job, "Assumido pelo operador.", usuario_id=usuario.id)
+    srv_fila.registrar_outorga(db, job, protocolo="2026.1", usuario_id=usuario.id)
+    srv_fila.registrar_aceite(db, job, usuario_id=usuario.id)
+    assert job.status == StatusJob.CONCLUIDO
+
+    # Transição impossível (terminal) derruba na rede de segurança.
+    srv_fila.pedir_intervencao(
+        db, job, "Chamada indevida — teste da rede de segurança.", usuario_id=usuario.id
+    )
+
+    evento = (
+        db.query(m.JobEvento)
+        .filter(m.JobEvento.job_id == job.id, m.JobEvento.tipo == "intervencao_forcada")
+        .order_by(m.JobEvento.id.desc())
+        .first()
+    )
+    assert evento is not None
+    assert evento.status_anterior == "concluido"
+    assert evento.status_novo == "intervencao_manual"
+    assert evento.ator == f"operador:{usuario.id}"
+    assert evento.usuario_id == usuario.id

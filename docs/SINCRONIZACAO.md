@@ -160,16 +160,48 @@ Fluxa/LEIA-ME.txt      o que o pacote contém e o que falta
 | `MAX_LOTES_POR_EXECUCAO` | 50 | Quantas páginas antes de se reagendar. |
 | `COMPLETAR_XMLS_A_CADA_HORAS` | 1 | Frequência da rodada de Ciência da Operação + gap-fill de XML. |
 | `LIMITE_DOCUMENTOS_POR_EXPORTACAO` | 25000 | Teto do ZIP. |
-| `SINCRONISMO_AUTOMATICO` | true | `false` = só consulta manual (útil em homologação). |
+| `SINCRONISMO_AUTOMATICO` | true | `false` = **desagenda de verdade** as tasks de consulta à SEFAZ (ver seção 8). |
 
 ## 7. Sintomas e diagnóstico
 
 | Sintoma na tela | O que está acontecendo | O que fazer |
 | --- | --- | --- |
-| "Aguardando a SEFAZ · bloqueada até HH:MM" | 656 real, janela em curso | Nada. Vai retomar sozinha. Verifique se outro sistema/planilha usa o mesmo CNPJ. |
+| "Aguardando a SEFAZ · bloqueada até HH:MM" | 656 real, janela em curso | Nada. Vai retomar sozinha. Se outro sistema (ex.: Jettax360) consulta o mesmo CNPJ/certificado, é isso — veja a seção 8. |
 | `pendencia` alta que não cai | CNPJ com muito documento acumulado; o round-robin está distribuindo as horas | Espere os ciclos; ou suba `MAX_LOTES_POR_EXECUCAO`. |
 | "só resumo" em muitas NFe | **Falta a Ciência da Operação.** Enquanto o destinatário não se manifesta, o Ambiente Nacional só distribui o `resNFe` — e o `consChNFe` também volta vazio (NT 2014.002). Não é página seguinte nem cota. | Ligue "Manifestação automática" na empresa. Depois da Ciência o `procNFe` chega pelo próprio fluxo de NSU e substitui o resumo. O detalhe do documento mostra se a Ciência foi registrada ou o motivo da recusa. |
 | Prestadas vazio para NFe | A distribuição não entrega os documentos do próprio emitente | Normal. Emitente consulta a SEFAZ autorizadora. |
 | ZIP responde 413 | Filtro maior que o teto | Afine por empresa ou mês; o teto é configurável. |
 | Mês antigo não aparece | Documento anterior aos ~3 meses disponíveis na distribuição | Reimportar não resolve; a fonte é a empresa/contador. |
 | “⚠ N dias sem varrer com documento faltando” na tela | `dias_sem_varrer ≥ DIAS_DISPONIVEIS_NA_DISTRIBUICAO` com pendência aberta: a janela de recuperação está fechando | Rode a varredura dessa empresa o quanto antes (a fila prioriza sozinha); o que passou dos ~3 meses pode já ter saído da distribuição. |
+
+## 8. Outro sistema capturando (ex.: Jettax360) — desligar e importar por XML
+
+**O problema.** Dois sistemas consultando a Distribuição DF-e com o **mesmo
+certificado/CNPJ** se travam mutuamente: a SEFAZ devolve **656 (consumo
+indevido)** e bloqueia o certificado por ~1 hora — para os dois. Não é defeito
+de nenhum dos lados; é o protocolo da SEFAZ: um capturador por certificado.
+
+**A decisão.** Só um sistema fica com a consulta. Se for o outro (Jettax360),
+o Fluxa para de consultar **de verdade** e passa a receber as notas como
+arquivo:
+
+1. No `.env` (ou ambiente do Docker Compose):
+   `SINCRONISMO_AUTOMATICO=false`
+2. Reinicie o serviço do worker/beat (`docker compose up -d` novamente, ou
+   `docker compose restart worker beat`). As tasks `sincronizar-tudo` e
+   `completar-xmls-pendentes` saem da agenda — não rodam "vazias", não
+   aparecem no log e não competem pela janela de consumo.
+3. As notas chegam por **Importações → Importar XMLs do computador**
+   (`POST /importacoes/xml`): um `.zip` exportado do outro sistema ou os
+   `.xml` soltos. Não gasta cota da SEFAZ — a nota é lida do próprio arquivo,
+   com os mesmos conversores das fontes oficiais, e gravada sem duplicar.
+
+**Como o upload casa as notas.** Pelo CNPJ do destinatário (nota tomada) ou
+do emitente (nota prestada). CNPJ fora do cadastro volta como item "Sem
+empresa" — nada é importado para a empresa errada. Até 200 XMLs por lote,
+cada XML de até 2 MB, ZIP de até 100 MB. NF-e e CT-e completos e NFS-e do
+leiaute nacional são aceitos; outro formato volta como "Não reconhecido".
+
+**Para voltar atrás.** `SINCRONISMO_AUTOMATICO=true` + reiniciar. Nada foi
+removido: os cursores, as janelas e o histórico continuam onde estavam, e a
+primeira varredura realinha o cursor com o `ultNSU` que a SEFAZ devolver.

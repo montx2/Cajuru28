@@ -44,6 +44,7 @@ import type {
   ResetGeralResposta,
   ResultadoExclusaoDocumentos,
   ResultadoImportacaoSelecionada,
+  ImportacaoXmlResposta,
   ResumoCertificado,
   ResumoDocumentos,
   ResumoSincronizacao,
@@ -292,6 +293,15 @@ export const api = {
 
   logout: () => chamar<void>("/auth/logout", { method: "POST" }),
 
+  /**
+   * Sessão deslizante: o painel chama periodicamente (aba visível) para o
+   * prazo contar da última atividade — usar o sistema não vira login a cada
+   * 20 min. Falha silenciosa de propósito: sessão realmente expirada cai no
+   * fluxo normal de 401.
+   */
+  renovarSessao: () =>
+    chamar<void>("/auth/renovar", { method: "POST", silencioso: true }),
+
   quemSouEu: () => chamar<UsuarioAtual>("/auth/me"),
 
   /**
@@ -328,9 +338,15 @@ export const api = {
     >
   ) => chamar<Empresa>(`/empresas/${id}`, { method: "PATCH", body: JSON.stringify(dados) }),
 
+  importarXmls: (arquivos: File[]) => {
+    const form = new FormData();
+    for (const arquivo of arquivos) form.append("arquivos", arquivo);
+    return chamar<ImportacaoXmlResposta>("/importacoes/xml", { method: "POST", body: form });
+  },
+
   importarEmpresasEmMassa: (
     arquivos: File[],
-    csv: File | null,
+    planilhas: File[],
     senha: string,
     ufPadrao: string
   ) => {
@@ -338,7 +354,7 @@ export const api = {
     form.append("senha", senha);
     form.append("uf_padrao", ufPadrao);
     for (const arquivo of arquivos) form.append("arquivos", arquivo);
-    if (csv) form.append("csv_arquivo", csv);
+    for (const planilha of planilhas) form.append("csv_arquivos", planilha);
     return chamar<LoteEmpresasResposta>("/empresas/lote", { method: "POST", body: form });
   },
 
@@ -645,7 +661,11 @@ export const api = {
     chamar<DetalheProcuracao>(`/procuracoes/empresas/${empresaId}`),
 
   roteiroProcuracao: (fase?: string) =>
-    chamar<{ passos: PassoRoteiro[]; aviso: string }>(`/procuracoes/roteiro${montarParams({ fase })}`),
+    chamar<{
+      passos: PassoRoteiro[];
+      fundamento: string;
+      urls_oficiais: { portal_servicos: string; ecac: string };
+    }>(`/procuracoes/roteiro${montarParams({ fase })}`),
 
   listarJobsProcuracao: (filtros: { status?: string; empresa_id?: number; limite?: number } = {}) =>
     chamar<JobProcuracao[]>(`/procuracoes/jobs${montarParams(filtros)}`),
@@ -719,8 +739,8 @@ export const api = {
   integracoesProcuracao: () => chamar<CredencialIntegracao[]>("/procuracoes/integracoes"),
 
   salvarIntegracaoProcuracao: (dados: {
-    fonte: string;
-    base_url?: string;
+    /** Única integração remota do módulo (o Jettax entra por importação). */
+    fonte: "integra_contador";
     segredo?: string;
     identificador?: string;
     ativo?: boolean;
@@ -735,12 +755,12 @@ export const api = {
     chamar<void>(`/procuracoes/integracoes/${fonte}`, { method: "DELETE" }),
 
   testarIntegracaoProcuracao: (fonte: string) =>
-    chamar<{ ok: boolean; detalhe: string; codigo: string | null }>(
+    chamar<{ fonte: string; ok: boolean; mensagem: string }>(
       `/procuracoes/integracoes/${fonte}/testar`,
       { method: "POST", body: "{}" }
     ),
 
-  sincronizarProcuracoes: (fonte: string) =>
+  sincronizarProcuracoes: (fonte: "integra_contador") =>
     chamar<ResultadoSincronizacaoProcuracoes>("/procuracoes/sincronizar", {
       method: "POST",
       body: JSON.stringify({ fonte }),
@@ -780,6 +800,18 @@ export const api = {
   agentesProcuracao: () => chamar<AgenteProcuracao[]>("/procuracoes/agentes"),
 
   /**
+   * O botão "Cadastrar estas empresas" do resultado da importação: nome e
+   * documento vieram com a lista, a UF o servidor descobre pelo CNPJ.
+   */
+  cadastrarEmpresasPendencias: (
+    empresas: Array<{ documento: string; razao_social: string }>
+  ) =>
+    chamar<LoteEmpresasResposta>("/empresas/lote-texto", {
+      method: "POST",
+      body: JSON.stringify({ empresas }),
+    }),
+
+  /**
    * Matrícula de estação. O identificador é gerado pelo servidor e volta na
    * resposta — só se informa aqui para **re-credenciar** uma estação que já
    * existe (mesma máquina, segredo novo).
@@ -798,8 +830,8 @@ export const api = {
 
   requisitosAgente: () => chamar<RequisitosAgente>("/procuracoes/agentes/requisitos"),
 
-  notificacoesProcuracao: (apenasAbertas = true) =>
-    chamar<NotificacaoProcuracao[]>(`/procuracoes/notificacoes${montarParams({ apenas_abertas: apenasAbertas })}`),
+  notificacoesProcuracao: (abertas = true) =>
+    chamar<NotificacaoProcuracao[]>(`/procuracoes/notificacoes${montarParams({ abertas })}`),
 
   reconhecerNotificacaoProcuracao: (id: number) =>
     chamar<NotificacaoProcuracao>(`/procuracoes/notificacoes/${id}/reconhecer`, {

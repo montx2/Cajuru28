@@ -2,7 +2,15 @@
 Registro de fontes: resolve o nome configurado no adaptador concreto.
 
 Adicionar uma fonte nova é registrar uma função construtora aqui. Nenhum
-serviço precisa saber que Jettax ou SERPRO existem.
+serviço precisa saber que SERPRO existe.
+
+Sobre o Jettax 360: **não é integração remota neste produto**. Não existe
+endpoint público documentado para a tela de procurações do painel, e a
+decisão do produto é não manter adaptador "pronto para quando houver". A
+lista do painel entra por importação (colagem/arquivo) nas rotas
+`/importar-lista` e `/importar-planilha`, com o valor `jettax360` como
+**procedência do dado** — ver `esquemas.FONTES_MANUAIS` e a precedência em
+`sincronizacao.PRECEDENCIA`.
 """
 
 from __future__ import annotations
@@ -19,14 +27,16 @@ from app.procuracoes.integracoes.integra_contador import (
     BASE_PRODUCAO,
     ClienteIntegraContador,
 )
-from app.procuracoes.integracoes.jettax import ClienteJettax
 from app.procuracoes.modelos import CredencialIntegracao
 
+#: Procedência de listas importadas do painel do Jettax (sem API, sem
+#: credencial). Não é fonte remota — é rótulo de confiança na reconciliação.
 FONTE_JETTAX = "jettax360"
 FONTE_INTEGRA_CONTADOR = "integra_contador"
 FONTE_PLANILHA = "planilha"
 
-FONTES_REMOTAS = (FONTE_JETTAX, FONTE_INTEGRA_CONTADOR)
+#: Integrações remotas — únicas que aceitam credencial, teste e sincronização.
+FONTES_REMOTAS = (FONTE_INTEGRA_CONTADOR,)
 FONTES_CONHECIDAS = (*FONTES_REMOTAS, FONTE_PLANILHA)
 
 ROTULOS: dict[str, str] = {
@@ -69,14 +79,6 @@ def _segredo(texto_cifrado: str) -> str:
         ) from exc
 
 
-def _construir_jettax(registro: CredencialIntegracao) -> FonteProcuracoes:
-    return ClienteJettax(
-        base_url=registro.base_url,
-        token=_segredo(registro.segredo_cifrado),
-        opcoes=_opcoes(registro),
-    )
-
-
 def _construir_integra_contador(registro: CredencialIntegracao) -> FonteProcuracoes:
     opcoes = _opcoes(registro)
     ambiente = str(opcoes.get("ambiente") or "producao").lower()
@@ -93,13 +95,19 @@ def _construir_integra_contador(registro: CredencialIntegracao) -> FonteProcurac
 
 
 _CONSTRUTORES: dict[str, Callable[[CredencialIntegracao], FonteProcuracoes]] = {
-    FONTE_JETTAX: _construir_jettax,
     FONTE_INTEGRA_CONTADOR: _construir_integra_contador,
 }
 
 
 def construir(db: Session, escritorio_id: int, fonte: str) -> FonteProcuracoes:
     """Instancia o adaptador configurado ou explica exatamente o que falta."""
+    if fonte == FONTE_JETTAX:
+        raise FonteNaoConfiguradaError(
+            "O Jettax 360 não é integração por API neste produto: não existe "
+            "endpoint público documentado para a tela de procurações. Traga a "
+            "lista por 'Importar lista' na tela de Procurações — o dado entra "
+            "com a mesma procedência e governança."
+        )
     if fonte not in _CONSTRUTORES:
         raise FonteNaoConfiguradaError(
             f"Fonte '{fonte}' não é uma integração remota conhecida. "

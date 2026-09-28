@@ -147,3 +147,44 @@ def test_requisicao_com_tamanho_declarado_acima_do_limite_e_recusada(contexto):
         headers={"Content-Length": str(35 * 1024 * 1024 + 1)},
     )
     assert resposta.status_code == 413
+
+
+def test_renovar_sessao_troca_o_cookie_de_uma_sessao_valida(contexto):
+    """Sessão deslizante: usar o sistema não pode virar login a cada 20 min."""
+    cliente, _, _ = contexto
+    # O navegador manda Origin em todo POST; o middleware de CSRF exige isso
+    # de qualquer sessão por cookie — o TestClient precisa imitar.
+    origem = {"Origin": "http://localhost:3000"}
+    resposta_login = cliente.post(
+        "/auth/login", json={"email": EMAIL, "senha": SENHA}, headers=origem
+    )
+    assert resposta_login.status_code == 200
+    cookie_antigo = resposta_login.cookies.get("notasflow_session")
+    assert cookie_antigo
+
+    resposta = cliente.post("/auth/renovar", headers=origem)
+
+    assert resposta.status_code == 200
+    # Cookie novo na resposta: o prazo volta a contar da última atividade.
+    set_cookie = resposta.headers.get("set-cookie", "")
+    assert "HttpOnly" in set_cookie
+    assert "notasflow_session" in set_cookie
+    # E a sessão continua servindo para chamadas normais.
+    assert cliente.get("/auth/me").status_code == 200
+
+
+def test_renovar_recusa_quem_nao_tem_sessao(contexto):
+    cliente, _, _ = contexto
+    assert cliente.post("/auth/renovar").status_code == 401
+
+
+def test_logout_invalida_a_renovacao_da_sessao_antiga(contexto):
+    """Sair derruba a sessão inteira — renovar depois do logout não a traz de volta."""
+    cliente, _, _ = contexto
+    origem = {"Origin": "http://localhost:3000"}
+    cliente.post("/auth/login", json={"email": EMAIL, "senha": SENHA}, headers=origem)
+    assert cliente.post("/auth/logout", headers=origem).status_code == 204
+
+    resposta = cliente.post("/auth/renovar", headers=origem)
+
+    assert resposta.status_code == 401

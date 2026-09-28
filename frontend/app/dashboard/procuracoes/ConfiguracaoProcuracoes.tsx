@@ -8,7 +8,7 @@ import { useRecurso } from "@/lib/useRecurso";
 import { useSessao } from "@/components/shell/ProvedorSessao";
 import { Aviso } from "@/components/ui/Aviso";
 import { Botao } from "@/components/ui/Botao";
-import { Alternador, Entrada, Selecao } from "@/components/ui/Campo";
+import { Alternador, Entrada } from "@/components/ui/Campo";
 import { Dado } from "@/components/ui/Dado";
 import { Icone } from "@/components/ui/Icone";
 import { Modal } from "@/components/ui/Modal";
@@ -37,8 +37,6 @@ export function ConfiguracaoProcuracoes({ aberta, aoFechar, aoSalvar }: Props) {
   const [salvando, setSalvando] = useState(false);
   const [rascunho, setRascunho] = useState<Record<string, unknown>>({});
   const [segredo, setSegredo] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
-  const [fonte, setFonte] = useState("jettax360");
 
   const config = useRecurso(() => (aberta ? api.configuracaoProcuracoes() : Promise.resolve(null)), [aberta]);
   const modelos = useRecurso(() => (aberta ? api.modelosProcuracao() : Promise.resolve([])), [aberta]);
@@ -68,35 +66,21 @@ export function ConfiguracaoProcuracoes({ aberta, aoFechar, aoSalvar }: Props) {
   }
 
   /**
-   * As duas regras abaixo são as mesmas do contrato (`CredencialEntrada`).
-   * Repeti-las aqui não é duplicação inútil: é o que evita uma ida ao
-   * servidor para receber um 422 por algo que dá para dizer na hora.
+   * A regra abaixo é a mesma do contrato (`CredencialEntrada`). Repeti-la
+   * aqui não é duplicação inútil: é o que evita uma ida ao servidor para
+   * receber um 422 por algo que dá para dizer na hora.
    */
-  const urlNormalizada = baseUrl.trim();
-  const erroUrl =
-    urlNormalizada && !/^https:\/\//i.test(urlNormalizada)
-      ? urlNormalizada.toLowerCase().startsWith("http://")
-        ? "Use HTTPS: credencial não trafega em texto claro."
-        : "Comece com https:// — ex.: https://" + urlNormalizada.replace(/^\/+/, "")
-      : "";
   const erroSegredo =
     segredo.trim() && segredo.trim().length < MIN_SEGREDO
       ? `Faltam ${MIN_SEGREDO - segredo.trim().length} caractere(s): o token completo tem pelo menos ${MIN_SEGREDO}.`
       : "";
-  const podeGravarCredencial = Boolean(segredo.trim()) && !erroUrl && !erroSegredo;
-
-  function completarEsquema() {
-    const texto = baseUrl.trim();
-    if (!texto || /^https?:\/\//i.test(texto)) return;
-    // "admin.jettax360.com.br" é o que se copia da barra do navegador.
-    setBaseUrl(`https://${texto.replace(/^\/+/, "")}`);
-  }
+  const podeGravarCredencial = Boolean(segredo.trim()) && !erroSegredo;
 
   async function salvarIntegracao() {
     if (!podeGravarCredencial) return;
     setSalvando(true);
     try {
-      await api.salvarIntegracaoProcuracao({ fonte, base_url: urlNormalizada, segredo: segredo.trim() });
+      await api.salvarIntegracaoProcuracao({ fonte: "integra_contador", segredo: segredo.trim() });
       avisar({ tom: "ok", titulo: "Credencial gravada", descricao: "O segredo é cifrado no cofre e nunca mais é exibido." });
       setSegredo("");
       integracoes.atualizar();
@@ -107,11 +91,11 @@ export function ConfiguracaoProcuracoes({ aberta, aoFechar, aoSalvar }: Props) {
     }
   }
 
-  async function sincronizar(nome: string) {
+  async function sincronizar() {
     setSalvando(true);
     try {
-      const resultado = await api.sincronizarProcuracoes(nome);
-      avisar({ tom: "ok", titulo: `Sincronização com ${nome}`, descricao: resultado.mensagem });
+      const resultado = await api.sincronizarProcuracoes("integra_contador");
+      avisar({ tom: "ok", titulo: "Sincronização com Integra Contador", descricao: resultado.mensagem });
       aoSalvar();
     } catch (erro) {
       avisar({ tom: "erro", titulo: "Sincronização falhou", descricao: mensagemDoErro(erro) });
@@ -278,12 +262,11 @@ export function ConfiguracaoProcuracoes({ aberta, aoFechar, aoSalvar }: Props) {
 
           <section className="space-y-3">
             <h3 className="text-xs font-semibold uppercase tracking-[.04em] text-tinta-fraca">Fontes de dados</h3>
-            <Aviso tom="info" icone="alerta" titulo="Jettax 360 não publica API de procurações">
-              A tela <span className="font-mono text-2xs">prevention/ecac/procurations</span> existe no painel, mas o
-              fornecedor não documenta endpoint público para ela — só integrações de entrada por token (Acessórias, SIEG).
-              Enquanto não houver contrato publicado, use <span className="font-medium">Importar lista</span> na tela de
-              Procurações: cola-se o que está na tela (ou o CSV exportado) e o resultado é o mesmo dado governado, com
-              idempotência e histórico.
+            <Aviso tom="info" icone="importacao" titulo="A lista do Jettax 360 entra por importação">
+              O painel do Jettax 360 não publica API de procurações — e o módulo não guarda credencial de terceiro para
+              essa tela. O caminho é <span className="font-medium">Importar lista</span> na tela de Procurações: copia-se
+              o que está na tela (ou o CSV exportado) e o resultado é dado governado, com idempotência e histórico — o
+              mesmo efeito de uma consulta, sem depender de endpoint que não existe.
             </Aviso>
             <ul className="space-y-2">
               {(integracoes.dados ?? []).map((item) => (
@@ -298,10 +281,10 @@ export function ConfiguracaoProcuracoes({ aberta, aoFechar, aoSalvar }: Props) {
                   <div className="flex items-center gap-2">
                     {item.configurado ? (
                       <>
-                        <Botao variante="sutil" tamanho="sm" disabled={salvando} onClick={() => api.testarIntegracaoProcuracao(item.fonte).then((r) => avisar({ tom: r.ok ? "ok" : "erro", titulo: item.rotulo, descricao: r.detalhe }))}>
+                        <Botao variante="sutil" tamanho="sm" disabled={salvando} onClick={() => api.testarIntegracaoProcuracao(item.fonte).then((r) => avisar({ tom: r.ok ? "ok" : "erro", titulo: item.rotulo, descricao: r.mensagem }))}>
                           Testar
                         </Botao>
-                        <Botao variante="sutil" tamanho="sm" disabled={salvando || somenteLeitura} onClick={() => sincronizar(item.fonte)}>
+                        <Botao variante="sutil" tamanho="sm" disabled={salvando || somenteLeitura} onClick={sincronizar}>
                           Sincronizar
                         </Botao>
                       </>
@@ -311,38 +294,18 @@ export function ConfiguracaoProcuracoes({ aberta, aoFechar, aoSalvar }: Props) {
               ))}
             </ul>
 
-            <div className="grid gap-3 rounded-controle border border-borda-controle p-3 sm:grid-cols-3">
-              <Selecao
-                rotulo="Fonte"
-                value={fonte}
-                onChange={(evento) => setFonte(evento.target.value)}
-                disabled={somenteLeitura}
-                opcoes={[
-                  { valor: "integra_contador", rotulo: "Integra Contador (SERPRO)" },
-                  { valor: "jettax360", rotulo: "Jettax 360" },
-                ]}
-              />
+            <div className="grid gap-3 rounded-controle border border-borda-controle p-3 sm:grid-cols-2">
               <Entrada
-                rotulo="Base URL"
-                value={baseUrl}
-                onChange={(evento) => setBaseUrl(evento.target.value)}
-                onBlur={completarEsquema}
-                disabled={somenteLeitura}
-                placeholder="https://…"
-                descricao="Obrigatoriamente HTTPS."
-                erro={erroUrl || null}
-              />
-              <Entrada
-                rotulo="Credencial"
+                rotulo="Token do Integra Contador (SERPRO)"
                 type="password"
                 autoComplete="off"
                 value={segredo}
                 onChange={(evento) => setSegredo(evento.target.value)}
                 disabled={somenteLeitura}
-                descricao={`Cifrada no cofre; nunca volta na API. Mínimo de ${MIN_SEGREDO} caracteres.`}
+                descricao={`Única integração remota do módulo. Cifrada no cofre; nunca volta na API. Mínimo de ${MIN_SEGREDO} caracteres.`}
                 erro={erroSegredo || null}
               />
-              <div className="sm:col-span-3">
+              <div className="flex items-end">
                 <Botao
                   variante="secundaria"
                   tamanho="sm"
@@ -351,7 +314,7 @@ export function ConfiguracaoProcuracoes({ aberta, aoFechar, aoSalvar }: Props) {
                   title={
                     somenteLeitura
                       ? MOTIVO_SOMENTE_LEITURA
-                      : erroUrl || erroSegredo || (!segredo.trim() ? "Informe a credencial do fornecedor" : undefined)
+                      : erroSegredo || (!segredo.trim() ? "Informe o token do Integra Contador" : undefined)
                   }
                   onClick={salvarIntegracao}
                   iconeEsquerda={<Icone nome="chave" className="h-4 w-4" />}

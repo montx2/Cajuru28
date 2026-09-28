@@ -198,10 +198,10 @@ def test_credencial_de_integracao_nunca_volta_na_api(ambiente):
     resposta = cliente.put(
         "/procuracoes/integracoes",
         json={
-            "fonte": "jettax360",
-            "base_url": "https://api.exemplo.com.br",
+            "fonte": "integra_contador",
+            "base_url": "https://servicos-online.serpro.gov.br",
+            "identificador": "consumer-key",
             "segredo": "token-secreto-do-cliente",
-            "opcoes": {"rota_listagem": "/api/v1/clientes"},
         },
     )
     assert resposta.status_code == 200
@@ -571,7 +571,7 @@ def test_url_de_integracao_precisa_ser_https(ambiente):
     resposta = ambiente["cliente"].put(
         "/procuracoes/integracoes",
         json={
-            "fonte": "jettax360",
+            "fonte": "integra_contador",
             "base_url": "http://api.exemplo.com.br",
             "segredo": "token-de-teste",
         },
@@ -579,14 +579,44 @@ def test_url_de_integracao_precisa_ser_https(ambiente):
     assert resposta.status_code == 422
 
 
-def test_jettax_recusa_endereco_de_rede_interna():
+def test_jettax_nao_tem_mais_adaptador_nem_credencial(ambiente):
+    """A integração por API do Jettax foi removida por decisão do produto:
+    não existe endpoint público documentado para a tela de procurações.
+    Nenhuma rota pode instanciar, testar ou guardar credencial dele."""
+    from app.procuracoes.integracoes import registro
+
+    cliente = ambiente["cliente"]
+
+    # Gravar credencial jettax360 é recusado na borda, com o caminho correto.
+    resposta = cliente.put(
+        "/procuracoes/integracoes",
+        json={
+            "fonte": "jettax360",
+            "base_url": "https://admin.jettax360.com.br",
+            "segredo": "token-de-integracao-longo",
+        },
+    )
+    assert resposta.status_code == 422
+    assert "Importar lista" in json.dumps(resposta.json()["detail"], ensure_ascii=False)
+
+    # …e o registro de adaptadores não conhece mais a fonte.
+    assert "jettax360" not in registro.FONTES_REMOTAS
+    with pytest.raises(registro.FonteNaoConfiguradaError):
+        registro.construir(ambiente["db"], ambiente["escritorio"].id, "jettax360")
+
+    # Endereço interno continua recusado na integração que existe (SERPRO) —
+    # a barreira anti-SSRF não foi embora com o adaptador Jettax.
     from app.procuracoes.integracoes.base import FonteError
-    from app.procuracoes.integracoes.jettax import validar_base_url
+    from app.procuracoes.integracoes.integra_contador import ClienteIntegraContador
 
     with pytest.raises(FonteError):
-        validar_base_url("https://127.0.0.1/api")
-    with pytest.raises(FonteError):
-        validar_base_url("https://usuario:senha@api.exemplo.com")
+        ClienteIntegraContador(
+            consumer_key="k",
+            consumer_secret="s",
+            contratante=OUTORGADO,
+            autor_pedido=OUTORGADO,
+            base_url="https://127.0.0.1/integra-contador",
+        )
 
 
 def test_integra_contador_so_aceita_host_oficial():

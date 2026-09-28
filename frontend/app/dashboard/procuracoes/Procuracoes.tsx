@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { mensagemDoErro } from "@/lib/erros";
@@ -61,8 +61,14 @@ export function Procuracoes() {
 
   const situacao = SITUACOES.some((opcao) => opcao.valor === ler("situacao")) ? ler("situacao") : "";
   const pagina = Math.max(1, Number(ler("pagina") || 1));
+  // A fila de atenção enlaça direto no processo: `/procuracoes?job=42` abre o
+  // painel do job 42 — o clique do alerta não pode virar caça na lista.
+  const jobDaUrl = Number(ler("job")) || null;
 
-  const [jobAberto, setJobAberto] = useState<number | null>(null);
+  const [jobAberto, setJobAberto] = useState<number | null>(jobDaUrl);
+  useEffect(() => {
+    if (jobDaUrl) setJobAberto(jobDaUrl);
+  }, [jobDaUrl]);
   const [configAberta, setConfigAberta] = useState(false);
   const [importacaoAberta, setImportacaoAberta] = useState(false);
   const [processando, setProcessando] = useState(false);
@@ -484,7 +490,15 @@ export function Procuracoes() {
         }
       />
 
-      <PainelJob jobId={jobAberto} aoFechar={() => setJobAberto(null)} aoMudar={recarregar} />
+      <PainelJob
+        jobId={jobAberto}
+        aoFechar={() => {
+          setJobAberto(null);
+          // Chegou com ?job=: devolve a URL limpa para o histórico não reabrir.
+          if (jobDaUrl) definir({ job: null });
+        }}
+        aoMudar={recarregar}
+      />
       <ConfiguracaoProcuracoes aberta={configAberta} aoFechar={() => setConfigAberta(false)} aoSalvar={recarregar} />
       <ImportarLista aberta={importacaoAberta} aoFechar={() => setImportacaoAberta(false)} aoImportar={recarregar} />
     </div>

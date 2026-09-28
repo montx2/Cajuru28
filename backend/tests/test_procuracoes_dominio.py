@@ -337,3 +337,33 @@ def test_planilha_sem_coluna_de_documento_e_recusada():
 
     with pytest.raises(FonteError):
         FontePlanilha(b"nome;situacao\nEmpresa;ativa\n").listar()
+
+
+def test_intervencao_manual_e_alcancavel_de_todo_estado_nao_terminal():
+    """Regressão do job da R10: `pendente` e `aguardando_agente` recusavam
+    intervenção — o grafo foi escrito do ponto de vista do Agent, que só
+    relata problema depois de assumir. A pessoa pode precisar assumir antes."""
+    for status in StatusJob:
+        if status in ESTADOS_TERMINAIS:
+            continue
+        assert transicao_valida(status, StatusJob.INTERVENCAO_MANUAL), (
+            f"{status.value} → intervencao_manual deveria ser permitido"
+        )
+
+
+def test_fechamento_manual_de_fase_passa_pelo_grafo():
+    """O caminho manual (sem estação) atravessa os mesmos marcos, do mesmo
+    jeito: intervenção → assinado e aguardando_validacao → concluído."""
+    assert transicao_valida(StatusJob.INTERVENCAO_MANUAL, StatusJob.ASSINADO)
+    assert transicao_valida(StatusJob.AGUARDANDO_VALIDACAO, StatusJob.CONCLUIDO)
+    # E o salto impossível continua impossível: ninguém "conclui" sem a fase
+    # de aceite ter sido registrada.
+    assert not transicao_valida(StatusJob.ASSINADO, StatusJob.CONCLUIDO)
+
+
+def test_codigo_de_intervencao_solicitada_tem_texto_honesto():
+    regra = regra_do_erro(CodigoErro.INTERVENCAO_SOLICITADA)
+    assert regra.classe is ClasseErro.MANUAL
+    assert "pessoa" in regra.explicacao
+    # A frase nega o desafio em vez de afirmar um que não houve.
+    assert "nenhum desafio do portal foi detectado" in regra.explicacao

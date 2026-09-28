@@ -39,8 +39,9 @@ uma **ferramenta de operação fiscal para um único operador**:
   de consumo (cStat 656, cotas de 20 consultas/h, lease por empresa+tipo).
 - **Recuperação automática:** retry com reagendamento, checkpoint de NSU a
   cada lote, uma nota que falha nunca para as outras 9.999.
-- **Importação em massa:** cadastro de empresas+certificados por lote e
-  importação por seleção, com prévia do que vai acontecer.
+- **Importação em massa:** cadastro de empresas+certificados por lote —
+  seleção da pasta de certificados + planilha de senhas existente
+  ([como usar](docs/IMPORTACAO_CERTIFICADOS.md)).
 - **Fechamento mensal:** mapa empresa × tipo da competência, exportável em
   CSV e ZIP.
 - **Busca global:** `Ctrl+K` encontra qualquer documento por chave, número

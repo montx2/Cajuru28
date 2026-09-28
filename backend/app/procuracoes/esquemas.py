@@ -237,6 +237,11 @@ class EventoSaida(Base):
     mensagem: str = ""
     codigo_erro: str = ""
     ator: str = ""
+    #: Quem provocou o evento, com nome resolvido ("Operador Ana", "Estação PC
+    #: Fiscal 01", "Sistema"). A tela mostra "você" quando `usuario_id` é o
+    #: próprio operador logado.
+    ator_rotulo: str = ""
+    usuario_id: int | None = None
 
 
 class CertificadoSaida(Base):
@@ -291,6 +296,28 @@ class ProcessarPendenciasSaida(Base):
 
 class AcaoJobEntrada(Base):
     motivo: str = Field("", max_length=500)
+    #: Código do catálogo quando o motivo for outro (ex.: a pessoa assume por
+    #: certificado ambíguo, não por decisão operacional). Vazio usa o código
+    #: próprio da ação.
+    codigo_erro: str = Field("", max_length=60)
+
+    @field_validator("codigo_erro")
+    @classmethod
+    def _do_catalogo(cls, valor: str) -> str:
+        from app.procuracoes.estados import CodigoErro
+
+        texto = (valor or "").strip()
+        if not texto:
+            return ""
+        try:
+            CodigoErro(texto)
+        except ValueError as exc:
+            raise ValueError(
+                f"'{texto}' não é um código do catálogo de erros. "
+                "Consulte docs/PROCURACOES_RFB.md — código inventado não vira "
+                "métrica nem tradução."
+            ) from exc
+        return texto
 
 
 class JobDetalheSaida(JobResumoSaida):
@@ -318,6 +345,29 @@ class EvidenciaSaida(Base):
     criado_em: datetime | None = None
 
 
+class ConfirmacaoManualEntrada(Base):
+    """Confirmação de um ato praticado por uma pessoa **no portal oficial**.
+
+    Este é o contrato da tela — diferente do `ResultadoEntrada` do Agent, que
+    carrega `lease_token` porque a estação provou posse do job. A pessoa prova
+    posse com o que o portal devolveu: protocolo ou texto de confirmação.
+    Sem um dos dois, nada é gravado — é o que impede marco de conclusão
+    "de boa fé" sem confirmação real (IN RFB nº 2.320/2026).
+    """
+
+    protocolo: str = Field("", max_length=120)
+    confirmacao_portal: str = Field("", max_length=500)
+
+    @model_validator(mode="after")
+    def _exige_confirmacao(self):
+        if not (self.protocolo.strip() or self.confirmacao_portal.strip()):
+            raise ValueError(
+                "Registro sem confirmação do portal não é aceito: informe o "
+                "protocolo ou cole o texto de confirmação exibido na tela."
+            )
+        return self
+
+
 # --------------------------------------------------------------------------
 # Integrações
 # --------------------------------------------------------------------------
@@ -330,19 +380,35 @@ MIN_SEGREDO_INTEGRACAO = 8
 
 
 class CredencialEntrada(Base):
-    """Credencial de fonte externa.
+    """Credencial de fonte externa **remota**.
+
+    Só o Integra Contador (SERPRO) é integração remota hoje: é o canal oficial
+    de consulta. O Jettax 360 **não** é integração por API neste produto — a
+    lista do painel dele entra por importação (colagem/arquivo) e vira
+    procedência `jettax360` na reconciliação; por isso não aceita credencial.
 
     As duas regras abaixo já existiam; o que mudou é **a mensagem**. Um 422 que
     diz apenas "valor inválido" obriga o operador a adivinhar qual dos três
     campos está errado — e foi exatamente o que aconteceu em produção.
     """
 
-    fonte: Literal["jettax360", "integra_contador"]
+    fonte: str
     base_url: str = Field("", max_length=500)
     identificador: str = Field("", max_length=255)
     segredo: str = Field(..., max_length=500)
     opcoes: dict[str, Any] = Field(default_factory=dict)
     ativo: bool = True
+
+    @field_validator("fonte")
+    @classmethod
+    def _fonte_remota_conhecida(cls, valor: str) -> str:
+        if valor != "integra_contador":
+            raise ValueError(
+                "A única integração remota é o SERPRO Integra Contador. A lista "
+                "do Jettax 360 entra por 'Importar lista' na tela de Procurações, "
+                "sem credencial."
+            )
+        return valor
 
     @field_validator("segredo")
     @classmethod
@@ -396,8 +462,19 @@ class CredencialSaida(Base):
 
 
 class SincronizarEntrada(Base):
-    fonte: Literal["jettax360", "integra_contador"]
+    fonte: str
     empresa_ids: list[int] = Field(default_factory=list, max_length=2000)
+
+    @field_validator("fonte")
+    @classmethod
+    def _fonte_remota_conhecida(cls, valor: str) -> str:
+        if valor != "integra_contador":
+            raise ValueError(
+                "A única integração remota é o SERPRO Integra Contador. A lista "
+                "do Jettax 360 entra por 'Importar lista' na tela de Procurações, "
+                "sem credencial."
+            )
+        return valor
 
 
 class SincronizacaoSaida(Base):
@@ -423,9 +500,11 @@ class ImportarListaEntrada(Base):
 
     texto: str = Field(..., min_length=3, max_length=2_000_000)
     fonte: Literal["jettax360", "planilha"] = "jettax360"
-    #: Declarar a aba de origem é o que permite importar uma colagem que só
-    #: tem nome e documento. Vazio = deduzir do próprio texto.
-    situacao_padrao: Literal["", "ativa", "expirada"] = ""
+    #: De qual aba do painel a colagem veio. Uma linha da aba "Sem
+    #: procuração" não é "situação indeterminada": a própria aba declara que
+    #: o cliente **não autorizou** — vira `sem_autorizacao`. Vazio = deduzir
+    #: do próprio texto (aba "Com procuração").
+    situacao_padrao: Literal["", "ativa", "expirada", "sem_procuracao"] = ""
 
     @field_validator("texto")
     @classmethod

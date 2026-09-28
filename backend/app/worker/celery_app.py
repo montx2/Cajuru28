@@ -12,7 +12,13 @@ from app.core.logging import configurar_logging
 # ser correlacionável sem abrir o banco de produção.
 configurar_logging()
 
-AGENDA = {
+# Consultas à SEFAZ. Ficam fora do dicionário principal para que
+# `SINCRONISMO_AUTOMATICO=false` realmente **desagende** as tasks, em vez de
+# deixá-las rodando e retornando cedo. O escritório que deixa outro sistema
+# (ex.: Jettax360) com a consulta à Distribuição DF-e faz isso de propósito:
+# dois robôs no mesmo certificado geram 656 (consumo indevido) e a captura
+# passa a vir por upload de XML (`POST /importacoes/xml`).
+_TAREFAS_SEFAZ = {
     "sincronizar-tudo": {
         "task": "sincronizar_tudo",
         "schedule": timedelta(minutes=max(1, int(settings.sincronismo_intervalo_minutos))),
@@ -23,6 +29,9 @@ AGENDA = {
         "schedule": timedelta(hours=max(1, int(settings.completar_xmls_a_cada_horas))),
         "options": {"expires": int(settings.completar_xmls_a_cada_horas * 3600)},
     },
+}
+
+AGENDA = {
     "varrer-alertas-webhook": {
         "task": "varrer_alertas_webhook",
         "schedule": timedelta(minutes=max(1, int(settings.alerta_webhook_intervalo_minutos))),
@@ -39,6 +48,9 @@ AGENDA = {
 # `PROCURACOES_ATIVO=false` realmente **desagende** as tasks, em vez de
 # deixá-las rodando e retornando cedo — o operador que desliga o módulo
 # durante uma manutenção do portal não quer ver as execuções no log.
+if settings.sincronismo_automatico:
+    AGENDA.update(_TAREFAS_SEFAZ)
+
 if settings.procuracoes_ativo:
     AGENDA.update(
         {

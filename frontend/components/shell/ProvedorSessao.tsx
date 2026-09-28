@@ -58,6 +58,31 @@ export function ProvedorSessao({ children }: { children: ReactNode }) {
 
   const atualizar = useCallback(() => setVersao((atual) => atual + 1), []);
 
+  /**
+   * Sessão deslizante: enquanto a aba está visível, o prazo de expiração conta
+   * da última atividade — usar o sistema o dia inteiro não pode virar login a
+   * cada 20 minutos. A checagem roda a cada minuto e renova no máximo a cada
+   * 10; aba escondida não renova (parou de usar, expira no prazo normal) e
+   * falha é silenciosa (sessão realmente expirada cai no fluxo comum de 401).
+   */
+  useEffect(() => {
+    if (!usuario) return;
+    const A_CADA_MS = 10 * 60 * 1000;
+    let ultimaRenovacao = Date.now();
+    const renovarSePreciso = () => {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - ultimaRenovacao < A_CADA_MS) return;
+      ultimaRenovacao = Date.now();
+      api.renovarSessao().catch(() => undefined);
+    };
+    const ponteiro = window.setInterval(renovarSePreciso, 60 * 1000);
+    document.addEventListener("visibilitychange", renovarSePreciso);
+    return () => {
+      window.clearInterval(ponteiro);
+      document.removeEventListener("visibilitychange", renovarSePreciso);
+    };
+  }, [usuario]);
+
   const sair = useCallback(async () => {
     try {
       // Quem apaga o cookie HttpOnly é a API; ao navegador resta navegar.

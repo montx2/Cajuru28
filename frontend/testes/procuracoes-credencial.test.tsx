@@ -2,10 +2,10 @@
  * Credencial de integração: aceitar o que é válido, recusar o que não é —
  * dizendo o que corrigir antes de gastar uma ida ao servidor.
  *
- * O defeito: `PUT /procuracoes/integracoes` respondia 422 para
- * `admin.jettax360.com.br` (sem esquema) e para segredo curto, e a tela
- * mostrava "confira os filtros da consulta". As regras do contrato agora estão
- * espelhadas aqui, no formulário.
+ * A única integração remota do módulo é o SERPRO Integra Contador. A lista do
+ * Jettax 360 entra por importação (colagem/CSV), sem credencial — o
+ * formulário antigo de "Base URL + credencial do Jettax" deixou de existir,
+ * e o teste garante que ele não volte por engano.
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
@@ -14,6 +14,8 @@ import { ConfiguracaoProcuracoes } from "@/app/dashboard/procuracoes/Configuraca
 import { ProvedorToast } from "@/components/ui/Toast";
 
 const salvarIntegracaoProcuracao = vi.fn();
+const testarIntegracaoProcuracao = vi.fn();
+const sincronizarProcuracoes = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   api: {
@@ -24,13 +26,24 @@ vi.mock("@/lib/api", () => ({
       hora_sincronizacao: 6,
     }),
     integracoesProcuracao: vi.fn().mockResolvedValue([
-      { fonte: "jettax360", base_url: "", configurada: false, ultima_sincronizacao: null, ultimo_erro: null },
+      {
+        fonte: "integra_contador",
+        rotulo: "Integra Contador (SERPRO)",
+        base_url: "",
+        identificador: "",
+        configurado: true,
+        ativo: true,
+        opcoes: {},
+        ultima_utilizacao_em: null,
+        ultimo_erro: "",
+        atualizado_em: null,
+      },
     ]),
     modelosProcuracao: vi.fn().mockResolvedValue([]),
     salvarConfiguracaoProcuracoes: vi.fn(),
     salvarIntegracaoProcuracao: (...args: unknown[]) => salvarIntegracaoProcuracao(...args),
-    testarIntegracaoProcuracao: vi.fn(),
-    sincronizarProcuracoes: vi.fn(),
+    testarIntegracaoProcuracao: (...args: unknown[]) => testarIntegracaoProcuracao(...args),
+    sincronizarProcuracoes: (...args: unknown[]) => sincronizarProcuracoes(...args),
   },
   ApiError: class extends Error {
     status = 0;
@@ -39,7 +52,7 @@ vi.mock("@/lib/api", () => ({
 }));
 
 vi.mock("@/components/shell/ProvedorSessao", () => ({
-  useSessao: () => ({ somenteLeitura: false, papel: "admin", ehAdmin: true }),
+  useSessao: () => ({ usuario: { id: 1, nome: "Admin" }, somenteLeitura: false, papel: "admin", ehAdmin: true }),
 }));
 
 function montar() {
@@ -50,66 +63,71 @@ function montar() {
   );
 }
 
-const SEGREDO = "token-de-integracao-1234";
+const TOKEN = "token-de-integracao-1234";
 
 describe("credencial de integração", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     salvarIntegracaoProcuracao.mockResolvedValue({});
+    testarIntegracaoProcuracao.mockResolvedValue({
+      fonte: "integra_contador",
+      ok: true,
+      mensagem: "Conexão estabelecida com o Integra Contador.",
+    });
+    sincronizarProcuracoes.mockResolvedValue({ mensagem: "Nada a atualizar." });
   });
 
-  it("aceita URL https com segredo completo", async () => {
+  it("grava só o token do Integra Contador — sem endereço, sem Jettax", async () => {
     const usuario = userEvent.setup();
     montar();
 
-    await usuario.type(await screen.findByLabelText(/base url/i), "https://admin.jettax360.com.br");
-    await usuario.type(screen.getByLabelText(/credencial/i), SEGREDO);
+    await usuario.type(await screen.findByLabelText(/token do integra contador/i), TOKEN);
     await usuario.click(screen.getByRole("button", { name: /gravar credencial/i }));
 
     await waitFor(() => expect(salvarIntegracaoProcuracao).toHaveBeenCalledTimes(1));
     expect(salvarIntegracaoProcuracao).toHaveBeenCalledWith({
-      fonte: "jettax360",
-      base_url: "https://admin.jettax360.com.br",
-      segredo: SEGREDO,
+      fonte: "integra_contador",
+      segredo: TOKEN,
     });
+    // O formulário de endereço do Jettax não existe mais.
+    expect(screen.queryByLabelText(/base url/i)).toBeNull();
+    expect(screen.queryByText(/jettax 360/i, { selector: "option" })).toBeNull();
   });
 
-  it("completa o https:// do endereço copiado da barra do navegador", async () => {
+  it("diz quantos caracteres faltam no token curto, sem chamar a API", async () => {
     const usuario = userEvent.setup();
     montar();
 
-    const campo = await screen.findByLabelText(/base url/i);
-    await usuario.type(campo, "admin.jettax360.com.br");
-    await usuario.tab();
+    await usuario.type(await screen.findByLabelText(/token do integra contador/i), "curto");
 
-    await waitFor(() => expect(campo).toHaveValue("https://admin.jettax360.com.br"));
-  });
-
-  it("recusa http:// dizendo por quê, sem chamar a API", async () => {
-    const usuario = userEvent.setup();
-    montar();
-
-    await usuario.type(await screen.findByLabelText(/base url/i), "http://admin.jettax360.com.br");
-    await usuario.type(screen.getByLabelText(/credencial/i), SEGREDO);
-
-    expect(screen.getByText(/credencial não trafega em texto claro/i)).toBeInTheDocument();
+    expect(screen.getByText(/Faltam 3 caractere/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /gravar credencial/i })).toBeDisabled();
     expect(salvarIntegracaoProcuracao).not.toHaveBeenCalled();
   });
 
-  it("diz quantos caracteres faltam no segredo curto", async () => {
+  it("testa a integração e mostra a mensagem devolvida (não um campo inexistente)", async () => {
     const usuario = userEvent.setup();
     montar();
 
-    await usuario.type(await screen.findByLabelText(/base url/i), "https://admin.jettax360.com.br");
-    await usuario.type(screen.getByLabelText(/credencial/i), "curto");
+    await usuario.click(await screen.findByRole("button", { name: /^testar$/i }));
 
-    expect(screen.getByText(/Faltam 3 caractere/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /gravar credencial/i })).toBeDisabled();
+    await waitFor(() => expect(testarIntegracaoProcuracao).toHaveBeenCalledWith("integra_contador"));
+    expect(await screen.findByText(/Conexão estabelecida com o Integra Contador/i)).toBeInTheDocument();
   });
 
-  it("avisa que o Jettax não publica API e aponta a importação por lista", async () => {
+  it("sincroniza apontando para a única fonte remota", async () => {
+    const usuario = userEvent.setup();
     montar();
-    expect(await screen.findByText(/não publica API de procurações/i)).toBeInTheDocument();
+
+    await usuario.click(await screen.findByRole("button", { name: /^sincronizar$/i }));
+
+    await waitFor(() => expect(sincronizarProcuracoes).toHaveBeenCalledWith("integra_contador"));
+  });
+
+  it("avisa que a lista do Jettax entra por importação, sem credencial", async () => {
+    montar();
+    expect(await screen.findByText(/entra por importação/i)).toBeInTheDocument();
+    expect(screen.getByText(/não publica API de procurações/i)).toBeInTheDocument();
+    expect(screen.getByText(/não guarda credencial de terceiro/i)).toBeInTheDocument();
   });
 });

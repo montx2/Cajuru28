@@ -315,7 +315,7 @@ export interface ItemLoteEmpresas {
   cnpj_cpf: string;
   razao_social: string;
   uf: string;
-  status: "criada" | "certificado_atualizado" | "ja_existia" | "erro";
+  status: "criada" | "certificado_atualizado" | "ja_existia" | "substituido" | "erro";
   mensagem: string;
   empresa_id: number | null;
   certificado_id: number | null;
@@ -337,7 +337,31 @@ export const ROTULO_TIPO: Record<TipoDocumentoFiscal, string> = {
   cte: "CT-e",
 };
 
+export interface ItemImportacaoXml {
+  origem: string;
+  tipo: string;
+  chave: string;
+  razao_social: string;
+  cnpj_cpf: string;
+  status: "importado" | "duplicada" | "sem_empresa" | "nao_reconhecido" | "erro" | "ignorado";
+  mensagem: string;
+}
+
+export interface ImportacaoXmlResposta {
+  total: number;
+  importados: number;
+  duplicadas: number;
+  sem_empresa: number;
+  nao_reconhecidos: number;
+  erros: number;
+  itens: ItemImportacaoXml[];
+}
+
 export const ROTULO_STATUS_LOTE: Record<string, string> = {
+  criada: "Criada",
+  certificado_atualizado: "Certificado atualizado",
+  ja_existia: "Já existia",
+  substituido: "Versão antiga",
   enfileirada: "Enfileirada",
   em_andamento: "Já estava em andamento",
   ja_em_andamento: "Já estava em andamento",
@@ -501,6 +525,7 @@ export const ROTULO_CATEGORIA_ALERTA: Record<string, string> = {
   xml: "XML",
   execucao: "Execução",
   sistema: "Sistema",
+  procuracao: "Procuração RFB",
 };
 
 // ---------------------------------------------------------------
@@ -795,6 +820,10 @@ export interface EventoJobProcuracao {
   mensagem: string;
   codigo_erro: string;
   ator: string;
+  /** Nome resolvido pelo backend ("Ana", "Estação PC Fiscal 01", "Sistema"). */
+  ator_rotulo: string;
+  /** Presente quando quem provocou foi uma pessoa — a tela mostra "você". */
+  usuario_id: number | null;
 }
 
 export interface EvidenciaJob {
@@ -889,7 +918,7 @@ export interface AgenteProcuracao {
   revogado_motivo: string;
   ultimo_heartbeat_em: string | null;
   criado_em: string | null;
-  situacao: "online" | "ocioso" | "offline" | "revogado" | string;
+  situacao: "online" | "processando" | "offline" | "revogado" | string;
   certificados: number;
 }
 

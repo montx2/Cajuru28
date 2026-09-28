@@ -115,15 +115,30 @@ ESTADOS_ESPERANDO_HUMANO = frozenset(
 
 #: Grafo de transições permitidas. Tudo que não está aqui é rejeitado.
 #:
-#: `INTERVENCAO_MANUAL` é alcançável de quase todo lugar de propósito: é o
-#: escape hatch seguro quando o portal apresenta desafio, o Assinador cai ou a
-#: interface muda. Sair dele só é possível voltando para um ponto conhecido.
+#: `INTERVENCAO_MANUAL` é alcançável de **qualquer estado não terminal** de
+#: propósito: é o escape hatch quando o portal apresenta desafio, o Assinador
+#: cai, a interface muda — ou quando uma pessoa quer assumir um job que
+#: nenhuma estação vai pegar (fila vazia, escritório sem Agent). O grafo foi
+#: escrito do ponto de vista do Agent que relata problema depois de assumir;
+#: a pessoa pode precisar assumir antes disso, e isso é operação legítima.
+#: Sair dele só é possível voltando para um ponto conhecido.
 TRANSICOES: dict[StatusJob, frozenset[StatusJob]] = {
     StatusJob.PENDENTE: frozenset(
-        {StatusJob.AGUARDANDO_AGENTE, StatusJob.CANCELADO, StatusJob.FALHOU}
+        {
+            StatusJob.AGUARDANDO_AGENTE,
+            StatusJob.INTERVENCAO_MANUAL,
+            StatusJob.CANCELADO,
+            StatusJob.FALHOU,
+        }
     ),
     StatusJob.AGUARDANDO_AGENTE: frozenset(
-        {StatusJob.ATRIBUIDO, StatusJob.PENDENTE, StatusJob.CANCELADO, StatusJob.FALHOU}
+        {
+            StatusJob.ATRIBUIDO,
+            StatusJob.PENDENTE,
+            StatusJob.INTERVENCAO_MANUAL,
+            StatusJob.CANCELADO,
+            StatusJob.FALHOU,
+        }
     ),
     StatusJob.ATRIBUIDO: frozenset(
         {
@@ -184,6 +199,9 @@ TRANSICOES: dict[StatusJob, frozenset[StatusJob]] = {
             StatusJob.VALIDANDO,
             StatusJob.AGUARDANDO_AGENTE,
             StatusJob.INTERVENCAO_MANUAL,
+            # Fechamento manual da fase 2: a pessoa validou no portal oficial
+            # e traz a confirmação (`registrar_aceite`).
+            StatusJob.CONCLUIDO,
             StatusJob.CANCELADO,
             StatusJob.FALHOU,
         }
@@ -206,6 +224,11 @@ TRANSICOES: dict[StatusJob, frozenset[StatusJob]] = {
             StatusJob.PRONTO_PARA_OPERACAO,
             StatusJob.AGUARDANDO_ASSINATURA,
             StatusJob.AGUARDANDO_VALIDACAO,
+            # Fechamento manual da fase 1: a pessoa fez a outorga no portal
+            # oficial e traz protocolo/confirmação (`registrar_outorga`).
+            # O marco continua protegido — pela exigência de confirmação,
+            # não pela inalcançabilidade.
+            StatusJob.ASSINADO,
             StatusJob.CONCLUIDO,
             StatusJob.CANCELADO,
             StatusJob.FALHOU,
@@ -311,6 +334,10 @@ class CodigoErro(str, enum.Enum):
     MODO_AUTOMATICO_VEDADO = "MODO_AUTOMATICO_VEDADO"
     OPERACAO_CANCELADA_PELO_OPERADOR = "OPERACAO_CANCELADA_PELO_OPERADOR"
     DADOS_INSUFICIENTES = "DADOS_INSUFICIENTES"
+
+    #: Intervenção pedida por uma pessoa (não pela estação). Texto honesto:
+    #: nenhuma barreira do portal foi encontrada — alguém decidiu assumir.
+    INTERVENCAO_SOLICITADA = "INTERVENCAO_SOLICITADA"
 
 
 @dataclass(frozen=True)
@@ -454,6 +481,11 @@ REGRAS: dict[CodigoErro, RegraErro] = {
     CodigoErro.OPERACAO_CANCELADA_PELO_OPERADOR: RegraErro(
         ClasseErro.PERMANENTE, 0, 0, StatusJob.CANCELADO,
         "Operação cancelada pelo operador.",
+    ),
+    CodigoErro.INTERVENCAO_SOLICITADA: RegraErro(
+        ClasseErro.MANUAL, 0, 0, _MANUAL,
+        "Intervenção pedida por uma pessoa do escritório. O processo parou e "
+        "aguarda ação humana — nenhum desafio do portal foi detectado.",
     ),
     CodigoErro.DADOS_INSUFICIENTES: RegraErro(
         ClasseErro.PERMANENTE, 0, 0, _MANUAL,

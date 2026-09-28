@@ -709,22 +709,40 @@ def _forcar_intervencao(
     usuario_id: int | None,
     detalhe: dict | None,
 ) -> None:
-    """Rede de segurança: estado inesperado nunca vira job perdido."""
+    """Rede de segurança: estado inesperado nunca vira job perdido.
+
+    Um acionamento daqui é **sinal de bug**: alguma transição que o serviço
+    achou legítima não está no grafo. Por isso o evento nasce com tipo
+    próprio (`intervencao_forcada`), com o estado anterior preservado e com o
+    ator real — para a trilha não esconder nem o que aconteceu nem quem fez.
+    """
+    anterior = job.status
     job.status = StatusJob.INTERVENCAO_MANUAL.value
     job.motivo_intervencao = mensagem
+    ator = f"operador:{usuario_id}" if usuario_id else (f"agente:{agente_id}" if agente_id else "sistema")
     eventos.registrar_evento(
         db,
         job,
         "intervencao_forcada",
         mensagem=mensagem,
+        status_anterior=anterior,
         status_novo=job.status,
         codigo_erro=codigo,
-        ator="sistema",
+        ator=ator,
         agente_id=agente_id,
         usuario_id=usuario_id,
         detalhe=detalhe,
     )
     db.flush()
+    log.error(
+        "procuracao_intervencao_forcada",
+        extra={
+            "job_id": job.id,
+            "status_anterior": anterior,
+            "codigo": codigo,
+            "ator": ator,
+        },
+    )
 
 
 def pedir_intervencao(
@@ -734,9 +752,14 @@ def pedir_intervencao(
     *,
     codigo: CodigoErro | str = CodigoErro.PORTAL_DESAFIO_ADICIONAL,
     agente_id: int | None = None,
+    usuario_id: int | None = None,
     detalhe: dict | None = None,
 ) -> JobProcuracao:
-    """O Agent encontrou algo que só uma pessoa pode resolver."""
+    """Alguém (estação ou pessoa) decidiu que só um humano resolve.
+
+    `usuario_id` identifica a pessoa que pediu: a trilha de auditoria atribui
+    o ato a quem o praticou, nunca ao "sistema".
+    """
     job.motivo_intervencao = (motivo or "")[:2000]
     liberar_lease(db, job)
     codigo_texto = codigo.value if isinstance(codigo, CodigoErro) else str(codigo)[:60]
@@ -748,11 +771,16 @@ def pedir_intervencao(
         StatusJob.INTERVENCAO_MANUAL,
         mensagem=motivo,
         codigo_erro=codigo_texto,
-        ator=f"agente:{agente_id}" if agente_id else "sistema",
+        ator=(
+            f"operador:{usuario_id}"
+            if usuario_id
+            else (f"agente:{agente_id}" if agente_id else "sistema")
+        ),
         agente_id=agente_id,
+        usuario_id=usuario_id,
         detalhe=detalhe,
     ):
-        _forcar_intervencao(db, job, motivo, codigo_texto, agente_id, None, detalhe)
+        _forcar_intervencao(db, job, motivo, codigo_texto, agente_id, usuario_id, detalhe)
     return job
 
 
@@ -905,7 +933,11 @@ def registrar_outorga(
         StatusJob.ASSINADO,
         mensagem="Assinatura confirmada no portal. Autorização criada e em análise.",
         etapa=EtapaFluxo.REGISTRO_OUTORGA,
-        ator=f"agente:{agente_id}" if agente_id else "operador",
+        ator=(
+            f"operador:{usuario_id}"
+            if usuario_id
+            else (f"agente:{agente_id}" if agente_id else "operador")
+        ),
         agente_id=agente_id,
         usuario_id=usuario_id,
         detalhe={"protocolo": protocolo or None},
@@ -971,7 +1003,11 @@ def registrar_aceite(
         StatusJob.CONCLUIDO,
         mensagem="Autorização validada pela contabilidade. Situação: ATIVA.",
         etapa=EtapaFluxo.REGISTRO_CONCLUSAO,
-        ator=f"agente:{agente_id}" if agente_id else "operador",
+        ator=(
+            f"operador:{usuario_id}"
+            if usuario_id
+            else (f"agente:{agente_id}" if agente_id else "operador")
+        ),
         agente_id=agente_id,
         usuario_id=usuario_id,
     )
