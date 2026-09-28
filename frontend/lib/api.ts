@@ -44,6 +44,7 @@ import type {
   ResetGeralResposta,
   ResultadoExclusaoDocumentos,
   ResultadoImportacaoSelecionada,
+  ImportacaoXmlResposta,
   ResumoCertificado,
   ResumoDocumentos,
   ResumoSincronizacao,
@@ -336,6 +337,12 @@ export const api = {
       }
     >
   ) => chamar<Empresa>(`/empresas/${id}`, { method: "PATCH", body: JSON.stringify(dados) }),
+
+  importarXmls: (arquivos: File[]) => {
+    const form = new FormData();
+    for (const arquivo of arquivos) form.append("arquivos", arquivo);
+    return chamar<ImportacaoXmlResposta>("/importacoes/xml", { method: "POST", body: form });
+  },
 
   importarEmpresasEmMassa: (
     arquivos: File[],

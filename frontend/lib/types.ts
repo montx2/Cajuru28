@@ -337,6 +337,26 @@ export const ROTULO_TIPO: Record<TipoDocumentoFiscal, string> = {
   cte: "CT-e",
 };
 
+export interface ItemImportacaoXml {
+  origem: string;
+  tipo: string;
+  chave: string;
+  razao_social: string;
+  cnpj_cpf: string;
+  status: "importado" | "duplicada" | "sem_empresa" | "nao_reconhecido" | "erro" | "ignorado";
+  mensagem: string;
+}
+
+export interface ImportacaoXmlResposta {
+  total: number;
+  importados: number;
+  duplicadas: number;
+  sem_empresa: number;
+  nao_reconhecidos: number;
+  erros: number;
+  itens: ItemImportacaoXml[];
+}
+
 export const ROTULO_STATUS_LOTE: Record<string, string> = {
   criada: "Criada",
   certificado_atualizado: "Certificado atualizado",

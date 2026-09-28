@@ -17,6 +17,7 @@ import { useSinalizarAtualizacao } from "@/components/shell/BarraAtualizacao";
 import { useContagemAlertas } from "@/components/shell/ProvedorAlertas";
 import { useSessao } from "@/components/shell/ProvedorSessao";
 import { ResumoNSU } from "@/components/fiscal/MedidorNSU";
+import { ImportarXmls } from "./ImportarXmls";
 import { ResumoImportacao } from "@/components/fiscal/ResumoImportacao";
 import { SeletorEmpresas } from "@/components/fiscal/SeletorEmpresas";
 import { SeletorPeriodo } from "@/components/fiscal/SeletorPeriodo";
@@ -376,6 +377,8 @@ export function Importacoes() {
           {erroAcao}
         </Aviso>
       ) : null}
+
+      <ImportarXmls />
 
       <Cartao
         titulo="1 · Período e tipos"

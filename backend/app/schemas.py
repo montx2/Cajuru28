@@ -380,6 +380,29 @@ class ItemImportacaoLote(BaseModel):
     mensagem: str = ""
 
 
+class ItemImportacaoXml(BaseModel):
+    """Resultado de UM arquivo .xml do lote manual."""
+
+    origem: str  # nome do arquivo
+    tipo: str = ""  # nfe | cte | nfse
+    chave: str = ""
+    razao_social: str = ""  # empresa casada, quando há
+    cnpj_cpf: str = ""
+    # importado | duplicada | sem_empresa | nao_reconhecido | erro | ignorado
+    status: str
+    mensagem: str = ""
+
+
+class ImportacaoXmlResposta(BaseModel):
+    total: int
+    importados: int
+    duplicadas: int
+    sem_empresa: int
+    nao_reconhecidos: int
+    erros: int
+    itens: list[ItemImportacaoXml]
+
+
 class ImportacaoSelecionadas(BaseModel):
     """
     Importar exatamente as empresas marcadas na tela.
