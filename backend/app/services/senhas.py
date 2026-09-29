@@ -461,8 +461,19 @@ def ler_planilha_csv(conteudo: bytes, nome_arquivo: str = "") -> dict[str, dict]
         texto = conteudo.decode("latin-1", errors="replace")
 
     sep = _separador_csv(texto)
-    leitor = csv.reader(io.StringIO(texto), delimiter=sep)
-    linhas = [linha for linha in leitor if any(c.strip() for c in linha)]
+    # newline="" deixa o módulo csv tratar as quebras de linha. Com o
+    # StringIO padrão, qualquer "\r" isolado (exportações antigas de Mac,
+    # alguns ERPs e colagens de planilha) derrubava a importação inteira
+    # com "_csv.Error: new-line character seen in unquoted field".
+    try:
+        leitor = csv.reader(io.StringIO(texto, newline=""), delimiter=sep)
+        linhas = [linha for linha in leitor if any(c.strip() for c in linha)]
+    except csv.Error as erro:
+        alvo = f" {nome_arquivo}" if nome_arquivo else ""
+        raise ValueError(
+            f"Não foi possível ler a planilha{alvo}: o texto está fora do "
+            f"formato CSV ({erro})."
+        ) from erro
     if not linhas:
         return {}
 

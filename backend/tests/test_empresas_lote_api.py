@@ -292,6 +292,41 @@ def test_lote_sem_arquivo_nem_csv_da_erro(cliente):
     assert resposta.status_code == 400
 
 
+def test_lote_csv_com_cr_isolado_nao_derruba_importacao(cliente):
+    # Regressão: CSV com linhas terminadas só em "\r" (exports antigos de Mac /
+    # alguns ERPs) derrubava POST /empresas/lote com 500
+    # ("new-line character seen in unquoted field") e travava a importação.
+    client, db, _ = cliente
+    csv = (
+        "razao_social;cnpj_cpf;uf\r"
+        "GAMA TRANSPORTES LTDA;11444777000161;PR\r"
+    ).encode("utf-8")
+    resposta = client.post(
+        "/empresas/lote",
+        data={"senha": "", "uf_padrao": "SP"},
+        files=[("csv_arquivos", ("empresas.csv", csv, "text/csv"))],
+    )
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["criadas"] == 1
+    empresa = db.query(Empresa).filter(Empresa.cnpj_cpf == "11444777000161").one()
+    assert empresa.uf == "PR"
+
+
+def test_lote_csv_malformado_retorna_400_em_vez_de_500(cliente):
+    # Planilha ilegível (campo acima do limite do módulo csv) deve virar
+    # recusa clara com o nome do arquivo, não erro interno 500.
+    client, _, _ = cliente
+    csv = ("razao_social;cnpj_cpf\r" + "x" * 200000 + ";11444777000161\r").encode("utf-8")
+    resposta = client.post(
+        "/empresas/lote",
+        data={"senha": "", "uf_padrao": "SP"},
+        files=[("csv_arquivos", ("empresas.csv", csv, "text/csv"))],
+    )
+    assert resposta.status_code == 400
+    assert "empresas.csv" in resposta.json()["detail"]
+
+
 def test_criacao_preenche_ibge_vindo_da_consulta_publica(monkeypatch):
     from app.api.routers.empresas import _completar_dados_empresa
     from app.schemas import EmpresaCriar

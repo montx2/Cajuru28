@@ -161,8 +161,18 @@ class FontePlanilha:
     def listar(self, documentos: Iterable[str] | None = None) -> list[RegistroProcuracao]:
         texto = self._decodificar()
         dialeto = self._dialeto(texto)
-        leitor = csv.DictReader(io.StringIO(texto), dialect=dialeto)
-        if not leitor.fieldnames:
+        # newline="" deixa o módulo csv tratar as quebras de linha; sem isso,
+        # "\r" isolado (exports antigos) derrubava a leitura com
+        # "_csv.Error: new-line character seen in unquoted field" (500).
+        leitor = csv.DictReader(io.StringIO(texto, newline=""), dialect=dialeto)
+        try:
+            fieldnames = leitor.fieldnames
+        except csv.Error as erro:
+            raise FonteError(
+                f"A planilha não pôde ser lida como CSV ({erro}).",
+                status_code=422,
+            ) from erro
+        if not fieldnames:
             raise FonteError("A planilha não tem cabeçalho.", status_code=422)
 
         colunas: dict[str, str] = {}
@@ -186,36 +196,42 @@ class FontePlanilha:
         filtro = {d for d in (documentos or []) if d}
         registros: list[RegistroProcuracao] = []
         vistos: set[str] = set()
-        for indice, linha in enumerate(leitor):
-            if indice >= LIMITE_LINHAS:
-                raise FonteError(
-                    f"A planilha excede {LIMITE_LINHAS} linhas.", status_code=413
+        try:
+            for indice, linha in enumerate(leitor):
+                if indice >= LIMITE_LINHAS:
+                    raise FonteError(
+                        f"A planilha excede {LIMITE_LINHAS} linhas.", status_code=413
+                    )
+                bruto = str(linha.get(colunas["documento"]) or "").strip()
+                if not bruto:
+                    continue
+                validade = _data(self._valor(linha, colunas, "data_validade"))
+                situacao_texto = self._valor(linha, colunas, "situacao")
+                registro = RegistroProcuracao(
+                    documento=bruto,
+                    razao_social=self._valor(linha, colunas, "razao_social"),
+                    situacao=self._situacao(situacao_texto, validade),
+                    data_inicio=_data(self._valor(linha, colunas, "data_inicio")),
+                    data_validade=validade,
+                    protocolo=self._valor(linha, colunas, "protocolo"),
+                    servicos=self._servicos(self._valor(linha, colunas, "servicos")),
+                    observacao=situacao_texto,
                 )
-            bruto = str(linha.get(colunas["documento"]) or "").strip()
-            if not bruto:
-                continue
-            validade = _data(self._valor(linha, colunas, "data_validade"))
-            situacao_texto = self._valor(linha, colunas, "situacao")
-            registro = RegistroProcuracao(
-                documento=bruto,
-                razao_social=self._valor(linha, colunas, "razao_social"),
-                situacao=self._situacao(situacao_texto, validade),
-                data_inicio=_data(self._valor(linha, colunas, "data_inicio")),
-                data_validade=validade,
-                protocolo=self._valor(linha, colunas, "protocolo"),
-                servicos=self._servicos(self._valor(linha, colunas, "servicos")),
-                observacao=situacao_texto,
-            )
-            try:
-                normalizado = registro.normalizado()
-            except ValueError:
-                continue
-            if filtro and normalizado.documento not in filtro:
-                continue
-            if normalizado.documento in vistos:
-                continue
-            vistos.add(normalizado.documento)
-            registros.append(normalizado)
+                try:
+                    normalizado = registro.normalizado()
+                except ValueError:
+                    continue
+                if filtro and normalizado.documento not in filtro:
+                    continue
+                if normalizado.documento in vistos:
+                    continue
+                vistos.add(normalizado.documento)
+                registros.append(normalizado)
+        except csv.Error as erro:
+            raise FonteError(
+                f"A planilha não pôde ser lida como CSV ({erro}).",
+                status_code=422,
+            ) from erro
         return registros
 
     def _decodificar(self) -> str:
