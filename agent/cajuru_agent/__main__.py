@@ -2,8 +2,10 @@
 Linha de comando do Cajuru Agent.
 
     cajuru-agent configurar --servidor ... --identificador ... --segredo ...
-    cajuru-agent diagnostico     # ambiente local, sem falar com o servidor
+    cajuru-agent diagnostico     # Assinador SERPRO local
+    cajuru-agent diagnose        # pré-flight completo da estação
     cajuru-agent certificados    # o que esta máquina enxerga
+    cajuru-agent politica-certificado --documento ...  # AutoSelectCertificateForUrls
     cajuru-agent importar-certificados --pasta ... --planilha ... --executar
     cajuru-agent testar          # autentica e bate um heartbeat
     cajuru-agent executar        # laço principal
@@ -12,14 +14,21 @@ Linha de comando do Cajuru Agent.
 from __future__ import annotations
 
 import argparse
+import importlib.metadata
 import json
 import logging
+import platform
+import socket
+import subprocess
 import sys
 from pathlib import Path
+
+import httpx
 
 from . import assinador as diag
 from . import certificados as inventario
 from . import importador
+from . import politicas_navegador
 from .config import Configuracao, CofreError, guardar_segredo, ler_segredo, pasta_base
 from .executor import VERSAO_AGENTE, Agente
 from .protocolo import ClienteCajuru, ProtocoloError
@@ -117,6 +126,153 @@ def cmd_certificados(args) -> int:
         if item.erro:
             print(f"    atenção   : {item.erro}")
         print()
+    return 0
+
+
+def _versao_pacote(nome: str) -> str:
+    try:
+        return importlib.metadata.version(nome)
+    except importlib.metadata.PackageNotFoundError:
+        return ""
+
+
+def _dns_ok(host: str) -> bool:
+    try:
+        socket.getaddrinfo(host, 443)
+        return True
+    except OSError:
+        return False
+
+
+def _https_ok(url: str) -> bool:
+    try:
+        with httpx.Client(timeout=5.0, follow_redirects=False) as cliente:
+            resposta = cliente.get(url)
+        return resposta.status_code < 500
+    except httpx.HTTPError:
+        return False
+
+
+def cmd_diagnose(args) -> int:
+    """Pré-flight completo da estação Windows antes de iniciar lote."""
+    pasta = Path(args.pasta_pfx) if args.pasta_pfx else None
+    certificados = inventario.inventariar(pasta)
+    vigentes = [c for c in certificados if inventario.vigente(c) and c.tem_chave_privada]
+    assinador = diag.diagnosticar(tem_certificado=bool(vigentes))
+    politicas = politicas_navegador.diagnosticar_politicas()
+    playwright = _versao_pacote("playwright")
+
+    checks = [
+        ("Windows", platform.system() == "Windows", platform.platform()),
+        ("Python", sys.version_info >= (3, 11), platform.python_version()),
+        ("Playwright", bool(playwright), playwright or "não instalado"),
+        ("Certificados A1 vigentes", bool(vigentes), f"{len(vigentes)} de {len(certificados)} visível(is)"),
+        ("Windows Certificate Store", platform.system() == "Windows", "CurrentUser\\My / LocalMachine\\My"),
+        ("DNS Portal RFB", _dns_ok("servicos.receitafederal.gov.br"), "servicos.receitafederal.gov.br"),
+        ("Portal RFB HTTPS", _https_ok("https://servicos.receitafederal.gov.br"), "GET com timeout de 5s"),
+        ("Assinador SERPRO instalado", assinador.instalado, assinador.versao or "versão não detectada"),
+        ("Assinador SERPRO em execução", assinador.em_execucao, f"porta {diag.PORTA_LOCAL}"),
+        ("Hosts do Assinador", assinador.hosts_mapeado, diag.HOST_MAPEADO),
+        ("Permissão/loopback navegador", assinador.permissao_navegador, "porta local + hosts"),
+    ]
+
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "checks": [
+                        {"nome": nome, "ok": ok, "detalhe": detalhe}
+                        for nome, ok, detalhe in checks
+                    ],
+                    "assinador": assinador.para_envio(),
+                    "politicas_navegador": politicas.navegadores,
+                    "observacoes": list(assinador.observacoes) + list(politicas.observacoes),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        bloqueantes_json = [nome for nome, ok, _detalhe in checks if not ok and nome not in {"Portal RFB HTTPS"}]
+        return 0 if not bloqueantes_json else 1
+
+    print("\nDiagnóstico completo da estação")
+    print("─" * 60)
+    for nome, ok, detalhe in checks:
+        print(f"  {'OK   ' if ok else 'FALTA'} {nome:<30} {detalhe}")
+    print("\nPolíticas AutoSelectCertificateForUrls (HKCU):")
+    for navegador, valores in politicas.navegadores.items():
+        print(f"  • {navegador}: {len(valores)} regra(s)")
+    observacoes = list(assinador.observacoes) + list(politicas.observacoes)
+    if not playwright:
+        observacoes.append("Instale Playwright na estação: pip install -r agent/requirements.txt && python -m playwright install chromium")
+    if observacoes:
+        print("\nO que fazer:")
+        for item in observacoes:
+            print(f"  • {item}")
+    print()
+    bloqueantes = [nome for nome, ok, _detalhe in checks if not ok and nome not in {"Portal RFB HTTPS"}]
+    return 0 if not bloqueantes else 1
+
+
+def cmd_politica_certificado(args) -> int:
+    """Gera/aplica AutoSelectCertificateForUrls para o certificado exato."""
+    navegadores = tuple(args.navegador or ["edge", "chrome"])
+    padroes = tuple(args.portal or politicas_navegador.PADROES_RFB_PADRAO)
+    try:
+        certificado, politicas = politicas_navegador.gerar_para_documento(
+            args.documento,
+            navegadores=navegadores,
+            padroes=padroes,
+            thumbprint=args.thumbprint or "",
+            pasta_pfx=Path(args.pasta_pfx) if args.pasta_pfx else None,
+        )
+    except politicas_navegador.PoliticaNavegadorError as exc:
+        print(f"\n  ✖ {exc}\n")
+        return 2
+
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "certificado": certificado.para_envio(),
+                    "politicas": [
+                        {
+                            "navegador": p.navegador,
+                            "registro_hkcu": p.caminho_registro_hkcu,
+                            "regras": [r.para_json() for r in p.regras],
+                        }
+                        for p in politicas
+                    ],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+    else:
+        print("\nCertificado selecionado de forma determinística")
+        print("─" * 60)
+        print(f"  titular   : {certificado.titular_nome or '(sem nome)'}")
+        print(f"  documento : {certificado.documento}")
+        print(f"  thumbprint: {certificado.thumbprint}")
+        print(f"  issuer    : {certificado.issuer[:120]}")
+        print("\nScript PowerShell idempotente (HKCU, não remove regras existentes):\n")
+        print(politicas_navegador.script_powershell(politicas))
+
+    if args.executar:
+        try:
+            resultados = [politicas_navegador.aplicar_politica(p) for p in politicas]
+        except (politicas_navegador.PoliticaNavegadorError, subprocess.SubprocessError) as exc:
+            print(f"\n  ✖ Não foi possível aplicar a política: {exc}\n")
+            return 2
+        for resultado in resultados:
+            print(
+                f"{resultado.navegador}: {resultado.adicionadas} nova(s), "
+                f"{resultado.existentes} já existente(s)."
+            )
+            for mensagem in resultado.mensagens:
+                print(f"  • {mensagem}")
+    elif not args.json:
+        print("Para aplicar nesta conta Windows, rode de novo com --executar após revisar o script.")
     return 0
 
 
@@ -253,10 +409,28 @@ def construir_parser() -> argparse.ArgumentParser:
     p.add_argument("--pasta-pfx", dest="pasta_pfx", default="")
     p.set_defaults(func=cmd_diagnostico)
 
+    p = sub.add_parser("diagnose", help="pré-flight completo: Windows, navegador, certificados, rede e Assinador")
+    p.add_argument("--pasta-pfx", dest="pasta_pfx", default="")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_diagnose)
+
     p = sub.add_parser("certificados", help="lista os certificados visíveis")
     p.add_argument("--pasta-pfx", dest="pasta_pfx", default="")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_certificados)
+
+    p = sub.add_parser(
+        "politica-certificado",
+        help="gera/aplica AutoSelectCertificateForUrls para selecionar o A1 correto no Chrome/Edge",
+    )
+    p.add_argument("--documento", required=True, help="CPF/CNPJ do titular do certificado")
+    p.add_argument("--thumbprint", default="", help="fixa o certificado quando houver mais de um candidato")
+    p.add_argument("--navegador", action="append", choices=["edge", "chrome", "chromium"], help="repita para gerar para mais navegadores; padrão edge+chrome")
+    p.add_argument("--portal", action="append", help="URL pattern autorizado; padrão inclui Portal RFB, e-CAC, gov.br e assinatura.gov.br")
+    p.add_argument("--pasta-pfx", dest="pasta_pfx", default="")
+    p.add_argument("--executar", action="store_true", help="aplica no HKCU desta conta Windows depois da revisão")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_politica_certificado)
 
     p = sub.add_parser(
         "importar-certificados",

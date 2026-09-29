@@ -311,12 +311,21 @@ class CodigoErro(str, enum.Enum):
     ASSINADOR_SEM_CONEXAO_LOCAL = "ASSINADOR_SEM_CONEXAO_LOCAL"
     ASSINATURA_RECUSADA = "ASSINATURA_RECUSADA"
     ASSINATURA_NAO_CONFIRMADA = "ASSINATURA_NAO_CONFIRMADA"
+    SIGNER_ERROR = "SIGNER_ERROR"
 
     PORTAL_INDISPONIVEL = "PORTAL_INDISPONIVEL"
     PORTAL_ALTERADO = "PORTAL_ALTERADO"
+    PORTAL_UI_CHANGED = "PORTAL_UI_CHANGED"
     PORTAL_DESAFIO_ADICIONAL = "PORTAL_DESAFIO_ADICIONAL"
+    CAPTCHA_REQUIRED = "CAPTCHA_REQUIRED"
+    TWO_FACTOR_REQUIRED = "TWO_FACTOR_REQUIRED"
+    PIN_REQUIRED = "PIN_REQUIRED"
+    MANUAL_REVIEW = "MANUAL_REVIEW"
+    CERTIFICATE_SELECTION_REQUIRED = "CERTIFICATE_SELECTION_REQUIRED"
     PORTAL_SESSAO_EXPIRADA = "PORTAL_SESSAO_EXPIRADA"
+    SESSION_EXPIRED = "SESSION_EXPIRED"
     PORTAL_ACESSO_NEGADO = "PORTAL_ACESSO_NEGADO"
+    ACCOUNT_LEVEL_ERROR = "ACCOUNT_LEVEL_ERROR"
 
     AGENTE_INDISPONIVEL = "AGENTE_INDISPONIVEL"
     AGENTE_SEM_RESPOSTA = "AGENTE_SEM_RESPOSTA"
@@ -326,6 +335,7 @@ class CodigoErro(str, enum.Enum):
     FALHA_DE_REDE = "FALHA_DE_REDE"
 
     AUTORIZACAO_JA_EXISTE = "AUTORIZACAO_JA_EXISTE"
+    AUTHORIZATION_EXISTS = "AUTHORIZATION_EXISTS"
     JOB_DUPLICADO = "JOB_DUPLICADO"
 
     INTEGRACAO_NAO_CONFIGURADA = "INTEGRACAO_NAO_CONFIGURADA"
@@ -412,6 +422,10 @@ REGRAS: dict[CodigoErro, RegraErro] = {
         ClasseErro.MANUAL, 0, 0, _MANUAL,
         "Não houve confirmação efetiva da assinatura. O job NÃO é marcado como assinado.",
     ),
+    CodigoErro.SIGNER_ERROR: RegraErro(
+        ClasseErro.SERPRO, 1, 30, _MANUAL,
+        "O mecanismo local/oficial de assinatura falhou. Verifique Assinador SERPRO, navegador e permissões.",
+    ),
     # --- portal -----------------------------------------------------------
     CodigoErro.PORTAL_INDISPONIVEL: RegraErro(
         ClasseErro.TRANSIENTE, 3, 300, _MANUAL,
@@ -421,17 +435,49 @@ REGRAS: dict[CodigoErro, RegraErro] = {
         ClasseErro.PORTAL_ALTERADO, 0, 0, _MANUAL,
         "O fluxo da Receita mudou. É necessária manutenção do adaptador RFB antes de continuar.",
     ),
+    CodigoErro.PORTAL_UI_CHANGED: RegraErro(
+        ClasseErro.PORTAL_ALTERADO, 0, 0, _MANUAL,
+        "A interface do portal mudou ou uma âncora esperada desapareceu. Evidências foram preservadas para diagnóstico.",
+    ),
     CodigoErro.PORTAL_DESAFIO_ADICIONAL: RegraErro(
         ClasseErro.MANUAL, 0, 0, _MANUAL,
         "A Receita apresentou um desafio adicional de segurança. Só uma pessoa pode resolvê-lo.",
+    ),
+    CodigoErro.CAPTCHA_REQUIRED: RegraErro(
+        ClasseErro.MANUAL, 0, 0, _MANUAL,
+        "CAPTCHA apresentado pelo portal. O job fica pausado até o operador resolver e acionar Retomar.",
+    ),
+    CodigoErro.TWO_FACTOR_REQUIRED: RegraErro(
+        ClasseErro.MANUAL, 0, 0, _MANUAL,
+        "Autenticação em duas etapas solicitada. O operador informa o código no portal; o sistema retoma depois.",
+    ),
+    CodigoErro.PIN_REQUIRED: RegraErro(
+        ClasseErro.MANUAL, 0, 0, _MANUAL,
+        "PIN ou senha local do certificado solicitado. Nunca registrar o PIN no Cajuru; resolver na própria estação.",
+    ),
+    CodigoErro.MANUAL_REVIEW: RegraErro(
+        ClasseErro.MANUAL, 0, 0, _MANUAL,
+        "A etapa precisa de revisão humana antes de continuar; o estado foi preservado para retomada.",
+    ),
+    CodigoErro.CERTIFICATE_SELECTION_REQUIRED: RegraErro(
+        ClasseErro.MANUAL, 0, 0, _MANUAL,
+        "O navegador exigiu seleção manual de certificado. Configure AutoSelectCertificateForUrls para eliminar repetições.",
     ),
     CodigoErro.PORTAL_SESSAO_EXPIRADA: RegraErro(
         ClasseErro.AUTENTICACAO, 1, 10, _MANUAL,
         "A sessão no portal expirou antes da conclusão.",
     ),
+    CodigoErro.SESSION_EXPIRED: RegraErro(
+        ClasseErro.AUTENTICACAO, 1, 10, _MANUAL,
+        "A sessão autenticada expirou. O sistema retentará uma vez e, se necessário, pedirá nova autenticação.",
+    ),
     CodigoErro.PORTAL_ACESSO_NEGADO: RegraErro(
         ClasseErro.AUTENTICACAO, 0, 0, _MANUAL,
         "O portal negou o acesso com esta identidade. Verifique regularidade cadastral do CNPJ/CPF.",
+    ),
+    CodigoErro.ACCOUNT_LEVEL_ERROR: RegraErro(
+        ClasseErro.AUTENTICACAO, 0, 0, _MANUAL,
+        "A conta gov.br não possui nível ou condição exigida para a etapa. Regularize a conta antes de reprocessar.",
     ),
     # --- infraestrutura ----------------------------------------------------
     CodigoErro.AGENTE_INDISPONIVEL: RegraErro(
@@ -458,6 +504,10 @@ REGRAS: dict[CodigoErro, RegraErro] = {
     CodigoErro.AUTORIZACAO_JA_EXISTE: RegraErro(
         ClasseErro.DUPLICIDADE, 0, 0, StatusJob.CONCLUIDO,
         "Já existe autorização vigente para esta empresa. Nada foi criado — o job foi encerrado.",
+    ),
+    CodigoErro.AUTHORIZATION_EXISTS: RegraErro(
+        ClasseErro.DUPLICIDADE, 0, 0, StatusJob.CONCLUIDO,
+        "Autorização equivalente já existe no portal. A reconciliação deve atualizar o estado local, não duplicar.",
     ),
     CodigoErro.JOB_DUPLICADO: RegraErro(
         ClasseErro.DUPLICIDADE, 0, 0, StatusJob.CANCELADO,

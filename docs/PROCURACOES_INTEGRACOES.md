@@ -133,6 +133,24 @@ estação. **Falha fechada**: diagnóstico ausente, incompleto ou com item
 bloqueante pendente reprova, e nenhum job é entregue. Cada pendência vem com
 a ação de correção — é o que transforma "não funciona" em tarefa.
 
+### Seleção automática do certificado no navegador
+
+Chrome, Chromium e Edge suportam a política corporativa
+`AutoSelectCertificateForUrls`. O Cajuru Agent agora gera regras por certificado
+instalado (`cajuru-agent politica-certificado`), usando `SUBJECT` e `ISSUER` do
+X.509 para reduzir o seletor do navegador a um único A1 quando o portal/gov.br
+solicitar certificado cliente. Isso elimina uma interação repetitiva sem tocar
+em senha, PFX ou chave privada e sem clicar em janela nativa.
+
+Limites importantes:
+
+- a política só atua quando o servidor solicita certificado TLS e o certificado
+  combina com a requisição do servidor;
+- se houver dois A1 vigentes com mesmo Subject/Issuer para o mesmo documento,
+  o Agent falha fechado e exige `--thumbprint`/correção cadastral;
+- depois de aplicar, é preciso reiniciar o navegador e validar em
+  `edge://policy` ou `chrome://policy`.
+
 ---
 
 ## 3. Jettax 360 — sem API pública documentada

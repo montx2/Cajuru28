@@ -116,6 +116,20 @@ def test_portal_alterado_interrompe_em_vez_de_insistir():
     assert regra.destino_apos_esgotar is StatusJob.INTERVENCAO_MANUAL
 
 
+def test_human_gates_sao_pausas_sem_retry_cego():
+    for codigo in (CodigoErro.CAPTCHA_REQUIRED, CodigoErro.TWO_FACTOR_REQUIRED, CodigoErro.PIN_REQUIRED):
+        regra = regra_do_erro(codigo)
+        assert regra.classe is ClasseErro.MANUAL
+        assert regra.destino_apos_esgotar is StatusJob.INTERVENCAO_MANUAL
+        assert not deve_retentar(codigo, 0)
+
+
+def test_codigos_canonicos_ingleses_tem_alias_operacional():
+    assert regra_do_erro(CodigoErro.PORTAL_UI_CHANGED).classe is ClasseErro.PORTAL_ALTERADO
+    assert regra_do_erro(CodigoErro.SESSION_EXPIRED).classe is ClasseErro.AUTENTICACAO
+    assert regra_do_erro(CodigoErro.AUTHORIZATION_EXISTS).classe is ClasseErro.DUPLICIDADE
+
+
 def test_erro_transiente_retenta_com_backoff_limitado():
     assert deve_retentar(CodigoErro.FALHA_DE_REDE, 0)
     esperas = [espera_do_retry(CodigoErro.FALHA_DE_REDE, n) for n in range(8)]

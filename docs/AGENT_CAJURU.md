@@ -228,8 +228,10 @@ do portal. `resultado: "falha"` exige `codigo_erro`. A API recusa o resto.
 
 ```powershell
 cajuru-agent executar        # laço principal (a tarefa agendada roda isto)
-cajuru-agent diagnostico     # ambiente local, sem falar com o servidor
+cajuru-agent diagnose        # pré-flight completo: Windows, navegador, Playwright, certificados, rede e Assinador
+cajuru-agent diagnostico     # somente Assinador SERPRO, sem falar com o servidor
 cajuru-agent certificados    # o que a máquina enxerga (--json para script)
+cajuru-agent politica-certificado --documento 12345678000195  # gera AutoSelectCertificateForUrls
 cajuru-agent testar          # autentica e bate um heartbeat
 ```
 
@@ -239,7 +241,7 @@ Durante a condução, cada etapa oferece quatro respostas:
 |---|---|---|
 | `c` | confirmar e seguir | registra progresso, renova o lease |
 | `n` | **não existe esse item na tela** | `PORTAL_ALTERADO`, job interrompido, equipe avisada |
-| `d` | apareceu desafio/erro de segurança | `DESAFIO_DE_SEGURANCA`, intervenção manual |
+| `d` | apareceu desafio/erro de segurança | classifica `CAPTCHA_REQUIRED`, `TWO_FACTOR_REQUIRED`, `PIN_REQUIRED`, `CERTIFICATE_SELECTION_REQUIRED` ou `MANUAL_REVIEW`, pausa e preserva estado |
 | `x` | parar por aqui | job volta para a fila no ponto atual |
 
 Ao final, o Agent pede o protocolo e/ou o texto exibido pelo portal. Se o
@@ -248,7 +250,38 @@ intervenção com `CONFIRMACAO_AUSENTE`.
 
 ---
 
-## 6. Diagnóstico do Assinador
+## 6. Seleção automática de certificado no Chrome/Edge
+
+A seleção automática não é feita por clique em janela nativa. Ela usa a política
+corporativa Chromium **AutoSelectCertificateForUrls**, aplicada por usuário em
+`HKCU\Software\Policies\...\AutoSelectCertificateForUrls`. O Agent gera regras
+com `SUBJECT` e `ISSUER` do certificado inventariado no Windows Store; se houver
+mais de um A1 vigente para o mesmo documento, o comando falha e exige
+`--thumbprint`.
+
+Prévia segura:
+
+```powershell
+cajuru-agent politica-certificado `
+  --documento 12.345.678/0001-95 `
+  --navegador edge `
+  --navegador chrome
+```
+
+Aplicação local, depois de revisar o script impresso:
+
+```powershell
+cajuru-agent politica-certificado --documento 12.345.678/0001-95 --executar
+```
+
+A política não envia certificado nem senha a lugar nenhum; ela só orienta o
+navegador, quando um servidor oficial pedir certificado cliente, a escolher o
+certificado cujo Subject/Issuer batem com a regra. Depois de aplicar, reinicie o
+navegador e confira `edge://policy` ou `chrome://policy`.
+
+---
+
+## 7. Diagnóstico do Assinador
 
 Sete verificações, cada uma com conserto objetivo:
 
@@ -273,7 +306,7 @@ Manual oficial:
 
 ---
 
-## 7. Múltiplas estações
+## 8. Múltiplas estações
 
 Cada máquina tem sua credencial. O roteamento é por certificado disponível: um
 job só é oferecido à estação que tem o A1 daquele CNPJ. Duas estações **nunca**
@@ -287,14 +320,14 @@ humana; espalhar sem critério faz o job procurar certificado que não existe.
 
 ---
 
-## 8. Quando algo dá errado
+## 9. Quando algo dá errado
 
 | Sintoma | Causa provável | O que fazer |
 |---|---|---|
 | `401 Credencial de estação recusada` | credencial rotacionada/revogada | matricular de novo e reinstalar |
 | `401` em toda requisição, credencial certa | relógio fora de 5 min | sincronizar a hora do Windows |
 | `409 REPLAY` | duas instâncias do Agent rodando | encerrar a duplicada |
-| `409 ASSINADOR_NAO_INSTALADO` | diagnóstico reprovado | seguir §6 |
+| `409 ASSINADOR_NAO_INSTALADO` | diagnóstico reprovado | seguir §7 |
 | Fila sempre vazia | nenhum A1 vigente da carteira nesta máquina | conferir `cajuru-agent certificados` |
 | Job some do meio | lease expirou (queda de rede/reinício) | nada: ele volta sozinho, no mesmo ponto |
 | `CERTIFICADO_AMBIGUO` | dois A1 vigentes do mesmo CNPJ | fixar qual usar na tela da empresa |
@@ -306,7 +339,7 @@ de certificado.
 
 ---
 
-## 9. Atualização
+## 10. Atualização
 
 O Agent é código Python num venv isolado. Para atualizar:
 

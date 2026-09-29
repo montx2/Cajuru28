@@ -167,7 +167,7 @@ export function PainelJob({ jobId, aoFechar, aoMudar }: Props) {
         <div className="space-y-5">
           {dados.mensagem_erro ? (
             <Aviso
-              tom={dados.codigo_erro === "PORTAL_ALTERADO" ? "erro" : "espera"}
+              tom={dados.codigo_erro === "PORTAL_ALTERADO" || dados.codigo_erro === "PORTAL_UI_CHANGED" ? "erro" : "espera"}
               icone="alerta"
               titulo={fraseDoCodigoErro(dados.codigo_erro) || "Processo interrompido"}
             >
@@ -175,7 +175,7 @@ export function PainelJob({ jobId, aoFechar, aoMudar }: Props) {
               {dados.codigo_erro ? (
                 <span className="mt-1 block font-mono text-2xs text-tinta-fraca">código: {dados.codigo_erro}</span>
               ) : null}
-              {dados.codigo_erro === "PORTAL_ALTERADO" ? (
+              {dados.codigo_erro === "PORTAL_ALTERADO" || dados.codigo_erro === "PORTAL_UI_CHANGED" ? (
                 <span className="mt-1 block text-xs">
                   O adaptador do portal precisa de manutenção. Nenhum job é retomado às cegas — ver docs/PROCURACOES_RFB.md.
                 </span>

@@ -108,6 +108,13 @@ if (-not (Test-Path (Join-Path $Venv 'Scripts\python.exe'))) {
 $PythonVenv = Join-Path $Venv 'Scripts\python.exe'
 & $PythonVenv -m pip install --quiet --upgrade pip
 & $PythonVenv -m pip install --quiet -r (Join-Path $Destino 'requirements.txt')
+try {
+    & $PythonVenv -m playwright install chromium | Out-Null
+    Escrever-Ok "Playwright instalado com navegador de automacao"
+} catch {
+    Escrever-Aviso "Playwright instalado, mas o navegador de automacao nao foi baixado agora: $_"
+    Escrever-Aviso "Se for usar diagnostico/observacao Playwright, rode: $PythonVenv -m playwright install chromium"
+}
 Escrever-Ok "Dependencias instaladas"
 
 # --------------------------------------------------------------- credenciais
@@ -161,7 +168,7 @@ if (-not $SemTarefaAgendada) {
 
 # --------------------------------------------------------------- diagnóstico
 Escrever-Passo "Diagnostico do ambiente"
-& $PythonVenv -m cajuru_agent diagnostico
+& $PythonVenv -m cajuru_agent diagnose
 & $PythonVenv -m cajuru_agent certificados
 
 Escrever-Passo "Testando a conexao com o Cajuru28"
