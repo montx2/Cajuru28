@@ -23,6 +23,7 @@ import { IndicadorEstado } from "@/components/ui/IndicadorEstado";
 import { Tabela, type ColunaTabela } from "@/components/ui/Tabela";
 import { useToast } from "@/components/ui/Toast";
 import { ConfiguracaoProcuracoes } from "./ConfiguracaoProcuracoes";
+import { DadosDoEscritorio } from "./DadosDoEscritorio";
 import { ImportarLista } from "./ImportarLista";
 import { PainelJob } from "./PainelJob";
 import type { LinhaProcuracao } from "@/lib/types";
@@ -70,6 +71,8 @@ export function Procuracoes() {
     if (jobDaUrl) setJobAberto(jobDaUrl);
   }, [jobDaUrl]);
   const [configAberta, setConfigAberta] = useState(false);
+  const [dadosDoEscritorioAbertos, setDadosDoEscritorioAbertos] = useState(false);
+  const [empresaParaFazer, setEmpresaParaFazer] = useState<LinhaProcuracao | null>(null);
   const [importacaoAberta, setImportacaoAberta] = useState(false);
   const [processando, setProcessando] = useState(false);
 
@@ -85,6 +88,10 @@ export function Procuracoes() {
     [situacao, busca.valor, pagina]
   );
   const notificacoes = useRecurso(() => api.notificacoesProcuracao(true), []);
+  // A mesma fonte que alimenta o roteiro do processo também informa qual é a
+  // página oficial que o botão simples pode abrir. Não há URL inventada no
+  // navegador nem redirecionamento para domínio de terceiro.
+  const roteiro = useRecurso(() => api.roteiroProcuracao(), []);
   useSinalizarAtualizacao(resumo.atualizando || lista.atualizando);
 
   const recarregar = useCallback(() => {
@@ -123,26 +130,83 @@ export function Procuracoes() {
     }
   }, [avisar, recarregar]);
 
-  const criarJob = useCallback(
-    async (linha: LinhaProcuracao) => {
+  const criarProcuracaoDireta = useCallback(
+    async (linha: LinhaProcuracao, abaJaAberta: Window | null = null) => {
+      // A aba é criada ainda dentro do clique para não cair no bloqueador de
+      // pop-up. Ela só recebe um endereço oficial depois de o job existir.
+      // Se algo falhar, a aba vazia é fechada e nenhum processo fica oculto.
+      const abaDaReceita = abaJaAberta ?? (typeof window === "undefined" ? null : window.open("", "_blank"));
       try {
         const job = await api.criarJobProcuracao(linha.empresa_id);
+        await api.intervencaoJobProcuracao(
+          job.id,
+          "Operação direta iniciada pelo painel neste computador."
+        );
+
+        const paginaOficial =
+          roteiro.dados?.passos.find((passo) => passo.fase === job.fase && passo.url)?.url ??
+          roteiro.dados?.urls_oficiais.portal_servicos;
+        if (abaDaReceita && paginaOficial) {
+          // A página começa em branco e perde o acesso ao painel antes de ir
+          // para a Receita; ela não pode controlar a aba do Cajuru28.
+          abaDaReceita.opener = null;
+          abaDaReceita.location.replace(paginaOficial);
+        }
+
         avisar({
           tom: "ok",
-          titulo: `Job #${job.id} na fila`,
-          descricao: `${linha.razao_social} aguarda uma estação com o certificado A1 desta empresa.`,
+          titulo: "Procuração iniciada",
+          descricao: abaDaReceita
+            ? "A página oficial da Receita foi aberta. Depois de confirmar, volte aqui e cole a mensagem do portal."
+            : "O processo está pronto. Abra a página oficial pelo botão no painel ao lado.",
         });
         recarregar();
         setJobAberto(job.id);
       } catch (erro) {
+        abaDaReceita?.close();
         avisar({
           tom: "erro",
-          titulo: "Não foi possível criar o job",
-          descricao: mensagemDoErro(erro, "criar job"),
+          titulo: "Não foi possível iniciar a procuração",
+          descricao: mensagemDoErro(erro, "iniciar a procuração"),
         });
       }
     },
-    [avisar, recarregar]
+    [avisar, recarregar, roteiro.dados]
+  );
+
+  const fazerProcuracao = useCallback(
+    async (linha: LinhaProcuracao) => {
+      try {
+        const configuracao = await api.configuracaoProcuracoes();
+        if (!configuracao.outorgado_documento) {
+          setEmpresaParaFazer(linha);
+          setDadosDoEscritorioAbertos(true);
+          return;
+        }
+        await criarProcuracaoDireta(linha);
+      } catch (erro) {
+        avisar({
+          tom: "erro",
+          titulo: "Não foi possível preparar a procuração",
+          descricao: mensagemDoErro(erro, "preparar a procuração"),
+        });
+      }
+    },
+    [avisar, criarProcuracaoDireta]
+  );
+
+  const concluirDadosDoEscritorio = useCallback(
+    (abaDaReceita: Window | null) => {
+      const empresa = empresaParaFazer;
+      setDadosDoEscritorioAbertos(false);
+      setEmpresaParaFazer(null);
+      if (empresa) {
+        void criarProcuracaoDireta(empresa, abaDaReceita);
+      } else {
+        abaDaReceita?.close();
+      }
+    },
+    [criarProcuracaoDireta, empresaParaFazer]
   );
 
   const colunas = useMemo<Array<ColunaTabela<LinhaProcuracao>>>(
@@ -256,16 +320,16 @@ export function Procuracoes() {
               variante="sutil"
               tamanho="sm"
               disabled={somenteLeitura}
-              title={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : "Colocar esta empresa na fila"}
-              onClick={() => criarJob(linha)}
+              title={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : "Abrir a página oficial e iniciar nesta empresa"}
+              onClick={() => fazerProcuracao(linha)}
             >
-              Preparar
+              Fazer procuração
             </Botao>
           );
         },
       },
     ],
-    [criarJob, somenteLeitura]
+    [fazerProcuracao, somenteLeitura]
   );
 
   const indicadores: KpiProps[] = [
@@ -318,16 +382,6 @@ export function Procuracoes() {
             <Botao variante="sutil" onClick={recarregar} carregando={lista.atualizando} iconeEsquerda={<Icone nome="atualizar" className="h-4 w-4" />}>
               Atualizar
             </Botao>
-            <Link
-              href="/dashboard/procuracoes/estacoes"
-              className="inline-flex h-9 items-center gap-1.5 rounded-controle border border-borda-controle bg-superficie px-3 text-xs font-medium text-tinta-suave transition-colors duration-120 hover:border-tinta-suave hover:text-tinta"
-            >
-              <Icone nome="monitor" className="h-4 w-4" />
-              Estações
-              {(dados?.agentes_online ?? 0) > 0 ? (
-                <span className="nums text-ok">{dados?.agentes_online}</span>
-              ) : null}
-            </Link>
             <Botao
               variante="sutil"
               onClick={() => setImportacaoAberta(true)}
@@ -363,9 +417,19 @@ export function Procuracoes() {
       />
 
       {semAgenteNenhum ? (
-        <Aviso tom="espera" icone="monitor" titulo="Nenhuma estação matriculada" acao={<Link href="/dashboard/procuracoes/estacoes" className="text-xs font-medium underline underline-offset-4">Matricular estação</Link>}>
-          O Cajuru Agent roda na máquina que tem os certificados A1 e o Assinador SERPRO. Sem pelo menos uma estação, a fila até é montada — mas
-          ninguém a executa.
+        <Aviso
+          tom="info"
+          icone="certificado"
+          titulo="Faça direto neste computador"
+          acao={
+            <Link href="/dashboard/procuracoes/estacoes" className="text-xs font-medium underline underline-offset-4">
+              Automação avançada
+            </Link>
+          }
+        >
+          Pesquise a empresa e clique em <strong>Fazer procuração</strong>. A página oficial da Receita abre neste computador e o painel guarda
+          o processo para você só colar a confirmação no final. Se o portal pedir CAPTCHA, validação gov.br ou a senha do certificado, faça essa
+          confirmação na própria página oficial. Não é necessário configurar estação, copiar comando ou instalar o Agent para usar esse modo simples.
         </Aviso>
       ) : null}
 
@@ -498,6 +562,14 @@ export function Procuracoes() {
           if (jobDaUrl) definir({ job: null });
         }}
         aoMudar={recarregar}
+      />
+      <DadosDoEscritorio
+        aberta={dadosDoEscritorioAbertos}
+        aoFechar={() => {
+          setDadosDoEscritorioAbertos(false);
+          setEmpresaParaFazer(null);
+        }}
+        aoSalvar={concluirDadosDoEscritorio}
       />
       <ConfiguracaoProcuracoes aberta={configAberta} aoFechar={() => setConfigAberta(false)} aoSalvar={recarregar} />
       <ImportarLista aberta={importacaoAberta} aoFechar={() => setImportacaoAberta(false)} aoImportar={recarregar} />

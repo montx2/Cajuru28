@@ -84,7 +84,45 @@ O que o script faz, em ordem:
 
 Apague em seguida a mensagem que continha o segredo: ele já está no cofre.
 
-### 3.3 Por que Credential Manager
+### 3.3 Carregar a pasta de A1 com as planilhas de senha e validade
+
+Para o escritório que já guarda todos os `.pfx/.p12` e tem as duas planilhas
+(nome/CNPJ + senha + validade), não é preciso cadastrar um por um no navegador.
+No **mesmo Windows que rodará o Assinador**, execute primeiro a prévia:
+
+```powershell
+cajuru-agent importar-certificados `
+  --pasta "D:\Certificados" `
+  --planilha "D:\Planilhas\senhas.xlsx" `
+  --planilha "D:\Planilhas\validade.xlsx"
+```
+
+O comando aceita `.xlsx`, `.xlsm`, `.csv`, `.txt` e `.tsv`, inclusive duas ou
+mais planilhas complementares. Ele une linhas pelo CNPJ e, quando a segunda
+planilha só traz nome, pelo nome exatamente igual. Para cada PFX, a associação
+é determinística: CNPJ no nome do arquivo vence; sem CNPJ, usa nome do cliente
+se houver um único candidato. Empate ou falta de senha vira pendência visível —
+nunca uma tentativa com senha aleatória ou de outro cliente.
+
+Revise a prévia. Para instalar no repositório do usuário atual e sincronizar
+somente metadados públicos ao painel, confirme explicitamente:
+
+```powershell
+cajuru-agent importar-certificados `
+  --pasta "D:\Certificados" `
+  --planilha "D:\Planilhas\senhas.xlsx" `
+  --planilha "D:\Planilhas\validade.xlsx" `
+  --executar --sincronizar
+```
+
+O PFX não é enviado ao servidor. A senha nunca entra em log, argumento de
+linha de comando, variável de ambiente, arquivo temporário, banco ou
+Credential Manager: ela é passada pela memória e pelo `stdin` ao PowerShell
+somente para o Windows instalar o certificado em `CurrentUser\My`. A validade
+lida do próprio certificado prevalece sobre a validade declarada na planilha;
+divergência aparece como aviso no resultado.
+
+### 3.4 Por que Credential Manager
 
 | Alternativa | Por que não |
 |---|---|

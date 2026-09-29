@@ -113,8 +113,8 @@ ROTEIRO: tuple[PassoRoteiro, ...] = (
         fase=FaseJob.OUTORGA,
         titulo="Conferir pré-requisitos da estação",
         instrucao=(
-            "O Cajuru Agent verifica o certificado do cliente, o Assinador Digital "
-            "SERPRO e o navegador. Nada é aberto enquanto algum item estiver pendente."
+            "Confira se o certificado do cliente aparece no Windows e se o "
+            "Assinador Digital SERPRO está disponível."
         ),
         confirmacao="Certificado válido localizado e Assinador respondendo na estação.",
         executor="sistema",
@@ -125,9 +125,9 @@ ROTEIRO: tuple[PassoRoteiro, ...] = (
         fase=FaseJob.OUTORGA,
         titulo="Entrar no Portal de Serviços como o cliente",
         instrucao=(
-            "O Agent abre o navegador na página oficial. Autentique-se com o "
-            "certificado digital do cliente (o Assinador é acionado pelo próprio "
-            "portal). Nenhuma credencial é digitada pelo sistema."
+            "Abra a página oficial e autentique-se com o certificado digital do "
+            "cliente (o Assinador é acionado pelo próprio portal). Nenhuma "
+            "credencial é digitada pelo sistema."
         ),
         url=PORTAL_SERVICOS,
         ancoras=("Receita Federal",),
@@ -220,8 +220,8 @@ ROTEIRO: tuple[PassoRoteiro, ...] = (
         titulo="Entrar no portal como a contabilidade",
         instrucao=(
             "Agora a identidade muda: autentique-se com o certificado da "
-            "contabilidade (outorgado). O Agent só libera esta etapa se o "
-            "certificado do escritório estiver disponível na estação."
+            "contabilidade (outorgado). Confira que o certificado do escritório "
+            "está disponível neste computador."
         ),
         url=PORTAL_SERVICOS,
         ancoras=("Receita Federal",),

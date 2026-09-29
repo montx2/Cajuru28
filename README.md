@@ -39,9 +39,11 @@ uma **ferramenta de operação fiscal para um único operador**:
   de consumo (cStat 656, cotas de 20 consultas/h, lease por empresa+tipo).
 - **Recuperação automática:** retry com reagendamento, checkpoint de NSU a
   cada lote, uma nota que falha nunca para as outras 9.999.
-- **Importação em massa:** cadastro de empresas+certificados por lote —
+- **Importação em massa fiscal:** cadastro de empresas+certificados por lote —
   seleção da pasta de certificados + planilha de senhas existente
-  ([como usar](docs/IMPORTACAO_CERTIFICADOS.md)).
+  ([como usar](docs/IMPORTACAO_CERTIFICADOS.md)). Para **procurações RFB**, use
+  o fluxo local do [Cajuru Agent](docs/PRIMEIRO_DIA_PROCURACOES.md), que não
+  envia PFX ou senhas ao painel.
 - **Fechamento mensal:** mapa empresa × tipo da competência, exportável em
   CSV e ZIP.
 - **Busca global:** `Ctrl+K` encontra qualquer documento por chave, número
@@ -134,6 +136,7 @@ próximos 90 dias. A execução no portal é **assistida**: o sistema prepara tu
 e conduz o operador, que pratica o ato no ambiente oficial com o certificado do
 cliente (IN RFB nº 2.320/2026, art. 13).
 
+- [`docs/PRIMEIRO_DIA_PROCURACOES.md`](docs/PRIMEIRO_DIA_PROCURACOES.md) — **comece por aqui**: pesquise a empresa, clique em fazer procuração e use a automação avançada só se quiser
 - [`docs/PROCURACOES_RFB.md`](docs/PROCURACOES_RFB.md) — arquitetura e fluxo
 - [`docs/PROCURACOES_CONFORMIDADE.md`](docs/PROCURACOES_CONFORMIDADE.md) — base legal
 - [`docs/AGENT_CAJURU.md`](docs/AGENT_CAJURU.md) — estação Windows

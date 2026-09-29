@@ -61,9 +61,9 @@ export function Kpi({ rotulo, valor, contexto, variacao, tom = "neutro", dica, h
         ) : null}
       </div>
 
-      <p className={cn("nums mt-1 truncate text-xl font-semibold tracking-tight", COR_VALOR[tom])}>
+      <div className={cn("nums mt-1 truncate text-xl font-semibold tracking-tight", COR_VALOR[tom])}>
         {carregando ? <EsqueletoNumero className="h-7 w-20" /> : valor}
-      </p>
+      </div>
 
       {contexto ? <p className="nums mt-0.5 truncate text-xs text-tinta-suave">{contexto}</p> : null}
 

@@ -5,6 +5,13 @@ certificados no computador. Ele não pede uma senha única para o lote nem uma U
 padrão: esses dois campos levavam a escolhas que não valem para todas as
 empresas.
 
+> **Este é o fluxo de captura fiscal, não o fluxo de procurações RFB.** Ele
+> envia o PFX ao backend privado para que os serviços fiscais possam consultá-lo
+> depois, mantendo arquivo e senha cifrados. Para outorga, aceite e gestão de
+> procurações, não envie PFX nem planilha de senhas por esta tela: use o
+> [`Cajuru Agent local`](PRIMEIRO_DIA_PROCURACOES.md), que instala o A1 na
+> estação Windows e sincroniza somente o inventário público.
+
 ## Como importar
 
 1. **Escolher pasta** — selecione a pasta onde estão os certificados

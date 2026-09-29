@@ -88,6 +88,11 @@ export function PainelJob({ jobId, aoFechar, aoMudar }: Props) {
   const semEstacaoUtil = (estacoes.dados ?? []).every(
     (item) => !item.ativo || item.situacao === "revogado" || item.situacao === "offline"
   );
+  // O modo simples não usa estação: o próprio navegador deste computador abre
+  // o Portal de Serviços. Ele é também a rota de continuidade do aceite para
+  // quem escolheu operar sem uma fila automática.
+  const modoDireto = Boolean(dados && !terminal && semEstacaoUtil && (emIntervencao || fase === "aceite"));
+  const paginaOficial = dados?.roteiro.find((passo) => passo.url)?.url ?? "";
 
   return (
     <Painel
@@ -107,15 +112,17 @@ export function PainelJob({ jobId, aoFechar, aoMudar }: Props) {
         dados && !terminal ? (
           <div className="flex flex-wrap items-center gap-2">
             {emIntervencao ? (
-              <Botao
-                variante="sutil"
-                tamanho="sm"
-                disabled={somenteLeitura || enviando}
-                title={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : "Retoma do ponto exato em que parou"}
-                onClick={() => executar(() => api.retomarJobProcuracao(dados.id), "Processo retomado")}
-              >
-                Retomar
-              </Botao>
+              modoDireto ? null : (
+                <Botao
+                  variante="sutil"
+                  tamanho="sm"
+                  disabled={somenteLeitura || enviando}
+                  title={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : "Retoma do ponto exato em que parou"}
+                  onClick={() => executar(() => api.retomarJobProcuracao(dados.id), "Processo retomado")}
+                >
+                  Retomar
+                </Botao>
+              )
             ) : (
               <Botao
                 variante="sutil"
@@ -124,11 +131,11 @@ export function PainelJob({ jobId, aoFechar, aoMudar }: Props) {
                 onClick={() =>
                   executar(
                     () => api.intervencaoJobProcuracao(dados.id, "Assumido manualmente pelo operador."),
-                    "Processo marcado para intervenção"
+                    "Processo marcado para fazer neste computador"
                   )
                 }
               >
-                Assumir
+                Fazer neste computador
               </Botao>
             )}
             <Botao
@@ -176,22 +183,32 @@ export function PainelJob({ jobId, aoFechar, aoMudar }: Props) {
             </Aviso>
           ) : null}
 
-          {esperandoEstacao && semEstacaoUtil ? (
-            <Aviso tom="espera" icone="trabalhador" titulo="Este processo espera uma estação — e nenhuma está de pé">
-              O passo a passo no portal roda num computador com o Cajuru Agent instalado. Duas saídas, escolha uma:
-              <ul className="mt-1 list-disc space-y-0.5 pl-4">
-                <li>
-                  instalar o Agent em uma máquina que fica ligada — veja{" "}
-                  <a href="/dashboard/procuracoes/estacoes" className="text-acento underline-offset-4 hover:underline">
-                    Estações
+          {modoDireto ? (
+            <Aviso
+              tom="info"
+              icone="externo"
+              titulo={fase === "outorga" ? "Faça a outorga no Portal da Receita" : "Faça o aceite no Portal da Receita"}
+              acao={
+                paginaOficial ? (
+                  <a href={paginaOficial} target="_blank" rel="noreferrer noopener" className="text-xs font-medium underline underline-offset-4">
+                    Abrir Receita
                   </a>
-                  ;
-                </li>
-                <li>
-                  fazer a outorga direto no portal da Receita e registrar aqui o resultado — use{" "}
-                  <span className="font-medium">Assumir</span> e depois informe o protocolo que a Receita devolver.
-                </li>
-              </ul>
+                ) : null
+              }
+            >
+              Você está usando o modo simples neste computador. Entre no portal com o certificado solicitado, confirme a operação e volte só para
+              colar a mensagem ou o protocolo que a Receita mostrar. Se a Receita pedir CAPTCHA, confirmação do gov.br ou a senha do certificado,
+              faça isso no próprio portal: o Cajuru28 não pede, guarda nem tenta contornar essas proteções. Não é preciso instalar nem configurar estação.
+            </Aviso>
+          ) : null}
+
+          {esperandoEstacao && semEstacaoUtil ? (
+            <Aviso tom="info" icone="externo" titulo="Faça agora neste computador">
+              Clique em <span className="font-medium">Fazer neste computador</span>. O painel abre a página oficial da Receita e deixa este
+              processo pronto para você registrar apenas a confirmação final. A automação por estação é opcional e fica em{" "}
+              <a href="/dashboard/procuracoes/estacoes" className="text-acento underline-offset-4 hover:underline">
+                Automação avançada
+              </a>.
             </Aviso>
           ) : null}
 
@@ -215,10 +232,10 @@ export function PainelJob({ jobId, aoFechar, aoMudar }: Props) {
           {!terminal && dados.roteiro.length > 0 ? (
             <section>
               <h3 className="mb-2 text-xs font-semibold uppercase tracking-[.04em] text-tinta-fraca">
-                Roteiro — {fase === "outorga" ? "certificado do cliente" : "certificado da contabilidade"}
+                {modoDireto ? "O que conferir no Portal da Receita" : "Roteiro"} — {fase === "outorga" ? "certificado do cliente" : "certificado da contabilidade"}
               </h3>
               <ol className="space-y-2">
-                {dados.roteiro.map((passo: PassoRoteiro, indice: number) => {
+                {dados.roteiro.filter((passo) => !modoDireto || passo.executor !== "sistema").map((passo: PassoRoteiro, indice: number) => {
                   const atual = passo.etapa === dados.etapa_atual;
                   return (
                     <li
@@ -263,14 +280,13 @@ export function PainelJob({ jobId, aoFechar, aoMudar }: Props) {
           {(podeRegistrarOutorga || podeRegistrarAceite) && !somenteLeitura ? (
             <section className="rounded-controle border border-borda-controle p-3">
               <h3 className="text-xs font-semibold uppercase tracking-[.04em] text-tinta-fraca">
-                {podeRegistrarOutorga ? "Registrar a outorga" : "Registrar o aceite"}
+                {podeRegistrarOutorga ? "Terminou? Cole a confirmação da outorga" : "Terminou? Cole a confirmação do aceite"}
               </h3>
               <p className="mt-1 text-xs leading-5 text-tinta-suave">
                 {emIntervencao
-                  ? "Fez o ato direto no portal da Receita? Informe aqui o que a Receita devolveu — o processo segue do ponto em que está."
-                  : "Informe o que o portal devolveu."}{" "}
-                Sem protocolo nem texto de confirmação o registro é recusado — é o que impede marcar como
-                concluído algo que a Receita não registrou.
+                  ? "Depois de confirmar no Portal da Receita, copie a mensagem ou o protocolo que apareceu lá."
+                  : "Copie a mensagem ou o protocolo que o portal mostrou."}{" "}
+                Sem essa confirmação, o painel não marca uma procuração como concluída por engano.
               </p>
               <div className="mt-3 space-y-2">
                 {podeRegistrarOutorga ? (

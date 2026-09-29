@@ -163,8 +163,8 @@ export function Estacoes() {
   return (
     <div className="space-y-5">
       <CabecalhoPagina
-        titulo="Estações"
-        descricao="Máquinas do escritório que guardam os certificados A1 e conduzem a operação no portal oficial."
+        titulo="Automação avançada"
+        descricao="Opcional: use apenas se quiser manter uma máquina do escritório trabalhando em fila. Para fazer uma procuração neste computador, volte e clique em “Fazer procuração”."
         acoes={
           <div className="flex flex-wrap items-center gap-2">
             <Botao variante="sutil" onClick={agentes.atualizar} carregando={agentes.atualizando} iconeEsquerda={<Icone nome="atualizar" className="h-4 w-4" />}>
@@ -177,15 +177,16 @@ export function Estacoes() {
               onClick={() => setMatriculaAberta(true)}
               iconeEsquerda={<Icone nome="monitor" className="h-4 w-4" />}
             >
-              Matricular estação
+              Configurar automação
             </Botao>
           </div>
         }
       />
 
-      <Aviso tom="info" icone="cadeado" titulo="O certificado nunca sai da máquina">
-        A estação envia apenas metadados públicos do certificado (titular, CNPJ, validade, thumbprint). A chave privada e a senha permanecem sob o
-        cofre do Windows, e a assinatura é feita pelo Assinador Digital SERPRO — o componente oficial que o portal da Receita aciona.
+      <Aviso tom="info" icone="cadeado" titulo="Isto é opcional">
+        Você não precisa configurar esta tela para pesquisar uma empresa e fazer a procuração no computador atual. Use automação avançada somente
+        se quiser uma máquina dedicada para organizar fila e certificados em segundo plano. Mesmo nesse caso, a chave privada e a senha continuam
+        no Windows; o painel recebe somente metadados públicos do certificado.
       </Aviso>
 
       {semAssinador.length > 0 ? (
@@ -211,13 +212,13 @@ export function Estacoes() {
         linhas={lista}
         colunas={colunas}
         chaveDaLinha={(linha) => linha.id}
-        legenda="Estações do módulo Procurações RFB"
+        legenda="Máquinas opcionais de automação das procurações"
         estados={{
           carregando: agentes.carregando,
           erro: agentes.erro,
           aoTentarNovamente: agentes.atualizar,
-          vazioTitulo: "Nenhuma estação matriculada",
-          vazioInstrucao: "Matricule a máquina que tem os certificados A1 e rode instalar_agent.ps1 nela.",
+          vazioTitulo: "Automação avançada ainda não foi ativada",
+          vazioInstrucao: "Não há nada para configurar aqui se você vai fazer a procuração no computador atual.",
           vazioIcone: "monitor",
         }}
         rodape={
@@ -234,11 +235,11 @@ export function Estacoes() {
           setMatriculaAberta(false);
           setCredencial(null);
         }}
-        titulo={credencial ? "Credencial gerada" : "Matricular estação"}
+        titulo={credencial ? "Automação preparada" : "Ativar automação avançada"}
         descricao={
           credencial
-            ? "Copie agora. Este segredo não será exibido novamente — nem por administrador, nem no log."
-            : "Dê um nome que identifique a máquina física (ex.: 'PC Fiscal 01')."
+            ? "Esta tela é só para quem escolheu uma máquina dedicada. A credencial não será exibida novamente."
+            : "Dê um nome à máquina que ficará ligada para organizar a fila (ex.: 'PC Fiscal 01')."
         }
         rodape={
           credencial ? (
@@ -287,6 +288,9 @@ export function Estacoes() {
   -Segredo "<cole o segredo>"`}
               </pre>
             </div>
+            <Aviso tom="info" icone="importacao" titulo="Depois: carregue todos os A1 de uma vez">
+              Na mesma máquina, rode primeiro <span className="font-mono text-2xs">cajuru-agent importar-certificados --pasta "…" --planilha "…"</span> para conferir o vínculo entre PFX e planilha. Só depois repita com <span className="font-mono text-2xs">--executar --sincronizar</span>. Senhas e PFX permanecem na estação; o painel recebe apenas CNPJ, validade e thumbprint.
+            </Aviso>
           </div>
         ) : (
           <Entrada

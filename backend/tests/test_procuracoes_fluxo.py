@@ -253,6 +253,25 @@ def test_conclusao_exige_confirmacao_e_nao_so_clique(ambiente):
 # ---------------------------------------------------------------------------
 
 
+def test_inventario_classifica_a1_do_escritorio_para_fase_de_aceite(ambiente):
+    """O Agent só conhece o Windows; o servidor conhece o outorgado.
+
+    Regressão do bloqueio que fazia a outorga avançar, mas deixava a fase de
+    aceite sem certificado, porque todo inventário entrava como ``cliente``.
+    """
+    db = ambiente["db"]
+    escritorio_id = ambiente["escritorio"].id
+    agente = _agente(db, escritorio_id)
+    _certificado(db, agente, OUTORGADO, thumbprint="c" * 64, tipo="cliente")
+
+    selecao = srv_cert.selecionar_para_documento(
+        db, escritorio_id, OUTORGADO, tipo=TipoCertificado.CONTABILIDADE
+    )
+    assert selecao.ok
+    assert selecao.certificado is not None
+    assert selecao.certificado.tipo == TipoCertificado.CONTABILIDADE.value
+
+
 def test_certificado_expirado_detectado_antes_de_executar(ambiente):
     db = ambiente["db"]
     escritorio_id = ambiente["escritorio"].id

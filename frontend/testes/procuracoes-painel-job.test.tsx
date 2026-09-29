@@ -191,19 +191,19 @@ describe("painel do processo de autorização", () => {
     expect(secao.textContent).not.toContain("· você");
   });
 
-  it("avisa quando o processo espera uma estação e nenhuma está de pé", async () => {
+  it("oferece o modo simples quando o processo ainda espera uma estação", async () => {
     jobProcuracao.mockResolvedValue(job({ status: "aguardando_agente" }));
     agentesProcuracao.mockResolvedValue([SEM_ESTACAO]);
 
     montar();
 
-    expect(await screen.findByText(/nenhuma está de pé/i)).toBeInTheDocument();
-    expect(screen.getByText(/instalar o agent/i)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /estações/i })).toHaveAttribute(
+    expect(await screen.findByText(/faça agora neste computador/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /fazer neste computador/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /automação avançada/i })).toHaveAttribute(
       "href",
       "/dashboard/procuracoes/estacoes"
     );
-    expect(screen.getByText(/fazer a outorga direto no portal da Receita/i)).toBeInTheDocument();
+    expect(screen.getByText(/registrar apenas a confirmação final/i)).toBeInTheDocument();
   });
 
   it("não acusa falta de estação quando há uma viva", async () => {

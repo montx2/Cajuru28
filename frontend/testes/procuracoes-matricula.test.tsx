@@ -42,7 +42,7 @@ function montar() {
   );
 }
 
-describe("matricular estação", () => {
+describe("configurar automação avançada", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     matricularAgente.mockResolvedValue({
@@ -56,7 +56,7 @@ describe("matricular estação", () => {
     const usuario = userEvent.setup();
     montar();
 
-    await usuario.click(screen.getByRole("button", { name: /matricular estação/i }));
+    await usuario.click(screen.getByRole("button", { name: /configurar automação/i }));
     await usuario.type(screen.getByLabelText(/nome da estação/i), "PC Fiscal 01");
     await usuario.click(screen.getByRole("button", { name: /gerar credencial/i }));
 
@@ -68,7 +68,7 @@ describe("matricular estação", () => {
     const usuario = userEvent.setup();
     montar();
 
-    await usuario.click(screen.getByRole("button", { name: /matricular estação/i }));
+    await usuario.click(screen.getByRole("button", { name: /configurar automação/i }));
     await usuario.type(screen.getByLabelText(/nome da estação/i), "PC Fiscal 01");
     await usuario.click(screen.getByRole("button", { name: /gerar credencial/i }));
 
@@ -82,13 +82,17 @@ describe("matricular estação", () => {
     const comando = document.querySelector("pre");
     expect(comando?.textContent).toContain("instalar_agent.ps1");
     expect(comando?.textContent).toContain(IDENTIFICADOR);
+    // A matrícula não é um beco sem saída: o modal entrega a próxima ação
+    // segura para a carteira inteira, sem sugerir envio de PFX ao painel.
+    expect(screen.getByText(/depois: carregue todos os a1 de uma vez/i)).toBeInTheDocument();
+    expect(screen.getByText(/importar-certificados --pasta/i)).toBeInTheDocument();
   });
 
   it("sem nome, não deixa gerar credencial", async () => {
     const usuario = userEvent.setup();
     montar();
 
-    await usuario.click(screen.getByRole("button", { name: /matricular estação/i }));
+    await usuario.click(screen.getByRole("button", { name: /configurar automação/i }));
     expect(screen.getByRole("button", { name: /gerar credencial/i })).toBeDisabled();
     expect(matricularAgente).not.toHaveBeenCalled();
   });
