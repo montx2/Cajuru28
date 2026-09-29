@@ -136,7 +136,7 @@ próximos 90 dias. A execução no portal é **assistida**: o sistema prepara tu
 e conduz o operador, que pratica o ato no ambiente oficial com o certificado do
 cliente (IN RFB nº 2.320/2026, art. 13).
 
-- [`docs/PRIMEIRO_DIA_PROCURACOES.md`](docs/PRIMEIRO_DIA_PROCURACOES.md) — **comece por aqui**: pasta de certificados + planilhas até a operação automática
+- [`docs/PRIMEIRO_DIA_PROCURACOES.md`](docs/PRIMEIRO_DIA_PROCURACOES.md) — **comece por aqui**: pesquise a empresa, clique em fazer procuração e use a automação avançada só se quiser
 - [`docs/PROCURACOES_RFB.md`](docs/PROCURACOES_RFB.md) — arquitetura e fluxo
 - [`docs/PROCURACOES_CONFORMIDADE.md`](docs/PROCURACOES_CONFORMIDADE.md) — base legal
 - [`docs/AGENT_CAJURU.md`](docs/AGENT_CAJURU.md) — estação Windows

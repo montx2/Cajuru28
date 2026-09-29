@@ -42,7 +42,7 @@ function montar() {
   );
 }
 
-describe("matricular estação", () => {
+describe("configurar automação avançada", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     matricularAgente.mockResolvedValue({
@@ -56,7 +56,7 @@ describe("matricular estação", () => {
     const usuario = userEvent.setup();
     montar();
 
-    await usuario.click(screen.getByRole("button", { name: /matricular estação/i }));
+    await usuario.click(screen.getByRole("button", { name: /configurar automação/i }));
     await usuario.type(screen.getByLabelText(/nome da estação/i), "PC Fiscal 01");
     await usuario.click(screen.getByRole("button", { name: /gerar credencial/i }));
 
@@ -68,7 +68,7 @@ describe("matricular estação", () => {
     const usuario = userEvent.setup();
     montar();
 
-    await usuario.click(screen.getByRole("button", { name: /matricular estação/i }));
+    await usuario.click(screen.getByRole("button", { name: /configurar automação/i }));
     await usuario.type(screen.getByLabelText(/nome da estação/i), "PC Fiscal 01");
     await usuario.click(screen.getByRole("button", { name: /gerar credencial/i }));
 
@@ -92,7 +92,7 @@ describe("matricular estação", () => {
     const usuario = userEvent.setup();
     montar();
 
-    await usuario.click(screen.getByRole("button", { name: /matricular estação/i }));
+    await usuario.click(screen.getByRole("button", { name: /configurar automação/i }));
     expect(screen.getByRole("button", { name: /gerar credencial/i })).toBeDisabled();
     expect(matricularAgente).not.toHaveBeenCalled();
   });

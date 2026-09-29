@@ -1,51 +1,71 @@
 # Procurações: do zero à operação automática
 
-Este é o único roteiro para colocar o módulo em funcionamento. Não é preciso
-ler a arquitetura para começar.
+Comece pelo **modo simples**. Não é preciso instalar Agent, abrir PowerShell ou
+configurar uma estação para fazer uma procuração no computador atual.
+
+1. em **Procurações RFB**, pesquise a empresa;
+2. clique em **Fazer procuração**;
+3. a página oficial da Receita abre no mesmo computador; confirme o ato com o
+   certificado e, ao terminar, cole a mensagem/protocolo no painel.
+
+O painel guarda o processo, evita duplicidade, controla o aceite e alerta os
+prazos. A seção **Automação avançada**, mais abaixo, é opcional: serve apenas
+para quem quiser uma máquina dedicada organizando uma carteira grande em fila.
 
 ## O que fica automático — e o único ponto que não pode ser robô
 
-Depois da configuração inicial, o sistema faz sozinho:
+No modo simples, o sistema faz sozinho:
 
-- lê a carteira e identifica quem está sem autorização, vencido ou perto de
-  vencer;
-- mantém uma fila idempotente: rodar duas vezes não cria duas outorgas;
-- encontra a estação que possui o A1 correto, valida validade e o Assinador
-  SERPRO antes de abrir qualquer portal;
-- abre a página oficial, monta dados de outorgado, vigência e serviços;
-- registra protocolo, monitora os 30 dias para o aceite e alerta vencimentos;
+- guarda o processo e evita duplicidade para a mesma empresa;
+- mostra no roteiro o CNPJ/CPF da contabilidade, a vigência e os serviços que
+  devem ser conferidos no portal;
+- registra o protocolo, monitora os 30 dias para o aceite e alerta vencimentos;
 - sincroniza a situação por Integra Contador quando esse canal oficial estiver
   configurado.
 
+A automação avançada acrescenta uma fila e a conferência local de certificados
+em uma máquina dedicada. Ela não é necessária para abrir e concluir uma
+procuração pelo modo simples.
+
 A **outorga, assinatura e validação** no Portal da Receita continuam feitas por
 uma pessoa no portal oficial. Não é limitação técnica: em 2026 a IN RFB nº
-2.320/2026, art. 13, veda automatizar/encapsular esses atos. O Cajuru Agent
-elimina toda a preparação e deixa para a pessoa apenas a conferência e a
-confirmação jurídica. Não há CAPTCHA, sessão, senha ou clique automático.
+2.320/2026, art. 13, veda automatizar/encapsular esses atos. O Cajuru28
+elimina a gestão em volta e deixa para a pessoa somente a conferência e a
+confirmação jurídica no portal oficial. Não há CAPTCHA, sessão, senha ou clique automático.
 
-## Antes de começar
+No modo simples, o navegador que você já usa abre o Portal de Serviços. Se o
+portal não enxergar o certificado, instale o A1 no Windows antes de tentar
+novamente. Não entregue o PFX nem a planilha de senhas ao painel.
 
-Separe em uma máquina Windows que será usada para assinar:
+## Antes da primeira procuração
 
-1. uma pasta com todos os certificados `.pfx` ou `.p12`;
-2. uma ou mais planilhas com as colunas **CNPJ/CPF ou Cliente**, **Senha** e,
-   quando houver, **Validade/Vencimento**;
-3. o CNPJ/CPF e o nome da sua contabilidade (o outorgado);
-4. o Assinador Digital SERPRO instalado nessa máquina.
+No computador Windows que você usará, deixe o certificado A1 já disponível ao
+Windows e tenha o Assinador Digital SERPRO instalado. Para a fase de outorga,
+é o certificado do **cliente**; para o aceite, o da **contabilidade**.
 
-As planilhas podem ser `.xlsx`, `.xlsm`, `.csv`, `.txt` ou `.tsv`. Duas
-planilhas complementares são esperadas: por exemplo, uma com senha e outra com
-validade.
+No primeiro clique em **Fazer procuração**, o sistema pergunta uma única vez o
+CNPJ/CPF e o nome da sua contabilidade. Esse dado é indispensável: é a pessoa
+jurídica que receberá a autorização no Portal da Receita, por isso não pode ser
+adivinhado. Não é uma configuração técnica e não pede estação, Agent, PFX ou
+senha.
 
 > **Não envie certificados nem planilhas de senha por chat, e-mail ou Git.**
-> Eles são processados localmente na estação Windows. PFX e senha não sobem para
-> o Cajuru28 no fluxo de procurações.
+> PFX, senha e a sessão do portal não sobem para o Cajuru28.
 
-## Faça nesta ordem
+Os arquivos `.pfx`/`.p12` e planilhas com **CNPJ/CPF ou Cliente**, **Senha** e
+**Validade/Vencimento** só são usados na automação avançada abaixo. As planilhas
+podem ser `.xlsx`, `.xlsm`, `.csv`, `.txt` ou `.tsv`; duas planilhas
+complementares (uma de senha e outra de validade) são aceitas.
 
-### 1. Cadastre a estação
+## Automação avançada — somente quando você quiser operar uma fila grande
 
-No painel, abra **Procurações RFB → Estações → Matricular estação**. Dê um nome
+O restante desta seção é opcional. Use-o apenas se quiser uma máquina dedicada
+para verificar certificados e organizar trabalhos em segundo plano. Ele não é
+necessário para o botão **Fazer procuração** do modo simples.
+
+### 1. Cadastre uma máquina de automação
+
+No painel, abra **Procurações RFB → Automação avançada → Configurar automação**. Dê um nome
 fácil de reconhecer, como `PC Fiscal 01`, e copie o comando que a tela monta.
 No PowerShell **como Administrador** da máquina que tem os certificados, execute
 o comando. Ao finalizar, confira:
@@ -91,17 +111,17 @@ fica em argumento de comando, log, banco, API ou Credential Manager. A validade
 que está dentro do certificado é a fonte de verdade; o comando avisa se ela
 divergir da planilha.
 
-### 3. Configure a contabilidade uma vez
+### 3. Ajuste a fila, se desejar
 
-No painel, abra **Procurações RFB → Configurar** e preencha:
+Os dados da contabilidade já podem ter sido informados no primeiro clique em
+**Fazer procuração**. Se for usar fila automática, abra **Procurações RFB →
+Configurar** apenas para escolher as opções administrativas:
 
-- **CNPJ/CPF da contabilidade**;
-- **nome da contabilidade**;
-- ative **Montar a fila automaticamente**;
-- mantenha **Sincronizar com as fontes configuradas** ligado;
-- confira o modelo padrão (vigência e serviços).
+- ativar **Montar a fila automaticamente**;
+- manter **Sincronizar com as fontes configuradas** ligado;
+- conferir o modelo padrão (vigência e serviços).
 
-Quando o Agent inventariar o certificado cujo CNPJ é o da contabilidade, o
+Quando a automação inventariar o certificado cujo CNPJ é o da contabilidade, o
 Cajuru28 o classifica automaticamente para a fase de **aceite**. Não marque
 certificados manualmente como “da contabilidade”.
 
