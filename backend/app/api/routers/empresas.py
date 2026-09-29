@@ -787,7 +787,12 @@ async def _fundir_planilhas(
                 detail=f"Planilha {arquivo.filename or ''} maior que 10 MB.",
             )
         planilhas_bytes.append((arquivo.filename or "", conteudo))
-    return fundir_planilhas_dados(planilhas_bytes)
+    try:
+        return fundir_planilhas_dados(planilhas_bytes)
+    except ValueError as erro:
+        # Planilha malformada não pode virar 500: recusa clara para o operador
+        # corrigir o arquivo e reenviar, em vez de "falha interna" genérica.
+        raise HTTPException(status_code=400, detail=str(erro)) from erro
 
 
 def _obter_ou_criar_empresa(

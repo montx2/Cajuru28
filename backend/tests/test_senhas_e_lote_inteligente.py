@@ -170,6 +170,42 @@ def test_leitura_planilha_excel_xlsx():
     assert resultado[CNPJ_2]["uf"] == "MG"
 
 
+def test_leitura_csv_com_cr_isolado_nao_quebra():
+    # Exports antigos (Mac/alguns ERPs) terminam linha só com "\r". Antes isso
+    # derrubava a importação em massa com
+    # "_csv.Error: new-line character seen in unquoted field".
+    conteudo = (
+        f"razao_social;cnpj_cpf;uf;senha\r"
+        f"CAJURU CONTABILIDADE;{CNPJ_1};SP;CAJURU2026\r"
+        f"APX ASSESSORIA;{CNPJ_2};MG;APX26\r"
+    ).encode("utf-8")
+
+    resultado = ler_planilha(conteudo, "senhas.csv")
+    assert resultado[CNPJ_1]["senha"] == "CAJURU2026"
+    assert resultado[CNPJ_1]["uf"] == "SP"
+    assert resultado[CNPJ_2]["senha"] == "APX26"
+
+
+def test_leitura_csv_com_quebras_mistas_lf_crlf_cr():
+    conteudo = (
+        f"razao_social;cnpj_cpf;uf;senha\r\n"
+        f"CAJURU CONTABILIDADE;{CNPJ_1};SP;CAJURU2026\n"
+        f"APX ASSESSORIA;{CNPJ_2};MG;APX26\r"
+    ).encode("utf-8")
+
+    resultado = ler_planilha(conteudo, "senhas.csv")
+    assert resultado[CNPJ_1]["senha"] == "CAJURU2026"
+    assert resultado[CNPJ_2]["uf"] == "MG"
+
+
+def test_leitura_csv_invalido_vira_value_error_com_nome_do_arquivo():
+    # Campo acima do limite do módulo csv (128 KiB) — texto corrompido por
+    # exportação truncada — deve virar ValueError legível, não exceção _csv.
+    conteudo = ("razao_social;cnpj_cpf\r" + "x" * 200000 + ";" + CNPJ_1 + "\r").encode("utf-8")
+    with pytest.raises(ValueError, match="senhas-quebrada.csv"):
+        ler_planilha(conteudo, "senhas-quebrada.csv")
+
+
 def test_importar_lote_adivinha_senha_empresa_ano(cliente):
     client, db, escritorio_id = cliente
     cnpj = CNPJ_1
