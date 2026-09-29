@@ -29,12 +29,13 @@ from pathlib import Path
 from . import assinador as diag_assinador
 from . import certificados as inventario
 from .config import Configuracao
+from .human_gate import classificar_intervencao
 from .protocolo import ClienteCajuru, ProtocoloError
 from .roteiro import ConducaoConsole, OperacaoCancelada
 
-log = logging.getLogger("cajuru.agent")
+from .versao import VERSAO_AGENTE
 
-VERSAO_AGENTE = "1.0.0"
+log = logging.getLogger("cajuru.agent")
 
 #: Espera entre tentativas quando o servidor está fora do ar. Cresce até o
 #: teto para não martelar um servidor em manutenção.
@@ -133,16 +134,17 @@ class Agente:
                 return
 
             if resposta.intervencao:
+                gate = classificar_intervencao(resposta.texto)
                 self.cliente.resultado(
                     job_id,
                     lease,
                     resultado="intervencao",
-                    codigo_erro="DESAFIO_DE_SEGURANCA",
-                    mensagem=resposta.texto or "Desafio apresentado pelo portal.",
+                    codigo_erro=gate.codigo_erro,
+                    mensagem=gate.mensagem,
                 )
                 self.conducao.avisar(
-                    "Job marcado como intervenção manual. Conclua no portal se for o caso "
-                    "e registre o resultado pelo Cajuru28."
+                    "Job pausado no centro de intervenção humana. Resolva apenas o "
+                    "desafio indicado e acione Retomar; o estado foi preservado."
                 )
                 return
 

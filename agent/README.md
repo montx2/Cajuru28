@@ -9,11 +9,14 @@ escritório, ao lado dos certificados A1 e do Assinador Digital SERPRO.
    (titular, CNPJ do OID ICP-Brasil, número de série, validade, thumbprint).
 2. **Diagnostica** o Assinador Digital SERPRO: instalado, em execução, host
    mapeado, porta local respondendo, versão, certificado visível.
-3. **Pede trabalho** ao Cajuru28 e recebe uma *ordem de trabalho* — sem senha,
+3. **Gera políticas de seleção automática de certificado**
+   (`AutoSelectCertificateForUrls`) para Chrome/Edge, ancoradas no Subject e no
+   Issuer do A1 correto — nunca "o primeiro certificado".
+4. **Pede trabalho** ao Cajuru28 e recebe uma *ordem de trabalho* — sem senha,
    sem PFX, sem chave privada.
-4. **Abre o navegador real do operador** na URL oficial da Receita e mostra o
+5. **Abre o navegador real do operador** na URL oficial da Receita e mostra o
    roteiro passo a passo em uma janela lateral.
-5. **Registra** o que o operador confirmou: protocolo, texto do portal,
+6. **Registra** o que o operador confirmou: protocolo, texto do portal,
    capturas de tela. Nada é dado como concluído sem confirmação real.
 
 ## O que ele **não** faz, por decisão de projeto
@@ -82,10 +85,35 @@ planilha vira aviso, não bloqueio silencioso.
 ## Execução manual
 
 ```powershell
-cajuru-agent diagnostico     # só o diagnóstico, sem falar com o servidor
+cajuru-agent diagnose        # pré-flight completo: Windows, rede, Playwright, certificados, navegador e Assinador
+cajuru-agent diagnostico     # só o diagnóstico do Assinador, sem falar com o servidor
 cajuru-agent certificados    # lista o que a máquina enxerga
 cajuru-agent executar        # laço principal
 ```
+
+## Seleção automática do certificado no Chrome/Edge
+
+Depois que os A1 estiverem instalados no Windows, gere a política do cliente:
+
+```powershell
+cajuru-agent politica-certificado `
+  --documento 12.345.678/0001-95 `
+  --navegador edge `
+  --navegador chrome
+```
+
+O comando inventaria a máquina, exige **um único** certificado vigente com
+chave privada para o documento e imprime um script PowerShell idempotente para
+`HKCU\Software\Policies\...\AutoSelectCertificateForUrls`. Para aplicar na
+conta Windows atual após revisar:
+
+```powershell
+cajuru-agent politica-certificado --documento 12.345.678/0001-95 --executar
+```
+
+Reinicie o navegador e confira `edge://policy` ou `chrome://policy`. Se houver
+mais de um A1 do mesmo documento, fixe `--thumbprint`; o Agent não escolhe no
+palpite.
 
 ## Onde fica a credencial
 

@@ -376,7 +376,7 @@ def test_item_ausente_na_tela_vira_portal_alterado(monkeypatch):
     assert not any(c[0] == "resultado" for c in cliente.chamadas), "nada é concluído às cegas"
 
 
-def test_desafio_de_seguranca_vira_intervencao(monkeypatch):
+def test_desafio_de_seguranca_vira_human_gate_classificado(monkeypatch):
     monkeypatch.setattr("cajuru_agent.executor.inventario.inventariar", lambda *_: [])
     cliente = _ClienteFalso()
     conducao = _ConducaoFalsa(
@@ -384,7 +384,7 @@ def test_desafio_de_seguranca_vira_intervencao(monkeypatch):
     )
     _agente(cliente, conducao).executar_ordem(ORDEM)
     resultado = next(c[1] for c in cliente.chamadas if c[0] == "resultado")
-    assert resultado["codigo_erro"] == "DESAFIO_DE_SEGURANCA"
+    assert resultado["codigo_erro"] == "CAPTCHA_REQUIRED"
     assert "captcha" in resultado["mensagem"].lower()
 
 
