@@ -4,6 +4,7 @@ Linha de comando do Cajuru Agent.
     cajuru-agent configurar --servidor ... --identificador ... --segredo ...
     cajuru-agent diagnostico     # ambiente local, sem falar com o servidor
     cajuru-agent certificados    # o que esta máquina enxerga
+    cajuru-agent importar-certificados --pasta ... --planilha ... --executar
     cajuru-agent testar          # autentica e bate um heartbeat
     cajuru-agent executar        # laço principal
 """
@@ -18,6 +19,7 @@ from pathlib import Path
 
 from . import assinador as diag
 from . import certificados as inventario
+from . import importador
 from .config import Configuracao, CofreError, guardar_segredo, ler_segredo, pasta_base
 from .executor import VERSAO_AGENTE, Agente
 from .protocolo import ClienteCajuru, ProtocoloError
@@ -118,6 +120,89 @@ def cmd_certificados(args) -> int:
     return 0
 
 
+def _mostrar_importacao(itens, *, json_saida: bool) -> None:
+    """Mostra prévia/resultado da importação sem nunca serializar senha."""
+    if json_saida:
+        saida = [item.para_saida() for item in itens if isinstance(item, importador.ResultadoItem)]
+        if not saida:
+            saida = [
+                {
+                    "arquivo": item.arquivo.name,
+                    "status": item.status,
+                    "mensagem": item.mensagem,
+                    "cliente": item.cliente,
+                    "documento": item.documento,
+                    "validade_declarada": item.validade_declarada.isoformat() if item.validade_declarada else None,
+                }
+                for item in itens
+            ]
+        print(json.dumps(saida, ensure_ascii=False, indent=2))
+        return
+
+    for item in itens:
+        validade = getattr(item, "validade_certificado", None) or item.validade_declarada
+        sufixo_validade = f" · validade {validade.isoformat()}" if validade else ""
+        cliente = f" · {item.cliente}" if item.cliente else ""
+        documento = f" · {item.documento}" if item.documento else ""
+        print(f"  [{item.status.upper()}] {item.arquivo.name}{cliente}{documento}{sufixo_validade}")
+        print(f"    {item.mensagem}")
+
+
+def cmd_importar_certificados(args) -> int:
+    """Prévia segura e, sob confirmação explícita, instalação local de A1.
+
+    O comando não precisa de conexão com o Cajuru28 para importar. A opção
+    ``--sincronizar`` é separada para deixar claro o único momento em que dados
+    públicos do certificado (nunca PFX/senha) serão enviados ao servidor.
+    """
+    try:
+        plano = importador.montar_plano(Path(args.pasta), [Path(item) for item in args.planilha])
+    except importador.ImportacaoLocalError as exc:
+        print(f"\n  ✖ {exc}\n")
+        return 2
+
+    if not args.executar:
+        if not args.json:
+            print("\nPrévia da importação local — nenhum certificado, senha ou dado foi enviado ou instalado.\n")
+        _mostrar_importacao(plano, json_saida=args.json)
+        totais = importador.resumo(plano)
+        prontos = totais.get("pronto", 0)
+        if not args.json:
+            print(f"\nResumo: {len(plano)} arquivo(s) · {prontos} pronto(s) · {len(plano) - prontos} pendência(s).")
+            print("Revise a prévia. Para instalar somente os itens PRONTO no repositório desta conta Windows, rode de novo com --executar.\n")
+        return 0 if prontos else 1
+
+    try:
+        resultados = importador.executar_plano(plano)
+    except importador.ImportacaoLocalError as exc:
+        print(f"\n  ✖ {exc}\n")
+        return 2
+
+    if not args.json:
+        print("\nResultado da importação local — senhas e arquivos privados permaneceram nesta estação.\n")
+    _mostrar_importacao(resultados, json_saida=args.json)
+    totais = importador.resumo(resultados)
+    concluidos = totais.get("importado", 0) + totais.get("ja_instalado", 0)
+    if not args.json:
+        print(f"\nResumo: {concluidos} disponível(is) · {totais.get('erro', 0)} com erro · {totais.get('ignorado', 0)} pendência(s).")
+
+    if args.sincronizar and concluidos:
+        try:
+            config = Configuracao.carregar()
+            agente = Agente(config, _cliente(config))
+            resposta = agente.enviar_inventario(agente.coletar_certificados())
+        except (CofreError, ProtocoloError) as exc:
+            print(f"\n  ⚠ Certificados importados, mas o inventário não foi sincronizado: {exc}\n")
+            return 1
+        destino = sys.stderr if args.json else sys.stdout
+        print(
+            "Inventário público sincronizado com o Cajuru28: "
+            f"{resposta.get('novos', 0)} novo(s), {resposta.get('atualizados', 0)} atualizado(s).",
+            file=destino,
+        )
+    return 0 if not totais.get("erro") else 1
+
+
 def cmd_testar(args) -> int:
     config = Configuracao.carregar()
     cliente = _cliente(config)
@@ -172,6 +257,30 @@ def construir_parser() -> argparse.ArgumentParser:
     p.add_argument("--pasta-pfx", dest="pasta_pfx", default="")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_certificados)
+
+    p = sub.add_parser(
+        "importar-certificados",
+        help="associa PFX às planilhas e instala A1 localmente, sem enviar senha/PFX",
+    )
+    p.add_argument("--pasta", required=True, help="pasta com arquivos .pfx/.p12 (subpastas são incluídas)")
+    p.add_argument(
+        "--planilha",
+        action="append",
+        required=True,
+        help="planilha local CSV/TXT/XLSX/XLSM com cliente/CNPJ e senha; repita para usar duas planilhas",
+    )
+    p.add_argument(
+        "--executar",
+        action="store_true",
+        help="confirma a instalação local dos itens aprovados na prévia",
+    )
+    p.add_argument(
+        "--sincronizar",
+        action="store_true",
+        help="após instalar, envia apenas o inventário público ao Cajuru28",
+    )
+    p.add_argument("--json", action="store_true", help="emite itens sem senha em JSON")
+    p.set_defaults(func=cmd_importar_certificados)
 
     p = sub.add_parser("testar", help="autentica no Cajuru28 e envia um heartbeat")
     p.set_defaults(func=cmd_testar)

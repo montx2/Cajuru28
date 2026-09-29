@@ -246,6 +246,16 @@ def sincronizar_inventario(
         .filter(CertificadoInventario.agente_id == agente.id)
         .all()
     }
+    # O Agent não recebe o CNPJ da contabilidade — ele só inventaria o que o
+    # Windows enxerga. A classificação correta pertence ao servidor, que é a
+    # fonte da configuração operacional. Sem isso, o A1 do escritório entrava
+    # como "cliente" e a segunda fase (aceite) nunca encontrava identidade
+    # `contabilidade`, mesmo com o certificado instalado e válido.
+    from app.procuracoes.servicos.configuracao import obter_configuracao
+
+    documento_contabilidade = documento_normalizado(
+        obter_configuracao(db, agente.escritorio_id).outorgado_documento
+    )
     vistos: set[str] = set()
     criados = atualizados = invalidos = 0
 
@@ -280,9 +290,13 @@ def sincronizar_inventario(
         linha.valido_ate = _parse_data(item.get("valido_ate"))
         linha.origem = "arquivo" if str(item.get("origem")) == "arquivo" else "windows_store"
         linha.referencia_local = str(item.get("referencia_local") or "")[:128]
+        # A configuração ganha do rótulo opcional enviado pela estação. Isso
+        # fecha a fase de aceite sem exigir que o operador marque manualmente
+        # qual dos seus próprios A1 é o da contabilidade e impede um Agent
+        # desatualizado de classificar o mesmo CNPJ de modo divergente.
         linha.tipo = (
             TipoCertificado.CONTABILIDADE.value
-            if str(item.get("tipo")) == TipoCertificado.CONTABILIDADE.value
+            if documento_contabilidade and documento == documento_contabilidade
             else TipoCertificado.CLIENTE.value
         )
         linha.senha_disponivel = bool(item.get("senha_disponivel"))

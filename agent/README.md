@@ -44,6 +44,41 @@ O instalador:
 
 Passo a passo completo e solução de problemas: `docs/AGENT_CAJURU.md`.
 
+## Primeiro carregamento dos certificados (pasta + suas planilhas)
+
+Se você já possui a pasta com todos os `.pfx/.p12` e uma ou duas planilhas com
+**cliente/CNPJ, senha e validade**, faça isso **na máquina Windows que usará o
+Assinador SERPRO**. Primeiro rode a prévia — ela não instala nem envia nada:
+
+```powershell
+cajuru-agent importar-certificados `
+  --pasta "D:\Certificados" `
+  --planilha "D:\Planilhas\senhas.xlsx" `
+  --planilha "D:\Planilhas\validade.xlsx"
+```
+
+A prévia associa por CNPJ no nome do arquivo e, se ele não estiver presente,
+por nome do cliente. Arquivo ambíguo ou sem senha fica como pendência: o Agent
+**não tenta senhas genéricas e não usa uma senha de outro cliente**. Corrija o
+nome do PFX para incluir o CNPJ quando precisar desambiguar.
+
+Depois de revisar a prévia, instale os itens aprovados e já publique apenas o
+inventário público (CNPJ, validade e thumbprint) no Cajuru28:
+
+```powershell
+cajuru-agent importar-certificados `
+  --pasta "D:\Certificados" `
+  --planilha "D:\Planilhas\senhas.xlsx" `
+  --planilha "D:\Planilhas\validade.xlsx" `
+  --executar --sincronizar
+```
+
+A senha percorre somente a memória local e o `stdin` do PowerShell; não entra
+na linha de comando, log, Credential Manager, banco ou API. O PFX e a chave
+privada permanecem no repositório de certificados do Windows (`CurrentUser\My`).
+A data interna do certificado é a fonte de verdade: uma divergência com a
+planilha vira aviso, não bloqueio silencioso.
+
 ## Execução manual
 
 ```powershell

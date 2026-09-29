@@ -287,6 +287,9 @@ export function Estacoes() {
   -Segredo "<cole o segredo>"`}
               </pre>
             </div>
+            <Aviso tom="info" icone="importacao" titulo="Depois: carregue todos os A1 de uma vez">
+              Na mesma máquina, rode primeiro <span className="font-mono text-2xs">cajuru-agent importar-certificados --pasta "…" --planilha "…"</span> para conferir o vínculo entre PFX e planilha. Só depois repita com <span className="font-mono text-2xs">--executar --sincronizar</span>. Senhas e PFX permanecem na estação; o painel recebe apenas CNPJ, validade e thumbprint.
+            </Aviso>
           </div>
         ) : (
           <Entrada

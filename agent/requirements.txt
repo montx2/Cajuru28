@@ -1,3 +1,6 @@
 # Dependências do Cajuru Agent. Propositalmente curtas: quanto menos código de
 # terceiros roda ao lado dos certificados, menor a superfície de ataque.
 httpx==0.28.1
+# Só lê localmente as planilhas que o operador apontar no comando
+# `importar-certificados`; senha e PFX nunca saem da estação.
+openpyxl==3.1.5
