@@ -402,6 +402,14 @@ export function Procuracoes() {
             >
               Configurar
             </Botao>
+            <Link
+              href="/dashboard/procuracoes/pre-voo"
+              className="inline-flex items-center gap-1.5 rounded-controle border border-borda px-2.5 py-1.5 text-xs font-medium text-tinta hover:bg-superficie-forte"
+              title="Antes de abrir o portal: o que dá para tocar hoje e o que falta nos outros"
+            >
+              <Icone nome="lista-verificacao" className="h-4 w-4" />
+              Pré-voo
+            </Link>
             <Botao
               variante="primaria"
               onClick={processarPendencias}

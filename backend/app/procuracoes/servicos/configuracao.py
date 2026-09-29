@@ -9,13 +9,14 @@ ninguém configurou nada".
 
 from __future__ import annotations
 
+import calendar
 import json
 from dataclasses import dataclass
 from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 
-from app.procuracoes.estados import VIGENCIA_MAXIMA, ModoOperacao
+from app.procuracoes.estados import VIGENCIA_MAXIMA_MESES, ModoOperacao
 from app.procuracoes.modelos import (
     ModeloAutorizacao,
     ModeloAutorizacaoServico,
@@ -24,6 +25,36 @@ from app.procuracoes.modelos import (
 
 #: Nome do modelo criado no primeiro acesso. Editável na tela depois.
 NOME_MODELO_PADRAO = "Padrão Cajuru"
+
+#: Vigência padrão em meses. Igual ao teto legal de 5 anos.
+#:
+#: A escolha é deliberada e vale a explicação, porque parece agressiva: cada
+#: renovação custa uma sessão com certificado do cliente, CAPTCHA, 2FA e
+#: assinatura — e um novo prazo de 30 dias para a contabilidade validar, que
+#: se estourar cancela tudo. Pedir menos que o teto significa repetir esse
+#: custo antes da hora, sem ganho nenhum: a autorização é revogável pelo
+#: cliente a qualquer momento, então prazo curto não é uma proteção real.
+VIGENCIA_PADRAO_MESES = VIGENCIA_MAXIMA_MESES
+
+
+def _somar_meses(base: date, meses: int) -> date:
+    """Soma meses em calendário real, ancorando no fim do mês quando preciso.
+
+    Aritmética de calendário em vez de `timedelta(days=meses * 30.4375)`:
+    a aproximação por dias erra até dois dias em 5 anos dependendo de quantos
+    anos bissextos o intervalo abraça. Aqui isso importa, porque a data fica
+    colada no teto legal — errar para cima é ter a autorização recusada pelo
+    portal no último passo.
+
+    O caso de borda é 31/01 + 1 mês: não existe 31/02, então o resultado é o
+    último dia de fevereiro. `calendar.monthrange` resolve inclusive o ano
+    bissexto.
+    """
+    total = base.month - 1 + meses
+    ano = base.year + total // 12
+    mes = total % 12 + 1
+    ultimo_dia = calendar.monthrange(ano, mes)[1]
+    return date(ano, mes, min(base.day, ultimo_dia))
 
 
 def obter_configuracao(db: Session, escritorio_id: int) -> ProcuracaoConfiguracao:
@@ -72,7 +103,7 @@ def obter_modelo_padrao(db: Session, escritorio_id: int) -> ModeloAutorizacao:
                 "serviços, para não precisar refazer a autorização quando a "
                 "Receita publicar um serviço novo."
             ),
-            vigencia_meses=60,
+            vigencia_meses=VIGENCIA_PADRAO_MESES,
             escopo_servicos="ALL",
             padrao=True,
             ativo=True,
@@ -140,11 +171,14 @@ def montar_plano(
     """
     modelo = modelo or obter_modelo_padrao(db, escritorio_id)
     base = inicio or date.today()
-    meses = max(1, min(int(modelo.vigencia_meses or 60), 60))
-    # Aproximação por dias evita dependência de calendário: o portal aceita
-    # qualquer data dentro do teto, e arredondar para baixo nunca extrapola.
-    vigencia = base + timedelta(days=int(meses * 30.4375))
-    teto = base + VIGENCIA_MAXIMA - timedelta(days=1)
+    meses = max(1, min(int(modelo.vigencia_meses or VIGENCIA_PADRAO_MESES), VIGENCIA_MAXIMA_MESES))
+    vigencia = _somar_meses(base, meses)
+
+    # Margem de 1 dia contra o teto legal. O portal recusa data **acima** de
+    # 5 anos; cair exatamente no limite depende de como o servidor arredonda
+    # o fuso na validação, e ser recusado no passo 3 desperdiça uma sessão
+    # inteira com certificado já autenticado. Um dia a menos custa nada.
+    teto = _somar_meses(base, VIGENCIA_MAXIMA_MESES) - timedelta(days=1)
     if vigencia > teto:
         vigencia = teto
 

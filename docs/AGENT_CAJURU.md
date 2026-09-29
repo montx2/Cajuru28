@@ -228,7 +228,7 @@ do portal. `resultado: "falha"` exige `codigo_erro`. A API recusa o resto.
 
 ```powershell
 cajuru-agent executar        # laço principal (a tarefa agendada roda isto)
-cajuru-agent diagnostico     # ambiente local, sem falar com o servidor
+cajuru-agent diagnostico     # estação inteira, sem falar com o servidor (§6)
 cajuru-agent certificados    # o que a máquina enxerga (--json para script)
 cajuru-agent testar          # autentica e bate um heartbeat
 ```
@@ -248,7 +248,66 @@ intervenção com `CONFIRMACAO_AUSENTE`.
 
 ---
 
-## 6. Diagnóstico do Assinador
+## 6. Diagnóstico da estação
+
+```powershell
+cajuru-agent diagnostico                # relatório legível
+cajuru-agent diagnostico --json         # mesmo conteúdo, para script
+cajuru-agent diagnostico --sem-rede     # só o que é local
+```
+
+`diagnostico` verifica a estação inteira, não só o Assinador, e é o **gate de
+instalação**: enquanto ele não passar, a máquina não está pronta para conduzir
+uma outorga.
+
+### 6.1 O que é verificado
+
+| Chave | Verifica | Bloqueante |
+|---|---|---|
+| `sistema` | Windows 10/11 — único ambiente homologado para o Assinador | aviso fora do Windows |
+| `python` | versão mínima do interpretador | sim |
+| `relogio` | desvio do relógio contra fonte externa | sim acima da tolerância |
+| `dns` | resolução dos domínios oficiais | sim |
+| `portal` | alcançabilidade do Portal de Serviços da RFB | sim |
+| `navegador` | Edge/Chrome instalado | sim |
+| `certificados` | repositório do Windows legível e com A1 utilizável | sim |
+| `certificados_vencendo` | A1 perto do fim da validade | aviso |
+| `assinador` | instalado, em execução, `hosts`, porta 65156, versão mínima | sim |
+
+O relógio entra na lista por um motivo prático: a assinatura HMAC do protocolo
+tem janela de tempo, e uma máquina com horário torto falha na autenticação com
+uma mensagem que não parece ter nada a ver com relógio.
+
+### 6.2 Os quatro níveis
+
+| Nível | Significado |
+|---|---|
+| `PASS` | verificado e aprovado |
+| `AVISO` | funciona, mas há algo para resolver (ex.: A1 vencendo em 20 dias) |
+| `FALHA` | bloqueia a operação |
+| `PULADO` | **não foi possível verificar** |
+
+`PULADO` nunca é contado como aprovação. Com `--sem-rede`, as checagens de rede
+saem como `PULADO` e o relatório diz isso na cara — um diagnóstico que finge ter
+verificado o que não verificou é pior que nenhum diagnóstico.
+
+### 6.3 Código de saída
+
+`0` quando não há nenhuma `FALHA`; `1` caso contrário. Avisos não reprovam.
+Isso torna o comando utilizável direto em script de instalação e em tarefa
+agendada:
+
+```powershell
+cajuru-agent diagnostico
+if ($LASTEXITCODE -ne 0) { throw "Estacao nao apta - resolva as falhas acima" }
+```
+
+Com `--json`, a saída traz `apto`, `pior_nivel`, `contagem` por nível e a lista
+de `verificacoes` com `chave`, `nivel`, `detalhe`, `acao` e `dados` — cada falha
+já vem com o conserto escrito, porque quem roda isso normalmente é quem está
+instalando, não quem escreveu o sistema.
+
+### 6.4 Detalhe do Assinador
 
 Sete verificações, cada uma com conserto objetivo:
 

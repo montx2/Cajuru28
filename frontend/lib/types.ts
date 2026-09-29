@@ -1046,3 +1046,50 @@ export interface SituacaoOpcaoProcuracao {
   valor: SituacaoAutorizacao;
   rotulo: string;
 }
+
+/** Um achado do pré-voo: motivo legível + código estável para agrupar. */
+export interface AchadoPrevoo {
+  codigo: string;
+  nivel: "apto" | "atencao" | "bloqueado" | "dispensado";
+  mensagem: string;
+  acao: string;
+}
+
+export interface LinhaPrevoo {
+  empresa_id: number;
+  razao_social: string;
+  /** Já mascarado pelo servidor. */
+  documento: string;
+  situacao: "apto" | "atencao" | "bloqueado" | "dispensado";
+  certificado: string;
+  certificado_valido_ate: string | null;
+  vigencia_prevista: string | null;
+  achados: AchadoPrevoo[];
+}
+
+export interface RelatorioPrevoo {
+  gerado_em: string;
+  pode_iniciar: boolean;
+  bloqueio_de_ambiente: boolean;
+  ambiente: AchadoPrevoo[];
+  contagem: Record<string, number>;
+  por_codigo: Record<string, number>;
+  linhas: LinhaPrevoo[];
+}
+
+export interface MetricasProcuracoes {
+  jobs_considerados: number;
+  concluidos: number;
+  falhados: number;
+  cancelados: number;
+  taxa_sucesso: number;
+  duracao_media_minutos: number;
+  espera_humana_media_minutos: number;
+  processamento_medio_minutos: number;
+  tempo_por_etapa: Record<string, number>;
+  erros_por_codigo: Record<string, number>;
+  erros_por_classe: Record<string, number>;
+  total_retentativas: number;
+  intervencoes_humanas: number;
+  clientes_por_hora: number;
+}

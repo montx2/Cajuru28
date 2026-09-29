@@ -2,7 +2,7 @@
 Linha de comando do Cajuru Agent.
 
     cajuru-agent configurar --servidor ... --identificador ... --segredo ...
-    cajuru-agent diagnostico     # ambiente local, sem falar com o servidor
+    cajuru-agent diagnostico     # estação inteira (PASS/AVISO/FALHA), sem falar com o servidor
     cajuru-agent certificados    # o que esta máquina enxerga
     cajuru-agent importar-certificados --pasta ... --planilha ... --executar
     cajuru-agent testar          # autentica e bate um heartbeat
@@ -19,6 +19,7 @@ from pathlib import Path
 
 from . import assinador as diag
 from . import certificados as inventario
+from . import diagnostico as diagnose
 from . import importador
 from .config import Configuracao, CofreError, guardar_segredo, ler_segredo, pasta_base
 from .executor import VERSAO_AGENTE, Agente
@@ -71,30 +72,24 @@ def cmd_configurar(args) -> int:
 
 
 def cmd_diagnostico(args) -> int:
-    certificados = inventario.inventariar(
-        Path(args.pasta_pfx) if args.pasta_pfx else None
-    )
-    tem = any(inventario.vigente(c) and c.tem_chave_privada for c in certificados)
-    resultado = diag.diagnosticar(tem_certificado=tem)
+    """Diagnóstico completo da estação.
 
-    print("\nDiagnóstico do Assinador Digital SERPRO")
-    print("─" * 50)
-    for rotulo, valor in [
-        ("Instalado", resultado.instalado),
-        ("Em execução", resultado.em_execucao),
-        (f"Host {diag.HOST_MAPEADO} mapeado", resultado.hosts_mapeado),
-        (f"Porta {diag.PORTA_LOCAL} respondendo", resultado.porta_local),
-        ("Certificado vigente na estação", resultado.certificado_visivel),
-    ]:
-        print(f"  {'OK  ' if valor else 'FALTA'}  {rotulo}")
-    print(f"  Versão detectada: {resultado.versao or '(não identificada)'}")
-    if resultado.observacoes:
-        print("\nO que fazer:")
-        for observacao in resultado.observacoes:
-            print(f"  • {observacao}")
-    print(f"\nTeste oficial do SERPRO: {diag.URL_VERIFICACAO_OFICIAL}")
-    print(f"Manual oficial: {diag.URL_MANUAL_OFICIAL}\n")
-    return 0 if resultado.porta_local else 1
+    Código de saída: 0 = apta (sem FALHA), 1 = não apta. Isso permite usar o
+    comando como portão em script de instalação e em tarefa agendada.
+    """
+    relatorio = diagnose.executar(
+        pasta_pfx=Path(args.pasta_pfx) if args.pasta_pfx else None,
+        verificar_rede=not args.sem_rede,
+    )
+
+    if args.json:
+        print(json.dumps(relatorio.para_json(), ensure_ascii=False, indent=2))
+    else:
+        print(diagnose.formatar(relatorio))
+        print(f"Teste oficial do SERPRO: {diag.URL_VERIFICACAO_OFICIAL}")
+        print(f"Manual oficial: {diag.URL_MANUAL_OFICIAL}\n")
+
+    return 0 if relatorio.apto else 1
 
 
 def cmd_certificados(args) -> int:
@@ -249,8 +244,19 @@ def construir_parser() -> argparse.ArgumentParser:
     p.add_argument("--capacidade", type=int, default=0)
     p.set_defaults(func=cmd_configurar)
 
-    p = sub.add_parser("diagnostico", help="verifica o Assinador SERPRO nesta máquina")
+    p = sub.add_parser(
+        "diagnostico",
+        help="verifica a estação inteira: SO, relógio, DNS, portal, navegador, "
+        "certificados e Assinador",
+    )
     p.add_argument("--pasta-pfx", dest="pasta_pfx", default="")
+    p.add_argument("--json", action="store_true", help="saída estruturada")
+    p.add_argument(
+        "--sem-rede",
+        dest="sem_rede",
+        action="store_true",
+        help="pula relógio/DNS/portal (máquina sem saída para a internet)",
+    )
     p.set_defaults(func=cmd_diagnostico)
 
     p = sub.add_parser("certificados", help="lista os certificados visíveis")

@@ -53,7 +53,12 @@ SITUACOES_PENDENTES = frozenset(
 PRAZO_ACEITE = timedelta(days=30)
 
 #: Vigência máxima admitida pelo portal para uma Autorização de Acesso.
-VIGENCIA_MAXIMA = timedelta(days=5 * 365 + 1)
+#: Expressa em MESES porque o prazo legal é "até 5 anos" — uma contagem de
+#: calendário, não de dias. Converter para `timedelta` obrigaria a escolher
+#: entre 1825 e 1826 dias conforme os bissextos do intervalo, e o erro
+#: apareceria só na data colada no teto. A soma de calendário está em
+#: `servicos.configuracao._somar_meses`.
+VIGENCIA_MAXIMA_MESES = 60
 
 
 class StatusJob(str, enum.Enum):
