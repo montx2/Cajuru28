@@ -1,17 +1,17 @@
 /**
- * Importação de certificados em massa: a pasta do computador + a planilha de
- * senhas que o escritório já tem.
+ * Importação de certificados em massa: a pasta do computador e, apenas quando
+ * necessário, uma planilha de apoio que o escritório já mantém.
  *
- * O contrato travado aqui: a senha global é reserva — quando a planilha traz
- * as senhas (cnpj;senha), o lote sai sem digitar nada; e se não houver senha nem
- * planilha, o lote sai para dedução automática por padrões heurísticos.
+ * A tela não pede senha global nem UF padrão: as senhas podem vir da planilha
+ * e a UF é descoberta pelo CNPJ. Sem planilha, o lote segue para identificação
+ * automática por padrões heurísticos.
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ModalImportacaoLote } from "@/app/dashboard/empresas/Empresas";
 import { ProvedorToast } from "@/components/ui/Toast";
-import { certificadosDaPasta } from "@/lib/pastaCertificados";
+import { certificadosDaPasta, LIMITE_CERTIFICADOS_POR_LOTE } from "@/lib/pastaCertificados";
 
 const importarEmpresasEmMassa = vi.fn();
 
@@ -48,6 +48,10 @@ const PFX = (nome: string, modificado = AGORA) =>
   });
 
 describe("seleção da pasta de certificados", () => {
+  it("aceita até 600 certificados no mesmo lote", () => {
+    expect(LIMITE_CERTIFICADOS_POR_LOTE).toBe(600);
+  });
+
   it("lê só os .pfx/.p12 e conta o resto como ignorado", () => {
     const tudo = [
       PFX("12345678000195.pfx"),
@@ -123,21 +127,16 @@ describe("lote com planilha de senhas", () => {
     const campoCertificados = await screen.findByLabelText(/ou arquivos individuais/i);
     await usuario.upload(campoCertificados, [PFX("12345678000195.pfx"), PFX("98765432000110.pfx")]);
 
-    const planilha = screen.getByLabelText(/planilhas? de senhas/i);
+    const planilha = screen.getByLabelText(/planilha de apoio/i);
     await usuario.upload(planilha, new File(["cnpj;senha\n12345678000195;abc"], "senhas.csv", { type: "text/csv" }));
 
-    await usuario.selectOptions(screen.getByLabelText(/uf padrão/i), "MG");
-
-    // Sem senha digitada — a planilha cobre o lote.
     expect(screen.getByRole("button", { name: /importar lote/i })).toBeEnabled();
     await usuario.click(screen.getByRole("button", { name: /importar lote/i }));
 
     await waitFor(() => expect(importarEmpresasEmMassa).toHaveBeenCalledTimes(1));
-    const [arquivos, planilhas, senha, uf] = importarEmpresasEmMassa.mock.calls[0];
+    const [arquivos, planilhas] = importarEmpresasEmMassa.mock.calls[0];
     expect(arquivos).toHaveLength(2);
     expect((planilhas as File[]).map((arquivo) => arquivo.name)).toEqual(["senhas.csv"]);
-    expect(senha).toBe("");
-    expect(uf).toBe("MG");
   });
 
   it("aceita a planilha atual e a antiga no mesmo lote", async () => {
@@ -147,13 +146,12 @@ describe("lote com planilha de senhas", () => {
     const campoCertificados = await screen.findByLabelText(/ou arquivos individuais/i);
     await usuario.upload(campoCertificados, PFX("12345678000195.pfx"));
 
-    const planilha = screen.getByLabelText(/planilhas de senhas/i);
+    const planilha = screen.getByLabelText(/planilha de apoio/i);
     await usuario.upload(planilha, [
       new File(["cnpj;senha\n12345678000195;atual"], "atual.csv", { type: "text/csv" }),
       new File(["cnpj;senha\n12345678000195;antiga"], "antiga.csv", { type: "text/csv" }),
     ]);
 
-    await usuario.selectOptions(screen.getByLabelText(/uf padrão/i), "MG");
     await usuario.click(screen.getByRole("button", { name: /importar lote/i }));
 
     await waitFor(() => expect(importarEmpresasEmMassa).toHaveBeenCalledTimes(1));
@@ -167,18 +165,23 @@ describe("lote com planilha de senhas", () => {
 
     const campoCertificados = await screen.findByLabelText(/ou arquivos individuais/i);
     await usuario.upload(campoCertificados, PFX("12345678000195.pfx"));
-    await usuario.selectOptions(screen.getByLabelText(/uf padrão/i), "MG");
 
     const botao = screen.getByRole("button", { name: /importar lote/i });
     expect(botao).toBeEnabled();
     await usuario.click(botao);
 
     await waitFor(() => expect(importarEmpresasEmMassa).toHaveBeenCalledTimes(1));
-    const [arquivos, planilhas, senha, uf] = importarEmpresasEmMassa.mock.calls[0];
+    const [arquivos, planilhas] = importarEmpresasEmMassa.mock.calls[0];
     expect(arquivos).toHaveLength(1);
     expect(planilhas).toHaveLength(0);
-    expect(senha).toBe("");
-    expect(uf).toBe("MG");
+  });
+
+  it("não pede senha global nem UF: esses dados são encontrados automaticamente", () => {
+    montar();
+
+    expect(screen.queryByLabelText(/senha dos certificados/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/uf padrão/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/planilha de apoio/i)).toBeInTheDocument();
   });
 
   it("sem certificados selecionados, o botão fica desabilitado explicando o que falta", async () => {

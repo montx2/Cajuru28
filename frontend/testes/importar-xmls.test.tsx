@@ -5,7 +5,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { ImportarXmls } from "@/app/dashboard/importacoes/ImportarXmls";
+import { ImportarXmls, ModalImportarXmls } from "@/app/dashboard/importacoes/ImportarXmls";
 import { ProvedorToast } from "@/components/ui/Toast";
 import type { ImportacaoXmlResposta } from "@/lib/types";
 
@@ -81,12 +81,12 @@ describe("importar XMLs do computador", () => {
     const usuario = userEvent.setup();
     montar();
 
-    const campo = await screen.findByLabelText(/zip ou xmls exportados/i);
+    const campo = await screen.findByLabelText(/xmls ou arquivo zip/i);
     const zip = new File([new Uint8Array([1, 2])], "exportacao.zip", { type: "application/zip" });
     const xml = new File(["<nfeProc/>"], "nfe_123.xml", { type: "application/xml" });
     await usuario.upload(campo, [zip, xml]);
 
-    await usuario.click(screen.getByRole("button", { name: /importar xmls/i }));
+    await usuario.click(screen.getByRole("button", { name: /importar notas/i }));
 
     await waitFor(() => expect(importarXmls).toHaveBeenCalledTimes(1));
     expect((importarXmls.mock.calls[0][0] as File[]).map((arquivo) => arquivo.name)).toEqual([
@@ -103,9 +103,22 @@ describe("importar XMLs do computador", () => {
   it("sem arquivo, o botão diz o que falta e nada é enviado", async () => {
     montar();
 
-    const botao = screen.getByRole("button", { name: /importar xmls/i });
+    const botao = screen.getByRole("button", { name: /importar notas/i });
     expect(botao).toBeDisabled();
-    expect(botao).toHaveAttribute("title", "Escolha um .zip ou arquivos .xml");
+    expect(botao).toHaveAttribute("title", "Selecione um .zip ou arquivos .xml antes de importar");
     expect(importarXmls).not.toHaveBeenCalled();
+  });
+
+  it("pode ser aberto como atalho de Importar notas, sem campos de certificado", async () => {
+    render(
+      <ProvedorToast>
+        <ModalImportarXmls aberto aoFechar={() => {}} />
+      </ProvedorToast>
+    );
+
+    expect(await screen.findByRole("heading", { name: "Importar notas" })).toBeInTheDocument();
+    expect(screen.getByLabelText(/xmls ou arquivo zip/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/senha.*certificado/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^uf/i)).not.toBeInTheDocument();
   });
 });

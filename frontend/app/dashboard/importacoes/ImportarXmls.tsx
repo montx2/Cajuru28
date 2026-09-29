@@ -1,13 +1,9 @@
 "use client";
 
 /**
- * Importação de XMLs prontos — ZIP ou arquivos soltos exportados de outro
- * sistema (Jettax360, e-mail, pasta do computador).
- *
- * Este caminho **não gasta cota da SEFAZ**: é para o escritório que deixa
- * outro sistema com a consulta automática (dois robôs no mesmo certificado
- * geram 656, consumo indevido). As notas chegam como arquivo e são gravadas
- * no mesmo acervo, sem duplicar.
+ * Importação manual de XMLs prontos — ZIP ou arquivos soltos exportados de
+ * outro sistema. Este fluxo é propositalmente separado do cadastro de
+ * empresas/certificados: para importar notas não há senha de A1 nem UF.
  */
 
 import { useState } from "react";
@@ -23,6 +19,7 @@ import { Botao } from "@/components/ui/Botao";
 import { Dado } from "@/components/ui/Dado";
 import { Cnpj } from "@/components/ui/Formatadores";
 import { Etiqueta } from "@/components/ui/Etiqueta";
+import { Modal } from "@/components/ui/Modal";
 
 const ROTULO_STATUS: Record<string, string> = {
   importado: "Importada",
@@ -42,7 +39,16 @@ const TOM_DO_STATUS: Record<string, "ok" | "neutro" | "erro"> = {
   erro: "erro",
 };
 
-export function ImportarXmls() {
+interface ImportadorXmlProps {
+  /** Atualiza o acervo que estiver atrás do modal após uma importação válida. */
+  aoConcluir?: () => void;
+}
+
+/**
+ * Conteúdo único usado tanto na tela de Importações quanto no atalho de
+ * Documentos. Assim os dois caminhos enviam os mesmos arquivos à mesma API.
+ */
+function ImportadorXml({ aoConcluir }: ImportadorXmlProps) {
   const { somenteLeitura } = useSessao();
   const { avisar } = useToast();
   const [arquivos, setArquivos] = useState<File[]>([]);
@@ -59,6 +65,7 @@ export function ImportarXmls() {
     try {
       const resposta = await api.importarXmls(arquivos);
       setResultado(resposta);
+      aoConcluir?.();
       avisar({
         tom: "ok",
         titulo: plural(resposta.importados, "nota importada", "notas importadas"),
@@ -76,108 +83,130 @@ export function ImportarXmls() {
   }
 
   return (
-    <Cartao
-      titulo="Importar XMLs do computador"
-      descricao="ZIP ou arquivos .xml exportados de outro sistema (ex.: Jettax360). Não gasta cota da SEFAZ — a nota é lida do próprio arquivo."
-      rodape={
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs text-tinta-suave">
-            {resultado
-              ? "Importação concluída — revise os itens abaixo."
-              : "O XML é casado com a empresa pelo CNPJ do destinatário (ou do emitente, quando é nota prestada)."}
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <Botao
-              variante="primaria"
-              onClick={enviar}
-              carregando={enviando}
-              disabled={!podeEnviar}
-              title={
-                somenteLeitura
-                  ? "Seu papel é somente leitura"
-                  : arquivos.length === 0
-                    ? "Escolha um .zip ou arquivos .xml"
-                    : undefined
-              }
-            >
-              Importar XMLs
-            </Botao>
-          </div>
-        </div>
-      }
-    >
-      <div className="space-y-4">
-        {erro ? <p className="text-sm text-erro">{erro}</p> : null}
+    <div className="space-y-4">
+      {erro ? <p role="alert" className="rounded-controle border border-erro/40 bg-erro-tenue px-3 py-2 text-sm text-erro">{erro}</p> : null}
 
-        {resultado ? (
-          <div className="space-y-4">
-            <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-5">
-              <Dado destaque rotulo="Arquivos" valor={numero(resultado.total)} />
-              <Dado destaque rotulo="Importadas" valor={numero(resultado.importados)} tom="ok" />
-              <Dado destaque rotulo="Já existiam" valor={numero(resultado.duplicadas)} />
-              <Dado destaque rotulo="Sem empresa" valor={numero(resultado.sem_empresa)} />
-              <Dado
-                destaque
-                rotulo="Com erro"
-                valor={numero(resultado.erros + resultado.nao_reconhecidos)}
-                tom={resultado.erros + resultado.nao_reconhecidos > 0 ? "erro" : undefined}
-              />
-            </dl>
+      {resultado ? (
+        <ResultadoImportacao resultado={resultado} />
+      ) : (
+        <CampoArquivo
+          rotulo="XMLs ou arquivo ZIP"
+          aceita=".zip,.xml"
+          multiplo
+          arquivos={arquivos}
+          aoMudar={setArquivos}
+          maxBytes={100 * 1024 * 1024}
+          descricao="Selecione um .zip com as notas ou os .xml soltos. Até 200 XMLs por lote; cada XML de até 2 MB."
+          textoArraste="Arraste as notas em XML ou um arquivo ZIP aqui"
+        />
+      )}
 
-            <div className="rolagem-fina max-h-80 overflow-y-auto rounded-cartao border border-traco">
-              <table className="w-full text-sm">
-                <caption className="sr-only">Arquivos processados</caption>
-                <thead className="sticky top-0 bg-superficie-alta">
-                  <tr className="border-b border-traco text-left text-2xs uppercase tracking-[.04em] text-tinta-suave">
-                    <th scope="col" className="px-3 py-2 font-medium">Arquivo</th>
-                    <th scope="col" className="px-3 py-2 font-medium">Empresa</th>
-                    <th scope="col" className="px-3 py-2 font-medium">Situação</th>
-                    <th scope="col" className="px-3 py-2 font-medium">Mensagem</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {resultado.itens.map((item, indice) => (
-                    <tr key={`${item.chave}-${indice}`} className="border-b border-traco last:border-0">
-                      <td className="px-3 py-2 text-xs text-tinta-suave">
-                        {item.origem}
-                        {item.tipo ? (
-                          <span className="ml-1 text-tinta-fraca">· {ROTULO_TIPO[item.tipo as keyof typeof ROTULO_TIPO] ?? item.tipo}</span>
-                        ) : null}
-                      </td>
-                      <th scope="row" className="px-3 py-2 text-left font-normal">
-                        <span className="block truncate text-tinta">{item.razao_social || "—"}</span>
-                        {item.cnpj_cpf ? (
-                          <Cnpj valor={item.cnpj_cpf} copiar={false} className="text-xs text-tinta-suave" />
-                        ) : null}
-                      </th>
-                      <td className="px-3 py-2">
-                        <Etiqueta tom={TOM_DO_STATUS[item.status] ?? "neutro"}>
-                          {ROTULO_STATUS[item.status] ?? item.status}
-                        </Etiqueta>
-                      </td>
-                      <td className="max-w-0 px-3 py-2">
-                        <span className="block truncate text-xs text-tinta-suave" title={item.mensagem}>
-                          {item.mensagem || "—"}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ) : (
-          <CampoArquivo
-            rotulo="ZIP ou XMLs exportados"
-            aceita=".zip,.xml"
-            multiplo
-            arquivos={arquivos}
-            aoMudar={setArquivos}
-            maxBytes={100 * 1024 * 1024}
-            descricao="Pode anexar um .zip com tudo dentro ou os .xml soltos. Até 200 XMLs por lote; cada XML de até 2 MB."
-          />
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-traco pt-3">
+        <p className="max-w-leitura text-xs leading-5 text-tinta-suave">
+          {resultado
+            ? "Importação concluída — revise os itens acima."
+            : "A nota é associada pelo CNPJ do destinatário ou, em nota prestada, pelo CNPJ do emitente. Não é necessário enviar certificado, senha ou UF."}
+        </p>
+        {resultado ? null : (
+          <Botao
+            variante="primaria"
+            onClick={enviar}
+            carregando={enviando}
+            disabled={!podeEnviar}
+            title={
+              somenteLeitura
+                ? "Seu papel é somente leitura"
+                : arquivos.length === 0
+                  ? "Selecione um .zip ou arquivos .xml antes de importar"
+                  : undefined
+            }
+          >
+            Importar notas
+          </Botao>
         )}
       </div>
+    </div>
+  );
+}
+
+function ResultadoImportacao({ resultado }: { resultado: ImportacaoXmlResposta }) {
+  return (
+    <div className="space-y-4">
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-5">
+        <Dado destaque rotulo="Arquivos" valor={numero(resultado.total)} />
+        <Dado destaque rotulo="Importadas" valor={numero(resultado.importados)} tom="ok" />
+        <Dado destaque rotulo="Já existiam" valor={numero(resultado.duplicadas)} />
+        <Dado destaque rotulo="Sem empresa" valor={numero(resultado.sem_empresa)} />
+        <Dado
+          destaque
+          rotulo="Com erro"
+          valor={numero(resultado.erros + resultado.nao_reconhecidos)}
+          tom={resultado.erros + resultado.nao_reconhecidos > 0 ? "erro" : undefined}
+        />
+      </dl>
+
+      <div className="rolagem-fina max-h-80 overflow-y-auto rounded-cartao border border-traco">
+        <table className="w-full text-sm">
+          <caption className="sr-only">Arquivos processados</caption>
+          <thead className="sticky top-0 bg-superficie-alta">
+            <tr className="border-b border-traco text-left text-2xs uppercase tracking-[.04em] text-tinta-suave">
+              <th scope="col" className="px-3 py-2 font-medium">Arquivo</th>
+              <th scope="col" className="px-3 py-2 font-medium">Empresa</th>
+              <th scope="col" className="px-3 py-2 font-medium">Situação</th>
+              <th scope="col" className="px-3 py-2 font-medium">Mensagem</th>
+            </tr>
+          </thead>
+          <tbody>
+            {resultado.itens.map((item, indice) => (
+              <tr key={`${item.chave}-${indice}`} className="border-b border-traco last:border-0">
+                <td className="px-3 py-2 text-xs text-tinta-suave">
+                  {item.origem}
+                  {item.tipo ? <span className="ml-1 text-tinta-fraca">· {ROTULO_TIPO[item.tipo as keyof typeof ROTULO_TIPO] ?? item.tipo}</span> : null}
+                </td>
+                <th scope="row" className="px-3 py-2 text-left font-normal">
+                  <span className="block truncate text-tinta">{item.razao_social || "—"}</span>
+                  {item.cnpj_cpf ? <Cnpj valor={item.cnpj_cpf} copiar={false} className="text-xs text-tinta-suave" /> : null}
+                </th>
+                <td className="px-3 py-2">
+                  <Etiqueta tom={TOM_DO_STATUS[item.status] ?? "neutro"}>{ROTULO_STATUS[item.status] ?? item.status}</Etiqueta>
+                </td>
+                <td className="max-w-0 px-3 py-2">
+                  <span className="block truncate text-xs text-tinta-suave" title={item.mensagem}>
+                    {item.mensagem || "—"}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/** Caminho completo na tela de Importações. */
+export function ImportarXmls({ aoConcluir }: ImportadorXmlProps) {
+  return (
+    <Cartao
+      titulo="Importar notas por XML"
+      descricao="Envie notas que você já recebeu de outro sistema. Este caminho não consulta a SEFAZ e não pede certificado, senha ou UF."
+    >
+      <ImportadorXml aoConcluir={aoConcluir} />
     </Cartao>
+  );
+}
+
+/** Atalho direto no acervo, onde a pessoa normalmente procura para incluir uma nota. */
+export function ModalImportarXmls({ aberto, aoFechar, aoConcluir }: { aberto: boolean; aoFechar: () => void; aoConcluir?: () => void }) {
+  return (
+    <Modal
+      aberto={aberto}
+      aoFechar={aoFechar}
+      titulo="Importar notas"
+      descricao="Selecione os XMLs ou um arquivo ZIP. As notas entram diretamente no acervo."
+      largura="larga"
+    >
+      <ImportadorXml aoConcluir={aoConcluir} />
+    </Modal>
   );
 }

@@ -344,15 +344,8 @@ export const api = {
     return chamar<ImportacaoXmlResposta>("/importacoes/xml", { method: "POST", body: form });
   },
 
-  importarEmpresasEmMassa: (
-    arquivos: File[],
-    planilhas: File[],
-    senha: string,
-    ufPadrao: string
-  ) => {
+  importarEmpresasEmMassa: (arquivos: File[], planilhas: File[]) => {
     const form = new FormData();
-    form.append("senha", senha);
-    form.append("uf_padrao", ufPadrao);
     for (const arquivo of arquivos) form.append("arquivos", arquivo);
     for (const planilha of planilhas) form.append("csv_arquivos", planilha);
     return chamar<LoteEmpresasResposta>("/empresas/lote", { method: "POST", body: form });

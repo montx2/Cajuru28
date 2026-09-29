@@ -151,6 +151,41 @@ def test_consulta_cnpj_preenche_uf_e_cadastro_sem_uf(cliente, monkeypatch):
     assert db.query(Empresa).filter(Empresa.cnpj_cpf == CNPJ_A).one().uf == "PR"
 
 
+def test_lote_sem_uf_confirmada_nao_inventa_estado(cliente, monkeypatch):
+    """Sem dado público ou planilha, o lote deve pedir correção — nunca supor SP."""
+    client, db, _ = cliente
+    from app.api.routers import empresas as router_empresas
+
+    monkeypatch.setattr(router_empresas, "consultar_cnpj", lambda _cnpj: None)
+    resposta = client.post(
+        "/empresas/lote",
+        data={"senha": SENHA},
+        files=[
+            ("arquivos", ("empresa_12345678000195.pfx", _pfx(CNPJ_A, "ALFA SERVICOS LTDA"), "application/octet-stream")),
+        ],
+    )
+
+    assert resposta.status_code == 200
+    item = resposta.json()["itens"][0]
+    assert item["status"] == "erro"
+    assert "UF não identificada automaticamente" in item["mensagem"]
+    assert db.query(Empresa).count() == 0
+
+
+def test_lote_recusa_o_601o_certificado(cliente):
+    """O limite exibido pela tela precisa ser aplicado também na API."""
+    client, _, _ = cliente
+    arquivos = [
+        ("arquivos", (f"certificado-{indice}.pfx", b"x", "application/octet-stream"))
+        for indice in range(601)
+    ]
+
+    resposta = client.post("/empresas/lote", files=arquivos)
+
+    assert resposta.status_code == 400
+    assert resposta.json()["detail"] == "Limite de 600 arquivos por lote."
+
+
 def test_lote_cria_empresas_e_vincula_certificado(cliente, tmp_path):
     client, db, escritorio_id = cliente
 

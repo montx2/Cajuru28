@@ -71,7 +71,7 @@ _UFS_VALIDAS = {
     "SP", "SE", "TO",
 }
 
-_LIMITE_ARQUIVOS = 500
+_LIMITE_ARQUIVOS = 600
 _LIMITE_BYTES_PFX = 30 * 1024 * 1024  # 30 MB por .pfx (mesmo limite do CAJURUFINAL)
 _LIMITE_BYTES_CSV = 10 * 1024 * 1024
 
@@ -340,7 +340,7 @@ def obter_sincronismo_empresa(
 
 @router.post("/lote", response_model=LoteEmpresasResposta)
 async def importar_empresas_em_massa(
-    uf_padrao: str = Form("SP"),
+    uf_padrao: str = Form(""),
     senha: str = Form(""),
     arquivos: list[UploadFile] = File(default=[]),
     csv_arquivos: list[UploadFile] = File(default=[]),
@@ -357,7 +357,8 @@ async def importar_empresas_em_massa(
       e grava o certificado cifrado.
     - `csv_arquivos`: opcional, uma ou mais planilhas (.xlsx, .xlsm, .csv, .txt)
       de senhas com colunas `razao_social;cnpj_cpf;uf` e opcionalmente `senha`.
-    - `uf_padrao`: fallback opcional.
+    - `uf_padrao`: compatibilidade com clientes antigos; o front-end consulta a
+      UF pelo CNPJ e não escolhe uma UF arbitrária para o lote.
     """
     uf_padrao = (uf_padrao or "").strip().upper()
     if uf_padrao and uf_padrao not in _UFS_VALIDAS:
@@ -620,14 +621,16 @@ async def _processar_pfx(
     cnpj_nome = cnpj_de_nome_arquivo(nome)
     linha_csv = linhas_csv.get(cnpj_nome, {})
     razao_conhecida = linha_csv.get("razao_social") or ""
-    if not razao_conhecida and cnpj_nome:
+    uf_da_empresa = ""
+    if cnpj_nome:
         empresa_existente = (
             db.query(Empresa)
             .filter(Empresa.escritorio_id == escritorio_id, Empresa.cnpj_cpf == cnpj_nome)
             .first()
         )
         if empresa_existente:
-            razao_conhecida = empresa_existente.razao_social
+            razao_conhecida = razao_conhecida or empresa_existente.razao_social
+            uf_da_empresa = empresa_existente.uf or ""
 
     senhas_declaradas = [s.strip() for s in linha_csv.get("senhas", []) if s.strip()]
     if senha.strip() and senha.strip() not in senhas_declaradas:
@@ -693,12 +696,31 @@ async def _processar_pfx(
         )
 
     linha = linhas_csv.get(cnpj, linha_csv)
+    if not uf_da_empresa:
+        empresa_existente = (
+            db.query(Empresa)
+            .filter(Empresa.escritorio_id == escritorio_id, Empresa.cnpj_cpf == cnpj)
+            .first()
+        )
+        uf_da_empresa = empresa_existente.uf if empresa_existente else ""
+
     publico = None
-    if not (linha.get("uf") or uf_padrao):
+    if not (linha.get("uf") or uf_padrao or uf_da_empresa):
         publico = _consulta_publica(cnpj)
-    uf = (linha.get("uf") or uf_padrao or (publico.uf if publico else "SP")).upper()
+    uf = (linha.get("uf") or uf_padrao or uf_da_empresa or (publico.uf if publico else "")).upper()
+
+    # A UF define o cUFAutor da consulta de NF-e/CT-e. Assumir SP aqui fazia
+    # uma empresa de outro estado parecer cadastrada e só falhar na SEFAZ muito
+    # depois. Quando a consulta pública não resolver, o resultado explica como
+    # completar o dado sem exibir um campo arbitrário para todo lote.
     if uf not in _UFS_VALIDAS:
-        uf = uf_padrao or "SP"
+        return ItemLoteEmpresas(
+            origem=nome,
+            cnpj_cpf=cnpj,
+            razao_social=identidade.razao_social,
+            status="erro",
+            mensagem="UF não identificada automaticamente. Anexe uma planilha de apoio com as colunas CNPJ e UF e importe este certificado novamente.",
+        )
 
     razao = (
         linha.get("razao_social")
