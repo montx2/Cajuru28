@@ -428,8 +428,8 @@ export function Procuracoes() {
           }
         >
           Pesquise a empresa e clique em <strong>Fazer procuração</strong>. A página oficial da Receita abre neste computador e o painel guarda
-          o processo para você só colar a confirmação no final. Não é necessário configurar estação, copiar comando ou instalar o Agent para usar
-          esse modo simples.
+          o processo para você só colar a confirmação no final. Se o portal pedir CAPTCHA, validação gov.br ou a senha do certificado, faça essa
+          confirmação na própria página oficial. Não é necessário configurar estação, copiar comando ou instalar o Agent para usar esse modo simples.
         </Aviso>
       ) : null}
 

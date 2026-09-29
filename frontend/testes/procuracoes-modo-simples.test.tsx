@@ -203,6 +203,7 @@ describe("modo simples de procurações", () => {
     expect(abrir).toHaveBeenCalledWith("", "_blank");
     expect(replace).toHaveBeenCalledWith("https://servicos.receitafederal.gov.br");
     expect(fechar).not.toHaveBeenCalled();
+    expect(await screen.findByText(/se a Receita pedir CAPTCHA/i)).toBeInTheDocument();
 
     abrir.mockRestore();
   });

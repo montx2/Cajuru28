@@ -197,7 +197,8 @@ export function PainelJob({ jobId, aoFechar, aoMudar }: Props) {
               }
             >
               Você está usando o modo simples neste computador. Entre no portal com o certificado solicitado, confirme a operação e volte só para
-              colar a mensagem ou o protocolo que a Receita mostrar. Não é preciso instalar nem configurar estação.
+              colar a mensagem ou o protocolo que a Receita mostrar. Se a Receita pedir CAPTCHA, confirmação do gov.br ou a senha do certificado,
+              faça isso no próprio portal: o Cajuru28 não pede, guarda nem tenta contornar essas proteções. Não é preciso instalar nem configurar estação.
             </Aviso>
           ) : null}
 

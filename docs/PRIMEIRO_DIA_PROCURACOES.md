@@ -8,6 +8,10 @@ configurar uma estação para fazer uma procuração no computador atual.
 3. a página oficial da Receita abre no mesmo computador; confirme o ato com o
    certificado e, ao terminar, cole a mensagem/protocolo no painel.
 
+Se o Portal da Receita mostrar CAPTCHA, confirmação do gov.br ou a senha do
+certificado, resolva isso **na própria página oficial**. Essas verificações são
+normais e o Cajuru28 não tenta clicar, preencher ou contorná-las.
+
 O painel guarda o processo, evita duplicidade, controla o aceite e alerta os
 prazos. A seção **Automação avançada**, mais abaixo, é opcional: serve apenas
 para quem quiser uma máquina dedicada organizando uma carteira grande em fila.
