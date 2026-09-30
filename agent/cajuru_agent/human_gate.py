@@ -58,6 +58,26 @@ def classificar_intervencao(texto: str) -> HumanGate:
     )
 
 
+def detectar_gate(texto: str) -> HumanGate | None:
+    """Diz se há um gate humano real na página (CAPTCHA, 2FA, PIN, seletor).
+
+    Diferente de :func:`classificar_intervencao`, que sempre devolve algo (com
+    ``MANUAL_REVIEW`` como último caso), esta função devolve ``None`` quando
+    nenhum padrão conhecido aparece — é o sinal que o ajudante usa para decidir
+    *não* pausar uma página que está apenas carregando normalmente.
+
+    Importante: um CAPTCHA é gate humano (a pessoa resolve), **não** é motivo
+    para recarregar. A recarga é reservada ao bloqueio por automação, tratado
+    em ``navegador_conducao``.
+    """
+    observado = texto or ""
+    for tipo, padrao in _PADROES:
+        if padrao.search(observado):
+            return HumanGate(tipo=tipo, codigo_erro=tipo.value, mensagem=_MENSAGENS[tipo])
+    return None
+
+
+
 def pauseForCaptcha(detalhe: str = "") -> HumanGate:  # noqa: N802 - API operacional pedida no requisito
     return HumanGate(
         tipo=TipoHumanGate.CAPTCHA_REQUIRED,

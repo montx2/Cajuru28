@@ -201,6 +201,15 @@ class ConducaoConsole:
     def avisar(self, mensagem: str) -> None:
         self._escrever(f"  → {mensagem}")
 
+    def finalizar_ordem(self) -> None:
+        """No modo console não há sessão de navegador para limpar.
+
+        Existe para dar às duas conduções a mesma interface: o executor chama
+        ``finalizar_ordem`` após cada job e o ajudante por navegador usa isso
+        para zerar os cookies antes do próximo cliente.
+        """
+        return None
+
 
 def _quebrar(texto: str, largura: int) -> Sequence[str]:
     palavras = texto.split()

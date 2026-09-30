@@ -209,7 +209,13 @@ class Agente:
                 for ordem in ordens:
                     if self._parar:
                         break
-                    self.executar_ordem(ordem)
+                    try:
+                        self.executar_ordem(ordem)
+                    finally:
+                        # "Depois que eu autorizar, limpe os cookies e vá para o
+                        # próximo": vale mesmo se a ordem terminou em intervenção
+                        # ou erro — o próximo cliente nunca herda a sessão.
+                        self.conducao.finalizar_ordem()
 
             except ProtocoloError as exc:
                 if exc.codigo == "ASSINADOR_NAO_INSTALADO":

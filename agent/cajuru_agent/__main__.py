@@ -379,13 +379,57 @@ def cmd_testar(args) -> int:
     return 0
 
 
+#: Nome do canal Playwright (msedge/chrome/chromium) → nome de política
+#: AutoSelectCertificateForUrls (edge/chrome/chromium).
+_POLITICA_POR_CANAL = {"msedge": "edge", "edge": "edge", "chrome": "chrome", "chromium": "chromium"}
+
+
+def _executar_com_navegador(config: Configuracao, cliente: ClienteCajuru, args) -> int:
+    """Laço principal conduzido pelo ajudante local no navegador real."""
+    try:
+        from .browser_automation import (
+            OpcoesSessaoBrowser,
+            PlaywrightIndisponivel,
+            PlaywrightPaginaSync,
+        )
+        from .navegador_conducao import ConducaoNavegador
+    except ImportError as exc:  # pragma: no cover - dependência opcional
+        print(f"\n  ✖ Modo navegador indisponível: {exc}\n")
+        return 2
+
+    base = pasta_base()
+    canal = (config.navegador or "msedge").lower()
+    opcoes = OpcoesSessaoBrowser(
+        job_id=0,
+        identidade=config.identificador,
+        user_data_dir=base / "navegador",
+        evidencias_dir=base / "evidencias",
+        navegador=canal,
+        headless=False,
+    )
+    print("  Modo: navegador (ajudante local). Uma janela do navegador vai abrir.")
+    print("  Você resolve CAPTCHA e assina; o ato de autorizar é sempre seu.\n")
+    try:
+        with PlaywrightPaginaSync(opcoes) as pagina:
+            conducao = ConducaoNavegador(
+                pagina, navegador=_POLITICA_POR_CANAL.get(canal, "edge")
+            )
+            agente = Agente(config, cliente, conducao=conducao)
+            return agente.rodar(ciclos=args.ciclos)
+    except PlaywrightIndisponivel as exc:
+        print(f"\n  ✖ {exc}\n")
+        return 2
+
+
 def cmd_executar(args) -> int:
     config = Configuracao.carregar()
     cliente = _cliente(config)
-    agente = Agente(config, cliente)
     print(f"\n  Cajuru Agent {VERSAO_AGENTE} — estação {config.identificador}")
     print(f"  Servidor: {config.servidor_url}")
     print("  Ctrl+C encerra com segurança (o job volta para a fila).\n")
+    if getattr(args, "modo", "console") == "navegador":
+        return _executar_com_navegador(config, cliente, args)
+    agente = Agente(config, cliente)
     return agente.rodar(ciclos=args.ciclos)
 
 
@@ -461,6 +505,12 @@ def construir_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("executar", help="laço principal")
     p.add_argument("--ciclos", type=int, default=None)
+    p.add_argument(
+        "--modo",
+        choices=["console", "navegador"],
+        default="console",
+        help="console conduz pela linha de comando; navegador abre e percorre o portal por você",
+    )
     p.set_defaults(func=cmd_executar)
     return parser
 
