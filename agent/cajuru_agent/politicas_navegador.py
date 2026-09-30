@@ -12,8 +12,9 @@ O módulo é deliberadamente conservador:
 * só gera regras a partir de metadados públicos do certificado instalado;
 * nunca lê PFX, senha ou chave privada;
 * usa filtros por ``SUBJECT`` e ``ISSUER`` quando disponíveis;
-* não remove políticas existentes; ao aplicar, apenas acrescenta uma regra que
-  ainda não exista;
+* não remove políticas de terceiros; no fluxo automático, substitui apenas as
+  regras dos padrões RFB que o próprio Agent gerencia, evitando que o certificado
+  do cliente anterior continue concorrendo;
 * falha fechado quando houver mais de um certificado possível para o documento.
 
 Referência técnica: navegadores Chromium aceitam uma lista de strings JSON no
@@ -274,14 +275,70 @@ def diagnosticar_politicas() -> DiagnosticoPoliticas:
     return DiagnosticoPoliticas(windows=windows, navegadores=navegadores, observacoes=tuple(observacoes))
 
 
-def aplicar_politica(politica: PoliticaGerada) -> ResultadoAplicacaoPolitica:
-    """Aplica a política no HKCU do Windows sem sobrescrever valores existentes."""
+def _padrao_da_regra(valor: str) -> str:
+    """Lê apenas o campo `pattern` de uma regra já gravada no registro."""
+    try:
+        objeto = json.loads(valor)
+    except (TypeError, ValueError):
+        return ""
+    return str(objeto.get("pattern") or "")
+
+
+def aplicar_politica(
+    politica: PoliticaGerada,
+    *,
+    substituir_padroes: bool = False,
+) -> ResultadoAplicacaoPolitica:
+    """Aplica a política no HKCU.
+
+    O modo manual preserva valores existentes. Já o fluxo automático passa
+    ``substituir_padroes=True``: a Receita pede um certificado diferente em
+    cada cliente, e deixar regras antigas para o mesmo domínio faria o Edge/
+    Chrome continuar exibindo o seletor ou escolher um A1 anterior.
+    Regras de outros padrões permanecem intactas.
+    """
     if platform.system() != "Windows":
         raise PoliticaNavegadorError("Aplicação automática de política só está disponível no Windows.")
 
     existentes = _reg_query(politica.caminho_registro_hkcu)
+    padroes_alvo = {regra.pattern for regra in politica.regras}
+    valores_atuais = {regra.para_json() for regra in politica.regras}
+    nomes_gerenciados = {
+        nome
+        for nome, valor in existentes.items()
+        if _padrao_da_regra(valor) in padroes_alvo
+    }
+    # Se exatamente as regras desejadas já estão presentes e não há sobra do
+    # mesmo padrão, não reinicia a contagem nem escreve no registro à toa.
+    ja_configurada = (
+        not substituir_padroes
+        and valores_atuais.issubset(set(existentes.values()))
+    ) or (
+        substituir_padroes
+        and {existentes[nome] for nome in nomes_gerenciados} == valores_atuais
+        and len(nomes_gerenciados) == len(valores_atuais)
+    )
+
+    if substituir_padroes and not ja_configurada:
+        for nome in sorted(nomes_gerenciados, key=lambda item: int(item) if item.isdigit() else item):
+            subprocess.run(  # noqa: S603 — chave e nome vieram do registro desta política
+                [
+                    "reg",
+                    "delete",
+                    rf"HKCU\{politica.caminho_registro_hkcu}",
+                    "/v",
+                    nome,
+                    "/f",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=True,
+            )
+        existentes = {nome: valor for nome, valor in existentes.items() if nome not in nomes_gerenciados}
+
     valores_existentes = set(existentes.values())
-    proximo = (max([int(k) for k in existentes.keys()] or [0]) + 1)
+    proximo = (max([int(k) for k in existentes.keys() if k.isdigit()] or [0]) + 1)
     adicionadas = 0
     mensagens: list[str] = []
 
@@ -317,7 +374,7 @@ def aplicar_politica(politica: PoliticaGerada) -> ResultadoAplicacaoPolitica:
         )
         adicionadas += 1
         proximo += 1
-    if adicionadas:
+    if adicionadas or substituir_padroes and nomes_gerenciados:
         mensagens.append("Reinicie o navegador e confira chrome://policy ou edge://policy.")
     return ResultadoAplicacaoPolitica(
         navegador=politica.navegador,

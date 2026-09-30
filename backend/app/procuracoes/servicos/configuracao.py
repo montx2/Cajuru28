@@ -15,7 +15,7 @@ from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 
-from app.procuracoes.estados import VIGENCIA_MAXIMA, ModoOperacao
+from app.procuracoes.estados import ModoOperacao
 from app.procuracoes.modelos import (
     ModeloAutorizacao,
     ModeloAutorizacaoServico,
@@ -125,6 +125,20 @@ class PlanoAutorizacao:
         return self.escopo_servicos == "ALL"
 
 
+def _mais_cinco_anos(base: date) -> date:
+    """Retorna a mesma data no quinto aniversário, inclusive em ano bissexto.
+
+    A Receita trabalha com data de expiração, não com uma quantidade fixa de
+    dias. Usar ``60 * 30,4375`` podia deslocar a validade em alguns meses e
+    contrariava a configuração explícita de "exatamente 5 anos". Em 29/02,
+    o último dia de fevereiro é o único aniversário representável.
+    """
+    try:
+        return base.replace(year=base.year + 5)
+    except ValueError:  # 29/02 → 28/02 no ano não bissexto
+        return base.replace(year=base.year + 5, day=28)
+
+
 def montar_plano(
     db: Session,
     escritorio_id: int,
@@ -136,15 +150,20 @@ def montar_plano(
 
     A vigência é limitada a 5 anos porque o portal recusa datas acima disso —
     deixar o operador submeter e ser recusado no passo 3 desperdiça uma
-    sessão inteira com certificado.
+    sessão inteira com certificado. Quando o modelo padrão é de 60 meses, a
+    data é o quinto aniversário do início, e não uma aproximação em dias.
     """
     modelo = modelo or obter_modelo_padrao(db, escritorio_id)
     base = inicio or date.today()
     meses = max(1, min(int(modelo.vigencia_meses or 60), 60))
-    # Aproximação por dias evita dependência de calendário: o portal aceita
-    # qualquer data dentro do teto, e arredondar para baixo nunca extrapola.
-    vigencia = base + timedelta(days=int(meses * 30.4375))
-    teto = base + VIGENCIA_MAXIMA - timedelta(days=1)
+    if meses == 60:
+        vigencia = _mais_cinco_anos(base)
+        teto = vigencia
+    else:
+        # Para modelos menores, mantém a conversão existente em dias. O
+        # modelo padrão e o fluxo direto usam o ramo exato acima.
+        vigencia = base + timedelta(days=int(meses * 30.4375))
+        teto = _mais_cinco_anos(base)
     if vigencia > teto:
         vigencia = teto
 

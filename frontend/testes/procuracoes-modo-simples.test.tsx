@@ -22,7 +22,7 @@ const ROTEIRO = [
     fase: "outorga",
     titulo: "Entrar no Portal de Serviços como o cliente",
     instrucao: "Entre com o certificado do cliente.",
-    url: "https://servicos.receitafederal.gov.br",
+    url: "https://servicos.receitafederal.gov.br/servico/autorizacoes",
     confirmacao: "Sessão aberta.",
     executor: "operador" as const,
     certificado: "cliente" as const,
@@ -91,13 +91,13 @@ vi.mock("@/lib/api", () => ({
         fase: "outorga",
         titulo: "Entrar no Portal de Serviços como o cliente",
         instrucao: "Entre com o certificado do cliente.",
-        url: "https://servicos.receitafederal.gov.br",
+        url: "https://servicos.receitafederal.gov.br/servico/autorizacoes",
         confirmacao: "Sessão aberta.",
         executor: "operador",
         certificado: "cliente",
       }],
       fundamento: "A confirmação acontece no portal oficial.",
-      urls_oficiais: { portal_servicos: "https://servicos.receitafederal.gov.br", ecac: "https://cav.receita.fazenda.gov.br" },
+      urls_oficiais: { portal_servicos: "https://servicos.receitafederal.gov.br/servico/autorizacoes", ecac: "https://cav.receita.fazenda.gov.br" },
     }),
     criarJobProcuracao: (...args: unknown[]) => criarJobProcuracao(...args),
     intervencaoJobProcuracao: (...args: unknown[]) => intervencaoJobProcuracao(...args),
@@ -182,7 +182,11 @@ describe("modo simples de procurações", () => {
     criarJobProcuracao.mockResolvedValue({ id: 50, fase: "outorga" });
     intervencaoJobProcuracao.mockResolvedValue({ id: 50, status: "intervencao_manual" });
     jobProcuracao.mockResolvedValue(detalheDoJob());
-    configuracaoProcuracoes.mockResolvedValue({ outorgado_documento: "11222333000181", outorgado_nome: "Contabilidade" });
+    configuracaoProcuracoes.mockResolvedValue({
+      outorgado_documento: "11222333000181",
+      outorgado_nome: "Contabilidade",
+      processamento_automatico: false,
+    });
     salvarConfiguracaoProcuracoes.mockResolvedValue({});
   });
 
@@ -195,24 +199,42 @@ describe("modo simples de procurações", () => {
 
     montar();
 
-    expect(await screen.findByText(/não é necessário configurar estação/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Sem Agent, o painel mantém o modo manual/i)).toBeInTheDocument();
     await usuario.click(screen.getByRole("button", { name: "Fazer procuração" }));
 
     await waitFor(() => expect(criarJobProcuracao).toHaveBeenCalledWith(10));
     expect(intervencaoJobProcuracao).toHaveBeenCalledWith(50, "Operação direta iniciada pelo painel neste computador.");
     expect(abrir).toHaveBeenCalledWith("", "_blank");
-    expect(replace).toHaveBeenCalledWith("https://servicos.receitafederal.gov.br");
+    expect(replace).toHaveBeenCalledWith("https://servicos.receitafederal.gov.br/servico/autorizacoes");
     expect(fechar).not.toHaveBeenCalled();
     expect(await screen.findByText(/se a Receita pedir CAPTCHA/i)).toBeInTheDocument();
 
     abrir.mockRestore();
   });
 
+  it("entrega o job ao Agent quando a automação local está ligada", async () => {
+    const usuario = userEvent.setup();
+    const abrir = vi.spyOn(window, "open");
+    configuracaoProcuracoes.mockResolvedValue({
+      outorgado_documento: "11222333000181",
+      outorgado_nome: "Contabilidade",
+      processamento_automatico: true,
+    });
+
+    montar();
+    await usuario.click(await screen.findByRole("button", { name: "Fazer procuração" }));
+
+    await waitFor(() => expect(criarJobProcuracao).toHaveBeenCalledWith(10));
+    expect(intervencaoJobProcuracao).not.toHaveBeenCalled();
+    expect(abrir).not.toHaveBeenCalled();
+    expect(await screen.findByText(/Agent abrirá a página oficial/i)).toBeInTheDocument();
+    abrir.mockRestore();
+  });
+
   it("pede só a identidade jurídica do escritório na primeira vez e continua sem tela técnica", async () => {
     const usuario = userEvent.setup();
-    const replace = vi.fn();
     const fechar = vi.fn();
-    const janela = { opener: window, location: { replace }, close: fechar } as unknown as Window;
+    const janela = { opener: window, location: { replace: vi.fn() }, close: fechar } as unknown as Window;
     const abrir = vi.spyOn(window, "open").mockReturnValue(janela);
     configuracaoProcuracoes.mockResolvedValue({ outorgado_documento: "", outorgado_nome: "" });
 
@@ -237,8 +259,8 @@ describe("modo simples de procurações", () => {
       )
     );
     await waitFor(() => expect(criarJobProcuracao).toHaveBeenCalledWith(10));
-    expect(abrir).toHaveBeenCalledWith("", "_blank");
-    expect(replace).toHaveBeenCalledWith("https://servicos.receitafederal.gov.br");
+    expect(intervencaoJobProcuracao).not.toHaveBeenCalled();
+    expect(abrir).not.toHaveBeenCalled();
     expect(fechar).not.toHaveBeenCalled();
 
     abrir.mockRestore();

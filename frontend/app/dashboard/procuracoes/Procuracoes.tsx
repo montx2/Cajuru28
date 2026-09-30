@@ -51,8 +51,8 @@ const SITUACOES: Array<{ valor: string; rotulo: string }> = [
  * pessoa, no ambiente oficial da Receita, com o certificado do cliente — a
  * IN RFB nº 2.320/2026 (art. 13) veda camada de intermediação automatizada.
  * O que o sistema automatiza é tudo em volta: descobrir quem falta, validar
- * certificado e Assinador, montar a fila, abrir a página certa, registrar o
- * resultado e vigiar os prazos.
+ * certificado e Assinador, montar a fila, entregar ao Agent local para abrir
+ * a página certa, registrar o resultado e vigiar os prazos.
  */
 export function Procuracoes() {
   const { definir, ler } = useUrlEstado();
@@ -89,8 +89,9 @@ export function Procuracoes() {
   );
   const notificacoes = useRecurso(() => api.notificacoesProcuracao(true), []);
   // A mesma fonte que alimenta o roteiro do processo também informa qual é a
-  // página oficial que o botão simples pode abrir. Não há URL inventada no
-  // navegador nem redirecionamento para domínio de terceiro.
+  // página oficial que o modo manual pode abrir. No modo automático, a janela
+  // é aberta pelo Agent local com a política do certificado. Não há URL
+  // inventada no navegador nem redirecionamento para domínio de terceiro.
   const roteiro = useRecurso(() => api.roteiroProcuracao(), []);
   useSinalizarAtualizacao(resumo.atualizando || lista.atualizando);
 
@@ -131,17 +132,24 @@ export function Procuracoes() {
   }, [avisar, recarregar]);
 
   const criarProcuracaoDireta = useCallback(
-    async (linha: LinhaProcuracao, abaJaAberta: Window | null = null) => {
-      // A aba é criada ainda dentro do clique para não cair no bloqueador de
-      // pop-up. Ela só recebe um endereço oficial depois de o job existir.
-      // Se algo falhar, a aba vazia é fechada e nenhum processo fica oculto.
-      const abaDaReceita = abaJaAberta ?? (typeof window === "undefined" ? null : window.open("", "_blank"));
+    async (linha: LinhaProcuracao, usarAgent: boolean) => {
+      // O Agent local precisa ser o único dono da janela automática: ele abre
+      // um contexto isolado, aplica AutoSelectCertificateForUrls e limpa a
+      // sessão entre clientes. O modo manual mantém a aba simples como
+      // fallback quando o escritório opta por não usar uma estação.
+      const abaDaReceita = usarAgent
+        ? null
+        : typeof window === "undefined"
+          ? null
+          : window.open("", "_blank");
       try {
         const job = await api.criarJobProcuracao(linha.empresa_id);
-        await api.intervencaoJobProcuracao(
-          job.id,
-          "Operação direta iniciada pelo painel neste computador."
-        );
+        if (!usarAgent) {
+          await api.intervencaoJobProcuracao(
+            job.id,
+            "Operação direta iniciada pelo painel neste computador."
+          );
+        }
 
         const paginaOficial =
           roteiro.dados?.passos.find((passo) => passo.fase === job.fase && passo.url)?.url ??
@@ -155,10 +163,12 @@ export function Procuracoes() {
 
         avisar({
           tom: "ok",
-          titulo: "Procuração iniciada",
-          descricao: abaDaReceita
-            ? "A página oficial da Receita foi aberta. Depois de confirmar, volte aqui e cole a mensagem do portal."
-            : "O processo está pronto. Abra a página oficial pelo botão no painel ao lado.",
+          titulo: usarAgent ? "Procuração enviada para automação local" : "Procuração iniciada",
+          descricao: usarAgent
+            ? "O Cajuru Agent abrirá a página oficial com o A1 do cliente. Você só resolve as proteções oficiais e assina na janela do SERPRO."
+            : abaDaReceita
+              ? "A página oficial da Receita foi aberta. Depois de confirmar, volte aqui e cole a mensagem do portal."
+              : "O processo está pronto. Abra a página oficial pelo botão no painel ao lado.",
         });
         recarregar();
         setJobAberto(job.id);
@@ -183,7 +193,7 @@ export function Procuracoes() {
           setDadosDoEscritorioAbertos(true);
           return;
         }
-        await criarProcuracaoDireta(linha);
+        await criarProcuracaoDireta(linha, configuracao.processamento_automatico !== false);
       } catch (erro) {
         avisar({
           tom: "erro",
@@ -196,14 +206,14 @@ export function Procuracoes() {
   );
 
   const concluirDadosDoEscritorio = useCallback(
-    (abaDaReceita: Window | null) => {
+    () => {
       const empresa = empresaParaFazer;
       setDadosDoEscritorioAbertos(false);
       setEmpresaParaFazer(null);
       if (empresa) {
-        void criarProcuracaoDireta(empresa, abaDaReceita);
-      } else {
-        abaDaReceita?.close();
+        // A configuração recém-salva usa o padrão automático. A próxima
+        // abertura do painel continua permitindo desligá-lo em Configurar.
+        void criarProcuracaoDireta(empresa, true);
       }
     },
     [criarProcuracaoDireta, empresaParaFazer]
@@ -414,10 +424,10 @@ export function Procuracoes() {
       />
 
       <Aviso tom="info" icone="certificado" titulo="Como funciona neste computador">
-        Pesquise a empresa e clique em <strong>Fazer procuração</strong>. A página oficial da Receita abre neste computador e o painel guarda o
-        processo para você só colar a confirmação no final. Se o portal pedir CAPTCHA, validação gov.br ou a senha do certificado, faça essa
-        confirmação na própria página oficial: o Cajuru28 não pede, guarda nem tenta contornar essas proteções. Tudo acontece neste computador —
-        não é necessário configurar estação, copiar comando ou instalar nada para usar esse modo.
+        Pesquise a empresa e clique em <strong>Fazer procuração</strong>. Com o Agent local ligado, ele abre automaticamente a página oficial de
+        Autorizações com o A1 do cliente e o painel guarda o processo para você só resolver as proteções oficiais e assinar na janela do SERPRO.
+        Se o portal pedir CAPTCHA, validação gov.br ou a senha do certificado, faça essa confirmação na própria página oficial: o Cajuru28 não
+        pede, guarda nem tenta contornar essas proteções. Sem Agent, o painel mantém o modo manual e abre o mesmo endereço oficial.
       </Aviso>
 
       {(notificacoes.dados ?? []).slice(0, 2).map((item) => (

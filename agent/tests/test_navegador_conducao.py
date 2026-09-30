@@ -38,6 +38,7 @@ class PaginaFalsa:
         self.recargas = 0
         self.cliques: list[str] = []
         self.cookies_limpos = 0
+        self.reinicios = 0
         self.evidencias: list[tuple[str, str]] = []
         self.esperas = 0
         self.clique_ok = True
@@ -65,6 +66,9 @@ class PaginaFalsa:
 
     def limpar_cookies(self):
         self.cookies_limpos += 1
+
+    def reiniciar(self):
+        self.reinicios += 1
 
     def capturar_evidencia(self, etapa, prefixo):
         self.evidencias.append((etapa, prefixo))
@@ -131,6 +135,25 @@ def test_captcha_pausa_sem_recarregar():
     assert pagina.recargas == 0, "CAPTCHA nunca recarrega a página"
 
 
+def test_modo_navegador_aguarda_gate_na_mesma_sessao():
+    pagina = PaginaFalsa(["Resolva o captcha para prosseguir", "Portal pronto"])
+    conducao = _conducao(
+        pagina,
+        esperar_gates=True,
+        relogio=lambda: 0,
+    )
+    passo = {
+        "etapa": "acesso_portal",
+        "executor": "operador",
+        "titulo": "Entrar",
+        "confirmacao": "Portal pronto",
+    }
+    resposta = conducao.conduzir_etapa(passo, 1, 1)
+    assert resposta.confirmada
+    assert pagina.recargas == 0
+    assert pagina.esperas == 1
+
+
 def test_automacao_persistente_escala_para_intervencao_apos_o_teto():
     pagina = PaginaFalsa(["comportamento automatizado detectado"])
     passo = {"etapa": "acesso_portal", "executor": "sistema", "titulo": "Entrar"}
@@ -168,6 +191,7 @@ def test_etapa_do_operador_espera_a_conclusao_e_nao_clica_o_ato():
         "executor": "operador",
         "titulo": "Assinar",
         "confirmacao": "Autorização registrada",
+        "ancora_conclusao": "Autorização registrada",
     }
     resposta = _conducao(pagina).conduzir_etapa(passo, 2, 2)
     assert resposta.confirmada
@@ -184,7 +208,13 @@ def test_etapa_do_operador_com_gate_vira_intervencao():
 
 def test_etapa_do_operador_estoura_prazo_sem_conclusao():
     pagina = PaginaFalsa(["ainda preenchendo"])
-    passo = {"etapa": "assinatura", "executor": "operador", "titulo": "Assinar", "confirmacao": "Situação: Ativa"}
+    passo = {
+        "etapa": "assinatura",
+        "executor": "operador",
+        "titulo": "Assinar",
+        "confirmacao": "Situação: Ativa",
+        "aguardar_mudanca": True,
+    }
     tempos = iter([0, 0, 999])  # inicio, checagem1 (<prazo), checagem2 (estoura)
     conducao = _conducao(pagina, espera_humano_ms=2_000, relogio=lambda: next(tempos))
     resposta = conducao.conduzir_etapa(passo, 1, 1)
@@ -216,6 +246,7 @@ def test_cabecalho_aplica_politica_do_certificado_do_cliente_na_outorga():
         }
     )
     assert chamadas == [("12345678000195", "a" * 64, "edge")]
+    assert pagina.reinicios == 1, "a política precisa ser carregada antes da navegação autenticada"
 
 
 def test_finalizar_ordem_limpa_os_cookies():
@@ -296,7 +327,7 @@ def test_executor_registra_com_a_prova_lida_e_limpa_entre_jobs(monkeypatch):
         "empresa_documento": "12345678000195",
         "certificado_documento": "12345678000195",
         "roteiro": [
-            {"etapa": "acesso", "executor": "sistema", "titulo": "Abrir", "url": "https://servicos.receitafederal.gov.br"},
+            {"etapa": "acesso", "executor": "sistema", "titulo": "Abrir", "url": "https://servicos.receitafederal.gov.br/servico/autorizacoes"},
             {"etapa": "assinatura", "executor": "operador", "titulo": "Assinar", "confirmacao": "Autorização registrada"},
         ],
     }
@@ -304,7 +335,7 @@ def test_executor_registra_com_a_prova_lida_e_limpa_entre_jobs(monkeypatch):
     agente.config.intervalo_busca_segundos = 1
     agente.rodar(ciclos=1)
 
-    assert conducao.pagina.abertas == ["https://servicos.receitafederal.gov.br"]
+    assert conducao.pagina.abertas == ["https://servicos.receitafederal.gov.br/servico/autorizacoes"]
     registrado = next(c for c in agente.cliente.resultados if c.get("resultado") == "outorga_registrada")
     assert registrado["protocolo"] == "2026.0001112223"
     assert pagina.cookies_limpos == 1, "cada job termina limpando os cookies"

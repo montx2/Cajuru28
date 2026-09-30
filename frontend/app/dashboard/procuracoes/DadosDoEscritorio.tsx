@@ -15,12 +15,8 @@ import { useToast } from "@/components/ui/Toast";
 interface Props {
   aberta: boolean;
   aoFechar: () => void;
-  /**
-   * A aba é aberta no clique de continuação, antes da ida à API, para que o
-   * navegador não a trate como pop-up. Quem chamou continua o mesmo fluxo
-   * direto e fecha a aba se a criação do job falhar.
-   */
-  aoSalvar: (abaDaReceita: Window | null) => void;
+  /** A tela principal decide se o job será entregue ao Agent ou aberto manualmente. */
+  aoSalvar: () => void;
 }
 
 /**
@@ -51,9 +47,6 @@ export function DadosDoEscritorio({ aberta, aoFechar, aoSalvar }: Props) {
   async function salvarEContinuar() {
     if (!configuracao.dados || !documento.trim() || somenteLeitura || !ehAdmin) return;
 
-    // Mantém a ativação de usuário: depois de um `await`, alguns navegadores
-    // bloqueiam `window.open`. A Receita só recebe a URL oficial mais adiante.
-    const abaDaReceita = typeof window === "undefined" ? null : window.open("", "_blank");
     setSalvando(true);
     try {
       await api.salvarConfiguracaoProcuracoes({
@@ -62,9 +55,8 @@ export function DadosDoEscritorio({ aberta, aoFechar, aoSalvar }: Props) {
         outorgado_nome: nome.trim(),
       });
       avisar({ tom: "ok", titulo: "Dados do escritório salvos", descricao: "Eles serão usados nas próximas procurações deste escritório." });
-      aoSalvar(abaDaReceita);
+      aoSalvar();
     } catch (erro) {
-      abaDaReceita?.close();
       avisar({ tom: "erro", titulo: "Não foi possível salvar os dados do escritório", descricao: mensagemDoErro(erro, "salvar os dados do escritório") });
     } finally {
       setSalvando(false);

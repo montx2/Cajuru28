@@ -151,7 +151,11 @@ if ($JaTem) {
 if (-not $SemTarefaAgendada) {
     Escrever-Passo "Registrando tarefa agendada (inicia no logon do usuario)"
     $NomeTarefa = 'Cajuru28 - Agent Procuracoes'
-    $Acao    = New-ScheduledTaskAction -Execute $PythonVenv -Argument '-m cajuru_agent executar' -WorkingDirectory $Destino
+    # O modo navegador é o fluxo operacional padrão: abre o Portal de Serviços
+    # no navegador real e aplica a seleção automática do A1 correto. CAPTCHA,
+    # autenticação e assinatura continuam sendo resolvidos pelo operador na página
+    # oficial; o Agent não tenta contornar essas proteções.
+    $Acao    = New-ScheduledTaskAction -Execute $PythonVenv -Argument '-m cajuru_agent executar --modo navegador' -WorkingDirectory $Destino
     $Gatilho = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
     $Opcoes  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
                                             -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 5)
@@ -176,6 +180,6 @@ Escrever-Passo "Testando a conexao com o Cajuru28"
 
 Write-Host ""
 Write-Host "Instalacao concluida." -ForegroundColor Green
-Write-Host "Para iniciar agora:  $PythonVenv -m cajuru_agent executar" -ForegroundColor White
+Write-Host "Para iniciar agora:  $PythonVenv -m cajuru_agent executar --modo navegador" -ForegroundColor White
 Write-Host "Log da estacao    :  $Destino\agent.log" -ForegroundColor White
 Write-Host ""
