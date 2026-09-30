@@ -100,7 +100,7 @@ describe("navegação", () => {
   });
 
   it("telas internas ficam fora do menu, mas com trilha para o pai", () => {
-    for (const caminho of ["/dashboard/procuracoes/empresa", "/dashboard/procuracoes/estacoes"]) {
+    for (const caminho of ["/dashboard/procuracoes/empresa"]) {
       const rota = rotaDoCaminho(caminho);
       expect(rota?.oculta).toBe(true);
       expect(rota?.pai).toBe("/dashboard/procuracoes");

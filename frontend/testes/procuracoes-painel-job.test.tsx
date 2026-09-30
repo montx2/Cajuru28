@@ -49,8 +49,6 @@ vi.mock("@/components/shell/ProvedorSessao", () => ({
   }),
 }));
 
-const SEM_ESTACAO = { situacao: "revogado", ativo: false };
-
 function evento(parcial: Partial<EventoJobProcuracao>): EventoJobProcuracao {
   return {
     id: 1,
@@ -191,31 +189,17 @@ describe("painel do processo de autorização", () => {
     expect(secao.textContent).not.toContain("· você");
   });
 
-  it("oferece o modo simples quando o processo ainda espera uma estação", async () => {
+  it("oferece o modo simples neste computador enquanto o processo não foi assumido", async () => {
     jobProcuracao.mockResolvedValue(job({ status: "aguardando_agente" }));
-    agentesProcuracao.mockResolvedValue([SEM_ESTACAO]);
 
     montar();
 
     expect(await screen.findByText(/faça agora neste computador/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /fazer neste computador/i })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /automação avançada/i })).toHaveAttribute(
-      "href",
-      "/dashboard/procuracoes/estacoes"
-    );
     expect(screen.getByText(/registrar apenas a confirmação final/i)).toBeInTheDocument();
-  });
-
-  it("não acusa falta de estação quando há uma viva", async () => {
-    jobProcuracao.mockResolvedValue(job({ status: "aguardando_agente" }));
-    agentesProcuracao.mockResolvedValue([
-      { situacao: "online", ativo: true },
-      SEM_ESTACAO,
-    ]);
-
-    montar();
-    await screen.findByText("R10 NOGUEIRA SAUDE LTDA");
-    expect(screen.queryByText(/nenhuma está de pé/i)).toBeNull();
+    // O módulo não fala mais em estação: nada de link para configurá-la.
+    expect(screen.queryByRole("link", { name: /automação avançada/i })).toBeNull();
+    expect(screen.queryByText(/dashboard\/procuracoes\/estacoes/i)).toBeNull();
   });
 
   it("libera o registro manual de outorga a partir da intervenção", async () => {
