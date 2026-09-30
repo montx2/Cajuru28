@@ -82,13 +82,52 @@ privada permanecem no repositório de certificados do Windows (`CurrentUser\My`)
 A data interna do certificado é a fonte de verdade: uma divergência com a
 planilha vira aviso, não bloqueio silencioso.
 
+## Modo navegador (o "ajudante local")
+
+Além do modo console (que conduz o operador por texto), o Agent tem o **modo
+navegador**: ele mesmo abre o Portal da Receita, entra com o certificado do
+cliente e vai percorrendo os caminhos, parando exatamente onde o ato é seu.
+
+```powershell
+cajuru-agent executar --modo navegador
+```
+
+Regras deste modo, pensadas uma a uma:
+
+- **Entra com o certificado do cliente automaticamente.** No início de cada job
+  ele garante a política `AutoSelectCertificateForUrls` do documento/thumbprint
+  daquele cliente, então o Chrome/Edge escolhe o A1 certo sem abrir o seletor.
+- **Vai clicando nos caminhos certos.** Só as etapas de navegação (marcadas como
+  `sistema` no roteiro) são percorridas sozinhas.
+- **Nunca pratica o ato de outorga.** Preencher o formulário, assinar e
+  confirmar a autorização é sempre seu — IN RFB nº 2.320/2026, art. 13. O
+  ajudante espera você concluir e só então segue.
+- **Recarrega a página só quando o portal acusa automação** ("acesso
+  automatizado", desafios anti-robô de WAF). CAPTCHA, código por SMS/app, PIN e
+  seletor de certificado **não** recarregam: ele para e devolve o volante a
+  você. Se a automação persistir após algumas recargas, ele para e pede sua
+  ação.
+- **Depois que você autoriza, limpa os cookies e vai para o próximo cliente** —
+  sem herdar login nem estado da sessão anterior.
+- **Nada é concluído sem prova real.** O protocolo e a situação são lidos da
+  própria tela; se não houver confirmação verificável, o job aguarda registro
+  manual em vez de ser dado como pronto.
+
+Requer o Playwright instalado na estação:
+
+```powershell
+pip install -r agent/requirements.txt
+python -m playwright install chromium
+```
+
 ## Execução manual
 
 ```powershell
-cajuru-agent diagnose        # pré-flight completo: Windows, rede, Playwright, certificados, navegador e Assinador
-cajuru-agent diagnostico     # só o diagnóstico do Assinador, sem falar com o servidor
-cajuru-agent certificados    # lista o que a máquina enxerga
-cajuru-agent executar        # laço principal
+cajuru-agent diagnose            # pré-flight completo: Windows, rede, Playwright, certificados, navegador e Assinador
+cajuru-agent diagnostico         # só o diagnóstico do Assinador, sem falar com o servidor
+cajuru-agent certificados        # lista o que a máquina enxerga
+cajuru-agent executar            # laço principal (modo console)
+cajuru-agent executar --modo navegador   # laço principal com o ajudante abrindo o portal
 ```
 
 ## Seleção automática do certificado no Chrome/Edge

@@ -187,6 +187,49 @@ class PlaywrightPortalSession:
                 raise TimeoutError(f"Human gate não foi resolvido dentro do prazo: {gate.codigo_erro}")
             await self.page.wait_for_timeout(250)
 
+    async def recarregar(self) -> None:
+        await self.page.reload(wait_until="domcontentloaded")
+
+    async def texto_visivel(self) -> str:
+        try:
+            return await self.page.inner_text("body")
+        except Exception:  # página em branco/entre navegações
+            try:
+                return await self.page.content()
+            except Exception:
+                return ""
+
+    async def clicar(self, alvo: str) -> bool:
+        """Clica um controle de navegação por role/texto (nunca por coordenada).
+
+        Só é usado nas etapas de navegação (``executor == "sistema"``). O ato de
+        outorga não passa por aqui — ele é sempre humano.
+        """
+        for tentativa in (
+            lambda: self.page.get_by_role("link", name=alvo, exact=False).first,
+            lambda: self.page.get_by_role("button", name=alvo, exact=False).first,
+            lambda: self.page.get_by_text(alvo, exact=False).first,
+        ):
+            try:
+                locator = tentativa()
+                await locator.wait_for(state="visible", timeout=5_000)
+                await locator.click()
+                return True
+            except Exception:
+                continue
+        return False
+
+    async def limpar_cookies(self) -> None:
+        """Zera cookies e armazenamento local — o próximo cliente começa limpo."""
+        if self._context is not None:
+            await self._context.clear_cookies()
+        try:
+            await self.page.evaluate(
+                "() => { try { localStorage.clear(); sessionStorage.clear(); } catch (e) {} }"
+            )
+        except Exception:
+            pass
+
     async def capturar_evidencia(self, *, etapa: str, prefixo: str = "evidencia") -> EvidenciaCapturada:
         seguro = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in etapa)[:80]
         base = self.opcoes.evidencias_dir / f"{prefixo}-job-{self.opcoes.job_id}-{seguro}"
@@ -208,3 +251,77 @@ def _redigir_html(html: str) -> str:
         # valores próximos a campos de segredo sem tentar parsear a página.
         texto = re.sub(termo, f"{termo}[REDACTED]", texto, flags=re.IGNORECASE)
     return texto
+
+
+class PlaywrightPaginaSync:
+    """Adaptador síncrono do Playwright para a condução do ajudante.
+
+    A condução (``navegador_conducao.ConducaoNavegador``) é síncrona de
+    propósito — assim toda a lógica de decisão é testável sem um navegador. Esta
+    classe empresta os primitivos do navegador real por trás da mesma interface
+    ``PaginaControlada``, mantendo um único event loop e uma única sessão
+    persistente para toda a execução (os cookies são zerados entre clientes por
+    ``limpar_cookies``, não recriando o navegador a cada job).
+
+    Uso::
+
+        with PlaywrightPaginaSync(opcoes) as pagina:
+            conducao = ConducaoNavegador(pagina, navegador="edge")
+            Agente(config, cliente, conducao=conducao).rodar()
+    """
+
+    def __init__(self, opcoes: "OpcoesSessaoBrowser"):
+        self._opcoes = opcoes
+        self._loop = None
+        self._sessao: PlaywrightPortalSession | None = None
+
+    # -- ciclo de vida -----------------------------------------------------
+
+    def __enter__(self) -> "PlaywrightPaginaSync":
+        self._loop = asyncio.new_event_loop()
+        self._sessao = PlaywrightPortalSession(self._opcoes)
+        self._rodar(self._sessao.__aenter__())
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        try:
+            if self._sessao is not None:
+                self._rodar(self._sessao.__aexit__(exc_type, exc, tb))
+        finally:
+            if self._loop is not None:
+                self._loop.close()
+                self._loop = None
+        return False
+
+    def _rodar(self, coro):
+        assert self._loop is not None
+        return self._loop.run_until_complete(coro)
+
+    # -- PaginaControlada --------------------------------------------------
+
+    def abrir(self, url: str) -> None:
+        self._rodar(self._sessao.abrir(url))
+
+    def url_atual(self) -> str:
+        return self._sessao.page.url if self._sessao else ""
+
+    def texto_visivel(self) -> str:
+        return self._rodar(self._sessao.texto_visivel())
+
+    def recarregar(self) -> None:
+        self._rodar(self._sessao.recarregar())
+
+    def clicar(self, alvo: str) -> bool:
+        return bool(self._rodar(self._sessao.clicar(alvo)))
+
+    def esperar(self, ms: int) -> None:
+        self._rodar(self._sessao.page.wait_for_timeout(ms))
+
+    def limpar_cookies(self) -> None:
+        self._rodar(self._sessao.limpar_cookies())
+
+    def capturar_evidencia(self, etapa: str, prefixo: str) -> None:
+        try:
+            self._rodar(self._sessao.capturar_evidencia(etapa=etapa, prefixo=prefixo))
+        except Exception:  # evidência é best-effort; nunca derruba a condução
+            pass

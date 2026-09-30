@@ -367,10 +367,7 @@ export function Procuracoes() {
     },
   ];
 
-  const semEstacao = (dados?.agentes_online ?? 0) === 0 && (dados?.agentes_total ?? 0) > 0;
-  const semAgenteNenhum = (dados?.agentes_total ?? 0) === 0;
-  const semAssinador =
-    (dados?.agentes_online ?? 0) > 0 && (dados?.agentes_com_assinador ?? 0) === 0;
+
 
   return (
     <div className="space-y-5">
@@ -416,36 +413,12 @@ export function Procuracoes() {
         }
       />
 
-      {semAgenteNenhum ? (
-        <Aviso
-          tom="info"
-          icone="certificado"
-          titulo="Faça direto neste computador"
-          acao={
-            <Link href="/dashboard/procuracoes/estacoes" className="text-xs font-medium underline underline-offset-4">
-              Automação avançada
-            </Link>
-          }
-        >
-          Pesquise a empresa e clique em <strong>Fazer procuração</strong>. A página oficial da Receita abre neste computador e o painel guarda
-          o processo para você só colar a confirmação no final. Se o portal pedir CAPTCHA, validação gov.br ou a senha do certificado, faça essa
-          confirmação na própria página oficial. Não é necessário configurar estação, copiar comando ou instalar o Agent para usar esse modo simples.
-        </Aviso>
-      ) : null}
-
-      {semEstacao ? (
-        <Aviso tom="erro" icone="monitor" titulo="Nenhuma estação respondendo">
-          As estações cadastradas pararam de enviar sinal. Jobs em andamento voltam sozinhos para a fila; nada é perdido. Verifique se o Cajuru
-          Agent está em execução nas máquinas do escritório.
-        </Aviso>
-      ) : null}
-
-      {semAssinador ? (
-        <Aviso tom="erro" icone="certificado" titulo="Assinador SERPRO indisponível nas estações">
-          Nenhum job é entregue enquanto o Assinador Digital SERPRO não estiver instalado, em execução e respondendo na porta local. A tela de
-          Estações lista exatamente o que falta em cada máquina.
-        </Aviso>
-      ) : null}
+      <Aviso tom="info" icone="certificado" titulo="Como funciona neste computador">
+        Pesquise a empresa e clique em <strong>Fazer procuração</strong>. A página oficial da Receita abre neste computador e o painel guarda o
+        processo para você só colar a confirmação no final. Se o portal pedir CAPTCHA, validação gov.br ou a senha do certificado, faça essa
+        confirmação na própria página oficial: o Cajuru28 não pede, guarda nem tenta contornar essas proteções. Tudo acontece neste computador —
+        não é necessário configurar estação, copiar comando ou instalar nada para usar esse modo.
+      </Aviso>
 
       {(notificacoes.dados ?? []).slice(0, 2).map((item) => (
         <Aviso
@@ -528,7 +501,7 @@ export function Procuracoes() {
               {numero(total)} {plural(total, "empresa", "empresas")}
               {dados ? (
                 <span className="ml-2 text-tinta-fraca">
-                  · {numero(dados.jobs_na_fila)} na fila · {numero(dados.agentes_online)} estação(ões) online
+                  · {numero(dados.jobs_na_fila)} na fila
                 </span>
               ) : null}
             </p>

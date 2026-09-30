@@ -24,6 +24,17 @@ from app.models import (
     StatusExecucao,
     Usuario,
 )
+from app.procuracoes.modelos import (
+    Agente,
+    Autorizacao,
+    CertificadoInventario,
+    CredencialIntegracao,
+    IntegracaoJob,
+    JobProcuracao,
+    ModeloAutorizacao,
+    NotificacaoProcuracao,
+    ProcuracaoConfiguracao,
+)
 from app.schemas import BackupRegistroResposta, ResetGeralResposta, SaudeBackupResposta
 from app.services import auditoria, backup as svc_backup
 from app.worker.celery_app import celery_app
@@ -183,6 +194,25 @@ def reset_geral(
     sincronizacoes = db.query(SincronizacaoDFe).filter(SincronizacaoDFe.empresa_id.in_(empresa_ids or [-1])).count()
     empresas = len(empresa_ids)
 
+    # Procurações RFB apontam para as empresas (procuracao_jobs.empresa_id,
+    # procuracao_autorizacoes.empresa_id, etc.). Se não limparmos essas linhas
+    # primeiro, o DELETE das empresas quebra com foreign key violation e o
+    # "Apagar tudo" falha inteiro (era exatamente o erro em produção). A limpeza
+    # é por escritório: mesmo sem empresas pode haver configuração, modelos e
+    # agentes desse escritório que precisam sumir para começar do zero.
+    #
+    # Ordem importa: quem referencia vem antes de quem é referenciado. Filhos com
+    # ON DELETE CASCADE (eventos/evidências/sessões/permissões/serviços) somem
+    # junto do pai, então não precisam de DELETE explícito.
+    db.query(NotificacaoProcuracao).filter(NotificacaoProcuracao.escritorio_id == escritorio_id).delete(synchronize_session=False)
+    db.query(JobProcuracao).filter(JobProcuracao.escritorio_id == escritorio_id).delete(synchronize_session=False)
+    db.query(Autorizacao).filter(Autorizacao.escritorio_id == escritorio_id).delete(synchronize_session=False)
+    db.query(CertificadoInventario).filter(CertificadoInventario.escritorio_id == escritorio_id).delete(synchronize_session=False)
+    db.query(IntegracaoJob).filter(IntegracaoJob.escritorio_id == escritorio_id).delete(synchronize_session=False)
+    db.query(ModeloAutorizacao).filter(ModeloAutorizacao.escritorio_id == escritorio_id).delete(synchronize_session=False)
+    db.query(Agente).filter(Agente.escritorio_id == escritorio_id).delete(synchronize_session=False)
+    db.query(ProcuracaoConfiguracao).filter(ProcuracaoConfiguracao.escritorio_id == escritorio_id).delete(synchronize_session=False)
+
     if empresa_ids:
         ids_documentos = select(DocumentoFiscal.id).where(DocumentoFiscal.empresa_id.in_(empresa_ids))
         db.query(EventoFiscalPendente).filter(EventoFiscalPendente.empresa_id.in_(empresa_ids)).delete(synchronize_session=False)
@@ -196,6 +226,7 @@ def reset_geral(
     integracoes = 0
     if remover_integracoes:
         integracoes += db.query(AcessoriasCredencial).filter(AcessoriasCredencial.escritorio_id == escritorio_id).delete(synchronize_session=False)
+        integracoes += db.query(CredencialIntegracao).filter(CredencialIntegracao.escritorio_id == escritorio_id).delete(synchronize_session=False)
 
     auditoria.registrar(
         db,

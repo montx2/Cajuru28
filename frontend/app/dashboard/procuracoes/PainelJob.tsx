@@ -44,10 +44,6 @@ export function PainelJob({ jobId, aoFechar, aoMudar }: Props) {
   const [enviando, setEnviando] = useState(false);
 
   const job = useRecurso(() => (jobId ? api.jobProcuracao(jobId) : Promise.resolve(null)), [jobId]);
-  const estacoes = useRecurso(
-    () => (jobId ? api.agentesProcuracao() : Promise.resolve([])),
-    [jobId]
-  );
   const dados = job.dados;
 
   const executar = useCallback(
@@ -83,15 +79,12 @@ export function PainelJob({ jobId, aoFechar, aoMudar }: Props) {
   const podeRegistrarAceite =
     dados?.status === "aguardando_validacao" || dados?.status === "validando" || (emIntervencao && fase === "aceite");
   const terminal = dados?.status === "concluido" || dados?.status === "cancelado" || dados?.status === "falhou";
-  const esperandoEstacao = dados?.status === "pendente" || dados?.status === "aguardando_agente";
-  /** Sem estação viva, "aguardando estação" é promessa que não se cumpre. */
-  const semEstacaoUtil = (estacoes.dados ?? []).every(
-    (item) => !item.ativo || item.situacao === "revogado" || item.situacao === "offline"
-  );
-  // O modo simples não usa estação: o próprio navegador deste computador abre
-  // o Portal de Serviços. Ele é também a rota de continuidade do aceite para
-  // quem escolheu operar sem uma fila automática.
-  const modoDireto = Boolean(dados && !terminal && semEstacaoUtil && (emIntervencao || fase === "aceite"));
+  // Um processo que ainda não foi assumido neste computador.
+  const aguardandoInicio = dados?.status === "pendente" || dados?.status === "aguardando_agente";
+  // Todo processo roda neste computador: o próprio navegador abre o Portal de
+  // Serviços da Receita. Não há estação, fila remota nem SERPRO — o modo
+  // simples é o único modo.
+  const modoDireto = Boolean(dados && !terminal);
   const paginaOficial = dados?.roteiro.find((passo) => passo.url)?.url ?? "";
 
   return (
@@ -196,19 +189,16 @@ export function PainelJob({ jobId, aoFechar, aoMudar }: Props) {
                 ) : null
               }
             >
-              Você está usando o modo simples neste computador. Entre no portal com o certificado solicitado, confirme a operação e volte só para
-              colar a mensagem ou o protocolo que a Receita mostrar. Se a Receita pedir CAPTCHA, confirmação do gov.br ou a senha do certificado,
-              faça isso no próprio portal: o Cajuru28 não pede, guarda nem tenta contornar essas proteções. Não é preciso instalar nem configurar estação.
+              Tudo acontece neste computador. Entre no portal com o certificado solicitado, confirme a operação e volte só para colar a mensagem
+              ou o protocolo que a Receita mostrar. Se a Receita pedir CAPTCHA, confirmação do gov.br ou a senha do certificado, faça isso no
+              próprio portal: o Cajuru28 não pede, guarda nem tenta contornar essas proteções. Não há estação para instalar ou configurar.
             </Aviso>
           ) : null}
 
-          {esperandoEstacao && semEstacaoUtil ? (
+          {aguardandoInicio && !emIntervencao ? (
             <Aviso tom="info" icone="externo" titulo="Faça agora neste computador">
               Clique em <span className="font-medium">Fazer neste computador</span>. O painel abre a página oficial da Receita e deixa este
-              processo pronto para você registrar apenas a confirmação final. A automação por estação é opcional e fica em{" "}
-              <a href="/dashboard/procuracoes/estacoes" className="text-acento underline-offset-4 hover:underline">
-                Automação avançada
-              </a>.
+              processo pronto para você registrar apenas a confirmação final.
             </Aviso>
           ) : null}
 
