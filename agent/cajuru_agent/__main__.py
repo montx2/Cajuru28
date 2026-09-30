@@ -412,7 +412,12 @@ def _executar_com_navegador(config: Configuracao, cliente: ClienteCajuru, args) 
     try:
         with PlaywrightPaginaSync(opcoes) as pagina:
             conducao = ConducaoNavegador(
-                pagina, navegador=_POLITICA_POR_CANAL.get(canal, "edge")
+                pagina,
+                navegador=_POLITICA_POR_CANAL.get(canal, "edge"),
+                # Proteções do portal são resolvidas na mesma janela pelo
+                # operador; não fechamos a sessão nem exigimos retomada após
+                # hCaptcha/2FA/PIN.
+                esperar_gates=True,
             )
             agente = Agente(config, cliente, conducao=conducao)
             return agente.rodar(ciclos=args.ciclos)

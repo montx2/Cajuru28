@@ -106,8 +106,20 @@ class Agente:
 
         for indice, passo in enumerate(roteiro, start=1):
             etapa = str(passo.get("etapa") or "")
+            passo_execucao = dict(passo)
+            # No navegador, a conclusão de uma etapa humana é observável pela
+            # âncora da próxima tela. O backend já envia essas âncoras; usá-las
+            # aqui evita esperar pela frase instrucional de `confirmacao`, que
+            # é texto para o operador e não necessariamente aparece no DOM.
+            if str(passo.get("executor")) != "sistema":
+                proximo = roteiro[indice] if indice < total else None
+                ancoras_proximas = list((proximo or {}).get("ancoras") or [])
+                if ancoras_proximas:
+                    passo_execucao["ancora_conclusao"] = ancoras_proximas[0]
+                else:
+                    passo_execucao["aguardar_mudanca"] = True
             try:
-                resposta = self.conducao.conduzir_etapa(passo, indice, total)
+                resposta = self.conducao.conduzir_etapa(passo_execucao, indice, total)
             except OperacaoCancelada as exc:
                 self.cliente.resultado(
                     job_id,

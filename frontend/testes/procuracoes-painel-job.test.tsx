@@ -194,9 +194,9 @@ describe("painel do processo de autorização", () => {
 
     montar();
 
-    expect(await screen.findByText(/faça agora neste computador/i)).toBeInTheDocument();
+    expect(await screen.findByText(/aguardando a estação automática/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /fazer neste computador/i })).toBeInTheDocument();
-    expect(screen.getByText(/registrar apenas a confirmação final/i)).toBeInTheDocument();
+    expect(screen.getByText(/preparará o roteiro/i)).toBeInTheDocument();
     // O módulo não fala mais em estação: nada de link para configurá-la.
     expect(screen.queryByRole("link", { name: /automação avançada/i })).toBeNull();
     expect(screen.queryByText(/dashboard\/procuracoes\/estacoes/i)).toBeNull();

@@ -42,7 +42,9 @@ from app.procuracoes.estados import EtapaFluxo, FaseJob
 
 #: Portal de Serviços da RFB — casa das "Autorizações de Acesso" desde a
 #: substituição da "Procuração Eletrônica" (dez/2025).
-PORTAL_SERVICOS = "https://servicos.receitafederal.gov.br"
+# Entrada direta no serviço solicitado pelo escritório. Mantemos o caminho
+# completo para não abrir a home e depender de mais um clique do operador.
+PORTAL_SERVICOS = "https://servicos.receitafederal.gov.br/servico/autorizacoes"
 
 #: Centro Virtual de Atendimento. Continua sendo caminho válido de entrada.
 ECAC = "https://cav.receita.fazenda.gov.br/autenticacao/login"
@@ -289,6 +291,7 @@ def roteiro_serializado(fase: FaseJob | str | None = None) -> list[dict]:
             "titulo": item.titulo,
             "instrucao": item.instrucao,
             "url": item.url,
+            "ancoras": list(item.ancoras),
             "confirmacao": item.confirmacao,
             "executor": item.executor,
             "certificado": item.certificado,

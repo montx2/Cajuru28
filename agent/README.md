@@ -84,9 +84,11 @@ planilha vira aviso, não bloqueio silencioso.
 
 ## Modo navegador (o "ajudante local")
 
-Além do modo console (que conduz o operador por texto), o Agent tem o **modo
-navegador**: ele mesmo abre o Portal da Receita, entra com o certificado do
-cliente e vai percorrendo os caminhos, parando exatamente onde o ato é seu.
+O Agent instalado pela tarefa agendada já inicia no **modo navegador**. Além do
+modo console (que conduz o operador por texto), ele abre diretamente
+`https://servicos.receitafederal.gov.br/servico/autorizacoes`, entra com o
+certificado do cliente selecionado pela política do navegador e vai percorrendo
+os caminhos, parando exatamente onde o ato é seu.
 
 ```powershell
 cajuru-agent executar --modo navegador

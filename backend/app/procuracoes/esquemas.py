@@ -45,7 +45,7 @@ class ConfiguracaoEntrada(Base):
     outorgado_documento: str = ""
     outorgado_nome: str = Field("", max_length=255)
     modo_padrao: Literal["assistido", "consulta_api", "nao_assistido"] = "assistido"
-    processamento_automatico: bool = False
+    processamento_automatico: bool = True
     sincronizacao_automatica: bool = True
     hora_sincronizacao: int = Field(6, ge=0, le=23)
     intervalo_entre_jobs_segundos: int = Field(30, ge=0, le=3600)

@@ -130,7 +130,7 @@ export function ConfiguracaoProcuracoes({ aberta, aoFechar, aoSalvar }: Props) {
             <Alternador
               rotulo="Montar a fila automaticamente"
               descricao="O agendador avalia a carteira e cria os processos. A execução no portal continua sendo humana."
-              ligado={Boolean(valor("processamento_automatico", false))}
+              ligado={Boolean(valor("processamento_automatico", true))}
               aoMudar={(ligado) => setRascunho((atualizado) => ({ ...atualizado, processamento_automatico: ligado }))}
               desabilitado={somenteLeitura}
               motivoDesabilitado={MOTIVO_SOMENTE_LEITURA}

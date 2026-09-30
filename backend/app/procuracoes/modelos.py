@@ -74,8 +74,10 @@ class ProcuracaoConfiguracao(Base):
         String(20), default=ModoOperacao.ASSISTIDO.value
     )
     # Ligado = o agendador monta fila e distribui sozinho. A execução do ato
-    # continua assistida; o que o agendador automatiza é o preparo.
-    processamento_automatico: Mapped[bool] = mapped_column(Boolean, default=False)
+    # continua assistida; o que o agendador automatiza é o preparo. O padrão
+    # ligado permite que uma estação Cajuru Agent já instalada pegue o job sem
+    # exigir um clique extra em "Processar pendências".
+    processamento_automatico: Mapped[bool] = mapped_column(Boolean, default=True)
     sincronizacao_automatica: Mapped[bool] = mapped_column(Boolean, default=True)
     hora_sincronizacao: Mapped[int] = mapped_column(Integer, default=6)
     intervalo_entre_jobs_segundos: Mapped[int] = mapped_column(Integer, default=30)

@@ -287,6 +287,11 @@ def test_so_dominios_oficiais_sao_aceitos():
     assert not portal.url_permitida("https://localhost:8080")
 
 
+def test_roteiro_abre_o_servico_de_autorizacoes_diretamente():
+    assert portal.PORTAL_SERVICOS == "https://servicos.receitafederal.gov.br/servico/autorizacoes"
+    assert portal.roteiro_da_fase(FaseJob.OUTORGA)[1].url == portal.PORTAL_SERVICOS
+
+
 def test_roteiro_cobre_as_duas_fases_com_identidade_correta():
     outorga = portal.roteiro_da_fase(FaseJob.OUTORGA)
     aceite = portal.roteiro_da_fase(FaseJob.ACEITE)

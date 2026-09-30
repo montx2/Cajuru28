@@ -234,6 +234,7 @@ class ConducaoNavegador:
         intervalo_espera_ms: int = 1_000,
         aplicar_politica: Callable[..., str] | None = None,
         relogio: Callable[[], float] = time.monotonic,
+        esperar_gates: bool = False,
     ):
         self.pagina = pagina
         self.navegador = navegador
@@ -243,6 +244,12 @@ class ConducaoNavegador:
         self.intervalo_espera_ms = max(1, int(intervalo_espera_ms))
         self._aplicar_politica = aplicar_politica or aplicar_politica_padrao
         self._relogio = relogio
+        # O modo de produção fica aguardando na mesma janela quando o portal
+        # mostra hCaptcha/2FA/PIN. Assim o operador resolve a proteção oficial
+        # e o fluxo continua sem perder a sessão nem precisar clicar em
+        # "Retomar" no painel. O padrão falso mantém o contrato síncrono dos
+        # testes e do modo console.
+        self.esperar_gates = bool(esperar_gates)
 
     # -- apresentação / preparação ----------------------------------------
 
@@ -318,11 +325,42 @@ class ConducaoNavegador:
         return self._aguardar_humano(passo)
 
     def _estabilizar(self, passo: dict, ancoras: Sequence[str]) -> Decisao:
-        """Resolve automação (recarregando) até a página assentar ou escalar."""
+        """Resolve bloqueios transitórios sem clicar às cegas.
+
+        Recarregar é reservado ao bloqueio que declara automação. CAPTCHA,
+        2FA, PIN e seletor de certificado são gates legítimos: no modo de
+        navegador aguardamos o operador resolvê-los na própria página; no modo
+        console/compatibilidade devolvemos a intervenção como antes.
+        """
         recargas = 0
+        # Não consuma o relógio no modo compatibilidade: além de ser
+        # desnecessário sem espera de gates, isso mantém a condução de console
+        # determinística para chamadas que fornecem um relógio de teste.
+        inicio_gate = self._relogio() if self.esperar_gates else 0.0
+        avisou_gate = False
         while True:
             decisao = avaliar_pagina(self.pagina.texto_visivel(), ancoras)
             if decisao.acao is not Acao.RECARREGAR:
+                if decisao.acao is Acao.INTERVIR and self.esperar_gates and decisao.codigo in {
+                    "CAPTCHA_REQUIRED",
+                    "TWO_FACTOR_REQUIRED",
+                    "PIN_REQUIRED",
+                    "CERTIFICATE_SELECTION_REQUIRED",
+                }:
+                    if not avisou_gate:
+                        self.avisar(
+                            f"{decisao.detalhe} Resolva na janela oficial; "
+                            "o Agent aguardará sem recarregar."
+                        )
+                        avisou_gate = True
+                    if (self._relogio() - inicio_gate) >= self.espera_humano_ms / 1_000:
+                        return Decisao(
+                            Acao.INTERVIR,
+                            codigo=decisao.codigo,
+                            detalhe="O desafio oficial não foi resolvido dentro do prazo.",
+                        )
+                    self.pagina.esperar(self.intervalo_espera_ms)
+                    continue
                 return decisao
             if recargas >= self.max_recargas:
                 return Decisao(
@@ -338,24 +376,39 @@ class ConducaoNavegador:
             self.pagina.capturar_evidencia(str(passo.get("etapa") or ""), "automacao-detectada")
             self.pagina.recarregar()
             self.pagina.esperar(self.espera_recarga_ms)
+            inicio_gate = self._relogio() if self.esperar_gates else 0.0
+            avisou_gate = False
 
     def _aguardar_humano(self, passo: dict) -> RespostaEtapa:
-        conclusao = str(passo.get("ancora_conclusao") or passo.get("confirmacao") or "")
+        # `confirmacao` é a orientação mostrada ao operador (por exemplo,
+        # "confira o CNPJ"), não uma string que necessariamente exista no DOM.
+        # O executor injeta a âncora da próxima tela; no último ato, pede uma
+        # mudança observável de página antes de coletar o protocolo.
+        conclusao = str(passo.get("ancora_conclusao") or "")
+        aguardar_mudanca = bool(passo.get("aguardar_mudanca"))
         inicio = self._relogio()
         limite_s = self.espera_humano_ms / 1_000
+        texto_inicial = ""
         while True:
             decisao = self._estabilizar(passo, ())
             if decisao.acao is Acao.INTERVIR:
                 return RespostaEtapa(confirmada=False, intervencao=True, texto=decisao.detalhe or decisao.codigo)
 
-            if not conclusao:
-                # Sem âncora de conclusão declarada não há o que observar; o
-                # registro final (protocolo/confirmação) é a prova real, então
-                # seguimos e deixamos a checagem para pedir_confirmacao_final.
+            if not conclusao and not aguardar_mudanca:
+                # Sem observação declarada, a prova obrigatória continua sendo
+                # o protocolo/confirmação coletado no fim da fase.
                 return RespostaEtapa(confirmada=True)
 
-            if conclusao.lower() in (self.pagina.texto_visivel() or "").lower():
+            texto_atual = self.pagina.texto_visivel() or ""
+            if conclusao and conclusao.lower() in texto_atual.lower():
                 return RespostaEtapa(confirmada=True)
+            if aguardar_mudanca:
+                if extrair_protocolo(texto_atual) or extrair_confirmacao(texto_atual):
+                    return RespostaEtapa(confirmada=True)
+                if not texto_inicial:
+                    texto_inicial = texto_atual
+                elif texto_atual != texto_inicial:
+                    return RespostaEtapa(confirmada=True)
 
             if (self._relogio() - inicio) >= limite_s:
                 return RespostaEtapa(

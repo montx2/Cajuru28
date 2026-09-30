@@ -196,9 +196,10 @@ export function PainelJob({ jobId, aoFechar, aoMudar }: Props) {
           ) : null}
 
           {aguardandoInicio && !emIntervencao ? (
-            <Aviso tom="info" icone="externo" titulo="Faça agora neste computador">
-              Clique em <span className="font-medium">Fazer neste computador</span>. O painel abre a página oficial da Receita e deixa este
-              processo pronto para você registrar apenas a confirmação final.
+            <Aviso tom="info" icone="externo" titulo="Aguardando a estação automática">
+              Se o Cajuru Agent estiver instalado, ele abrirá a página oficial no caminho de Autorizações com o certificado do cliente e
+              preparará o roteiro. Se esta estação não usar o Agent, clique em <span className="font-medium">Fazer neste computador</span>
+              para abrir a Receita manualmente.
             </Aviso>
           ) : null}
 

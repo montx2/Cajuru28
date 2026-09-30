@@ -37,9 +37,13 @@ uma pessoa no portal oficial. Não é limitação técnica: em 2026 a IN RFB nº
 elimina a gestão em volta e deixa para a pessoa somente a conferência e a
 confirmação jurídica no portal oficial. Não há CAPTCHA, sessão, senha ou clique automático.
 
-No modo simples, o navegador que você já usa abre o Portal de Serviços. Se o
-portal não enxergar o certificado, instale o A1 no Windows antes de tentar
-novamente. Não entregue o PFX nem a planilha de senhas ao painel.
+No modo simples, o navegador que você já usa abre diretamente
+`https://servicos.receitafederal.gov.br/servico/autorizacoes`. Para o fluxo
+com seleção automática do A1, a tarefa instalada do Cajuru Agent inicia no
+modo navegador e aplica a política `AutoSelectCertificateForUrls` ao certificado
+exato do cliente antes de abrir esse endereço. Se o portal não enxergar o
+certificado, instale o A1 no Windows antes de tentar novamente. Não entregue o
+PFX nem a planilha de senhas ao painel.
 
 ## Antes da primeira procuração
 
