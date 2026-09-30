@@ -98,7 +98,9 @@ Regras deste modo, pensadas uma a uma:
 
 - **Entra com o certificado do cliente automaticamente.** No início de cada job
   ele garante a política `AutoSelectCertificateForUrls` do documento/thumbprint
-  daquele cliente, então o Chrome/Edge escolhe o A1 certo sem abrir o seletor.
+  daquele cliente, substitui somente as regras RFB gerenciadas pelo Agent e
+  reinicia o contexto do Chrome/Edge para a política ser carregada antes da
+  navegação. Assim o A1 certo é escolhido sem abrir o seletor.
 - **Vai clicando nos caminhos certos.** Só as etapas de navegação (marcadas como
   `sistema` no roteiro) são percorridas sozinhas.
 - **Nunca pratica o ato de outorga.** Preencher o formulário, assinar e

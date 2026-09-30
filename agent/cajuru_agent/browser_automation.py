@@ -320,6 +320,19 @@ class PlaywrightPaginaSync:
     def limpar_cookies(self) -> None:
         self._rodar(self._sessao.limpar_cookies())
 
+    def reiniciar(self) -> None:
+        """Reabre o contexto depois de alterar a política de certificado.
+
+        Chrome e Edge leem ``AutoSelectCertificateForUrls`` na inicialização.
+        Aplicar a regra com o navegador já aberto não basta: o contexto precisa
+        ser fechado e reaberto antes da primeira navegação autenticada.
+        """
+        if self._sessao is None:
+            return
+        self._rodar(self._sessao.__aexit__(None, None, None))
+        self._sessao = PlaywrightPortalSession(self._opcoes)
+        self._rodar(self._sessao.__aenter__())
+
     def capturar_evidencia(self, etapa: str, prefixo: str) -> None:
         try:
             self._rodar(self._sessao.capturar_evidencia(etapa=etapa, prefixo=prefixo))

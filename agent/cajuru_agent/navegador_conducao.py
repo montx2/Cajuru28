@@ -180,7 +180,10 @@ def aplicar_politica_padrao(documento: str, thumbprint: str, *, navegador: str =
     aplicadas = 0
     for politica in politicas:
         try:
-            aplicadas += pol.aplicar_politica(politica).adicionadas
+            aplicadas += pol.aplicar_politica(
+                politica,
+                substituir_padroes=True,
+            ).adicionadas
         except pol.PoliticaNavegadorError as exc:  # pragma: no cover - específico do SO
             return f"não foi possível aplicar a política: {exc}"
     return f"certificado de {certificado.titular_nome or documento} selecionado automaticamente ({aplicadas} regra(s) nova(s))"
@@ -266,6 +269,17 @@ class ConducaoNavegador:
                     documento, str(ordem.get("certificado_thumbprint") or ""), navegador=self.navegador
                 )
                 self.avisar(f"Certificado: {mensagem}")
+                # Edge/Chrome carregam a política somente ao iniciar. O
+                # adaptador Playwright real expõe `reiniciar`; páginas falsas e
+                # a condução de testes não precisam implementá-lo.
+                reiniciar = getattr(self.pagina, "reiniciar", None)
+                if (
+                    callable(reiniciar)
+                    and "indisponível" not in mensagem.lower()
+                    and "não configurada" not in mensagem.lower()
+                    and "não foi possível" not in mensagem.lower()
+                ):
+                    reiniciar()
             except Exception as exc:  # noqa: BLE001 - preparação nunca derruba o job
                 log.warning("politica_certificado_falhou: %s", exc)
                 self.avisar(f"Certificado: seleção automática indisponível ({exc}).")

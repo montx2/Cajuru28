@@ -38,6 +38,7 @@ class PaginaFalsa:
         self.recargas = 0
         self.cliques: list[str] = []
         self.cookies_limpos = 0
+        self.reinicios = 0
         self.evidencias: list[tuple[str, str]] = []
         self.esperas = 0
         self.clique_ok = True
@@ -65,6 +66,9 @@ class PaginaFalsa:
 
     def limpar_cookies(self):
         self.cookies_limpos += 1
+
+    def reiniciar(self):
+        self.reinicios += 1
 
     def capturar_evidencia(self, etapa, prefixo):
         self.evidencias.append((etapa, prefixo))
@@ -242,6 +246,7 @@ def test_cabecalho_aplica_politica_do_certificado_do_cliente_na_outorga():
         }
     )
     assert chamadas == [("12345678000195", "a" * 64, "edge")]
+    assert pagina.reinicios == 1, "a política precisa ser carregada antes da navegação autenticada"
 
 
 def test_finalizar_ordem_limpa_os_cookies():
