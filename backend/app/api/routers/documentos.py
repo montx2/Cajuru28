@@ -24,6 +24,7 @@ import os
 import re
 import tempfile
 import zipfile
+import xml.etree.ElementTree as ET
 from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -1076,14 +1077,37 @@ def _apagar(caminho: str) -> None:
         pass
 
 
+def _xml_e_apenas_autorizacao(caminho: str) -> bool:
+    """Evita entregar `protNFe` como se fosse a nota fiscal completa."""
+    try:
+        raiz = ET.parse(caminho).getroot()
+    except (OSError, ET.ParseError):
+        return False
+    local = lambda tag: tag.rsplit("}", 1)[-1]
+    return local(raiz.tag) == "protNFe" and raiz.find(".//{*}infNFe") is None
+
+
 @router.get("/{documento_id}/xml")
 def baixar_xml(
     documento_id: int,
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
 ):
-    """Download do XML original importado — o que o contador realmente precisa."""
+    """Entrega somente o XML fiscal completo, nunca o protocolo isolado."""
     documento = _documento_do_escritorio(db, documento_id, escritorio_id)
+
+    if documento.xml_path and os.path.isfile(documento.xml_path) and _xml_e_apenas_autorizacao(documento.xml_path):
+        # O arquivo anexado pelo usuário é exatamente este caso. A nota deve
+        # ser recuperada novamente pela SEFAZ; nunca enviamos o protocolo ao
+        # contador, pois o sistema contábil corretamente o rejeita.
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "O arquivo armazenado é somente o protocolo de autorização (protNFe). "
+                "A NF-e completa (procNFe) ainda precisa ser recuperada pela SEFAZ. "
+                "Use 'Completar XMLs' e baixe novamente após a conclusão."
+            ),
+        )
 
     if not documento.xml_path or not os.path.isfile(documento.xml_path):
         if documento.leiaute == "metadados":

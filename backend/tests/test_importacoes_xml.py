@@ -210,6 +210,28 @@ def test_cnpj_fora_do_cadastro_volta_sem_empresa(cliente):
     assert db.query(DocumentoFiscal).count() == 0
 
 
+def test_protocolo_de_autorizacao_nao_e_tratado_como_nfe_completa(cliente):
+    client, db, _ = cliente
+    xml = (
+        '<protNFe xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00">'
+        '<infProt><tpAmb>1</tpAmb><cStat>100</cStat>'
+        '<xMotivo>Autorizado o uso da NF-e</xMotivo>'
+        f'<chNFe>{CHAVE_NFE}</chNFe></infProt></protNFe>'
+    ).encode()
+
+    resposta = client.post(
+        "/importacoes/xml",
+        files=[("arquivos", ("autorizacao.xml", xml, "application/xml"))],
+    )
+
+    assert resposta.status_code == 200
+    item = resposta.json()["itens"][0]
+    assert item["status"] == "erro"
+    assert "protNFe" in item["mensagem"]
+    assert "procNFe" in item["mensagem"]
+    assert db.query(DocumentoFiscal).count() == 0
+
+
 def test_arquivo_que_nao_e_xml_nem_zip_e_ignorado_e_leiaute_desconhecido_avisa(cliente):
     client, db, _ = cliente
 

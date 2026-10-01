@@ -360,6 +360,21 @@ def _importar_um_xml(
 ) -> ItemImportacaoXml:
     """Um XML do lote: erros de leitura viram item do resultado, nunca erro 500."""
     tipo = classificar_xml(dados)
+    if tipo == "nfe_autorizacao":
+        # `protNFe` é somente o protocolo retornado pela SEFAZ. Muitos
+        # portais o salvam com o nome da chave, mas ele não é o XML da NF-e;
+        # importar isso criaria um documento sem os dados necessários para a
+        # contabilidade. O usuário precisa baixar o `procNFe` (NFe + protocolo).
+        return ItemImportacaoXml(
+            origem=nome,
+            tipo="nfe",
+            status="erro",
+            mensagem=(
+                "Arquivo de autorização (protNFe), não é a NF-e completa. "
+                "Baixe o XML autorizado completo/procNFe — ele deve conter "
+                "NFe/infNFe e protNFe — e tente novamente."
+            ),
+        )
     if not tipo:
         return ItemImportacaoXml(
             origem=nome,
