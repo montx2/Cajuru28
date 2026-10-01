@@ -153,7 +153,7 @@ export function ModalCertificado({ aberto, aoFechar, aoInstalar, empresas, empre
           autoComplete="off"
           value={senha}
           onChange={(evento) => setSenha(evento.target.value)}
-          descricao="Nenhuma tela exibe esta senha depois de enviada."
+          descricao="A mesma senha usada para abrir o A1 no computador. Se estiver errada, o envio é recusado na hora — e nenhuma tela exibe esta senha depois de enviada."
         />
 
         {erro ? (

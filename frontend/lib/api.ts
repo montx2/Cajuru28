@@ -372,6 +372,16 @@ export const api = {
     return chamar<Certificado>("/certificados", { method: "POST", body: form });
   },
 
+  /**
+   * Testa agora a abertura do A1 com a senha guardada — a mesma checagem que
+   * o worker faz antes de cada varredura, sem esperar a próxima janela.
+   */
+  validarCertificado: (empresaId: number) =>
+    chamar<{ empresa_id: number; certificado_id: number; valido: boolean; detalhe: string }>(
+      `/certificados/empresa/${empresaId}/validar`,
+      { method: "POST" }
+    ),
+
   listarDocumentos: (filtros: FiltrosDocumentos = {}) =>
     chamar<DocumentoFiscal[]>(`/documentos${montarParams(filtros)}`),
 
