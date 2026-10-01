@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { mensagemDoErro } from "@/lib/erros";
 import { dataCurta, numero, plural } from "@/lib/format";
 import { estadoDoCertificado } from "@/lib/estados";
 import { MOTIVO_SOMENTE_LEITURA } from "@/lib/papel";
@@ -11,6 +12,7 @@ import { useRecurso } from "@/lib/useRecurso";
 import { useUrlEstado } from "@/lib/urlEstado";
 import { useSinalizarAtualizacao } from "@/components/shell/BarraAtualizacao";
 import { useSessao } from "@/components/shell/ProvedorSessao";
+import { useToast } from "@/components/ui/Toast";
 import { ModalCertificado } from "@/components/fiscal/ModalCertificado";
 import { ModalImportacaoLote } from "@/app/dashboard/empresas/Empresas";
 import { Aviso } from "@/components/ui/Aviso";
@@ -46,6 +48,7 @@ export function Certificados() {
   const { definir, ler } = useUrlEstado();
   const busca = useBuscaUrl();
   const { somenteLeitura } = useSessao();
+  const { avisar } = useToast();
 
   const filtro = (FILTROS.some((opcao) => opcao.valor === ler("filtro")) ? ler("filtro") : "") as FiltroCertificado;
   const ordem = ler("ordem") || "validade";
@@ -54,6 +57,29 @@ export function Certificados() {
   const [envioAberto, setEnvioAberto] = useState(false);
   const [loteAberto, setLoteAberto] = useState(false);
   const [empresaAlvo, setEmpresaAlvo] = useState<number | null>(null);
+  const [testando, setTestando] = useState<number | null>(null);
+
+  async function testarCertificado(empresaId: number, razao: string) {
+    setTestando(empresaId);
+    try {
+      const resultado = await api.validarCertificado(empresaId);
+      avisar({
+        tom: resultado.valido ? "ok" : "erro",
+        titulo: resultado.valido ? "Certificado abre normalmente" : "Senha guardada não abre o certificado",
+        descricao: `${razao} — ${resultado.detalhe}`,
+      });
+      painel.atualizar();
+    } catch (falha) {
+      avisar({
+        tom: "erro",
+        titulo: "Não foi possível testar",
+        descricao: mensagemDoErro(falha, `validar o certificado de ${razao}`),
+      });
+    } finally {
+      setTestando(null);
+    }
+  }
+
 
   const painel = useRecurso(() => api.painelCertificados(), []);
   const empresas = useRecurso(() => api.listarEmpresas(), []);
@@ -193,22 +219,40 @@ export function Certificados() {
         cabecalho: "",
         alinhamento: "direita",
         celula: (linha) => (
-          <Botao
-            variante="sutil"
-            tamanho="sm"
-            disabled={somenteLeitura}
-            title={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : linha.tem_certificado ? "Substituir o certificado desta empresa" : "Enviar certificado"}
-            onClick={() => {
-              setEmpresaAlvo(linha.empresa_id);
-              setEnvioAberto(true);
-            }}
-          >
-            {linha.tem_certificado ? "Substituir" : "Enviar"}
-          </Botao>
+          <div className="flex items-center justify-end gap-2">
+            {linha.tem_certificado ? (
+              <Botao
+                variante="sutil"
+                tamanho="sm"
+                disabled={somenteLeitura}
+                carregando={testando === linha.empresa_id}
+                title={
+                  somenteLeitura
+                    ? MOTIVO_SOMENTE_LEITURA
+                    : "Testar agora: abre o arquivo com a senha guardada, sem esperar a próxima varredura"
+                }
+                onClick={() => testarCertificado(linha.empresa_id, linha.razao_social)}
+              >
+                Testar
+              </Botao>
+            ) : null}
+            <Botao
+              variante="sutil"
+              tamanho="sm"
+              disabled={somenteLeitura}
+              title={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : linha.tem_certificado ? "Substituir o certificado desta empresa" : "Enviar certificado"}
+              onClick={() => {
+                setEmpresaAlvo(linha.empresa_id);
+                setEnvioAberto(true);
+              }}
+            >
+              {linha.tem_certificado ? "Substituir" : "Enviar"}
+            </Botao>
+          </div>
         ),
       },
     ],
-    [somenteLeitura]
+    [painel.atualizar, somenteLeitura, testando]
   );
 
   const indicadores: KpiProps[] = [

@@ -36,6 +36,9 @@ empresas.
 
 ## Senhas e UF sem suposições
 
+- **Envio individual (tela de certificados):** a senha digitada é palavra
+  final. Se ela não abrir o .pfx, o envio é recusado na hora com mensagem
+  clara — sem cair para padrão nenhum. O campo vazio é que dispara os padrões.
 - O sistema tenta padrões seguros conhecidos e as senhas declaradas na
   planilha, na ordem em que as planilhas foram anexadas. A primeira que abre o
   certificado é a guardada de forma cifrada no cofre.

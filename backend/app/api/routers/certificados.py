@@ -1,17 +1,22 @@
 import os
 from datetime import datetime, timezone
 
+from cryptography.hazmat.primitives.serialization import pkcs12
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import escritorio_id_atual, requer_escrita
 from app.core.config import settings
-from app.core.vault import cifrar_segredo
+from app.core.vault import cifrar_segredo, decifrar_segredo
 from app.db.session import get_db
 from app.models import Certificado, Empresa, Usuario
 from app.schemas import CertificadoResposta, ResumoCertificado, ResumoCertificadoPainel
 from app.services import auditoria
-from app.services.certificados import abrir_pfx_tentando_senhas, guardar_pfx_protegido
+from app.services.certificados import (
+    abrir_pfx_tentando_senhas,
+    guardar_pfx_protegido,
+    ler_pfx_protegido,
+)
 from app.services.senhas import construir_candidatas_pfx
 
 _LIMITE_BYTES_PFX = 30 * 1024 * 1024
@@ -30,10 +35,12 @@ async def enviar_certificado(
 ):
     """
     Recebe o .pfx e a senha em texto puro apenas nesta requisição (via HTTPS).
-    Se a senha não for informada ou estiver incompleta, o sistema tenta os
-    padrões comuns de mercado (ex: EMPRESA2026, EMPRESA26, EMPRESA25) baseados
-    no nome da empresa e do arquivo. A senha efetiva é cifrada e o arquivo
-    original nunca é devolvido em claro.
+
+    Senha digitada é palavra final: se ela não abrir o certificado, o envio é
+    recusado na hora. Antes o sistema caía silenciosamente para os padrões de
+    mercado (EMPRESA2026 etc.) — um erro de digitação "passava" e a confusão
+    só aparecia depois, na captura. Os padrões continuam valendo somente
+    quando o campo vem vazio (lote/planilha, operador sem senha).
     """
     empresa = (
         db.query(Empresa)
@@ -48,17 +55,33 @@ async def enviar_certificado(
     if len(pfx_bytes) > _LIMITE_BYTES_PFX:
         raise HTTPException(status_code=413, detail="O certificado excede o limite de 30 MB.")
 
-    candidatas = construir_candidatas_pfx(
-        nome_arquivo=arquivo.filename or "",
-        cnpj=empresa.cnpj_cpf,
-        razao_social=empresa.razao_social,
-        senha_global=senha,
-    )
-
-    try:
-        identidade, senha_efetiva = abrir_pfx_tentando_senhas(pfx_bytes, candidatas)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    senha_digitada = (senha or "").strip()
+    if senha_digitada:
+        # Quem digitou uma senha está atestando que ela é a do A1. Testamos
+        # SOMENTE ela — sem cair para padrão nenhum — para o erro de digitação
+        # aparecer aqui, no gesto do operador, e não horas depois no worker.
+        try:
+            identidade, senha_efetiva = abrir_pfx_tentando_senhas(pfx_bytes, [senha_digitada])
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "A senha informada não abre este certificado. Confira a "
+                    "senha do A1 (a mesma usada para abrir o arquivo no "
+                    "computador) e tente novamente."
+                ),
+            ) from exc
+    else:
+        candidatas = construir_candidatas_pfx(
+            nome_arquivo=arquivo.filename or "",
+            cnpj=empresa.cnpj_cpf,
+            razao_social=empresa.razao_social,
+            senha_global="",
+        )
+        try:
+            identidade, senha_efetiva = abrir_pfx_tentando_senhas(pfx_bytes, candidatas)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     if identidade.documento != empresa.cnpj_cpf:
         # Um A1 é uma credencial fiscal: aceitar o de outra empresa permitiria
@@ -100,6 +123,78 @@ async def enviar_certificado(
     db.commit()
     db.refresh(certificado)
     return certificado
+
+
+@router.post("/empresa/{empresa_id}/validar")
+def validar_certificado_da_empresa(
+    empresa_id: int,
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+    usuario: Usuario = Depends(requer_escrita),
+):
+    """
+    Testa AGORA a abertura do A1: arquivo cifrado do volume + senha guardada.
+
+    É a mesma verificação que o worker faz antes de cada varredura, exposta
+    para o operador não precisar esperar a próxima janela de importação para
+    descobrir que a senha não abre mais (arquivo trocado, corrompido ou
+    renomeado). Atualiza a telemetria do centro de certificados.
+    """
+    empresa = (
+        db.query(Empresa)
+        .filter(Empresa.id == empresa_id, Empresa.escritorio_id == escritorio_id)
+        .first()
+    )
+    if empresa is None:
+        raise HTTPException(status_code=404, detail="Empresa não encontrada")
+
+    certificado = (
+        db.query(Certificado)
+        .filter(Certificado.empresa_id == empresa_id, Certificado.ativo.is_(True))
+        .first()
+    )
+    if certificado is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Esta empresa não tem certificado ativo para testar.",
+        )
+
+    agora = datetime.now(timezone.utc)
+    try:
+        pfx_bytes = ler_pfx_protegido(certificado.arquivo_path)
+        senha = decifrar_segredo(certificado.senha_cifrada)
+        chave, cert, _ = pkcs12.load_key_and_certificates(pfx_bytes, senha.encode())
+        if chave is None or cert is None:
+            raise ValueError("o arquivo não contém certificado e chave privada")
+    except Exception as exc:  # noqa: BLE001 — qualquer falha vira telemetria, não 500
+        certificado.ultima_validacao_em = agora
+        certificado.ultimo_erro = f"Abertura do .pfx falhou: {str(exc)[:300]}"
+        db.commit()
+        return {
+            "empresa_id": empresa_id,
+            "certificado_id": certificado.id,
+            "valido": False,
+            "detalhe": (
+                "A senha guardada não abre este certificado (arquivo trocado, "
+                "corrompido ou senha alterada). Envie o A1 novamente."
+            ),
+        }
+
+    certificado.ultima_validacao_em = agora
+    certificado.ultimo_erro = None
+    auditoria.registrar(
+        db, usuario, "certificado_validado",
+        entidade="empresa", entidade_id=empresa.id,
+        detalhe=f"{empresa.razao_social} — aberto e lido com a senha guardada",
+    )
+    db.commit()
+    return {
+        "empresa_id": empresa_id,
+        "certificado_id": certificado.id,
+        "valido": True,
+        "detalhe": "Certificado e senha guardada abrem normalmente.",
+    }
+
 
 
 @router.get("/resumo", response_model=list[ResumoCertificado])
