@@ -41,7 +41,7 @@ def _local(tag: str) -> str:
 
 
 def classificar_xml(conteudo: bytes) -> str:
-    """'nfe' | 'cte' | 'nfse' | '' — pelo elemento identificador do leiaute.
+    """'nfe' | 'nfe_autorizacao' | 'cte' | 'nfse' | '' — pelo leiaute.
 
     `infNFe`/`infCTe`/`infNFSe` são os elementos que carregam a chave (Id) em
     todos os leiautes; o nome da raiz varia com o envelope (proc, res, lote).
@@ -61,6 +61,12 @@ def classificar_xml(conteudo: bytes) -> str:
         if nome == "infNFSe":
             return "nfse"
     nome_raiz = _local(raiz.tag)
+    # Alguns portais exportam apenas o protocolo de autorização (`protNFe`).
+    # Ele confirma que a NF-e foi autorizada, mas não contém a nota (itens,
+    # emitente, destinatário e totais). Não deve ser enviado à contabilidade
+    # como se fosse um XML fiscal completo.
+    if nome_raiz == "protNFe":
+        return "nfe_autorizacao"
     if nome_raiz in {"procNFe", "resNFe", "NFe"}:
         return "nfe"
     if nome_raiz in {"procCTe", "resCTe", "CTe"}:
