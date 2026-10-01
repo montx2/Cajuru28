@@ -4,9 +4,9 @@ import { useCallback, useEffect } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { emQuanto, rotulo as rotuloCompetencia } from "@/lib/competencia";
+import { emQuanto, mesesAnteriores, rotulo as rotuloCompetencia } from "@/lib/competencia";
 import { contagemRegressiva, moeda, moedaCompacta, numero, percentual, plural, tempoRelativo } from "@/lib/format";
-import { estadoDaExecucao, estadoDoComponente, estadoGeral, compararPorGravidade } from "@/lib/estados";
+import { estadoGeral, compararPorGravidade } from "@/lib/estados";
 import { useCompetenciaUrl } from "@/lib/usePeriodoUrl";
 import { usePolling } from "@/lib/usePolling";
 import { useRecurso } from "@/lib/useRecurso";
@@ -17,16 +17,16 @@ import { GraficoBarras, GraficoDonut } from "@/components/fiscal/Graficos";
 import { LinhaExecucao } from "@/components/fiscal/LinhaExecucao";
 import { SeletorCompetencia } from "@/components/fiscal/SeletorCompetencia";
 import { Aviso } from "@/components/ui/Aviso";
-import { Botao, BotaoLink } from "@/components/ui/Botao";
+import { BotaoLink } from "@/components/ui/Botao";
 import { CabecalhoPagina, Cartao } from "@/components/ui/Cartao";
 import { EsqueletoBloco, EsqueletoLista } from "@/components/ui/Esqueleto";
 import { EstadoErro } from "@/components/ui/EstadoErro";
 import { EstadoVazio } from "@/components/ui/EstadoVazio";
-import { Cnpj, DataHora, ValorMoeda } from "@/components/ui/Formatadores";
+import { Cnpj, ValorMoeda } from "@/components/ui/Formatadores";
 import { GradeKpis, type KpiProps } from "@/components/ui/Kpi";
 import { Icone } from "@/components/ui/Icone";
 import { IndicadorEstado } from "@/components/ui/IndicadorEstado";
-import type { AlertaItem, EmitenteTop, ExecucaoImportacao, JanelaProximaConsulta } from "@/lib/types";
+import type { AlertaItem, EmitenteTop, JanelaProximaConsulta } from "@/lib/types";
 
 /**
  * Painel: responde "está tudo funcionando?" e "preciso resolver algo?" na dobra.
@@ -46,17 +46,19 @@ export function Painel() {
   const kpis = useRecurso(() => api.kpis(competencia), [competencia], { automatico: pronto });
   const porTipo = useRecurso(() => api.porTipo(competencia), [competencia], { automatico: pronto });
   const emitentes = useRecurso(() => api.topEmitentes(competencia, 8), [competencia], { automatico: pronto });
+  const backups = useRecurso(() => api.backups(), []);
 
   const emAndamento = painel.dados?.execucoes.em_andamento ?? 0;
   const atualizando =
-    painel.atualizando || central.atualizando || alertas.atualizando || kpis.atualizando || evolucao.atualizando || porTipo.atualizando;
+    painel.atualizando || central.atualizando || alertas.atualizando || kpis.atualizando || evolucao.atualizando || porTipo.atualizando || backups.atualizando;
   useSinalizarAtualizacao(atualizando);
 
   const recarregar = useCallback(() => {
     painel.atualizar();
     central.atualizar();
     alertas.atualizar();
-  }, [alertas, central, painel]);
+    backups.atualizar();
+  }, [alertas, backups, central, painel]);
 
   // Execução em andamento = 5 s; repouso = 30 s. Menos que isso só gasta cota.
   usePolling(recarregar, emAndamento > 0 ? 5_000 : 30_000);
@@ -99,60 +101,51 @@ export function Painel() {
   const empresas = painel.dados.empresas;
   const indicadores = kpis.dados;
   const pendencias = painel.dados.alertas.criticos + painel.dados.alertas.atencao;
+  const alertasPendentes = (alertas.dados?.itens ?? []).filter((alerta) => alerta.nivel !== "info");
 
+  const pontoAtual = evolucao.dados?.find((ponto) => ponto.mes === mes);
+  const pontoAnterior = evolucao.dados?.find((ponto) => ponto.mes === mesesAnteriores(mes));
   const itens: KpiProps[] = [
     {
       rotulo: `Documentos em ${rotuloCompetencia(mes || null)}`,
-      valor: numero(indicadores?.documentos_mes ?? documentos.mes),
-      contexto: indicadores
-        ? `${numero(indicadores.documentos_mes_anterior)} no mês anterior`
-        : `${numero(documentos.hoje)} hoje · ${numero(documentos.total)} no acervo`,
-      variacao: indicadores ? { valor: indicadores.variacao_pct, base: "vs. mês anterior" } : undefined,
+      valor: numero(indicadores?.documentos_mes ?? pontoAtual?.total ?? documentos.mes),
+      contexto: `${numero(indicadores?.documentos_mes_anterior ?? pontoAnterior?.total ?? 0)} no mês anterior`,
+      variacao: {
+        valor: indicadores?.variacao_pct ?? variacaoEntre(pontoAtual?.total, pontoAnterior?.total),
+        base: "vs. mês anterior",
+      },
       href: `/dashboard/documentos?mes=${mes}`,
-      carregando: pronto && kpis.carregando,
+      carregando: pronto && (kpis.carregando || evolucao.carregando),
       dica: "Documentos fiscais capturados com data de emissão dentro da competência.",
+      destaque: true,
     },
     {
-      rotulo: "Valor no mês",
-      valor: moeda(indicadores?.valor_mes ?? documentos.valor_mes),
-      contexto: `${numero(indicadores?.canceladas_mes ?? 0)} canceladas`,
-      carregando: pronto && kpis.carregando,
+      rotulo: "Valor dos documentos",
+      valor: moeda(indicadores?.valor_mes ?? pontoAtual?.valor ?? documentos.valor_mes),
+      contexto: `${moeda(pontoAnterior?.valor ?? 0)} no mês anterior`,
+      variacao: { valor: variacaoEntre(pontoAtual?.valor, pontoAnterior?.valor), base: "vs. mês anterior" },
+      carregando: pronto && (kpis.carregando || evolucao.carregando),
       href: `/dashboard/relatorios?mes=${mes}`,
-      dica: "Somatório do valor total dos documentos da competência, já descontando canceladas.",
+      dica: "Somatório dos documentos normais da competência, sem os cancelados.",
     },
     {
-      rotulo: "Sem XML completo",
-      valor: numero(indicadores?.sem_xml_completo ?? documentos.aguardando_xml_completo),
-      tom: (indicadores?.sem_xml_completo ?? documentos.aguardando_xml_completo) > 0 ? "espera" : "ok",
-      contexto: "vieram só como resumo",
-      href: "/dashboard/documentos?leiaute=resumo",
-      dica: "Documentos recebidos em resumo (resNFe). O XML completo é buscado pela chave de acesso.",
-    },
-    {
-      rotulo: "Sincronismo em dia",
-      valor: `${numero(empresas.em_dia)}/${numero(empresas.ativas)}`,
-      tom: empresas.com_erro_24h > 0 ? "erro" : empresas.aguardando_janela > 0 ? "espera" : "ok",
-      contexto:
-        execucoes.em_andamento > 0
-          ? `${numero(execucoes.em_andamento)} ${plural(execucoes.em_andamento, "execução", "execuções")} agora`
-          : execucoes.aguardando > 0
-            ? `${numero(execucoes.aguardando)} aguardando janela`
-            : "nenhuma execução agora",
-      href: "/dashboard/execucoes",
-      dica: "Empresas com captura automática em dia sobre as empresas ativas.",
-    },
-    {
-      rotulo: "Certificados",
-      valor: certificados.vencidos > 0 ? numero(certificados.vencidos) : numero(certificados.validos),
-      tom: certificados.vencidos > 0 ? "erro" : certificados.vencendo > 0 ? "espera" : "ok",
-      contexto:
-        certificados.vencidos > 0
-          ? `${plural(certificados.vencidos, "vencido", "vencidos")} · ${numero(certificados.vencendo)} vencendo`
-          : `${numero(certificados.vencendo)} vencendo em 30 dias`,
-      href: "/dashboard/certificados",
-      dica: "Certificados A1 válidos. Vencido interrompe a captura da empresa.",
+      rotulo: "NFS-e (nota de serviço)",
+      valor: numero(pontoAtual?.nfse ?? 0),
+      contexto: `${numero(pontoAnterior?.nfse ?? 0)} no mês anterior`,
+      variacao: { valor: variacaoEntre(pontoAtual?.nfse, pontoAnterior?.nfse), base: "vs. mês anterior" },
+      carregando: pronto && evolucao.carregando,
+      href: `/dashboard/documentos?mes=${mes}&tipo=nfse`,
+      dica: "Notas de serviço capturadas na competência.",
     },
   ];
+
+  const componentesOk = painel.dados.componentes.filter((componente) => componente.status === "ok").length;
+  const infraTom = painel.dados.componentes.some((componente) => componente.status === "erro")
+    ? "erro"
+    : painel.dados.componentes.some((componente) => componente.status === "atencao")
+      ? "espera"
+      : "ok";
+  const ultimoBackup = backups.dados?.saude.ultimo_ok_em;
 
   return (
     <div className="space-y-6">
@@ -162,23 +155,14 @@ export function Painel() {
           <>
             {geral.resumo}
             {painel.ultimaAtualizacao ? (
-              <span className="nums ml-2 text-tinta-fraca">· atualizado {tempoRelativo(new Date(painel.ultimaAtualizacao).toISOString(), agora)}</span>
+              <span className="nums ml-2 text-tinta-suave">
+                · atualizado {tempoRelativo(new Date(painel.ultimaAtualizacao).toISOString(), agora)}
+              </span>
             ) : null}
           </>
         }
         acima={
-          <Aviso
-            tom={geral.tom}
-            titulo={geral.titulo}
-            icone={geral.icone}
-            acao={
-              pendencias > 0 ? (
-                <Link href="/dashboard/atencao" className="text-sm font-medium underline-offset-4 hover:underline">
-                  Ver {numero(pendencias)} {plural(pendencias, "item", "itens")}
-                </Link>
-              ) : undefined
-            }
-          >
+          <Aviso tom={geral.tom} titulo={geral.titulo} icone={geral.icone}>
             {painel.dados.mensagem ||
               (geral.tom === "ok"
                 ? `Última varredura automática ${documentos.competencia ? `na competência ${rotuloCompetencia(documentos.competencia)}` : "concluída"}.`
@@ -186,77 +170,38 @@ export function Painel() {
           </Aviso>
         }
         acoes={
-          <BotaoLink variante="primaria" href="/dashboard/importacoes" iconeEsquerda={<Icone nome="importacao" className="h-4 w-4" />}>
-            Disparar importação
-          </BotaoLink>
+          pendencias > 0 ? (
+            <BotaoLink variante="primaria" href="/dashboard/atencao">
+              Ver {numero(pendencias)} {plural(pendencias, "pendência", "pendências")}
+            </BotaoLink>
+          ) : undefined
         }
       />
 
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <SeletorCompetencia mes={mes} aoMudar={aoMudar} descricao="KPIs e gráficos desta competência" />
-        <Botao variante="sutil" tamanho="sm" onClick={recarregar} carregando={atualizando} iconeEsquerda={<Icone nome="atualizar" className="h-3.5 w-3.5" />}>
-          Atualizar
-        </Botao>
-      </div>
-
-      <GradeKpis itens={itens} colunas={5} />
-
       <div className="grid gap-4 xl:grid-cols-3">
-        <Cartao titulo="Evolução dos últimos 12 meses" descricao="Documentos capturados por mês de emissão" className="xl:col-span-2">
-          {evolucao.carregando ? (
-            <EsqueletoBloco linhas={4} />
-          ) : evolucao.erro ? (
-            <EstadoErro erro={evolucao.erro} aoTentarNovamente={evolucao.atualizar} contexto="carregar a evolução mensal" />
-          ) : evolucao.dados && evolucao.dados.length > 0 ? (
-            <GraficoBarras
-              titulo="Documentos por mês"
-              descricao="Total de documentos capturados nos últimos 12 meses"
-              dados={evolucao.dados.map((ponto) => ({ rotulo: ponto.rotulo, valor: ponto.total, titulo: `${ponto.rotulo}: ${numero(ponto.total)} documentos · ${moeda(ponto.valor)}` }))}
-            />
-          ) : (
-            <EstadoVazio inline titulo="Sem histórico ainda" instrucao="A evolução aparece assim que a primeira captura fechar um mês." />
-          )}
-        </Cartao>
-
-        <Cartao titulo="Documentos por tipo" descricao={mes ? rotuloCompetencia(mes) : undefined}>
-          {porTipo.carregando ? (
-            <EsqueletoBloco linhas={4} />
-          ) : porTipo.erro ? (
-            <EstadoErro erro={porTipo.erro} aoTentarNovamente={porTipo.atualizar} contexto="carregar a divisão por tipo" />
-          ) : porTipo.dados && porTipo.dados.length > 0 ? (
-            <GraficoDonut
-              titulo="Participação por tipo de documento"
-              descricao="NFS-e, NF-e e CT-e na competência selecionada"
-              centro={numero(porTipo.dados.reduce((soma, fatia) => soma + fatia.total, 0))}
-              dados={porTipo.dados.map((fatia, indice) => ({
-                rotulo: fatia.rotulo,
-                valor: fatia.total,
-                cor: (["acento", "info", "neutro"] as const)[indice % 3],
-              }))}
-            />
-          ) : (
-            <EstadoVazio inline titulo="Nenhum documento nesta competência" instrucao="Escolha outro mês ou dispare a importação." icone="documento" />
-          )}
-        </Cartao>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-2">
         <Cartao
           titulo="Precisa da sua atenção"
-          descricao={pendencias > 0 ? `${numero(pendencias)} ${plural(pendencias, "item", "itens")} em aberto, do mais grave para o menos grave` : "Nada em aberto"}
+          descricao={
+            pendencias > 0
+              ? `${numero(pendencias)} ${plural(pendencias, "item", "itens")} em aberto, do mais grave para o menos grave`
+              : "Nenhuma decisão pendente"
+          }
+          className="xl:col-span-2"
           acoes={
-            <Link href="/dashboard/atencao" className="text-xs font-medium text-acento underline-offset-4 hover:underline">
-              Ver todos
-            </Link>
+            pendencias > 5 ? (
+              <Link href="/dashboard/atencao" className="text-xs font-medium text-acento underline-offset-4 hover:underline">
+                Ver todos
+              </Link>
+            ) : undefined
           }
         >
           {alertas.carregando ? (
-            <EsqueletoLista itens={3} linhas={2} />
+            <EsqueletoLista itens={4} linhas={2} />
           ) : alertas.erro ? (
             <EstadoErro erro={alertas.erro} aoTentarNovamente={alertas.atualizar} contexto="carregar os alertas" />
-          ) : alertas.dados && alertas.dados.itens.length > 0 ? (
+          ) : alertasPendentes.length > 0 ? (
             <ul className="space-y-2">
-              {[...alertas.dados.itens]
+              {[...alertasPendentes]
                 .sort(compararPorGravidade)
                 .slice(0, 5)
                 .map((alerta: AlertaItem) => (
@@ -266,7 +211,7 @@ export function Painel() {
                 ))}
             </ul>
           ) : (
-            <EstadoVazio inline titulo="Operação em dia" instrucao="Nenhum item exige decisão agora. O painel avisa assim que algo aparecer." icone="verificar-circulo" />
+            <EstadoVazio inline titulo="Operação em dia" instrucao="Nenhum item exige decisão agora." icone="verificar-circulo" />
           )}
         </Cartao>
 
@@ -279,7 +224,7 @@ export function Painel() {
           }
           acoes={
             <Link href="/dashboard/execucoes" className="text-xs font-medium text-acento underline-offset-4 hover:underline">
-              Central de execuções
+              Ver central
             </Link>
           }
         >
@@ -296,75 +241,103 @@ export function Painel() {
           ) : central.dados && central.dados.proximas.length > 0 ? (
             <ProximasJanelas janelas={central.dados.proximas} agora={agora} />
           ) : (
-            <EstadoVazio inline titulo="Nada rodando" instrucao="A próxima varredura automática aparece aqui quando começar." icone="execucao" />
+            <EstadoVazio inline titulo="Nada rodando" instrucao="A próxima varredura aparece quando começar." icone="execucao" />
           )}
-
-          {central.dados && central.dados.recentes.length > 0 ? (
-            <div className="mt-4 border-t border-traco pt-3">
-              <p className="mb-2 text-xs font-medium uppercase tracking-[.04em] text-tinta-suave">Últimas execuções</p>
-              <ul className="space-y-2.5">
-                {central.dados.recentes.slice(0, 4).map((execucao) => (
-                  <LinhaExecucaoResumo key={execucao.id} execucao={execucao} />
-                ))}
-              </ul>
-            </div>
-          ) : null}
         </Cartao>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-3">
-        <Cartao titulo="Maiores emitentes" descricao={mes ? `${rotuloCompetencia(mes)} · documentos tomados` : undefined} className="xl:col-span-2">
-          {emitentes.carregando ? (
-            <EsqueletoLista itens={5} linhas={1} />
-          ) : emitentes.erro ? (
-            <EstadoErro erro={emitentes.erro} aoTentarNovamente={emitentes.atualizar} contexto="carregar os maiores emitentes" />
-          ) : emitentes.dados && emitentes.dados.length > 0 ? (
-            <ListaEmitentes emitentes={emitentes.dados} />
-          ) : (
-            <EstadoVazio inline titulo="Sem emitentes nesta competência" instrucao="O ranking aparece com os primeiros documentos tomados do mês." icone="grafico-barras" />
-          )}
-        </Cartao>
-
-        <Cartao
-          titulo="Componentes"
-          descricao="Infraestrutura que sustenta a captura"
-          acoes={
-            <Link href="/dashboard/saude" className="text-xs font-medium text-acento underline-offset-4 hover:underline">
-              Saúde do sistema
-            </Link>
-          }
-        >
-          <ul className="space-y-2.5">
-            {painel.dados.componentes.map((componente) => {
-              const estado = estadoDoComponente(componente.status);
-              return (
-                <li key={componente.nome} className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm text-tinta">{componente.nome}</p>
-                    <p className="truncate text-xs text-tinta-suave" title={componente.detalhe}>
-                      {componente.detalhe}
-                    </p>
-                  </div>
-                  <IndicadorEstado {...estado} variante="texto" className="flex-none" />
-                </li>
-              );
-            })}
-          </ul>
-
-          <div className="mt-4 space-y-2 border-t border-traco pt-3 text-xs text-tinta-suave">
-            <p className="flex items-center justify-between gap-2">
-              <span>Últimas {plural(painel.dados.ultimas_sincronizacoes.length, "sincronização", "sincronizações")}</span>
-              <span className="nums">{numero(painel.dados.ultimas_sincronizacoes.length)}</span>
-            </p>
-            {painel.dados.ultimas_sincronizacoes.slice(0, 3).map((sincronizacao) => (
-              <p key={`${sincronizacao.empresa_id}-${sincronizacao.tipo}`} className="flex items-center justify-between gap-2">
-                <span className="min-w-0 truncate">{sincronizacao.razao_social}</span>
-                <DataHora iso={sincronizacao.finalizado_em ?? sincronizacao.iniciado_em} className="nums flex-none text-tinta-fraca" />
-              </p>
-            ))}
+      <section aria-labelledby="titulo-numeros-mes" className="space-y-3">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 id="titulo-numeros-mes" className="text-sm font-semibold text-tinta-forte">Números do mês</h2>
+            <p className="text-xs text-tinta-suave">Cada valor compara a competência anterior.</p>
           </div>
-        </Cartao>
-      </div>
+          <SeletorCompetencia mes={mes} aoMudar={aoMudar} descricao="Competência dos indicadores" />
+        </div>
+        <GradeKpis itens={itens} colunas={3} rotulo={`Indicadores de ${rotuloCompetencia(mes)}`} />
+      </section>
+
+      <details className="group overflow-hidden rounded-cartao border border-traco bg-superficie">
+        <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-medium text-tinta-forte marker:hidden">
+          <span>
+            Mês em números
+            <span className="ml-2 font-normal text-tinta-suave">evolução, tipos e maiores emitentes</span>
+          </span>
+          <Icone nome="chevron-baixo" className="h-4 w-4 text-tinta-suave transition-transform duration-120 group-open:rotate-180" />
+        </summary>
+        <div className="space-y-4 border-t border-traco p-4">
+          <div className="grid gap-4 xl:grid-cols-3">
+            <Cartao titulo="Evolução dos últimos 12 meses" descricao="Documentos por mês de emissão" className="xl:col-span-2">
+              {evolucao.carregando ? (
+                <EsqueletoBloco linhas={4} />
+              ) : evolucao.erro ? (
+                <EstadoErro erro={evolucao.erro} aoTentarNovamente={evolucao.atualizar} contexto="carregar a evolução mensal" />
+              ) : evolucao.dados && evolucao.dados.length > 0 ? (
+                <GraficoBarras
+                  titulo="Documentos por mês"
+                  descricao="Total de documentos capturados nos últimos 12 meses"
+                  dados={evolucao.dados.map((ponto) => ({
+                    rotulo: ponto.rotulo,
+                    valor: ponto.total,
+                    titulo: `${ponto.rotulo}: ${numero(ponto.total)} documentos · ${moeda(ponto.valor)}`,
+                  }))}
+                />
+              ) : (
+                <EstadoVazio inline titulo="Sem histórico" instrucao="A evolução aparece após a primeira captura mensal." />
+              )}
+            </Cartao>
+
+            <Cartao titulo="Documentos por tipo" descricao={mes ? rotuloCompetencia(mes) : undefined}>
+              {porTipo.carregando ? (
+                <EsqueletoBloco linhas={4} />
+              ) : porTipo.erro ? (
+                <EstadoErro erro={porTipo.erro} aoTentarNovamente={porTipo.atualizar} contexto="carregar a divisão por tipo" />
+              ) : porTipo.dados && porTipo.dados.length > 0 ? (
+                <GraficoDonut
+                  titulo="Participação por tipo de documento"
+                  descricao="NFS-e, NF-e e CT-e na competência selecionada"
+                  centro={numero(porTipo.dados.reduce((soma, fatia) => soma + fatia.total, 0))}
+                  dados={porTipo.dados.map((fatia, indice) => ({
+                    rotulo: fatia.rotulo,
+                    valor: fatia.total,
+                    cor: (["acento", "info", "neutro"] as const)[indice % 3],
+                  }))}
+                />
+              ) : (
+                <EstadoVazio inline titulo="Nenhum documento nesta competência" instrucao="Escolha outro mês." icone="documento" />
+              )}
+            </Cartao>
+          </div>
+
+          <Cartao titulo="Maiores emitentes" descricao={mes ? `${rotuloCompetencia(mes)} · documentos tomados` : undefined}>
+            {emitentes.carregando ? (
+              <EsqueletoLista itens={5} linhas={1} />
+            ) : emitentes.erro ? (
+              <EstadoErro erro={emitentes.erro} aoTentarNovamente={emitentes.atualizar} contexto="carregar os maiores emitentes" />
+            ) : emitentes.dados && emitentes.dados.length > 0 ? (
+              <ListaEmitentes emitentes={emitentes.dados} />
+            ) : (
+              <EstadoVazio inline titulo="Sem emitentes nesta competência" instrucao="O ranking aparece com os primeiros documentos tomados." icone="grafico-barras" />
+            )}
+          </Cartao>
+        </div>
+      </details>
+
+      <footer className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-traco pt-3 text-xs text-tinta-suave">
+        <IndicadorEstado
+          tom={infraTom}
+          icone={infraTom === "ok" ? "verificar-circulo" : infraTom === "erro" ? "negar" : "alerta"}
+          rotulo={`Infra: ${numero(componentesOk)}/${numero(painel.dados.componentes.length)} componentes no ar`}
+          variante="texto"
+        />
+        <span aria-hidden="true">·</span>
+        <span className="nums">
+          backup {ultimoBackup ? tempoRelativo(ultimoBackup, agora) : backups.carregando ? "em consulta" : "sem registro"}
+        </span>
+        <Link href="/dashboard/saude" className="font-medium text-acento underline-offset-4 hover:underline">
+          Ver saúde
+        </Link>
+      </footer>
     </div>
   );
 }
@@ -442,17 +415,7 @@ function ListaEmitentes({ emitentes }: { emitentes: EmitenteTop[] }) {
   );
 }
 
-function LinhaExecucaoResumo({ execucao }: { execucao: ExecucaoImportacao }) {
-  const estado = estadoDaExecucao(execucao.status);
-  return (
-    <li className="flex items-center justify-between gap-3">
-      <div className="min-w-0">
-        <p className="truncate text-sm text-tinta">{execucao.empresa_razao_social ?? `Empresa #${execucao.empresa_id}`}</p>
-        <p className="nums truncate text-xs text-tinta-suave">
-          {execucao.tipo.toUpperCase()} · {numero(execucao.documentos_importados)} importados · <DataHora iso={execucao.iniciado_em} />
-        </p>
-      </div>
-      <IndicadorEstado {...estado} variante="texto" className="flex-none" titulo={execucao.mensagem_erro ?? execucao.aviso ?? undefined} />
-    </li>
-  );
+function variacaoEntre(atual: number | undefined, anterior: number | undefined): number | null {
+  if (atual === undefined || anterior === undefined || anterior === 0) return null;
+  return ((atual - anterior) / anterior) * 100;
 }

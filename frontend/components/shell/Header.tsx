@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { api } from "@/lib/api";
+import { tempoRelativo } from "@/lib/format";
 import { ROTULO_PAPEL, type AlertaItem, type PapelUsuario } from "@/lib/types";
 import { migalhasDoCaminho } from "@/lib/rotas";
 import { useTeclaModificadora } from "@/lib/useTeclaModificadora";
@@ -16,6 +17,8 @@ import { Popover, PopoverCabecalho } from "@/components/ui/Popover";
 import { Spinner } from "@/components/ui/Spinner";
 import { EstadoErro } from "@/components/ui/EstadoErro";
 import { SeletorTema } from "./SeletorTema";
+import { useProgresso } from "./BarraAtualizacao";
+import { useAgora } from "./ProvedorAgora";
 import { useComandos } from "./ProvedorComandos";
 import { useContagemAlertas } from "./ProvedorAlertas";
 import { useSessao } from "./ProvedorSessao";
@@ -31,6 +34,9 @@ export function Header({ aoAbrirMenu }: { aoAbrirMenu: () => void }) {
   const caminho = usePathname();
   const { abrirPaleta, abrirAtalhos } = useComandos();
   const { simbolo } = useTeclaModificadora();
+  const { ultimaAtualizacao } = useProgresso();
+  const agora = useAgora();
+  const isoAtualizacao = new Date(ultimaAtualizacao).toISOString();
 
   return (
     <header className="vidro nao-imprimir sticky top-0 z-cabecalho flex h-14 flex-none items-center gap-2 px-3 sm:px-4">
@@ -60,6 +66,12 @@ export function Header({ aoAbrirMenu }: { aoAbrirMenu: () => void }) {
       </button>
 
       <div className="ml-auto flex flex-none items-center gap-1">
+        <span
+          className="nums mr-1 hidden whitespace-nowrap text-2xs text-tinta-suave xl:inline"
+          title={new Date(ultimaAtualizacao).toLocaleString("pt-BR")}
+        >
+          Atualizado {tempoRelativo(isoAtualizacao, agora)}
+        </span>
         <SeletorTema />
         <SinoAlertas />
         <MenuUsuario aoAbrirAtalhos={abrirAtalhos} />

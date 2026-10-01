@@ -1,11 +1,9 @@
 /**
  * Importação da lista de procurações colada da tela do fornecedor.
  *
- * O caminho (a) do módulo: como o Jettax 360 não publica API para a tela
- * `prevention/ecac/procurations`, o operador traz a lista. O que este teste
- * trava é o contrato da tela com a API — origem declarada (que define a
- * precedência entre fontes), aba declarada e a exibição das pendências, que é
- * o que transforma "ignorou 3 linhas" em tarefa.
+ * A planilha do escritório é o caminho padrão; fontes externas ficam como
+ * segunda opção e mostram instrução somente quando escolhidas. O teste trava o
+ * contrato da tela com a API — origem declarada, aba e pendências acionáveis.
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
@@ -73,6 +71,19 @@ describe("importar lista colada", () => {
     expect(screen.getByRole("button", { name: /^importar lista$/i })).toBeDisabled();
   });
 
+  it("começa pela planilha e só mostra a ajuda externa quando essa fonte é escolhida", async () => {
+    const usuario = userEvent.setup();
+    montar();
+
+    const origem = screen.getByLabelText(/origem do dado/i) as HTMLSelectElement;
+    expect(origem.value).toBe("planilha");
+    expect(screen.queryByText(/como preparar a lista exportada/i)).not.toBeInTheDocument();
+
+    await usuario.selectOptions(origem, "jettax360");
+
+    expect(screen.getByText(/como preparar a lista exportada/i)).toBeInTheDocument();
+  });
+
   it("manda o texto com a origem declarada — é ela que define a precedência", async () => {
     const usuario = userEvent.setup();
     montar();
@@ -83,7 +94,7 @@ describe("importar lista colada", () => {
     await waitFor(() => expect(importarListaProcuracoes).toHaveBeenCalledTimes(1));
     expect(importarListaProcuracoes).toHaveBeenCalledWith({
       texto: COLAGEM,
-      fonte: "jettax360",
+      fonte: "planilha",
       situacao_padrao: "",
     });
   });
@@ -172,7 +183,7 @@ describe("importar lista colada", () => {
     await waitFor(() => expect(importarListaProcuracoes).toHaveBeenCalledTimes(2));
     expect(importarListaProcuracoes).toHaveBeenLastCalledWith({
       texto: COLAGEM,
-      fonte: "jettax360",
+      fonte: "planilha",
       situacao_padrao: "",
     });
   });
@@ -202,7 +213,7 @@ describe("importar lista colada", () => {
 
     await waitFor(() => expect(importarPlanilhaProcuracoes).toHaveBeenCalledTimes(1));
     expect(importarPlanilhaProcuracoes).toHaveBeenCalledWith(arquivo, {
-      fonte: "jettax360",
+      fonte: "planilha",
       situacaoPadrao: "",
     });
   });

@@ -14,9 +14,10 @@ import { useSinalizarAtualizacao } from "@/components/shell/BarraAtualizacao";
 import { useSessao } from "@/components/shell/ProvedorSessao";
 import { Aviso } from "@/components/ui/Aviso";
 import { Botao } from "@/components/ui/Botao";
+import { BotaoIcone } from "@/components/ui/BotaoIcone";
 import { CabecalhoPagina } from "@/components/ui/Cartao";
 import { Busca } from "@/components/ui/Campo";
-import { Cnpj, Truncado } from "@/components/ui/Formatadores";
+import { Cnpj, DataHora, Truncado } from "@/components/ui/Formatadores";
 import { GradeKpis, type KpiProps } from "@/components/ui/Kpi";
 import { Icone } from "@/components/ui/Icone";
 import { IndicadorEstado } from "@/components/ui/IndicadorEstado";
@@ -386,9 +387,18 @@ export function Procuracoes() {
         descricao="Autorizações de Acesso da Receita Federal: quem já autorizou a contabilidade, quem falta e o que trava cada processo."
         acoes={
           <div className="flex flex-wrap items-center gap-2">
-            <Botao variante="sutil" onClick={recarregar} carregando={lista.atualizando} iconeEsquerda={<Icone nome="atualizar" className="h-4 w-4" />}>
-              Atualizar
-            </Botao>
+            {lista.ultimaAtualizacao ? (
+              <span className="nums text-xs text-tinta-suave">
+                Atualizado <DataHora iso={new Date(lista.ultimaAtualizacao).toISOString()} />
+              </span>
+            ) : null}
+            <BotaoIcone
+              rotulo="Atualizar procurações"
+              dica="Atualizar procurações"
+              icone={<Icone nome="atualizar" className="h-4 w-4" />}
+              onClick={recarregar}
+              aria-busy={lista.atualizando}
+            />
             <Botao
               variante="sutil"
               onClick={() => setImportacaoAberta(true)}

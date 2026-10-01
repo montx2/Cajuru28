@@ -13,11 +13,13 @@ import { useContagemAlertas } from "@/components/shell/ProvedorAlertas";
 import { CartaoAlerta } from "@/components/fiscal/CartaoAlerta";
 import { Abas, type Aba } from "@/components/ui/Abas";
 import { Botao } from "@/components/ui/Botao";
+import { BotaoIcone } from "@/components/ui/BotaoIcone";
 import { CabecalhoPagina, Cartao } from "@/components/ui/Cartao";
 import { Alternador, Busca, Selecao } from "@/components/ui/Campo";
 import { EsqueletoLista } from "@/components/ui/Esqueleto";
 import { EstadoErro } from "@/components/ui/EstadoErro";
 import { EstadoVazio } from "@/components/ui/EstadoVazio";
+import { DataHora } from "@/components/ui/Formatadores";
 import { Icone } from "@/components/ui/Icone";
 import type { AlertaItem, NivelAlerta } from "@/lib/types";
 import { ROTULO_CATEGORIA_ALERTA } from "@/lib/types";
@@ -117,17 +119,23 @@ export function Atencao() {
             : "Decisões pendentes da operação, em ordem de gravidade"
         }
         acoes={
-          <Botao
-            variante="secundaria"
-            onClick={() => {
-              alertas.atualizar();
-              atualizarContagem();
-            }}
-            carregando={alertas.atualizando || alertas.carregando}
-            iconeEsquerda={<Icone nome="atualizar" className="h-4 w-4" />}
-          >
-            Atualizar
-          </Botao>
+          <div className="flex items-center gap-2">
+            {alertas.ultimaAtualizacao ? (
+              <span className="nums text-xs text-tinta-suave">
+                Atualizado <DataHora iso={new Date(alertas.ultimaAtualizacao).toISOString()} />
+              </span>
+            ) : null}
+            <BotaoIcone
+              rotulo="Atualizar pendências"
+              dica="Atualizar pendências"
+              icone={<Icone nome="atualizar" className="h-4 w-4" />}
+              onClick={() => {
+                alertas.atualizar();
+                atualizarContagem();
+              }}
+              aria-busy={alertas.atualizando}
+            />
+          </div>
         }
       />
 

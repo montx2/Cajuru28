@@ -7,7 +7,7 @@ import { bytesParaTexto, dataHora, numero, plural } from "@/lib/format";
 import { estadoDeIntegracao } from "@/lib/estados";
 import { mensagemDoErro } from "@/lib/erros";
 import { MOTIVO_SOMENTE_LEITURA, ehAdmin } from "@/lib/papel";
-import { useRecurso } from "@/lib/useRecurso";
+import { useRecurso, type Recurso } from "@/lib/useRecurso";
 import { useUrlEstado } from "@/lib/urlEstado";
 import { useSinalizarAtualizacao } from "@/components/shell/BarraAtualizacao";
 import { useSessao } from "@/components/shell/ProvedorSessao";
@@ -15,11 +15,13 @@ import { Abas, type Aba } from "@/components/ui/Abas";
 import { Alternador, Entrada } from "@/components/ui/Campo";
 import { Aviso } from "@/components/ui/Aviso";
 import { Botao, BotaoLink } from "@/components/ui/Botao";
+import { BotaoIcone } from "@/components/ui/BotaoIcone";
 import { CabecalhoPagina, Cartao } from "@/components/ui/Cartao";
 import { Dado } from "@/components/ui/Dado";
 import { DialogoConfirmacao } from "@/components/ui/DialogoConfirmacao";
 import { EsqueletoBloco } from "@/components/ui/Esqueleto";
 import { EstadoErro } from "@/components/ui/EstadoErro";
+import { DataHora } from "@/components/ui/Formatadores";
 import { EstadoVazio } from "@/components/ui/EstadoVazio";
 import { Etiqueta } from "@/components/ui/Etiqueta";
 import { Icone } from "@/components/ui/Icone";
@@ -28,6 +30,10 @@ import { useToast } from "@/components/ui/Toast";
 import { ROTULO_CATEGORIA_ALERTA, type ResetGeralResposta } from "@/lib/types";
 
 const ABAS = ["ambiente", "integracoes", "alertas", "dados"];
+
+type RecursoSistema = Recurso<Awaited<ReturnType<typeof api.infoSistema>>>;
+type RecursoSaude = Recurso<Awaited<ReturnType<typeof api.saudeDetalhada>>>;
+type RecursoAcessorias = Recurso<Awaited<ReturnType<typeof api.statusAcessorias>>>;
 
 /**
  * Configurações: ambiente, integrações, alertas e zona de risco.
@@ -43,7 +49,9 @@ export function Configuracoes() {
 
   const sistema = useRecurso(() => api.infoSistema(), []);
   const saude = useRecurso(() => api.saudeDetalhada(), []);
-  useSinalizarAtualizacao(sistema.atualizando || saude.atualizando);
+  const accessorias = useRecurso(() => api.statusAcessorias(), [], { automatico: aba === "integracoes" });
+  useSinalizarAtualizacao(sistema.atualizando || saude.atualizando || accessorias.atualizando);
+  const ultimaAtualizacao = Math.max(sistema.ultimaAtualizacao ?? 0, saude.ultimaAtualizacao ?? 0, accessorias.ultimaAtualizacao ?? 0) || null;
 
   const abas: Aba[] = [
     { valor: "ambiente", rotulo: "Ambiente", icone: "configuracoes" },
@@ -58,34 +66,38 @@ export function Configuracoes() {
         titulo="Configurações"
         descricao="Como esta instalação está montada, o que ela conversa por fora e o que apaga dados."
         acoes={
-          <Botao
-            variante="sutil"
-            onClick={() => {
-              sistema.atualizar();
-              saude.atualizar();
-            }}
-            carregando={sistema.atualizando}
-            iconeEsquerda={<Icone nome="atualizar" className="h-4 w-4" />}
-          >
-            Atualizar
-          </Botao>
+          <div className="flex items-center gap-2">
+            {ultimaAtualizacao ? (
+              <span className="nums text-xs text-tinta-suave">
+                Atualizado <DataHora iso={new Date(ultimaAtualizacao).toISOString()} />
+              </span>
+            ) : null}
+            <BotaoIcone
+              rotulo="Atualizar configurações"
+              dica="Atualizar configurações"
+              icone={<Icone nome="atualizar" className="h-4 w-4" />}
+              onClick={() => {
+                sistema.atualizar();
+                saude.atualizar();
+                accessorias.atualizar();
+              }}
+              aria-busy={sistema.atualizando || saude.atualizando || accessorias.atualizando}
+            />
+          </div>
         }
       />
 
       <Abas rotulo="Seções de configuração" idBase="aba-configuracoes" abas={abas} valor={aba} aoMudar={(valor) => definir({ aba: valor })} />
 
-      {aba === "ambiente" ? <AbaAmbiente /> : null}
-      {aba === "integracoes" ? <AbaIntegracoes admin={ehAdmin(papel)} somenteLeitura={somenteLeitura} /> : null}
-      {aba === "alertas" ? <AbaAlertas admin={ehAdmin(papel)} /> : null}
+      {aba === "ambiente" ? <AbaAmbiente sistema={sistema} saude={saude} /> : null}
+      {aba === "integracoes" ? <AbaIntegracoes admin={ehAdmin(papel)} somenteLeitura={somenteLeitura} accessorias={accessorias} /> : null}
+      {aba === "alertas" ? <AbaAlertas admin={ehAdmin(papel)} sistema={sistema} /> : null}
       {aba === "dados" ? <AbaDados admin={ehAdmin(papel)} /> : null}
     </div>
   );
 }
 
-function AbaAmbiente() {
-  const sistema = useRecurso(() => api.infoSistema(), []);
-  const saude = useRecurso(() => api.saudeDetalhada(), []);
-
+function AbaAmbiente({ sistema, saude }: { sistema: RecursoSistema; saude: RecursoSaude }) {
   if (sistema.carregando || saude.carregando) return <EsqueletoBloco linhas={8} />;
 
   return (
@@ -161,9 +173,16 @@ function AbaAmbiente() {
   );
 }
 
-function AbaIntegracoes({ admin, somenteLeitura }: { admin: boolean; somenteLeitura: boolean }) {
+function AbaIntegracoes({
+  admin,
+  somenteLeitura,
+  accessorias,
+}: {
+  admin: boolean;
+  somenteLeitura: boolean;
+  accessorias: RecursoAcessorias;
+}) {
   const { avisar } = useToast();
-  const accessorias = useRecurso(() => api.statusAcessorias(), []);
 
   const [tokenAcessorias, setTokenAcessorias] = useState("");
   const [baseAcessorias, setBaseAcessorias] = useState("");
@@ -290,9 +309,8 @@ function AbaIntegracoes({ admin, somenteLeitura }: { admin: boolean; somenteLeit
   );
 }
 
-function AbaAlertas({ admin }: { admin: boolean }) {
+function AbaAlertas({ admin, sistema }: { admin: boolean; sistema: RecursoSistema }) {
   const { avisar } = useToast();
-  const sistema = useRecurso(() => api.infoSistema(), []);
   const [testando, setTestando] = useState(false);
 
   async function testarWebhook() {

@@ -183,15 +183,6 @@ export function ConfiguracaoProcuracoes({ aberta, aoFechar, aoSalvar }: Props) {
             </Aviso>
           </section>
 
-          <section className="space-y-3">
-            <h3 className="text-xs font-semibold uppercase tracking-[.04em] text-tinta-fraca">Fontes de dados</h3>
-            <Aviso tom="info" icone="importacao" titulo="A lista do Jettax 360 entra por importação">
-              O painel do Jettax 360 não publica API de procurações — e o módulo não guarda credencial de terceiro para
-              essa tela. O caminho é <span className="font-medium">Importar lista</span> na tela de Procurações: copia-se
-              o que está na tela (ou o CSV exportado) e o resultado é dado governado, com idempotência e histórico — o
-              mesmo efeito de uma consulta, sem depender de endpoint que não existe.
-            </Aviso>
-          </section>
         </div>
       ) : null}
     </Modal>

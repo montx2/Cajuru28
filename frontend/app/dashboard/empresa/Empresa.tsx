@@ -36,6 +36,7 @@ import { Etiqueta } from "@/components/ui/Etiqueta";
 import { Cnpj, DataHora, ValorMoeda } from "@/components/ui/Formatadores";
 import { Icone } from "@/components/ui/Icone";
 import { IndicadorEstado } from "@/components/ui/IndicadorEstado";
+import { MenuSuspenso } from "@/components/ui/MenuSuspenso";
 import { Modal } from "@/components/ui/Modal";
 import { Tabela, type ColunaTabela } from "@/components/ui/Tabela";
 import { useToast } from "@/components/ui/Toast";
@@ -184,27 +185,65 @@ export function Empresa() {
         }
         acoes={
           <div className="flex flex-wrap items-center gap-2">
-            <BotaoLink
-              variante="secundaria"
-              href={`/dashboard/importacoes?empresa_ids=${dados.id}`}
-              indisponivel={somenteLeitura}
-              motivo={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined}
-              iconeEsquerda={<Icone nome="importacao" className="h-4 w-4" />}
-            >
-              Disparar captura
-            </BotaoLink>
-            <Botao
-              variante="secundaria"
-              onClick={() => setCertificadoAberto(true)}
-              disabled={somenteLeitura}
-              title={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined}
-              iconeEsquerda={<Icone nome="certificado" className="h-4 w-4" />}
-            >
-              {certificado?.tem_certificado ? "Substituir certificado" : "Enviar certificado"}
-            </Botao>
-            <Botao variante="primaria" onClick={() => setEditarAberto(true)} disabled={somenteLeitura} title={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined} iconeEsquerda={<Icone nome="editar" className="h-4 w-4" />}>
-              Editar empresa
-            </Botao>
+            {aba === "dados" ? (
+              <Botao
+                variante="primaria"
+                onClick={() => setEditarAberto(true)}
+                disabled={somenteLeitura}
+                title={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined}
+                iconeEsquerda={<Icone nome="editar" className="h-4 w-4" />}
+              >
+                Editar dados
+              </Botao>
+            ) : null}
+            {aba === "certificado" ? (
+              <Botao
+                variante="primaria"
+                onClick={() => setCertificadoAberto(true)}
+                disabled={somenteLeitura}
+                title={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined}
+                iconeEsquerda={<Icone nome="certificado" className="h-4 w-4" />}
+              >
+                {certificado?.tem_certificado ? "Substituir certificado" : "Enviar certificado"}
+              </Botao>
+            ) : null}
+            {aba === "sincronismo" ? (
+              <BotaoLink
+                variante="primaria"
+                href={`/dashboard/importacoes?empresa_ids=${dados.id}`}
+                indisponivel={somenteLeitura}
+                motivo={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined}
+              >
+                Disparar captura
+              </BotaoLink>
+            ) : null}
+            {aba === "documentos" ? (
+              <Botao
+                variante="primaria"
+                onClick={completarXmls}
+                carregando={completandoXml}
+                disabled={somenteLeitura}
+                title={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined}
+              >
+                Completar XMLs
+              </Botao>
+            ) : null}
+            <MenuSuspenso
+              rotulo="Mais ações da empresa"
+              icone="mais"
+              dica="Mais ações da empresa"
+              itens={[
+                {
+                  id: "excluir",
+                  rotulo: "Excluir empresa…",
+                  icone: "excluir",
+                  tom: "perigo",
+                  desabilitado: !ehAdmin || somenteLeitura,
+                  motivo: !ehAdmin ? "Somente administrador exclui empresa" : somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined,
+                  aoClicar: () => setExcluirAberto(true),
+                },
+              ]}
+            />
           </div>
         }
       />
@@ -256,11 +295,6 @@ export function Empresa() {
               <BotaoLink variante="sutil" tamanho="sm" href={`/dashboard/execucoes?empresa=${dados.id}&aba=historico`}>
                 Ver execuções
               </BotaoLink>
-              {ehAdmin && !somenteLeitura ? (
-                <Botao variante="perigo-sutil" tamanho="sm" className="ml-auto" onClick={() => setExcluirAberto(true)} iconeEsquerda={<Icone nome="excluir" className="h-3.5 w-3.5" />}>
-                  Excluir empresa
-                </Botao>
-              ) : null}
             </div>
           </Cartao>
         </div>
@@ -270,13 +304,6 @@ export function Empresa() {
         <Cartao
           titulo="Certificado A1"
           descricao="O arquivo fica cifrado no servidor. A senha nunca volta ao navegador nem aparece em tela."
-          acoes={
-            somenteLeitura ? undefined : (
-              <Botao variante="secundaria" tamanho="sm" onClick={() => setCertificadoAberto(true)} iconeEsquerda={<Icone nome="certificado" className="h-4 w-4" />}>
-                {certificado?.tem_certificado ? "Substituir" : "Enviar"}
-              </Botao>
-            )
-          }
         >
           <CartaoCertificado
             certificado={
@@ -290,7 +317,7 @@ export function Empresa() {
                 vence_em_breve: false,
               }
             }
-            aoSubstituir={somenteLeitura ? undefined : () => setCertificadoAberto(true)}
+            aoSubstituir={undefined}
             somenteLeitura={somenteLeitura}
           />
           {certificado && (!certificado.tem_certificado || certificado.vencido) ? (
@@ -341,11 +368,6 @@ export function Empresa() {
         <Cartao
           titulo={`Documentos · ${rotuloPeriodo(periodo)}`}
           descricao="Acervo capturado desta empresa no período escolhido"
-          acoes={
-            <Botao variante="secundaria" tamanho="sm" onClick={completarXmls} carregando={completandoXml} disabled={somenteLeitura} title={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined}>
-              Completar XMLs
-            </Botao>
-          }
         >
           <div className="mb-3">
             <SeletorPeriodo periodo={periodo} aoMudar={aoMudarPeriodo} obrigatorio />

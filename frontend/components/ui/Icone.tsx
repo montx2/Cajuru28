@@ -169,6 +169,13 @@ const CAMINHOS = {
     </>
   ),
   menu: <path d="M4 7.2h16M4 12h16M4 16.8h16" />,
+  mais: (
+    <>
+      <circle cx="12" cy="5" r="0.9" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="0.9" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="19" r="0.9" fill="currentColor" stroke="none" />
+    </>
+  ),
   filtrar: <path d="M4 5.5h16l-6.3 7.3v5.9l-3.4 1.8v-7.7z" />,
   colunas: (
     <>

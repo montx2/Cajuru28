@@ -8,7 +8,7 @@ import { useRecurso } from "@/lib/useRecurso";
 import { useUrlEstado } from "@/lib/urlEstado";
 import { useSinalizarAtualizacao } from "@/components/shell/BarraAtualizacao";
 import { useSessao } from "@/components/shell/ProvedorSessao";
-import { Botao } from "@/components/ui/Botao";
+import { BotaoIcone } from "@/components/ui/BotaoIcone";
 import { CabecalhoPagina, Cartao } from "@/components/ui/Cartao";
 import { Busca, Selecao } from "@/components/ui/Campo";
 import { Combobox } from "@/components/ui/Combobox";
@@ -100,9 +100,20 @@ export function Auditoria() {
         titulo="Auditoria"
         descricao="Registro imutável das ações executadas no sistema: login, cadastros, capturas, downloads e exclusões."
         acoes={
-          <Botao variante="sutil" onClick={registros.atualizar} carregando={registros.atualizando} iconeEsquerda={<Icone nome="atualizar" className="h-4 w-4" />}>
-            Atualizar
-          </Botao>
+          <div className="flex items-center gap-2">
+            {registros.ultimaAtualizacao ? (
+              <span className="nums text-xs text-tinta-suave">
+                Atualizado <DataHora iso={new Date(registros.ultimaAtualizacao).toISOString()} />
+              </span>
+            ) : null}
+            <BotaoIcone
+              rotulo="Atualizar auditoria"
+              dica="Atualizar auditoria"
+              icone={<Icone nome="atualizar" className="h-4 w-4" />}
+              onClick={registros.atualizar}
+              aria-busy={registros.atualizando}
+            />
+          </div>
         }
       />
 
