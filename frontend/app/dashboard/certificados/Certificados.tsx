@@ -17,12 +17,14 @@ import { ModalCertificado } from "@/components/fiscal/ModalCertificado";
 import { ModalImportacaoLote } from "@/app/dashboard/empresas/Empresas";
 import { Aviso } from "@/components/ui/Aviso";
 import { Botao } from "@/components/ui/Botao";
+import { BotaoIcone } from "@/components/ui/BotaoIcone";
 import { CabecalhoPagina } from "@/components/ui/Cartao";
 import { Busca } from "@/components/ui/Campo";
 import { Cnpj, DataHora, Truncado } from "@/components/ui/Formatadores";
 import { GradeKpis, type KpiProps } from "@/components/ui/Kpi";
 import { Icone } from "@/components/ui/Icone";
 import { IndicadorEstado } from "@/components/ui/IndicadorEstado";
+import { MenuSuspenso } from "@/components/ui/MenuSuspenso";
 import { Tabela, type ColunaTabela } from "@/components/ui/Tabela";
 import type { CertificadoPainel } from "@/lib/types";
 
@@ -271,18 +273,6 @@ export function Certificados() {
         descricao="Validade, uso real e falhas de autenticação de cada A1. Sem certificado válido não há captura."
         acoes={
           <div className="flex flex-wrap items-center gap-2">
-            <Botao variante="sutil" onClick={painel.atualizar} carregando={painel.atualizando} iconeEsquerda={<Icone nome="atualizar" className="h-4 w-4" />}>
-              Atualizar
-            </Botao>
-            <Botao
-              variante="sutil"
-              onClick={() => setLoteAberto(true)}
-              disabled={somenteLeitura}
-              title={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : "Importar certificados em massa"}
-              iconeEsquerda={<Icone nome="pasta" className="h-4 w-4" />}
-            >
-              Importar lote
-            </Botao>
             <Botao
               variante="primaria"
               onClick={() => {
@@ -295,6 +285,28 @@ export function Certificados() {
             >
               Enviar certificado
             </Botao>
+            <BotaoIcone
+              rotulo="Atualizar certificados"
+              dica="Atualizar certificados"
+              icone={<Icone nome="atualizar" className="h-4 w-4" />}
+              onClick={painel.atualizar}
+              aria-busy={painel.atualizando}
+            />
+            <MenuSuspenso
+              rotulo="Mais ações"
+              icone="mais"
+              dica="Mais ações de certificados"
+              itens={[
+                {
+                  id: "lote",
+                  rotulo: "Importar certificados em lote…",
+                  icone: "pasta",
+                  desabilitado: somenteLeitura,
+                  motivo: somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined,
+                  aoClicar: () => setLoteAberto(true),
+                },
+              ]}
+            />
           </div>
         }
       />

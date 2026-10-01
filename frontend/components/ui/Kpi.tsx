@@ -28,6 +28,8 @@ export interface KpiProps {
   dica?: string;
   href?: string;
   carregando?: boolean;
+  /** O número que conduz a leitura da grade recebe escala maior. */
+  destaque?: boolean;
   className?: string;
 }
 
@@ -46,7 +48,7 @@ const COR_VALOR: Record<Tom, string> = {
  * O cartão não levanta no hover: ele é leitura, não botão. Quando `href` existe,
  * a única mudança é a borda — e o cartão inteiro vira um link nomeado.
  */
-export function Kpi({ rotulo, valor, contexto, variacao, tom = "neutro", dica, href, carregando, className }: KpiProps) {
+export function Kpi({ rotulo, valor, contexto, variacao, tom = "neutro", dica, href, carregando, destaque = false, className }: KpiProps) {
   const conteudo = (
     <>
       <div className="flex items-baseline justify-between gap-2">
@@ -61,23 +63,30 @@ export function Kpi({ rotulo, valor, contexto, variacao, tom = "neutro", dica, h
         ) : null}
       </div>
 
-      <div className={cn("nums mt-1 truncate text-xl font-semibold tracking-tight", COR_VALOR[tom])}>
-        {carregando ? <EsqueletoNumero className="h-7 w-20" /> : valor}
+      <div className={cn("nums mt-1 truncate font-semibold tracking-tight", destaque ? "text-2xl" : "text-xl", COR_VALOR[tom])}>
+        {carregando ? <EsqueletoNumero className={destaque ? "h-9 w-28" : "h-7 w-20"} /> : valor}
       </div>
 
       {contexto ? <p className="nums mt-0.5 truncate text-xs text-tinta-suave">{contexto}</p> : null}
 
-      {variacao && variacao.valor !== null ? (
+      {variacao ? (
         <p
           className={cn(
             "nums mt-1.5 flex items-center gap-1 text-xs",
-            variacao.invertida ? (variacao.valor > 0 ? "text-erro" : "text-ok") : variacao.valor > 0 ? "text-ok" : "text-erro"
+            variacao.valor === null || variacao.valor === 0
+              ? "text-tinta-suave"
+              : variacao.invertida
+                ? variacao.valor > 0
+                  ? "text-erro"
+                  : "text-ok"
+                : variacao.valor > 0
+                  ? "text-ok"
+                  : "text-erro"
           )}
           title={variacao.base}
         >
-          <Icone nome="tendencia" className={cn("h-3.5 w-3.5 flex-none", variacao.valor < 0 && "-scale-y-100")} />
-          {variacao.valor > 0 ? "+" : ""}
-          {percentual(variacao.valor, 1)}
+          <Icone nome="tendencia" className={cn("h-3.5 w-3.5 flex-none", (variacao.valor ?? 0) < 0 && "-scale-y-100")} />
+          {variacao.valor === null ? "sem base" : `${variacao.valor > 0 ? "+" : ""}${percentual(variacao.valor, 1)}`}
           <span className="truncate font-normal text-tinta-suave">{variacao.base ?? "vs. período anterior"}</span>
         </p>
       ) : null}

@@ -23,6 +23,7 @@ import { Etiqueta } from "@/components/ui/Etiqueta";
 import { Cnpj, ValorMoeda } from "@/components/ui/Formatadores";
 import { GradeKpis, type KpiProps } from "@/components/ui/Kpi";
 import { Icone } from "@/components/ui/Icone";
+import { MenuSuspenso } from "@/components/ui/MenuSuspenso";
 import { Tabela, type ColunaTabela } from "@/components/ui/Tabela";
 import { useToast } from "@/components/ui/Toast";
 import { ROTULO_TIPO, TIPOS, type FechamentoEmpresa, type ItemConferenciaCompetencia } from "@/lib/types";
@@ -142,33 +143,30 @@ export function Relatorios() {
       <CabecalhoPagina
         titulo="Fechamento mensal"
         descricao="Conferência do mês por empresa e tipo, com a folha pronta para o dossiê do cliente."
-        acoes={
-          <div className="flex flex-wrap items-center gap-2 nao-imprimir">
-            <Botao
-              variante="sutil"
-              onClick={() => {
-                fechamento.atualizar();
-                conferencia.atualizar();
-              }}
-              carregando={fechamento.atualizando || conferencia.atualizando}
-              iconeEsquerda={<Icone nome="atualizar" className="h-4 w-4" />}
-            >
-              Atualizar
-            </Botao>
-            <Botao variante="secundaria" onClick={baixarCsv} carregando={baixando} disabled={!pronto} iconeEsquerda={<Icone nome="baixar" className="h-4 w-4" />}>
-              Baixar CSV
-            </Botao>
-            <Botao variante="primaria" onClick={() => window.print()} iconeEsquerda={<Icone nome="imprimir" className="h-4 w-4" />}>
-              Imprimir fechamento
-            </Botao>
-          </div>
-        }
       />
 
-      <div className="nao-imprimir">
+      <div className="nao-imprimir flex flex-wrap items-end justify-between gap-3 rounded-cartao border border-traco bg-superficie p-3">
         <SeletorCompetencia mes={mes} aoMudar={aoMudar} descricao="Mês de emissão dos documentos" />
+        <div className="flex flex-wrap items-center gap-2">
+          <Botao
+            variante="secundaria"
+            onClick={conferencia.atualizar}
+            carregando={conferencia.atualizando}
+            disabled={!pronto}
+            iconeEsquerda={<Icone nome="verificar-circulo" className="h-4 w-4" />}
+          >
+            Conferir competência
+          </Botao>
+          <MenuSuspenso
+            rotulo={baixando ? "Baixando…" : "Baixar"}
+            variante="primaria"
+            itens={[
+              { id: "csv", rotulo: "Relação (CSV)", icone: "baixar", desabilitado: !pronto || baixando, aoClicar: baixarCsv },
+              { id: "imprimir", rotulo: "Folha para impressão", icone: "imprimir", aoClicar: () => window.print() },
+            ]}
+          />
+        </div>
       </div>
-
       {/* Cabeçalho que só existe no papel: sem ele a folha perde competência, data e responsável. */}
       <div className="hidden print:block">
         <h1 className="text-lg font-semibold">Fluxa · Fechamento de {rotuloCompetencia(mes)}</h1>

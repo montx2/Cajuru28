@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { useCamada } from "@/lib/useCamada";
 import { Botao, type TamanhoBotao, type VarianteBotao } from "./Botao";
@@ -106,7 +106,7 @@ export function MenuSuspenso({ rotulo, itens, icone, variante = "sutil", tamanho
           aria-label={rotulo}
           onKeyDown={aoTeclar}
           className={cn(
-            "vidro absolute top-full z-camada mt-1.5 overflow-hidden rounded-cartao py-1 shadow-nivel1 animate-subir",
+            "vidro rolagem-fina absolute top-full z-camada mt-1.5 max-h-[min(70vh,32rem)] overflow-y-auto rounded-cartao py-1 shadow-nivel1 animate-subir",
             alinhamento === "direita" ? "right-0" : "left-0",
             largura
           )}
@@ -134,19 +134,38 @@ export function MenuSuspenso({ rotulo, itens, icone, variante = "sutil", tamanho
               className: classe,
               tabIndex: -1,
             };
+            const separador = item.separarAcima ? <div role="separator" className="my-1 border-t border-traco" /> : null;
 
             if (item.desabilitado) {
               return (
-                <span key={item.id} {...comum}>
-                  {conteudo}
-                </span>
+                <Fragment key={item.id}>
+                  {separador}
+                  <span {...comum}>{conteudo}</span>
+                </Fragment>
               );
             }
             if (item.href) {
               return (
-                <Link
-                  key={item.id}
-                  href={item.href}
+                <Fragment key={item.id}>
+                  {separador}
+                  <Link
+                    href={item.href}
+                    {...comum}
+                    onClick={() => {
+                      camada.fechar();
+                      item.aoClicar?.();
+                    }}
+                  >
+                    {conteudo}
+                  </Link>
+                </Fragment>
+              );
+            }
+            return (
+              <Fragment key={item.id}>
+                {separador}
+                <button
+                  type="button"
                   {...comum}
                   onClick={() => {
                     camada.fechar();
@@ -154,21 +173,8 @@ export function MenuSuspenso({ rotulo, itens, icone, variante = "sutil", tamanho
                   }}
                 >
                   {conteudo}
-                </Link>
-              );
-            }
-            return (
-              <button
-                key={item.id}
-                type="button"
-                {...comum}
-                onClick={() => {
-                  camada.fechar();
-                  item.aoClicar?.();
-                }}
-              >
-                {conteudo}
-              </button>
+                </button>
+              </Fragment>
             );
           })}
         </div>

@@ -21,8 +21,8 @@ interface Props {
 }
 
 const FONTES = [
-  { valor: "jettax360", rotulo: "Jettax 360 (painel Prevenção → e-CAC)" },
   { valor: "planilha", rotulo: "Planilha do escritório" },
+  { valor: "jettax360", rotulo: "Jettax 360" },
 ];
 
 /**
@@ -60,7 +60,7 @@ export function ImportarLista({ aberta, aoFechar, aoImportar }: Props) {
   const { avisar } = useToast();
 
   const [texto, setTexto] = useState("");
-  const [fonte, setFonte] = useState("jettax360");
+  const [fonte, setFonte] = useState("planilha");
   const [situacaoPadrao, setSituacaoPadrao] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [resultado, setResultado] = useState<ResultadoSincronizacaoProcuracoes | null>(null);
@@ -180,7 +180,7 @@ export function ImportarLista({ aberta, aoFechar, aoImportar }: Props) {
         aoFechar();
       }}
       titulo="Importar lista de procurações"
-      descricao="Cole o que está na tela do fornecedor ou envie o arquivo exportado. Rodar de novo não duplica nada."
+      descricao="Cole a lista do escritório ou envie o arquivo exportado. Uma nova importação atualiza os registros sem duplicar."
       largura="larga"
       rodape={
         <div className="flex flex-wrap items-center justify-end gap-2">
@@ -212,16 +212,6 @@ export function ImportarLista({ aberta, aoFechar, aoImportar }: Props) {
       }
     >
       <div className="space-y-4">
-        <Aviso tom="info" icone="cadeado" titulo="Como copiar do painel do Jettax">
-          Abra <span className="font-mono text-2xs">Prevenção → e-CAC → Procurações</span>, selecione a tabela inteira
-          (inclusive as colunas <span className="font-medium">INÍCIO</span>, <span className="font-medium">VENCIMENTO</span> e{" "}
-          <span className="font-medium">SITUAÇÃO</span>) e cole aqui. O painel divide a lista em abas —{" "}
-          <span className="font-medium">Com procuração</span> e <span className="font-medium">Sem procuração</span> — e
-          pagina os resultados: cole uma página de cada vez, informando acima de qual aba ela veio. A chave é o
-          CNPJ/CPF, então colar a mesma página de novo não cria duplicata — e a barra de filtros que vier junto na
-          colagem é descartada sem alterar as linhas.
-        </Aviso>
-
         <div className="grid gap-3 sm:grid-cols-2">
           <Selecao
             rotulo="Origem do dado"
@@ -229,7 +219,7 @@ export function ImportarLista({ aberta, aoFechar, aoImportar }: Props) {
             onChange={(evento) => setFonte(evento.target.value)}
             disabled={somenteLeitura}
             opcoes={FONTES}
-            descricao="Define a precedência: dado do Jettax não é sobrescrito por planilha."
+            descricao="A origem define qual dado prevalece numa importação futura."
           />
           <Selecao
             rotulo="Situação da aba"
@@ -240,6 +230,16 @@ export function ImportarLista({ aberta, aoFechar, aoImportar }: Props) {
             descricao="Só é usada nas linhas em que a situação não aparece no texto."
           />
         </div>
+
+        {fonte === "jettax360" ? (
+          <details className="rounded-controle border border-traco bg-fundo-afundado px-3 py-2 text-sm text-tinta-suave">
+            <summary className="cursor-pointer font-medium text-tinta">Como preparar a lista exportada</summary>
+            <p className="mt-2 leading-6">
+              Na lista exportada do Jettax 360, copie a tabela com início, vencimento e situação. Se houver páginas ou abas separadas,
+              importe uma de cada vez e informe a situação da aba. O CNPJ/CPF evita duplicatas.
+            </p>
+          </details>
+        ) : null}
 
         <Area
           rotulo="Lista copiada da tela"
@@ -255,7 +255,7 @@ export function ImportarLista({ aberta, aoFechar, aoImportar }: Props) {
 
         <div className="flex flex-wrap items-center gap-2 rounded-controle border border-borda-controle p-3">
           <div className="min-w-0 flex-1">
-            <p className="text-sm text-tinta">Tem botão de exportar?</p>
+            <p className="text-sm text-tinta">Arquivo exportado</p>
             <p className="text-xs text-tinta-suave">
               Envie o CSV/TXT exportado do painel. O leitor identifica sozinho se o arquivo tem cabeçalho.
             </p>

@@ -20,6 +20,7 @@ import { LinhaExecucao } from "@/components/fiscal/LinhaExecucao";
 import { Abas, type Aba } from "@/components/ui/Abas";
 import { Aviso } from "@/components/ui/Aviso";
 import { Botao, BotaoLink } from "@/components/ui/Botao";
+import { BotaoIcone } from "@/components/ui/BotaoIcone";
 import { CabecalhoPagina } from "@/components/ui/Cartao";
 import { Busca, Selecao } from "@/components/ui/Campo";
 import { Dado } from "@/components/ui/Dado";
@@ -178,7 +179,7 @@ export function Execucoes() {
       {
         id: "eventos",
         cabecalho: "Eventos não reconhecidos",
-        dica: "Eventos que o NotesFlow não mapeou — vale olhar quando aparece",
+        dica: "Eventos que o Fluxa não mapeou — vale conferir quando aparecem",
         alinhamento: "direita",
         numerica: true,
         ocultaPorPadrao: true,
@@ -260,21 +261,22 @@ export function Execucoes() {
         titulo="Execuções"
         descricao="O que a captura está fazendo agora, o que fará na próxima janela e o que falhou."
         acoes={
-          <div className="flex flex-wrap items-center gap-2">
-            <Botao
-              variante="sutil"
+          <div className="flex items-center gap-2">
+            {central.ultimaAtualizacao ? (
+              <span className="nums text-xs text-tinta-suave">
+                Atualizado <DataHora iso={new Date(central.ultimaAtualizacao).toISOString()} />
+              </span>
+            ) : null}
+            <BotaoIcone
+              rotulo="Atualizar execuções"
+              dica="Atualizar execuções"
+              icone={<Icone nome="atualizar" className="h-4 w-4" />}
               onClick={() => {
                 central.atualizar();
                 historico.atualizar();
               }}
-              carregando={central.atualizando || historico.atualizando}
-              iconeEsquerda={<Icone nome="atualizar" className="h-4 w-4" />}
-            >
-              Atualizar
-            </Botao>
-            <BotaoLink variante="primaria" href={`/dashboard/importacoes${empresaFiltro ? `?empresa_ids=${empresaFiltro}` : ""}`} iconeEsquerda={<Icone nome="importacao" className="h-4 w-4" />}>
-              Disparar importação
-            </BotaoLink>
+              aria-busy={central.atualizando || historico.atualizando}
+            />
           </div>
         }
       />

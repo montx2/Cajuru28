@@ -22,15 +22,17 @@ import { useUrlEstado } from "@/lib/urlEstado";
 import { useAgora } from "@/components/shell/ProvedorAgora";
 import { useSinalizarAtualizacao } from "@/components/shell/BarraAtualizacao";
 import { useSessao } from "@/components/shell/ProvedorSessao";
+import { ModalImportarXmls } from "@/app/dashboard/importacoes/ImportarXmls";
 import { Botao } from "@/components/ui/Botao";
 import { CabecalhoPagina, Cartao } from "@/components/ui/Cartao";
-import { Busca, Entrada, Selecao } from "@/components/ui/Campo";
+import { Busca, Caixa, Entrada, Selecao } from "@/components/ui/Campo";
 import { CampoArquivo } from "@/components/ui/CampoArquivo";
 import { Dado } from "@/components/ui/Dado";
 import { Etiqueta } from "@/components/ui/Etiqueta";
 import { Cnpj, DataHora, ValorMoeda } from "@/components/ui/Formatadores";
 import { Icone } from "@/components/ui/Icone";
 import { IndicadorEstado } from "@/components/ui/IndicadorEstado";
+import { MenuSuspenso } from "@/components/ui/MenuSuspenso";
 import { Modal } from "@/components/ui/Modal";
 import { Tabela, type ColunaTabela, type DensidadeTabela } from "@/components/ui/Tabela";
 import { useToast } from "@/components/ui/Toast";
@@ -84,6 +86,8 @@ export function Empresas() {
   const [colunasVisiveis, setColunasVisiveis] = usePreferencia<string[] | null>("empresas-colunas", null);
   const [novaAberta, setNovaAberta] = useState(false);
   const [loteAberto, setLoteAberto] = useState(false);
+  const [importacaoXmlAberta, setImportacaoXmlAberta] = useState(false);
+  const [colunasAbertas, setColunasAbertas] = useState(false);
 
   const empresas = useRecurso(() => api.listarEmpresas(), []);
   const certificados = useRecurso(() => api.resumoCertificados(), []);
@@ -290,31 +294,6 @@ export function Empresas() {
       <CabecalhoPagina
         titulo="Empresas"
         descricao="Cadastro, certificado A1 e volume capturado de cada CNPJ do escritório."
-        acoes={
-          <div className="flex flex-wrap items-center gap-2">
-            <Botao variante="sutil" onClick={recarregar} carregando={empresas.atualizando} iconeEsquerda={<Icone nome="atualizar" className="h-4 w-4" />}>
-              Atualizar
-            </Botao>
-            <Botao
-              variante="secundaria"
-              onClick={() => setLoteAberto(true)}
-              disabled={somenteLeitura}
-              title={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined}
-              iconeEsquerda={<Icone nome="arrastar" className="h-4 w-4" />}
-            >
-              Importar em massa
-            </Botao>
-            <Botao
-              variante="primaria"
-              onClick={() => setNovaAberta(true)}
-              disabled={somenteLeitura}
-              title={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined}
-              iconeEsquerda={<Icone nome="adicionar" className="h-4 w-4" />}
-            >
-              Nova empresa
-            </Botao>
-          </div>
-        }
       />
 
       <Tabela
@@ -326,9 +305,7 @@ export function Empresas() {
         ordenacao={{ coluna: ordem, direcao: sentido }}
         aoOrdenar={(proxima) => definir({ ordem: proxima?.coluna ?? null, sentido: proxima?.direcao ?? null })}
         densidade={densidade}
-        aoMudarDensidade={setDensidade}
         colunasVisiveis={colunasVisiveis ?? undefined}
-        aoMudarColunas={(ids) => setColunasVisiveis(ids)}
         estados={{
           carregando: empresas.carregando,
           erro: empresas.erro,
@@ -350,14 +327,62 @@ export function Empresas() {
             : undefined,
         }}
         ferramentas={
-          <div className="flex flex-wrap items-end gap-2">
-            <Busca rotuloVisivel rotulo="Buscar empresa" placeholder="Razão social ou CNPJ" valor={busca.valor} aoMudar={busca.aoMudar} className="min-w-64 flex-1" />
-            <Selecao
-              rotulo="Situação"
-              className="w-60"
-              value={situacao}
-              onChange={(evento) => definir({ situacao: evento.target.value || null })}
-              opcoes={SITUACOES.map((opcao) => ({ valor: opcao.valor, rotulo: opcao.rotulo }))}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Busca rotulo="Buscar empresa" placeholder="Razão social ou CNPJ" valor={busca.valor} aoMudar={busca.aoMudar} className="w-64" />
+            <Botao
+              variante="primaria"
+              tamanho="sm"
+              onClick={() => setNovaAberta(true)}
+              disabled={somenteLeitura}
+              title={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined}
+              iconeEsquerda={<Icone nome="adicionar" className="h-3.5 w-3.5" />}
+            >
+              Nova empresa
+            </Botao>
+            <MenuSuspenso
+              rotulo="Mais ações e filtros"
+              icone="mais"
+              tamanho="sm"
+              dica="Mais ações e filtros"
+              itens={[
+                ...SITUACOES.map((opcao) => ({
+                  id: `situacao-${opcao.valor || "todas"}`,
+                  rotulo: opcao.rotulo,
+                  icone: "filtrar" as const,
+                  selecionado: situacao === opcao.valor,
+                  aoClicar: () => definir({ situacao: opcao.valor || null }),
+                })),
+                {
+                  id: "certificados",
+                  rotulo: "Importar certificados em lote…",
+                  icone: "certificado",
+                  separarAcima: true,
+                  desabilitado: somenteLeitura,
+                  motivo: somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined,
+                  aoClicar: () => setLoteAberto(true),
+                },
+                {
+                  id: "xmls",
+                  rotulo: "Importar XMLs de outro sistema…",
+                  icone: "documento",
+                  desabilitado: somenteLeitura,
+                  motivo: somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined,
+                  aoClicar: () => setImportacaoXmlAberta(true),
+                },
+                {
+                  id: "colunas",
+                  rotulo: "Escolher colunas…",
+                  icone: "colunas",
+                  separarAcima: true,
+                  aoClicar: () => setColunasAbertas(true),
+                },
+                {
+                  id: "densidade",
+                  rotulo: densidade === "compacta" ? "Usar linhas confortáveis" : "Usar linhas compactas",
+                  icone: "menu",
+                  aoClicar: () => setDensidade(densidade === "compacta" ? "confortavel" : "compacta"),
+                },
+              ]}
             />
           </div>
         }
@@ -371,6 +396,39 @@ export function Empresas() {
 
       <ModalNovaEmpresa aberto={novaAberta} aoFechar={() => setNovaAberta(false)} aoCriar={recarregar} />
       <ModalImportacaoLote aberto={loteAberto} aoFechar={() => setLoteAberto(false)} aoImportar={recarregar} />
+      <ModalImportarXmls aberto={importacaoXmlAberta} aoFechar={() => setImportacaoXmlAberta(false)} aoConcluir={recarregar} />
+      <Modal
+        aberto={colunasAbertas}
+        aoFechar={() => setColunasAbertas(false)}
+        titulo="Colunas da tabela"
+        descricao="Escolha quais dados aparecem sem alterar o cadastro."
+        largura="estreita"
+        rodape={
+          <div className="flex items-center justify-between gap-2">
+            <Botao variante="sutil" onClick={() => setColunasVisiveis(null)}>Mostrar todas</Botao>
+            <Botao variante="secundaria" onClick={() => setColunasAbertas(false)}>Concluir</Botao>
+          </div>
+        }
+      >
+        <div className="space-y-1">
+          {colunas.map((coluna) => (
+            <Caixa
+              key={coluna.id}
+              rotulo={coluna.cabecalho}
+              checked={coluna.fixa || !colunasVisiveis || colunasVisiveis.includes(coluna.id)}
+              disabled={coluna.fixa}
+              onChange={(evento) => {
+                const atuais = colunasVisiveis ?? colunas.map((item) => item.id);
+                setColunasVisiveis(
+                  evento.target.checked
+                    ? colunas.map((item) => item.id).filter((id) => id === coluna.id || atuais.includes(id))
+                    : atuais.filter((id) => id !== coluna.id)
+                );
+              }}
+            />
+          ))}
+        </div>
+      </Modal>
     </div>
   );
 }

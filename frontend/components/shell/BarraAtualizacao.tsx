@@ -1,14 +1,16 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
 interface ContextoProgresso {
   /** Marca uma consulta em voo — a tela continua legível por baixo. */
   definir: (ativo: boolean) => void;
+  /** Último ciclo global concluído, usado pelo cabeçalho como contexto silencioso. */
+  ultimaAtualizacao: number;
 }
 
-const Contexto = createContext<ContextoProgresso>({ definir: () => undefined });
+const Contexto = createContext<ContextoProgresso>({ definir: () => undefined, ultimaAtualizacao: 0 });
 
 /**
  * Indicador global de atualização.
@@ -19,10 +21,16 @@ const Contexto = createContext<ContextoProgresso>({ definir: () => undefined });
  */
 export function ProvedorProgresso({ children }: { children: ReactNode }) {
   const [ativo, setAtivo] = useState(false);
-  const definir = useCallback((valor: boolean) => setAtivo(valor), []);
+  const ativoRef = useRef(false);
+  const [ultimaAtualizacao, setUltimaAtualizacao] = useState(() => Date.now());
+  const definir = useCallback((valor: boolean) => {
+    if (ativoRef.current && !valor) setUltimaAtualizacao(Date.now());
+    ativoRef.current = valor;
+    setAtivo(valor);
+  }, []);
 
   return (
-    <Contexto.Provider value={{ definir }}>
+    <Contexto.Provider value={{ definir, ultimaAtualizacao }}>
       <div
         aria-hidden="true"
         className={cn(

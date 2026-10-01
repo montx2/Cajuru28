@@ -13,8 +13,10 @@ import { useSinalizarAtualizacao } from "@/components/shell/BarraAtualizacao";
 import { useSessao } from "@/components/shell/ProvedorSessao";
 import { Aviso } from "@/components/ui/Aviso";
 import { Botao } from "@/components/ui/Botao";
+import { BotaoIcone } from "@/components/ui/BotaoIcone";
 import { CabecalhoPagina, Cartao } from "@/components/ui/Cartao";
 import { Dado } from "@/components/ui/Dado";
+import { DialogoConfirmacao } from "@/components/ui/DialogoConfirmacao";
 import { EsqueletoBloco } from "@/components/ui/Esqueleto";
 import { EstadoErro } from "@/components/ui/EstadoErro";
 import { EstadoVazio } from "@/components/ui/EstadoVazio";
@@ -40,6 +42,7 @@ export function Saude() {
   const { papel, somenteLeitura } = useSessao();
   const agora = useAgora();
   const [executandoBackup, setExecutandoBackup] = useState<number | null>(null);
+  const [confirmacao, setConfirmacao] = useState<{ tipo: "backup" } | { tipo: "teste"; registro: BackupRegistro } | null>(null);
 
   const saude = useRecurso(() => api.saudeDetalhada(), []);
   const sistema = useRecurso(() => api.infoSistema(), []);
@@ -71,6 +74,7 @@ export function Saude() {
       avisar({ tom: "erro", titulo: "O backup não rodou", descricao: mensagemDoErro(falha, "executar o backup") });
     } finally {
       setExecutandoBackup(null);
+      setConfirmacao(null);
     }
   }
 
@@ -84,6 +88,7 @@ export function Saude() {
       avisar({ tom: "erro", titulo: "Não foi possível testar o backup", descricao: mensagemDoErro(falha, "testar a restauração") });
     } finally {
       setExecutandoBackup(null);
+      setConfirmacao(null);
     }
   }
 
@@ -146,24 +151,9 @@ export function Saude() {
           <span className="text-tinta-fraca">nunca testada</span>
         ),
     },
-    {
-      id: "acoes",
-      cabecalho: "",
-      alinhamento: "direita",
-      celula: (registro) => (
-        <Botao
-          variante="sutil"
-          tamanho="sm"
-          onClick={() => testarBackup(registro)}
-          carregando={executandoBackup === registro.id}
-          disabled={somenteLeitura || !ehAdmin(papel)}
-          title={!ehAdmin(papel) ? "Somente administrador testa restauração" : somenteLeitura ? MOTIVO_SOMENTE_LEITURA : "Testar restauração deste arquivo"}
-        >
-          Testar restauração
-        </Botao>
-      ),
-    },
   ];
+
+  const backupParaTeste = backups.dados?.registros.find((registro) => registro.status === "ok") ?? backups.dados?.registros[0] ?? null;
 
   return (
     <div className="space-y-5">
@@ -171,20 +161,19 @@ export function Saude() {
         titulo="Saúde"
         descricao="Componentes, disco, banco, fila e backup — o que sustenta a captura automática."
         acoes={
-          <div className="flex flex-wrap items-center gap-2">
-            <Botao variante="sutil" onClick={recarregar} carregando={saude.atualizando} iconeEsquerda={<Icone nome="atualizar" className="h-4 w-4" />}>
-              Atualizar
-            </Botao>
-            <Botao
-              variante="primaria"
-              onClick={executarBackup}
-              carregando={executandoBackup === 0}
-              disabled={somenteLeitura || !ehAdmin(papel)}
-              title={!ehAdmin(papel) ? "Somente administrador executa backup manual" : somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined}
-              iconeEsquerda={<Icone nome="disco" className="h-4 w-4" />}
-            >
-              Executar backup agora
-            </Botao>
+          <div className="flex items-center gap-2">
+            {saude.ultimaAtualizacao ? (
+              <span className="nums text-xs text-tinta-suave">
+                Atualizado <DataHora iso={new Date(saude.ultimaAtualizacao).toISOString()} />
+              </span>
+            ) : null}
+            <BotaoIcone
+              rotulo="Atualizar saúde"
+              dica="Atualizar saúde"
+              icone={<Icone nome="atualizar" className="h-4 w-4" />}
+              onClick={recarregar}
+              aria-busy={saude.atualizando}
+            />
           </div>
         }
       />
@@ -281,6 +270,38 @@ export function Saude() {
       </div>
 
       <Cartao
+        titulo="Manutenção"
+        descricao="Ações raras: executam trabalho no servidor e exigem confirmação."
+        densidade="compacta"
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <Botao
+            variante="secundaria"
+            onClick={() => setConfirmacao({ tipo: "backup" })}
+            carregando={executandoBackup === 0}
+            disabled={somenteLeitura || !ehAdmin(papel)}
+            title={!ehAdmin(papel) ? "Somente administrador executa backup manual" : somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined}
+            iconeEsquerda={<Icone nome="disco" className="h-4 w-4" />}
+          >
+            Executar backup agora
+          </Botao>
+          <Botao
+            variante="secundaria"
+            onClick={() => backupParaTeste && setConfirmacao({ tipo: "teste", registro: backupParaTeste })}
+            carregando={backupParaTeste ? executandoBackup === backupParaTeste.id : false}
+            disabled={somenteLeitura || !ehAdmin(papel) || !backupParaTeste}
+            title={!ehAdmin(papel) ? "Somente administrador testa restauração" : !backupParaTeste ? "Nenhum backup disponível para teste" : somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined}
+            iconeEsquerda={<Icone nome="verificar-circulo" className="h-4 w-4" />}
+          >
+            Testar última restauração
+          </Botao>
+          {backupParaTeste ? (
+            <span className="nums text-xs text-tinta-suave">Backup de <DataHora iso={backupParaTeste.iniciado_em} /></span>
+          ) : null}
+        </div>
+      </Cartao>
+
+      <Cartao
         titulo="Backups"
         descricao="Histórico, tamanho e teste de restauração — backup não testado é esperança, não cópia"
         acoes={
@@ -341,6 +362,23 @@ export function Saude() {
           }
         />
       </Cartao>
+
+      <DialogoConfirmacao
+        aberto={confirmacao !== null}
+        aoFechar={() => setConfirmacao(null)}
+        aoConfirmar={() =>
+          confirmacao?.tipo === "teste" ? testarBackup(confirmacao.registro) : executarBackup()
+        }
+        carregando={executandoBackup !== null}
+        titulo={confirmacao?.tipo === "teste" ? "Testar restauração deste backup" : "Executar backup agora"}
+        consequencia={
+          confirmacao?.tipo === "teste"
+            ? "O servidor abre uma cópia isolada do backup e valida banco, empresas, documentos e execuções."
+            : "O servidor gera uma nova cópia do banco e do acervo. A operação pode usar disco e processamento por alguns minutos."
+        }
+        impacto="A captura continua rodando. Aguarde a conclusão antes de iniciar outra manutenção."
+        rotuloConfirmar={confirmacao?.tipo === "teste" ? "Testar restauração" : "Executar backup"}
+      />
     </div>
   );
 }

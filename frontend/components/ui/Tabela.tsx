@@ -297,7 +297,47 @@ export function Tabela<L>({
 
   return (
     <div className={cn("relative overflow-hidden rounded-cartao border border-traco bg-superficie", className)}>
-      {(aoMudarDensidade || aoMudarColunas || ferramentas || (selecao && selecao.totalNoFiltro !== undefined)) && (
+      {mostrarBarra ? (
+        <div className="nao-imprimir border-b border-traco bg-superficie px-3 py-2">
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="nums flex-none text-sm font-medium text-tinta-forte" role="status" aria-live="polite">
+              {selecao?.todasDoFiltro
+                ? `Todas as ${numero(selecao?.totalNoFiltro ?? 0)} do filtro`
+                : `${numero(selecionadas.size)} ${selecionadas.size === 1 ? "selecionada" : "selecionadas"}`}
+            </p>
+            {selecao?.todasDoFiltro && selecao.aoCancelarTudoDoFiltro ? (
+              <button type="button" onClick={selecao.aoCancelarTudoDoFiltro} className="flex-none rounded-badge text-xs font-medium text-acento underline-offset-4 hover:underline">
+                Cancelar seleção do filtro
+              </button>
+            ) : null}
+            {!selecao?.todasDoFiltro && selecao?.aoSelecionarTudoDoFiltro && (selecao.totalNoFiltro ?? 0) > selecionadas.size ? (
+              <button type="button" onClick={selecao.aoSelecionarTudoDoFiltro} className="flex-none rounded-badge text-xs font-medium text-acento underline-offset-4 hover:underline">
+                Selecionar todas as {numero(selecao.totalNoFiltro)} do filtro
+              </button>
+            ) : null}
+            <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
+              {barraDeSelecao?.({
+                quantidade: selecao?.todasDoFiltro ? (selecao?.totalNoFiltro ?? 0) : selecionadas.size,
+                limpar: () => {
+                  selecao?.aoCancelarTudoDoFiltro?.();
+                  selecao?.aoMudar(new Set<string>());
+                },
+              })}
+              <button
+                type="button"
+                onClick={() => {
+                  selecao?.aoCancelarTudoDoFiltro?.();
+                  selecao?.aoMudar(new Set<string>());
+                }}
+                className="flex h-8 flex-none items-center rounded-controle px-2 text-xs font-medium text-tinta-suave transition-colors duration-120 hover:bg-fundo-afundado hover:text-tinta"
+              >
+                Limpar seleção
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {!mostrarBarra && (aoMudarDensidade || aoMudarColunas || ferramentas || (selecao && selecao.totalNoFiltro !== undefined)) ? (
         <div className="nao-imprimir flex flex-wrap items-center justify-between gap-2 border-b border-traco bg-fundo-afundado px-3 py-2">
           <p className="nums text-xs text-tinta-suave" role="status" aria-live="polite">
             {estados.carregando
@@ -358,7 +398,7 @@ export function Tabela<L>({
             ) : null}
           </div>
         </div>
-      )}
+      ) : null}
 
       <div
         ref={corpo}
@@ -542,46 +582,6 @@ export function Tabela<L>({
         </table>
       </div>
 
-      {mostrarBarra ? (
-        <div className="nao-imprimir absolute inset-x-0 bottom-0 z-20 border-t border-traco bg-superficie px-3 py-2 shadow-nivel1 animate-subir">
-          <div className="flex flex-wrap items-center gap-3">
-            <p className="nums flex-none text-sm font-medium text-tinta-forte" role="status" aria-live="polite">
-              {selecao?.todasDoFiltro
-                ? `Todas as ${numero(selecao?.totalNoFiltro ?? 0)} do filtro`
-                : `${numero(selecionadas.size)} ${selecionadas.size === 1 ? "selecionada" : "selecionadas"}`}
-            </p>
-            {selecao?.todasDoFiltro && selecao.aoCancelarTudoDoFiltro ? (
-              <button type="button" onClick={selecao.aoCancelarTudoDoFiltro} className="flex-none rounded-badge text-xs font-medium text-acento underline-offset-4 hover:underline">
-                Cancelar seleção do filtro
-              </button>
-            ) : null}
-            {!selecao?.todasDoFiltro && selecao?.aoSelecionarTudoDoFiltro && (selecao.totalNoFiltro ?? 0) > selecionadas.size ? (
-              <button type="button" onClick={selecao.aoSelecionarTudoDoFiltro} className="flex-none rounded-badge text-xs font-medium text-acento underline-offset-4 hover:underline">
-                Selecionar todas as {numero(selecao.totalNoFiltro)} do filtro
-              </button>
-            ) : null}
-            <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
-              {barraDeSelecao?.({
-                quantidade: selecao?.todasDoFiltro ? (selecao?.totalNoFiltro ?? 0) : selecionadas.size,
-                limpar: () => {
-                  selecao?.aoCancelarTudoDoFiltro?.();
-                  selecao?.aoMudar(new Set<string>());
-                },
-              })}
-              <button
-                type="button"
-                onClick={() => {
-                  selecao?.aoCancelarTudoDoFiltro?.();
-                  selecao?.aoMudar(new Set<string>());
-                }}
-                className="flex h-8 flex-none items-center rounded-controle px-2 text-xs font-medium text-tinta-suave transition-colors duration-120 hover:bg-fundo-afundado hover:text-tinta"
-              >
-                Limpar seleção
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
 
       {rodape ? <div className="nao-imprimir">{rodape}</div> : null}
     </div>

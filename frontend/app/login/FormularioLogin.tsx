@@ -28,7 +28,7 @@ function mensagemDe(falha: unknown): string {
     case 429:
       return "Muitas tentativas seguidas. Aguarde alguns instantes e tente novamente.";
     case 0:
-      return "A API não respondeu. Verifique os serviços com `docker compose ps` e consulte `GET /saude`.";
+      return "Não foi possível conectar ao Fluxa. Verifique se os serviços estão ativos e tente novamente.";
     default:
       return falha.message;
   }
@@ -95,7 +95,7 @@ export function FormularioLogin() {
 
         <div className="vidro rounded-camada p-5 shadow-nivel1 sm:p-6">
           <h1 className="text-lg font-semibold tracking-tight text-tinta-forte">Entrar</h1>
-          <p className="mt-1 text-sm text-tinta-suave">Use as credenciais do escritório. A sessão fica em cookie HttpOnly.</p>
+          <p className="mt-1 text-sm text-tinta-suave">Use seu e-mail e sua senha de acesso.</p>
 
           <form className="mt-5 space-y-4" onSubmit={entrar} noValidate aria-busy={enviando}>
             <Entrada
@@ -135,9 +135,7 @@ export function FormularioLogin() {
           </form>
         </div>
 
-        <p className="mt-4 text-xs leading-5 text-tinta-fraca">
-          Ambiente privado. O acesso fica registrado em auditoria com usuário, ação e horário.
-        </p>
+        <p className="mt-4 text-xs leading-5 text-tinta-fraca">Acesso restrito à equipe do escritório.</p>
       </div>
     </main>
   );

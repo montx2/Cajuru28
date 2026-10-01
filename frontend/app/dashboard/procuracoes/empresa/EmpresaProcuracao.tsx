@@ -12,6 +12,7 @@ import { useRecurso } from "@/lib/useRecurso";
 import { useSessao } from "@/components/shell/ProvedorSessao";
 import { Aviso } from "@/components/ui/Aviso";
 import { Botao } from "@/components/ui/Botao";
+import { BotaoIcone } from "@/components/ui/BotaoIcone";
 import { CabecalhoPagina } from "@/components/ui/Cartao";
 import { Dado } from "@/components/ui/Dado";
 import { Cnpj, DataHora } from "@/components/ui/Formatadores";
@@ -87,9 +88,18 @@ export function EmpresaProcuracao() {
         }
         acoes={
           <div className="flex flex-wrap items-center gap-2">
-            <Botao variante="sutil" onClick={detalhe.atualizar} carregando={detalhe.atualizando} iconeEsquerda={<Icone nome="atualizar" className="h-4 w-4" />}>
-              Atualizar
-            </Botao>
+            {detalhe.ultimaAtualizacao ? (
+              <span className="nums text-xs text-tinta-suave">
+                Atualizado <DataHora iso={new Date(detalhe.ultimaAtualizacao).toISOString()} />
+              </span>
+            ) : null}
+            <BotaoIcone
+              rotulo="Atualizar procuração"
+              dica="Atualizar procuração"
+              icone={<Icone nome="atualizar" className="h-4 w-4" />}
+              onClick={detalhe.atualizar}
+              aria-busy={detalhe.atualizando}
+            />
             {jobAtivo ? (
               <Botao variante="primaria" onClick={() => setJobAberto(jobAtivo.id)} iconeEsquerda={<Icone nome="alvo" className="h-4 w-4" />}>
                 Abrir processo #{jobAtivo.id}

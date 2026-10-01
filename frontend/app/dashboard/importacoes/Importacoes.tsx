@@ -17,7 +17,7 @@ import { useSinalizarAtualizacao } from "@/components/shell/BarraAtualizacao";
 import { useContagemAlertas } from "@/components/shell/ProvedorAlertas";
 import { useSessao } from "@/components/shell/ProvedorSessao";
 import { ResumoNSU } from "@/components/fiscal/MedidorNSU";
-import { ImportarXmls } from "./ImportarXmls";
+import { ModalImportarXmls } from "./ImportarXmls";
 import { ResumoImportacao } from "@/components/fiscal/ResumoImportacao";
 import { SeletorEmpresas } from "@/components/fiscal/SeletorEmpresas";
 import { SeletorPeriodo } from "@/components/fiscal/SeletorPeriodo";
@@ -33,6 +33,7 @@ import { Etiqueta } from "@/components/ui/Etiqueta";
 import { DataHora } from "@/components/ui/Formatadores";
 import { Icone } from "@/components/ui/Icone";
 import { IndicadorEstado } from "@/components/ui/IndicadorEstado";
+import { MenuSuspenso } from "@/components/ui/MenuSuspenso";
 import { Tabela, type ColunaTabela } from "@/components/ui/Tabela";
 import { useToast } from "@/components/ui/Toast";
 import {
@@ -86,6 +87,7 @@ export function Importacoes() {
   const [enviando, setEnviando] = useState<"previa" | "disparo" | null>(null);
   const [erroAcao, setErroAcao] = useState<string | null>(null);
   const [confirmando, setConfirmando] = useState(false);
+  const [importacaoXmlAberta, setImportacaoXmlAberta] = useState(false);
 
   const empresas = useRecurso(() => api.listarEmpresas(), []);
   const estados = useRecurso(() => api.estadoSincronizacao(), []);
@@ -334,21 +336,9 @@ export function Importacoes() {
     <div className="space-y-5" ref={topo}>
       <CabecalhoPagina
         titulo="Importações"
-        descricao="Escolha período, tipos e empresas. A prévia mostra o que vai acontecer antes de gastar a janela da SEFAZ."
+        descricao="A captura automática mostra o que está em dia, o que aguarda janela e o que precisa ser disparado."
         acoes={
           <div className="flex flex-wrap items-center gap-2">
-            <Botao
-              variante="sutil"
-              onClick={() => {
-                estados.atualizar();
-                resumoSync.atualizar();
-                certificados.atualizar();
-              }}
-              carregando={estados.atualizando}
-              iconeEsquerda={<Icone nome="atualizar" className="h-4 w-4" />}
-            >
-              Atualizar
-            </Botao>
             <Botao variante="secundaria" onClick={verPrevia} carregando={enviando === "previa"} disabled={!podeDisparar} title={motivoIndisponivel}>
               Ver prévia
             </Botao>
@@ -360,8 +350,23 @@ export function Importacoes() {
               title={motivoIndisponivel}
               iconeEsquerda={<Icone nome="importacao" className="h-4 w-4" />}
             >
-              Disparar importação
+              Disparar captura
             </Botao>
+            <MenuSuspenso
+              rotulo="Mais ações"
+              icone="mais"
+              dica="Mais ações de importação"
+              itens={[
+                {
+                  id: "importar-xmls",
+                  rotulo: "Importar XMLs de outro sistema…",
+                  icone: "documento",
+                  desabilitado: somenteLeitura,
+                  motivo: somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined,
+                  aoClicar: () => setImportacaoXmlAberta(true),
+                },
+              ]}
+            />
           </div>
         }
       />
@@ -378,10 +383,53 @@ export function Importacoes() {
         </Aviso>
       ) : null}
 
-      <ImportarXmls />
+      <Cartao
+        titulo="Captura automática"
+        descricao="Onde a captura está e o que ainda aguarda a SEFAZ"
+        acoes={
+          <Link href="/dashboard/execucoes?aba=fila" className="text-xs font-medium text-acento underline-offset-4 hover:underline">
+            Próximas janelas
+          </Link>
+        }
+      >
+          {resumoSync.carregando ? (
+            <EsqueletoBloco linhas={6} />
+          ) : resumoSync.erro ? (
+            <EstadoErro erro={resumoSync.erro} aoTentarNovamente={resumoSync.atualizar} contexto="carregar o resumo do sincronismo" />
+          ) : resumoSync.dados ? (
+            <>
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3">
+                <Dado destaque rotulo="Empresas" valor={numero(resumoSync.dados.empresas)} />
+                <Dado destaque rotulo="Combinações" valor={`${numero(resumoSync.dados.em_dia)}/${numero(resumoSync.dados.combinacoes)}`} contexto="em dia" />
+                <Dado destaque rotulo="Com pendência" valor={numero(resumoSync.dados.com_pendencia)} tom={resumoSync.dados.com_pendencia > 0 ? "espera" : undefined} />
+                <Dado destaque rotulo="Em andamento" valor={numero(resumoSync.dados.em_andamento)} />
+                <Dado destaque rotulo="Aguardando janela" valor={numero(resumoSync.dados.aguardando_janela)} tom={resumoSync.dados.aguardando_janela > 0 ? "espera" : undefined} />
+                <Dado destaque rotulo="Bloqueadas pela SEFAZ" valor={numero(resumoSync.dados.bloqueadas_sefaz)} tom={resumoSync.dados.bloqueadas_sefaz > 0 ? "erro" : undefined} />
+                <Dado destaque rotulo="Documentos no banco" valor={numero(resumoSync.dados.documentos_no_banco)} />
+                <Dado
+                  destaque
+                  rotulo="Varredura automática"
+                  valor={resumoSync.dados.sincronismo_automatico ? `a cada ${numero(resumoSync.dados.intervalo_minutos)} min` : "desligada"}
+                  tom={resumoSync.dados.sincronismo_automatico ? undefined : "espera"}
+                />
+                <Dado destaque rotulo="Próximo tick" valor={resumoSync.dados.tick_a_partir_de ? contagemRegressiva(resumoSync.dados.tick_a_partir_de, agora) ?? "—" : "—"} />
+              </dl>
+              {certificados.dados && certificados.dados.some((certificado) => !certificado.tem_certificado || certificado.vencido) ? (
+                <p className="mt-4 border-t border-traco pt-3 text-sm text-espera">
+                  {numero(certificados.dados.filter((certificado) => !certificado.tem_certificado).length)} empresas sem certificado e{" "}
+                  {numero(certificados.dados.filter((certificado) => certificado.vencido).length)} com certificado vencido não podem ser capturadas.{" "}
+                  <Link href="/dashboard/certificados" className="font-medium underline-offset-4 hover:underline">
+                    Resolver em Certificados
+                  </Link>
+                  .
+                </p>
+              ) : null}
+            </>
+          ) : null}
+        </Cartao>
 
       <Cartao
-        titulo="1 · Período e tipos"
+        titulo="Período e tipos"
         descricao="O período é obrigatório: é ele que define o que será guardado no acervo."
         acoes={
           <span className="nums text-xs text-tinta-suave">
@@ -420,84 +468,37 @@ export function Importacoes() {
         </div>
       </Cartao>
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        <Cartao
-          titulo="2 · Empresas"
-          descricao="Marque quem deve ser capturado. Sem certificado A1 válido a empresa fica bloqueada."
-          acoes={
-            selecionadas.size > 0 ? (
-              <button
-                type="button"
-                onClick={() => definir({ empresa_ids: null, empresa_id: null })}
-                className="text-xs font-medium text-tinta-suave underline-offset-4 hover:text-tinta hover:underline"
-              >
-                Limpar seleção
-              </button>
-            ) : undefined
-          }
-        >
-          {empresas.carregando ? (
-            <EsqueletoBloco linhas={6} />
-          ) : empresas.erro ? (
-            <EstadoErro erro={empresas.erro} aoTentarNovamente={empresas.atualizar} contexto="carregar as empresas" />
-          ) : (
-            <SeletorEmpresas
-              empresas={empresas.dados ?? []}
-              selecionadas={selecionadas}
-              aoMudar={alternarEmpresa}
-              situacoes={situacoes}
-              bloqueios={bloqueios}
-              desabilitadas={desabilitadas}
-              altura={360}
-            />
-          )}
-        </Cartao>
-
-        <Cartao
-          titulo="Estado do sincronismo"
-          descricao="Onde a captura automática está e o que ela ainda deve à SEFAZ"
-          acoes={
-            <Link href="/dashboard/execucoes?aba=fila" className="text-xs font-medium text-acento underline-offset-4 hover:underline">
-              Próximas janelas
-            </Link>
-          }
-        >
-          {resumoSync.carregando ? (
-            <EsqueletoBloco linhas={6} />
-          ) : resumoSync.erro ? (
-            <EstadoErro erro={resumoSync.erro} aoTentarNovamente={resumoSync.atualizar} contexto="carregar o resumo do sincronismo" />
-          ) : resumoSync.dados ? (
-            <>
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3">
-                <Dado destaque rotulo="Empresas" valor={numero(resumoSync.dados.empresas)} />
-                <Dado destaque rotulo="Combinações" valor={`${numero(resumoSync.dados.em_dia)}/${numero(resumoSync.dados.combinacoes)}`} contexto="em dia" />
-                <Dado destaque rotulo="Com pendência" valor={numero(resumoSync.dados.com_pendencia)} tom={resumoSync.dados.com_pendencia > 0 ? "espera" : undefined} />
-                <Dado destaque rotulo="Em andamento" valor={numero(resumoSync.dados.em_andamento)} />
-                <Dado destaque rotulo="Aguardando janela" valor={numero(resumoSync.dados.aguardando_janela)} tom={resumoSync.dados.aguardando_janela > 0 ? "espera" : undefined} />
-                <Dado destaque rotulo="Bloqueadas pela SEFAZ" valor={numero(resumoSync.dados.bloqueadas_sefaz)} tom={resumoSync.dados.bloqueadas_sefaz > 0 ? "erro" : undefined} />
-                <Dado destaque rotulo="Documentos no banco" valor={numero(resumoSync.dados.documentos_no_banco)} />
-                <Dado
-                  destaque
-                  rotulo="Varredura automática"
-                  valor={resumoSync.dados.sincronismo_automatico ? `a cada ${numero(resumoSync.dados.intervalo_minutos)} min` : "desligada"}
-                  tom={resumoSync.dados.sincronismo_automatico ? undefined : "espera"}
-                />
-                <Dado destaque rotulo="Próximo tick" valor={resumoSync.dados.tick_a_partir_de ? contagemRegressiva(resumoSync.dados.tick_a_partir_de, agora) ?? "—" : "—"} />
-              </dl>
-              {certificados.dados && certificados.dados.some((certificado) => !certificado.tem_certificado || certificado.vencido) ? (
-                <p className="mt-4 border-t border-traco pt-3 text-sm text-espera">
-                  {numero(certificados.dados.filter((certificado) => !certificado.tem_certificado).length)} empresas sem certificado e{" "}
-                  {numero(certificados.dados.filter((certificado) => certificado.vencido).length)} com certificado vencido não podem ser capturadas.{" "}
-                  <Link href="/dashboard/certificados" className="font-medium underline-offset-4 hover:underline">
-                    Resolver em Certificados
-                  </Link>
-                  .
-                </p>
-              ) : null}
-            </>
-          ) : null}
-        </Cartao>
-      </div>
+      <Cartao
+        titulo="Empresas"
+        descricao="Marque quem deve ser capturado. Sem certificado A1 válido a empresa fica bloqueada."
+        acoes={
+          selecionadas.size > 0 ? (
+            <button
+              type="button"
+              onClick={() => definir({ empresa_ids: null, empresa_id: null })}
+              className="text-xs font-medium text-tinta-suave underline-offset-4 hover:text-tinta hover:underline"
+            >
+              Limpar seleção
+            </button>
+          ) : undefined
+        }
+      >
+        {empresas.carregando ? (
+          <EsqueletoBloco linhas={6} />
+        ) : empresas.erro ? (
+          <EstadoErro erro={empresas.erro} aoTentarNovamente={empresas.atualizar} contexto="carregar as empresas" />
+        ) : (
+          <SeletorEmpresas
+            empresas={empresas.dados ?? []}
+            selecionadas={selecionadas}
+            aoMudar={alternarEmpresa}
+            situacoes={situacoes}
+            bloqueios={bloqueios}
+            desabilitadas={desabilitadas}
+            altura={360}
+          />
+        )}
+      </Cartao>
 
       {resultado ? (
         <Cartao
@@ -521,7 +522,7 @@ export function Importacoes() {
                 {numero(resultado.dados.aguardando)} {plural(resultado.dados.aguardando, "ficará aguardando janela", "ficarão aguardando janela")}.
               </p>
               <Botao variante="primaria" onClick={() => setConfirmando(true)} disabled={!podeDisparar} title={motivoIndisponivel}>
-                Disparar importação
+                Disparar captura
               </Botao>
             </div>
           ) : null}
@@ -577,6 +578,15 @@ export function Importacoes() {
             {numero(linhasSincronismo.length)} {plural(linhasSincronismo.length, "combinação", "combinações")} empresa × tipo
           </p>
         }
+      />
+
+      <ModalImportarXmls
+        aberto={importacaoXmlAberta}
+        aoFechar={() => setImportacaoXmlAberta(false)}
+        aoConcluir={() => {
+          resumoSync.atualizar();
+          estados.atualizar();
+        }}
       />
 
       <DialogoConfirmacao

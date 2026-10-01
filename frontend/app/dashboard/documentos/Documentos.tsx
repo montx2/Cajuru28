@@ -20,8 +20,7 @@ import { SeletorPeriodo } from "@/components/fiscal/SeletorPeriodo";
 import { ModalImportarXmls } from "@/app/dashboard/importacoes/ImportarXmls";
 import { Botao, BotaoLink } from "@/components/ui/Botao";
 import { CabecalhoPagina, Cartao } from "@/components/ui/Cartao";
-import { Busca, Selecao } from "@/components/ui/Campo";
-import { CopiavelMono } from "@/components/ui/CopiavelMono";
+import { Busca, Caixa, Entrada, Selecao } from "@/components/ui/Campo";
 import { Dado } from "@/components/ui/Dado";
 import { DialogoConfirmacao } from "@/components/ui/DialogoConfirmacao";
 import { Etiqueta } from "@/components/ui/Etiqueta";
@@ -29,8 +28,10 @@ import { Cnpj, ValorMoeda } from "@/components/ui/Formatadores";
 import { GradeKpis, type KpiProps } from "@/components/ui/Kpi";
 import { Icone } from "@/components/ui/Icone";
 import { IndicadorEstado } from "@/components/ui/IndicadorEstado";
+import { MenuSuspenso } from "@/components/ui/MenuSuspenso";
 import { Modal } from "@/components/ui/Modal";
 import { Paginacao } from "@/components/ui/Paginacao";
+import { Popover, PopoverCabecalho } from "@/components/ui/Popover";
 import { Tabela, type ColunaTabela, type DensidadeTabela } from "@/components/ui/Tabela";
 import { useToast } from "@/components/ui/Toast";
 import {
@@ -73,6 +74,8 @@ export function Documentos() {
   const direcao = ler("direcao");
   const status = ler("status");
   const leiaute = ler("leiaute");
+  const valorMin = ler("valor_min");
+  const valorMax = ler("valor_max");
   const empresa = lerNumero("empresa");
   const documentoAberto = lerNumero("doc") ?? null;
 
@@ -89,6 +92,7 @@ export function Documentos() {
   const [baixando, setBaixando] = useState(false);
 
   const [importacaoXmlAberta, setImportacaoXmlAberta] = useState(false);
+  const [colunasAbertas, setColunasAbertas] = useState(false);
   const [excluirLote, setExcluirLote] = useState<number[] | null>(null);
   const [excluirUm, setExcluirUm] = useState<DocumentoDetalhe | null>(null);
   const [enviandoExclusao, setEnviandoExclusao] = useState(false);
@@ -101,10 +105,12 @@ export function Documentos() {
     if (DIRECOES.includes(direcao as DirecaoDocumento)) base.direcao = direcao as DirecaoDocumento;
     if (STATUS.includes(status as StatusDocumentoFiscal)) base.status = status as StatusDocumentoFiscal;
     if (LEIAUTES.includes(leiaute as LeiauteDocumento)) base.leiaute = leiaute as LeiauteDocumento;
+    if (valorMin !== "" && Number.isFinite(Number(valorMin))) base.valor_min = valorMin;
+    if (valorMax !== "" && Number.isFinite(Number(valorMax))) base.valor_max = valorMax;
     if (empresa) base.empresa_id = empresa;
     if (busca.valor.trim()) base.busca = busca.valor.trim();
     return base;
-  }, [busca.valor, direcao, empresa, leiaute, periodo, status, tipo]);
+  }, [busca.valor, direcao, empresa, leiaute, periodo, status, tipo, valorMax, valorMin]);
 
   const chaveFiltros = useMemo(() => JSON.stringify(filtros), [filtros]);
 
@@ -141,10 +147,11 @@ export function Documentos() {
   );
 
   const total = resumo.dados?.total ?? null;
-  const filtroAtivo = Boolean(tipo || direcao || status || leiaute || empresa || busca.valor.trim());
+  const filtroAtivo = Boolean(tipo || direcao || status || leiaute || valorMin || valorMax || empresa || busca.valor.trim());
+  const quantidadeFiltros = [tipo, direcao, status, leiaute, valorMin, valorMax, empresa].filter(Boolean).length;
 
   function limparFiltros() {
-    definir({ tipo: null, direcao: null, status: null, leiaute: null, empresa: null, busca: null, ordem: null, sentido: null });
+    definir({ tipo: null, direcao: null, status: null, leiaute: null, valor_min: null, valor_max: null, empresa: null, busca: null, ordem: null, sentido: null });
     busca.aoMudar("");
   }
 
@@ -235,6 +242,24 @@ export function Documentos() {
       setEnviandoExclusao(false);
     }
   }
+
+  const baixarDocumento = useCallback(async (documento: DocumentoFiscal) => {
+    try {
+      await api.baixarXmlDocumento(documento.id, `${documento.chave_acesso || `documento-${documento.id}`}.xml`);
+      avisar({ tom: "ok", titulo: "XML baixado", descricao: documento.numero ? `Documento ${documento.numero}` : undefined });
+    } catch (falha) {
+      avisar({ tom: "erro", titulo: "Não foi possível baixar o XML", descricao: mensagemDoErro(falha, "baixar o XML") });
+    }
+  }, [avisar]);
+
+  const copiarChave = useCallback(async (documento: DocumentoFiscal) => {
+    try {
+      await navigator.clipboard.writeText(documento.chave_acesso);
+      avisar({ tom: "ok", titulo: "Chave copiada" });
+    } catch {
+      avisar({ tom: "erro", titulo: "A chave não foi copiada", descricao: "O navegador bloqueou a área de transferência. Abra o detalhe e copie a chave manualmente." });
+    }
+  }, [avisar]);
 
   async function completarXmls() {
     setCompletandoXml(true);
@@ -339,12 +364,9 @@ export function Documentos() {
         cabecalho: "Chave de acesso",
         largura: "min-w-52",
         celula: (documento) => (
-          <CopiavelMono
-            valor={documento.chave_acesso}
-            exibicao={chaveEmGrupos(documento.chave_acesso)}
-            rotulo={`Chave de acesso do documento ${documento.numero ?? documento.id}`}
-            className="max-w-56"
-          />
+          <span className="block max-w-56 truncate font-mono text-xs text-tinta-suave" title={chaveEmGrupos(documento.chave_acesso)}>
+            {chaveEmGrupos(documento.chave_acesso)}
+          </span>
         ),
       },
       {
@@ -361,8 +383,28 @@ export function Documentos() {
         ocultaPorPadrao: true,
         celula: (documento) => <span className="text-tinta-suave">{documento.origem ?? "—"}</span>,
       },
+      {
+        id: "acoes",
+        cabecalho: "",
+        alinhamento: "direita",
+        fixa: true,
+        celula: (documento) => (
+          <MenuSuspenso
+            rotulo={`Ações do documento ${documento.numero ?? documento.id}`}
+            icone="mais"
+            dica="Ações do documento"
+            tamanho="sm"
+            itens={[
+              { id: "detalhe", rotulo: "Abrir detalhe", icone: "ver", aoClicar: () => definir({ doc: documento.id }) },
+              { id: "copiar", rotulo: "Copiar chave", icone: "copiar", aoClicar: () => copiarChave(documento) },
+              { id: "baixar", rotulo: "Baixar XML", icone: "baixar", aoClicar: () => baixarDocumento(documento) },
+              { id: "recibo", rotulo: "Ver recibo de captura", icone: "auditoria", aoClicar: () => definir({ doc: documento.id }) },
+            ]}
+          />
+        ),
+      },
     ],
-    [razaoPorId]
+    [baixarDocumento, copiarChave, definir, razaoPorId]
   );
 
   const indicadores: KpiProps[] = resumo.dados
@@ -388,136 +430,22 @@ export function Documentos() {
     <div className="space-y-5">
       <CabecalhoPagina
         titulo="Documentos"
-        descricao="Acervo capturado: conferir chave, baixar XML, exportar a relação e completar documentos que chegaram em resumo."
-        acoes={
-          <div className="flex flex-wrap items-center gap-2">
-            <Botao
-              variante="sutil"
-              onClick={() => {
-                documentos.atualizar();
-                resumo.atualizar();
-              }}
-              carregando={documentos.atualizando}
-              iconeEsquerda={<Icone nome="atualizar" className="h-4 w-4" />}
-            >
-              Atualizar
-            </Botao>
-            <Botao
-              variante="secundaria"
-              onClick={() => estimarExportacao("csv")}
-              disabled={!pronto}
-              iconeEsquerda={<Icone nome="baixar" className="h-4 w-4" />}
-            >
-              Exportar CSV
-            </Botao>
-            <Botao
-              variante="secundaria"
-              onClick={() => estimarExportacao("xml")}
-              disabled={!pronto}
-              iconeEsquerda={<Icone nome="baixar" className="h-4 w-4" />}
-            >
-              Baixar XML do filtro
-            </Botao>
-            <Botao
-              variante="primaria"
-              onClick={() => setImportacaoXmlAberta(true)}
-              disabled={somenteLeitura}
-              title={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined}
-              iconeEsquerda={<Icone nome="importacao" className="h-4 w-4" />}
-            >
-              Importar notas
-            </Botao>
-          </div>
-        }
+        descricao="Localize a nota, confira a chave e entregue XMLs ou a relação do período."
       />
 
       <Cartao densidade="compacta" className="nao-imprimir">
-        <div className="space-y-3">
-          <SeletorPeriodo periodo={periodo} aoMudar={aoMudarPeriodo} obrigatorio />
-
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-            <Busca
-              rotuloVisivel
-              rotulo="Buscar documento"
-              placeholder="Chave, número, NSU, emitente ou destinatário"
-              valor={busca.valor}
-              aoMudar={busca.aoMudar}
-              className="md:col-span-2"
-            />
-            <Selecao
-              rotulo="Tipo"
-              value={tipo}
-              onChange={(evento) => definir({ tipo: evento.target.value || null })}
-              opcoes={[{ valor: "", rotulo: "Todos os tipos" }, ...TIPOS.map((item) => ({ valor: item, rotulo: ROTULO_TIPO[item] }))]}
-            />
-            <Selecao
-              rotulo="Direção"
-              value={direcao}
-              onChange={(evento) => definir({ direcao: evento.target.value || null })}
-              opcoes={[
-                { valor: "", rotulo: "Tomadas e prestadas" },
-                { valor: "tomada", rotulo: "Tomadas (recebidas)" },
-                { valor: "prestada", rotulo: "Prestadas (emitidas)" },
-              ]}
-            />
-            <Selecao
-              rotulo="Situação"
-              value={status}
-              onChange={(evento) => definir({ status: evento.target.value || null })}
-              opcoes={[
-                { valor: "", rotulo: "Normais e canceladas" },
-                ...STATUS.map((item) => ({ valor: item, rotulo: item === "normal" ? "Somente normais" : "Somente canceladas" })),
-              ]}
-            />
-            <Selecao
-              rotulo="Leiaute"
-              value={leiaute}
-              onChange={(evento) => definir({ leiaute: evento.target.value || null })}
-              opcoes={[
-                { valor: "", rotulo: "Todos os leiautes" },
-                { valor: "completo", rotulo: "Somente XML completo" },
-                { valor: "resumo", rotulo: "Somente resumo (pendentes)" },
-                { valor: "metadados", rotulo: "Somente metadados (sem XML)" },
-              ]}
-            />
-            <Selecao
-              rotulo="Empresa"
-              value={empresa ? String(empresa) : ""}
-              onChange={(evento) => definir({ empresa: evento.target.value || null })}
-              className="md:col-span-2 xl:col-span-1"
-              opcoes={[
-                { valor: "", rotulo: "Todas as empresas" },
-                ...(empresas.dados ?? []).map((item) => ({ valor: String(item.id), rotulo: item.razao_social })),
-              ]}
-            />
-          </div>
-
-          {leiaute === "metadados" ? (
-            <div className="rounded-controle border border-espera/40 bg-espera-tenue px-3 py-2 text-sm text-espera">
-              Estas NFS-e foram registradas sem XML original. A exportação do período inclui um JSON normalizado e a relação CSV; não há XML a completar pela SEFAZ.
-            </div>
-          ) : null}
-          {leiaute === "resumo" ? (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-controle border border-espera/40 bg-espera-tenue px-3 py-2">
-              <p className="text-sm text-espera">
-                Estes documentos chegaram apenas em resumo (resNFe). O XML completo é buscado pela chave de acesso, na fila da SEFAZ.
-              </p>
-              <Botao
-                variante="secundaria"
-                tamanho="sm"
-                onClick={completarXmls}
-                carregando={completandoXml}
-                disabled={somenteLeitura}
-                title={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined}
-                iconeEsquerda={<Icone nome="sincronizar" className="h-3.5 w-3.5" />}
-              >
-                Completar XMLs agora
-              </Botao>
-            </div>
-          ) : null}
-        </div>
+        <SeletorPeriodo periodo={periodo} aoMudar={aoMudarPeriodo} obrigatorio />
+        {leiaute === "metadados" ? (
+          <p className="mt-3 rounded-controle border border-espera/40 bg-espera-tenue px-3 py-2 text-sm text-espera">
+            Estas NFS-e foram registradas sem XML original. A exportação inclui um JSON normalizado e a relação CSV.
+          </p>
+        ) : null}
+        {leiaute === "resumo" ? (
+          <p className="mt-3 rounded-controle border border-espera/40 bg-espera-tenue px-3 py-2 text-sm text-espera">
+            Estes documentos chegaram em resumo (resNFe). O XML completo é buscado pela chave, na fila da SEFAZ.
+          </p>
+        ) : null}
       </Cartao>
-
       {resumo.dados ? <GradeKpis itens={indicadores} colunas={5} rotulo="Resumo do recorte" /> : null}
 
       <Tabela
@@ -530,22 +458,17 @@ export function Documentos() {
         ordenacao={{ coluna: ordem, direcao: sentido }}
         aoOrdenar={(proxima) => definir({ ordem: proxima?.coluna ?? null, sentido: proxima?.direcao ?? null })}
         densidade={densidade}
-        aoMudarDensidade={setDensidade}
         colunasVisiveis={colunasVisiveis ?? undefined}
-        aoMudarColunas={(ids) => setColunasVisiveis(ids)}
         altura="h-[calc(100vh-24rem)]"
         selecao={{
           chaves: selecao,
           aoMudar: setSelecao,
           totalNoFiltro: total ?? undefined,
         }}
-        barraDeSelecao={({ quantidade, limpar }) => (
+        barraDeSelecao={({ quantidade }) => (
           <div className="flex flex-wrap items-center gap-2">
             <Botao variante="secundaria" tamanho="sm" onClick={() => baixarSelecao("xml")} carregando={baixando} iconeEsquerda={<Icone nome="documento" className="h-3.5 w-3.5" />}>
-              Baixar XML ({numero(quantidade)})
-            </Botao>
-            <Botao variante="secundaria" tamanho="sm" onClick={() => baixarSelecao("csv")} iconeEsquerda={<Icone nome="baixar" className="h-3.5 w-3.5" />}>
-              Exportar CSV ({numero(quantidade)})
+              Baixar {numero(quantidade)} XMLs
             </Botao>
             {somenteLeitura ? (
               <span className="text-xs text-tinta-suave" title={MOTIVO_SOMENTE_LEITURA}>
@@ -558,12 +481,9 @@ export function Documentos() {
                 onClick={() => setExcluirLote(idsSelecionados)}
                 iconeEsquerda={<Icone nome="excluir" className="h-3.5 w-3.5" />}
               >
-                Excluir ({numero(quantidade)})
+                Excluir {numero(quantidade)}…
               </Botao>
             )}
-            <Botao variante="sutil" tamanho="sm" onClick={limpar}>
-              Limpar seleção
-            </Botao>
           </div>
         )}
         estados={{
@@ -584,12 +504,143 @@ export function Documentos() {
           aoLimparFiltro: filtroAtivo ? limparFiltros : undefined,
         }}
         ferramentas={
-          <p className="nums text-xs text-tinta-suave">
-            {total === null
-              ? "contando…"
-              : `${numero(linhas.length)} de ${numero(total)} ${plural(total, "documento", "documentos")} carregados`}
-            {linhas.length < (total ?? 0) ? " · ordenação e seleção valem para as linhas carregadas" : ""}
-          </p>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Busca
+              rotulo="Buscar documento"
+              placeholder="Chave, número, NSU ou parte"
+              valor={busca.valor}
+              aoMudar={busca.aoMudar}
+              className="w-64"
+            />
+            <Popover
+              rotulo="Filtros"
+              icone="filtrar"
+              contador={quantidadeFiltros}
+              alinhamento="direita"
+              largura="w-[min(92vw,42rem)]"
+              dica="Filtrar documentos"
+            >
+              {(fechar) => (
+                <div>
+                  <PopoverCabecalho
+                    titulo="Filtros"
+                    acao={
+                      filtroAtivo ? (
+                        <button type="button" onClick={limparFiltros} className="text-xs font-medium text-acento underline-offset-4 hover:underline">
+                          Limpar
+                        </button>
+                      ) : undefined
+                    }
+                  />
+                  <div className="grid gap-3 p-3 sm:grid-cols-2">
+                    <Selecao
+                      rotulo="Tipo"
+                      value={tipo}
+                      onChange={(evento) => definir({ tipo: evento.target.value || null })}
+                      opcoes={[{ valor: "", rotulo: "Todos os tipos" }, ...TIPOS.map((item) => ({ valor: item, rotulo: ROTULO_TIPO[item] }))]}
+                    />
+                    <Selecao
+                      rotulo="Direção"
+                      value={direcao}
+                      onChange={(evento) => definir({ direcao: evento.target.value || null })}
+                      opcoes={[
+                        { valor: "", rotulo: "Tomadas e prestadas" },
+                        { valor: "tomada", rotulo: "Tomadas (recebidas)" },
+                        { valor: "prestada", rotulo: "Prestadas (emitidas)" },
+                      ]}
+                    />
+                    <Selecao
+                      rotulo="Situação"
+                      value={status}
+                      onChange={(evento) => definir({ status: evento.target.value || null })}
+                      opcoes={[
+                        { valor: "", rotulo: "Normais e canceladas" },
+                        ...STATUS.map((item) => ({ valor: item, rotulo: item === "normal" ? "Somente normais" : "Somente canceladas" })),
+                      ]}
+                    />
+                    <Selecao
+                      rotulo="Leiaute"
+                      value={leiaute}
+                      onChange={(evento) => definir({ leiaute: evento.target.value || null })}
+                      opcoes={[
+                        { valor: "", rotulo: "Todos os leiautes" },
+                        { valor: "completo", rotulo: "XML completo" },
+                        { valor: "resumo", rotulo: "Resumo pendente" },
+                        { valor: "metadados", rotulo: "Metadados sem XML" },
+                      ]}
+                    />
+                    <Selecao
+                      rotulo="Empresa"
+                      value={empresa ? String(empresa) : ""}
+                      onChange={(evento) => definir({ empresa: evento.target.value || null })}
+                      className="sm:col-span-2"
+                      opcoes={[
+                        { valor: "", rotulo: "Todas as empresas" },
+                        ...(empresas.dados ?? []).map((item) => ({ valor: String(item.id), rotulo: item.razao_social })),
+                      ]}
+                    />
+                    <Entrada
+                      rotulo="Valor mínimo"
+                      type="number"
+                      min={0}
+                      numerico
+                      value={valorMin}
+                      onChange={(evento) => definir({ valor_min: evento.target.value || null })}
+                    />
+                    <Entrada
+                      rotulo="Valor máximo"
+                      type="number"
+                      min={0}
+                      numerico
+                      value={valorMax}
+                      onChange={(evento) => definir({ valor_max: evento.target.value || null })}
+                    />
+                  </div>
+                  <div className="flex justify-end border-t border-traco px-3 py-2">
+                    <Botao tamanho="sm" variante="secundaria" onClick={fechar}>Ver documentos</Botao>
+                  </div>
+                </div>
+              )}
+            </Popover>
+            <MenuSuspenso
+              rotulo="Exportar"
+              variante="secundaria"
+              itens={[
+                { id: "xml", rotulo: "XMLs (ZIP)", icone: "documento", desabilitado: !pronto, motivo: !pronto ? "Informe o período" : undefined, aoClicar: () => estimarExportacao("xml") },
+                { id: "csv", rotulo: "Relação (CSV)", icone: "baixar", desabilitado: !pronto, motivo: !pronto ? "Informe o período" : undefined, aoClicar: () => estimarExportacao("csv") },
+              ]}
+            />
+            <MenuSuspenso
+              rotulo="Mais ações da tabela"
+              icone="mais"
+              dica="Mais ações da tabela"
+              itens={[
+                {
+                  id: "importar",
+                  rotulo: "Importar XMLs de outro sistema…",
+                  icone: "importacao",
+                  desabilitado: somenteLeitura,
+                  motivo: somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined,
+                  aoClicar: () => setImportacaoXmlAberta(true),
+                },
+                {
+                  id: "completar",
+                  rotulo: completandoXml ? "Completando XMLs…" : "Completar XMLs",
+                  icone: "sincronizar",
+                  desabilitado: somenteLeitura || completandoXml,
+                  motivo: somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined,
+                  aoClicar: completarXmls,
+                },
+                { id: "colunas", rotulo: "Escolher colunas…", icone: "colunas", aoClicar: () => setColunasAbertas(true), separarAcima: true },
+                {
+                  id: "densidade",
+                  rotulo: densidade === "compacta" ? "Usar linhas confortáveis" : "Usar linhas compactas",
+                  icone: "menu",
+                  aoClicar: () => setDensidade(densidade === "compacta" ? "confortavel" : "compacta"),
+                },
+              ]}
+            />
+          </div>
         }
         rodape={
           <Paginacao
@@ -624,6 +675,41 @@ export function Documentos() {
           resumo.atualizar();
         }}
       />
+
+      <Modal
+        aberto={colunasAbertas}
+        aoFechar={() => setColunasAbertas(false)}
+        titulo="Escolher colunas"
+        descricao="A preferência fica salva neste navegador."
+        largura="media"
+        rodape={
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Botao variante="sutil" onClick={() => setColunasVisiveis(null)}>Mostrar todas</Botao>
+            <Botao variante="secundaria" onClick={() => setColunasAbertas(false)}>Concluir</Botao>
+          </div>
+        }
+      >
+        <div className="grid gap-1 sm:grid-cols-2">
+          {colunas.filter((coluna) => coluna.cabecalho).map((coluna) => (
+            <Caixa
+              key={coluna.id}
+              compacta
+              rotulo={coluna.cabecalho}
+              checked={coluna.fixa || !colunasVisiveis || colunasVisiveis.includes(coluna.id)}
+              disabled={coluna.fixa}
+              onChange={(evento) => {
+                if (coluna.fixa) return;
+                const atuais = colunasVisiveis ?? colunas.map((item) => item.id);
+                setColunasVisiveis(
+                  evento.target.checked
+                    ? colunas.map((item) => item.id).filter((id) => id === coluna.id || atuais.includes(id))
+                    : atuais.filter((id) => id !== coluna.id)
+                );
+              }}
+            />
+          ))}
+        </div>
+      </Modal>
 
       <Modal
         aberto={exportacao !== null}

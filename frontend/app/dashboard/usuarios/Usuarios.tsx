@@ -11,6 +11,7 @@ import { useSinalizarAtualizacao } from "@/components/shell/BarraAtualizacao";
 import { useSessao } from "@/components/shell/ProvedorSessao";
 import { Aviso } from "@/components/ui/Aviso";
 import { Botao } from "@/components/ui/Botao";
+import { BotaoIcone } from "@/components/ui/BotaoIcone";
 import { CabecalhoPagina } from "@/components/ui/Cartao";
 import { Alternador, Busca, Entrada, Selecao } from "@/components/ui/Campo";
 import { CampoSenha } from "@/components/ui/CampoSenha";
@@ -171,9 +172,18 @@ export function Usuarios() {
         descricao="Quem entra no Fluxa e o que cada papel pode fazer. Desativar mantém o histórico de auditoria."
         acoes={
           <div className="flex flex-wrap items-center gap-2">
-            <Botao variante="sutil" onClick={usuarios.atualizar} carregando={usuarios.atualizando} iconeEsquerda={<Icone nome="atualizar" className="h-4 w-4" />}>
-              Atualizar
-            </Botao>
+            {usuarios.ultimaAtualizacao ? (
+              <span className="nums text-xs text-tinta-suave">
+                Atualizado <DataHora iso={new Date(usuarios.ultimaAtualizacao).toISOString()} />
+              </span>
+            ) : null}
+            <BotaoIcone
+              rotulo="Atualizar equipe"
+              dica="Atualizar equipe"
+              icone={<Icone nome="atualizar" className="h-4 w-4" />}
+              onClick={usuarios.atualizar}
+              aria-busy={usuarios.atualizando}
+            />
             <Botao
               variante="primaria"
               onClick={() => setCriando(true)}
