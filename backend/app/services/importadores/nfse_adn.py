@@ -112,10 +112,29 @@ def _ler_retry_after(valor: str | None):
     return delta if delta.total_seconds() > 0 else None
 
 
+# Raízes de DOCUMENTO fiscal distribuídas pelo ADN/SEFAZ. Um ZIP de provedor
+# pode vir com mais de um membro (DANFSe, recibo, protocolo) — só um deles é
+# a nota. Pegar "o primeiro" às cegas já entregou protocolo/auxiliar ao
+# contador no lugar do XML fiscal.
+_RAIZES_DOCUMENTO_FISCAL = {"NFSe", "DPS", "NFe", "procNFe", "CTe", "procCTe"}
+
+
+def _e_documento_fiscal(dados: bytes) -> bool:
+    try:
+        return _local(ET.fromstring(dados).tag) in _RAIZES_DOCUMENTO_FISCAL
+    except ET.ParseError:
+        return False
+
+
 def decodificar_xml_adn(conteudo: str | bytes) -> bytes:
     """
     Converte o ArquivoXml (base64 + gzip, às vezes zip ou XML puro) em bytes
     do XML. Portado do Importarnotas original — formatos reais variam.
+
+    Quando o conteúdo é um ZIP com vários membros, devolve o membro que é o
+    DOCUMENTO fiscal (NFSe/DPS/NFe/CTe), não o primeiro da lista: provedores
+    já empacotaram recibo/protocolo antes da nota e o "primeiro arquivo"
+    virava o XML entregue ao escritório.
     """
     if isinstance(conteudo, str):
         conteudo = conteudo.strip()
@@ -139,9 +158,16 @@ def decodificar_xml_adn(conteudo: str | bytes) -> bytes:
 
     if bruto[:2] == b"PK":
         with zipfile.ZipFile(io.BytesIO(bruto)) as pacote:
-            nomes = pacote.namelist()
-            if nomes:
-                return pacote.read(nomes[0])
+            membros = [nome for nome in pacote.namelist() if not nome.endswith("/")]
+            if not membros:
+                raise ValueError("ArquivoXml ZIP vazio")
+            conteudos = [(nome, pacote.read(nome)) for nome in membros]
+            for _, dados in conteudos:
+                if _e_documento_fiscal(dados):
+                    return dados
+            # Nenhum membro com raiz conhecida: mantém o primeiro — o erro
+            # de leitura acontece depois, no conversor, com o item apontado.
+            return conteudos[0][1]
 
     try:
         return base64.b64decode(bruto)
