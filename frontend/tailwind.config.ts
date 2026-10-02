@@ -1,36 +1,24 @@
 import type { Config } from "tailwindcss";
 
-/**
- * Papel & Grafite — a única configuração de estilo do Fluxa.
- *
- * Três tetos moram aqui de propósito, para que o erro seja impossível em vez de
- * improvável:
- *   1. Raio: `rounded-2xl`/`rounded-3xl` existem como classe, mas resolvem para
- *      12 px — nada no produto é mais arredondado que um modal.
- *   2. Peso: `font-bold`/`font-black` resolvem para 600 — semibold é o peso mais
- *      forte que existe aqui.
- *   3. Sombra: `shadow-lg`/`shadow-2xl` resolvem para `none`; só `nivel1`
- *      (popover/toast) e `nivel2` (modal/drawer) elevam alguma coisa.
- *
- * Nenhuma cor entra por valor: só tokens semânticos lidos de `app/globals.css`.
- */
+/** Grafite & Menta: tokens semânticos, tipografia de dados e geometria
+ * compartilhada entre botões, campos, cartões e camadas. */
 const token = (nome: string) => `rgb(var(--${nome}-rgb) / <alpha-value>)`;
 
 const config: Config = {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./lib/**/*.{ts,tsx}"],
   theme: {
-    // Escala tipográfica do sistema (§5.3). `text-sm` = 13/20 é o padrão de dados.
+    // Escala legível para operação contínua, sem rótulos abaixo de 12 px.
     fontSize: {
       // 12px é o piso: nenhum texto do produto desce abaixo disso (WCAG/legibilidade).
       // `2xs` mantém entrelinha curta para caber em kbd, badge e rótulo de eixo.
       "2xs": ["12px", "16px"],
       xs: ["12px", "18px"],
-      sm: ["13px", "20px"],
+      sm: ["14px", "22px"],
       base: ["14px", "22px"],
       md: ["16px", "24px"],
       lg: ["20px", "28px"],
-      xl: ["26px", "32px"],
-      "2xl": ["34px", "40px"],
+      xl: ["28px", "36px"],
+      "2xl": ["36px", "44px"],
     },
     extend: {
       colors: {
@@ -53,13 +41,18 @@ const config: Config = {
         ok: token("ok"),
         "ok-tenue": token("ok-tenue"),
         espera: token("espera"),
+        "espera-contraste": token("espera-contraste"),
         "espera-tenue": token("espera-tenue"),
         erro: token("erro"),
+        "erro-contraste": token("erro-contraste"),
         "erro-tenue": token("erro-tenue"),
         info: token("info"),
         "info-tenue": token("info-tenue"),
         neutro: token("neutro"),
         "neutro-tenue": token("neutro-tenue"),
+        destrutivo: token("destrutivo"),
+        "destrutivo-hover": token("destrutivo-hover"),
+        "destrutivo-contraste": token("destrutivo-contraste"),
         grafite: token("grafite"),
         "grafite-alta": token("grafite-alta"),
         "grafite-hover": token("grafite-hover"),
@@ -78,17 +71,17 @@ const config: Config = {
       borderRadius: {
         none: "0",
         sm: "4px",
-        DEFAULT: "6px",
-        md: "6px",
-        lg: "8px",
+        DEFAULT: "8px",
+        md: "8px",
+        lg: "10px",
         xl: "12px",
-        "2xl": "12px",
-        "3xl": "12px",
+        "2xl": "16px",
+        "3xl": "20px",
         full: "999px",
-        badge: "4px",
-        controle: "6px",
-        cartao: "8px",
-        camada: "12px",
+        badge: "6px",
+        controle: "8px",
+        cartao: "12px",
+        camada: "16px",
       },
       boxShadow: {
         none: "none",
@@ -99,6 +92,7 @@ const config: Config = {
         xl: "none",
         "2xl": "none",
         inner: "none",
+        cartao: "var(--sombra-cartao)",
         nivel1: "var(--sombra-1)",
         nivel2: "var(--sombra-2)",
       },
@@ -114,16 +108,18 @@ const config: Config = {
         black: "600",
       },
       maxWidth: {
-        conteudo: "1440px",
+        conteudo: "1600px",
         leitura: "72ch",
         formulario: "560px",
         painel: "min(620px, 92vw)",
       },
+      width: { "max-painel": "min(620px, 100vw)" },
       zIndex: {
         cabecalho: "30",
         camada: "40",
         overlay: "60",
         modal: "70",
+        flutuante: "75",
         aviso: "80",
         pulo: "90",
       },

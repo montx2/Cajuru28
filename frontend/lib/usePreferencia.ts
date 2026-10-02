@@ -1,26 +1,26 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { PREFIXO_ARMAZENAMENTO } from "./atalhos";
 
 /**
- * Preferência de trabalho persistida: tema, densidade, colunas visíveis, barra
- * lateral colapsada, alertas lidos.
- *
- * É contexto de trabalho, nunca credencial — a sessão vive em cookie HttpOnly e
- * nada aqui é segredo. A leitura acontece no inicializador com guarda de SSR:
- * o shell só renderiza depois de `/auth/me`, então não há hidratação divergente.
+ * Preferências de trabalho, nunca credenciais: densidade, colunas, navegação e
+ * alertas lidos. Servidor e primeira renderização do cliente usam o mesmo
+ * padrão; o armazenamento é lido depois de montar, sem quebrar a hidratação.
  */
 export function usePreferencia<T>(chave: string, padrao: T): [T, (valor: T | ((atual: T) => T)) => void] {
-  const [valor, setValor] = useState<T>(() => {
-    if (typeof window === "undefined") return padrao;
+  const [valor, setValor] = useState<T>(padrao);
+  const padraoAtual = useRef(padrao);
+  padraoAtual.current = padrao;
+
+  useEffect(() => {
     try {
       const bruto = window.localStorage.getItem(`${PREFIXO_ARMAZENAMENTO}${chave}`);
-      return bruto === null ? padrao : (JSON.parse(bruto) as T);
+      setValor(bruto === null ? padraoAtual.current : (JSON.parse(bruto) as T));
     } catch {
-      return padrao;
+      setValor(padraoAtual.current);
     }
-  });
+  }, [chave]);
 
   const definir = useCallback(
     (proximo: T | ((atual: T) => T)) => {

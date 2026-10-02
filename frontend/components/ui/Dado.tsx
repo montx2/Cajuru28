@@ -50,11 +50,11 @@ const COR_TOM: Record<Tom, string> = {
 export function Dado({ rotulo, valor, mono, destaque, tom, contexto, quebrar, largo, compacto, href, linhas = 1, dica, className }: DadoProps) {
   return (
     <div className={cn("min-w-0", largo && "col-span-2 sm:col-span-3", className)}>
-      <dt className={cn("text-2xs text-tinta-fraca", !compacto && "uppercase tracking-[.04em]")}>{rotulo}</dt>
+      <dt className={cn("text-xs text-tinta-suave", !compacto && "uppercase tracking-[.04em]")}>{rotulo}</dt>
       <dd
         className={cn(
-          "mt-0.5 nums",
-          destaque ? "text-base font-semibold" : compacto ? "text-xs" : "text-sm",
+          "mt-1.5 nums",
+          destaque ? "text-lg font-semibold" : compacto ? "text-xs" : "text-sm",
           mono && (destaque ? "font-mono" : "font-mono text-xs"),
           linhas === 2 ? "line-clamp-2 text-xs leading-5" : quebrar ? "break-words" : "truncate",
           tom ? COR_TOM[tom] : destaque ? "text-tinta-forte" : "text-tinta",

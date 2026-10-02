@@ -146,6 +146,9 @@ class LoteImportado:
     # True quando o ambiente respondeu explicitamente "nada novo" (cStat 137
     # / HTTP 404 NENHUM_DOCUMENTO_LOCALIZADO). É o gatilho do cooldown de 1h.
     sem_novidade: bool = False
+    # Resposta preservada antes de avançar o cursor; permite reprocessar
+    # erros de leitura localmente, sem consumir outra consulta fiscal.
+    resposta_bruta: bytes | None = None
 
 
 class ImportadorFiscal(ABC):
@@ -177,6 +180,10 @@ class ImportadorFiscal(ABC):
         os dois de forma oposta (esperar 1h × tentar logo).
         """
         raise NotImplementedError
+
+    def interpretar_lote(self, conteudo: bytes, cnpj: str, ultimo_nsu: str) -> LoteImportado:
+        """Reprocessa uma resposta já recebida. Nunca realiza HTTP/mTLS."""
+        raise NotImplementedError(f"{type(self).__name__} não suporta reprocessamento local.")
 
     def buscar_por_chave(
         self, cnpj: str, cert_path: str, key_path: str, chave_acesso: str, uf: str | None = None

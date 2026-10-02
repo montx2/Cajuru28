@@ -32,7 +32,7 @@ from app.models import SincronizacaoDFe, TipoDocumentoFiscal
 # Duração do lease de uma empresa+tipo. Tem que ser maior que o tempo normal de
 # uma varredura e menor que "duas rodadas seguidas", senão o agendador fica
 # travado para sempre por um worker que morreu no meio.
-LEASE_MAXIMO = timedelta(minutes=25)
+LEASE_MAXIMO = timedelta(seconds=max(25 * 60, int(settings.limite_tempo_task_segundos) + 120))
 
 
 def _agora() -> datetime:

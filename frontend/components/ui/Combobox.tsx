@@ -160,7 +160,8 @@ export function Combobox({
         <div ref={container} className="relative">
           <div
             className={cn(
-              "flex items-center gap-1 rounded-controle border bg-superficie pr-1 transition-[border-color] duration-120",
+              "campo-entrada flex items-center gap-1 rounded-controle border bg-fundo-afundado pr-1 transition-[border-color] duration-120",
+              tamanho === "sm" ? "controle-sm" : tamanho === "lg" ? "controle-lg" : "controle-md",
               erro ? "border-erro" : aberto ? "border-acento" : "border-borda-controle hover:border-tinta-suave"
             )}
           >
@@ -198,8 +199,8 @@ export function Combobox({
               className={cn(
                 // `pl-0`: o recuo agora vem da lupa à esquerda; manter px-2.5
                 // abriria um vão duplo entre o ícone e o texto.
-                "min-w-0 flex-1 rounded-controle bg-transparent pl-2 pr-1 text-sm text-tinta outline-none placeholder:text-tinta-suave",
-                tamanho === "sm" ? "h-8 text-xs" : "h-9"
+                "h-full min-w-0 flex-1 rounded-controle bg-transparent pl-2 pr-1 text-sm text-tinta outline-none placeholder:text-tinta-suave focus-visible:shadow-none focus-visible:outline-none",
+                tamanho === "sm" && "text-xs"
               )}
             />
             {permiteLimpar && valor && !aberto ? (

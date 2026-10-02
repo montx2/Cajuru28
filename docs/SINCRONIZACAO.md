@@ -16,15 +16,15 @@ Fontes: Manual dos Contribuintes das APIs do ADN (NFSe), NT 2014.002 /
 
 | Regra do webservice | Consequência para o sistema |
 | --- | --- |
-| Depois de uma consulta, a **próxima consulta do mesmo CNPJ só pode acontecer 1 hora depois**. Consultar antes devolve **cStat 656 – Rejeição: Consumo Indevido**. | O cooldown não é "gentileza", é contrato. O Fluxa marca `proxima_consulta_em` em toda consulta e **não dispara nada** dentro da janela — nem clique manual, nem agendador. |
+| Depois de “nenhum documento novo” (137) ou de atingir `maxNSU`, **aguarde a janela oficial antes de iniciar outra varredura**. Consultar antes devolve **cStat 656 – Rejeição: Consumo Indevido**. | O cooldown não é "gentileza", é contrato. O Fluxa marca `proxima_consulta_em` ao esgotar a distribuição e **não dispara nada** dentro da janela — nem clique manual, nem agendador. |
 | **Repetir a consulta antes de 1h zera o cronômetro do bloqueio.** | Por isso o botão "forçar" existe, mas é explícito (`forcar=true`) e fica registrado na execução. Clicar de novo "para ver se já deu" é exatamente o que trava o CNPJ. |
 | A devolução 656 **também traz `ultNSU` e `maxNSU`**. | No bloqueio o sistema **realinha o cursor** com o `ultNSU` devolvido: é o que resolve o caso "outro sistema consultou este CNPJ e o nosso cursor ficou para trás". |
 | `distNSU` anda **em sequência ascendente**; não existe filtro por data. | A competência (mês) **não** pode ser usada como recorte de busca: baixar tudo e filtrar no banco é o que garante que nada se perca. |
 | `consNSU` / `consChNFe` (consulta pontual) têm teto de **20 consultas por hora por CNPJ**. | O preenchimento dos XMLs que vieram só em resumo roda com cota controlada (`consultas_pontuais` + `janela_pontual_em`) e pausa sozinha ao estourar ou ao tomar 656. |
 | A distribuição entrega documentos dos **últimos ~3 meses** (retroativo de 90 dias). | Documentos mais antigos que isso precisam de outra fonte; o sistema avisa em vez de ficar varrendo o vazio. |
 | Na **NF-e emitida** pela própria empresa, a distribuição não entrega os seus documentos (só quem participa: destinatário, transportadora…). | A aba "Prestadas" pode ficar vazia **e isso é correto**. O emitente consulta a própria SEFAZ autorizada. |
-| Lote do ADN: no máximo **50 DF-e / 1 MB** por chamada; `ultNSU == maxNSU` significa "em dia". | A varredura continua página a página até `proximo >= maxNSU`, com espera entre páginas; chegar no `maxNSU` fecha o ciclo como **em dia**. |
-| Consultar o mesmo CNPJ com dois sistemas ao mesmo tempo causa corrida de NSU. | `lease` (`travado_em`, 25 min) por empresa+tipo: duas varreduras nunca rodam juntas, e um worker que morre no meio não trava a fila para sempre. |
+| Lote do ADN: no máximo **50 DF-e / 1 MB** por chamada; `ultNSU == maxNSU` significa "em dia". | A varredura continua página a página até `proximo >= maxNSU`, com espera entre páginas; chegar no `maxNSU` confirma o fim da distribuição, mas **em dia** exige também não haver lote recebido ilegível. Uma página curta não prova que a fila acabou. |
+| Consultar o mesmo CNPJ com dois sistemas ao mesmo tempo causa corrida de NSU. | `lease` (`travado_em`, prazo maior que o hard timeout, renovado por lote) por empresa+tipo: duas varreduras nunca rodam juntas, e um worker que morre no meio não trava a fila para sempre. |
 
 ## 2. O ciclo de uma execução
 
@@ -205,3 +205,28 @@ leiaute nacional são aceitos; outro formato volta como "Não reconhecido".
 **Para voltar atrás.** `SINCRONISMO_AUTOMATICO=true` + reiniciar. Nada foi
 removido: os cursores, as janelas e o histórico continuam onde estavam, e a
 primeira varredura realinha o cursor com o `ultNSU` que a SEFAZ devolver.
+
+
+## Revisão de captura e recuperação — 02/10/2026
+
+Consulte [a revisão completa](REVISAO_IMPORTACAO_2026.md) para os defeitos
+corrigidos, testes executados e limites da verificação.
+
+- Respostas de lotes ficam em `DADOS_DIR/xml/.lotes_pendentes` até o commit
+  completo e sem falha. Esse diretório pertence ao volume persistente de XML
+  compartilhado pela API/worker e entra no backup existente.
+- Itens ilegíveis não são mais descartados silenciosamente com avanço de NSU.
+  São sinalizados como **Importação parcial**, e podem ser reprocessados
+  localmente sem consultar o mesmo NSU outra vez.
+- Com A1 válido e janela aberta, a pendência antiga não impede a captura de
+  notas novas. Sem A1 ou com janela fechada, a recuperação pode rodar só local.
+- `lotes_pendentes > 0` impede o selo de completude e a liberação do fechamento,
+  mesmo quando cursor e máximo sejam iguais.
+- A fila conta o teto por empresas que realmente foram enfileiradas; quem está
+  sem A1 ou em cooldown não ocupa o lugar de um cliente elegível.
+- XML manual completo promove uma nota em resumo. ZIPs homônimos são lidos
+  individualmente, e falhas de um item não desfazem outros XMLs válidos.
+
+Não foram realizadas consultas reais com certificado do escritório nesta
+revisão. Para confirmar um caso operacional, use o ID da execução, tipo,
+horário, mensagem/cStat e filtros do acervo — nunca envie o A1/senha no chat.

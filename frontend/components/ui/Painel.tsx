@@ -35,7 +35,7 @@ export function Painel({ aberto, aoFechar, titulo, contexto, children, rodape, a
 
   return createPortal(
     <div className="fixed inset-0 z-modal flex justify-end">
-      <div aria-hidden="true" className="absolute inset-0 bg-grafite/50 animate-entrar" onClick={aoFechar} />
+      <div aria-hidden="true" className="absolute inset-0 bg-grafite/70 backdrop-blur-sm animate-entrar" onClick={aoFechar} />
       <div
         ref={container}
         role="dialog"
@@ -46,9 +46,9 @@ export function Painel({ aberto, aoFechar, titulo, contexto, children, rodape, a
           className
         )}
       >
-        <header className="flex items-start justify-between gap-4 border-b border-traco px-5 py-3.5">
+        <header role="presentation" className="flex items-start justify-between gap-4 border-b border-traco px-5 py-5 sm:px-6">
           <div className="min-w-0 flex-1">
-            <h2 className="text-md font-semibold text-tinta-forte">{titulo}</h2>
+            <h2 className="text-lg font-semibold tracking-tight text-tinta-forte">{titulo}</h2>
             {contexto ? <div className="mt-1 text-xs text-tinta-suave">{contexto}</div> : null}
           </div>
           <div className="flex flex-none items-center gap-1">
@@ -64,9 +64,9 @@ export function Painel({ aberto, aoFechar, titulo, contexto, children, rodape, a
           </div>
         </header>
         {children ? (
-          <div className={cn("rolagem-fina min-h-0 flex-1 overflow-y-auto", semPadding ? "" : "px-5 py-4")}>{children}</div>
+          <div className={cn("rolagem-fina min-h-0 flex-1 overflow-y-auto", semPadding ? "" : "px-5 py-5 sm:px-6")}>{children}</div>
         ) : null}
-        {rodape ? <footer className="border-t border-traco bg-fundo-afundado px-5 py-3">{rodape}</footer> : null}
+        {rodape ? <footer role="presentation" className="border-t border-traco bg-fundo-afundado px-5 py-4 sm:px-6">{rodape}</footer> : null}
       </div>
     </div>,
     document.body

@@ -288,6 +288,7 @@ def interpretar_resposta(resposta_bytes: bytes, *, ambiente: str = "SEFAZ") -> R
         nsu = doc_zip.get("NSU", "") or ""
         schema = doc_zip.get("schema", "") or ""
         if not (doc_zip.text or "").strip():
+            resposta.documentos.append((nsu, schema, b""))
             continue
         try:
             xml_bytes = gzip.decompress(base64.b64decode(doc_zip.text.strip()))
@@ -363,6 +364,8 @@ _CAMPOS_COMUNS: dict[str, tuple[tuple[str, str], ...]] = {
     "valor": (
         ("ICMSTot", "vNF"),
         ("total", "vNF"),
+        ("vPrest", "vTPrest"),
+        ("vPrest", "vRec"),
         ("vCTe", "vTPrest"),
         ("vCTe", "vTRec"),
         ("total", "vCarga"),
@@ -442,7 +445,7 @@ def metadados_da_chave(chave: str) -> dict[str, str]:
     cNF(9). O `resNFe` não traz número nem série, e é exatamente o resumo que
     chega para quem ainda não manifestou — sem isso, a listagem sairia muda.
     """
-    digitos = "".join(c for c in str(chave or "") if c.isdigit())
+    digitos = "".join(c for c in str(chave or "").upper() if c.isascii() and c.isalnum())
     if len(digitos) != 44:
         return {}
     ano, mes = digitos[2:4], digitos[4:6]
@@ -473,6 +476,6 @@ def competencia_de_texto(valor: str, data_emissao: str) -> str:
     candidato = (valor or "").strip() or (data_emissao or "").strip()
     if len(candidato) >= 10 and candidato[4] == "-" and candidato[7] == "-":
         return candidato[:10]
-    if len(candidato) >= 7 and candidato[4] == "-" and candidato[7] != "-":
+    if len(candidato) == 7 and candidato[4] == "-":
         return f"{candidato}-01"
     return ""

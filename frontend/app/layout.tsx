@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
+import { SCRIPT_TEMA_INICIAL } from "@/lib/preferenciaTema";
 import "./globals.css";
 
 /* Self-hosted de propósito: o build não depende de rede (Docker offline) e
@@ -42,21 +43,18 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#eef1f8" },
-    { media: "(prefers-color-scheme: dark)", color: "#0a0d1c" },
-  ],
+  themeColor: "#101318",
 };
 
 /* Aplicado antes da primeira pintura: nada de flash branco no tema escuro.
    A sessão vive em cookie HttpOnly — aqui não há token, só preferência visual. */
-const scriptTema = `(function(){try{var k="fluxa:tema";var t=localStorage.getItem(k);var m=window.matchMedia("(prefers-color-scheme: dark)");var aplicar=function(){var escuro=t==="escuro"||((t===null||t==="sistema")&&m.matches);document.documentElement.dataset.tema=escuro?"escuro":"claro";};aplicar();m.addEventListener("change",aplicar);}catch(e){document.documentElement.dataset.tema="claro";}})()`;
+
 
 export default function Raiz({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="pt-BR" className={`${inter.variable} ${jetbrainsMono.variable}`} suppressHydrationWarning>
+    <html lang="pt-BR" className={`${inter.variable} ${jetbrainsMono.variable}`} data-tema="escuro" suppressHydrationWarning>
       <head>
-        <script dangerouslySetInnerHTML={{ __html: scriptTema }} />
+        <script dangerouslySetInnerHTML={{ __html: SCRIPT_TEMA_INICIAL }} />
       </head>
       <body>{children}</body>
     </html>

@@ -46,13 +46,14 @@ de exibição das telas.
 import logging
 import os
 import time
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from cryptography.hazmat.primitives.serialization import pkcs12
 from dateutil import parser as date_parser
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
+from app.core.arquivos import gravar_bytes_atomicamente
 from app.core.config import settings
 from app.core.money import valor_monetario
 from app.core.tempo import tornar_data_hora_fiscal_consciente
@@ -69,7 +70,7 @@ from app.models import (
     StatusExecucao,
     TipoDocumentoFiscal,
 )
-from app.services import batimento, fila, sincronizacao
+from app.services import batimento, fila, lotes_recebidos, sincronizacao
 from app.services.proveniencia import registrar_proveniencia
 from app.services.importadores.manifestacao import ManifestacaoRecusada, manifestar_ciencia
 from app.services.certificados import ler_pfx_protegido
@@ -156,20 +157,10 @@ def importar_documentos(
             # Redelivery do broker (acks_late) numa varredura que já terminou:
             # sair daqui é o que evita reconsultar a SEFAZ de graça.
             return
-        if execucao.status == StatusExecucao.AGUARDANDO:
-            # O ETA venceu e a task acordou: a linha deixa de parecer parada
-            # enquanto o worker valida certificado/lease/janela.
-            execucao.status = StatusExecucao.EM_ANDAMENTO
-            execucao.bloqueado_ate = None
-            execucao.mensagem_erro = None
-
-        certificado = (
-            db.query(Certificado)
-            .filter(Certificado.empresa_id == empresa_id, Certificado.ativo.is_(True))
-            .first()
-        )
-        if certificado is None:
-            _marcar_erro(db, execucao, "Nenhum certificado ativo para esta empresa")
+        if execucao.empresa_id != empresa_id or execucao.tipo != tipo_doc:
+            raise ValueError("Execução não corresponde à empresa/tipo da tarefa.")
+        if not empresa.ativa:
+            _marcar_erro(db, execucao, "Empresa inativa: captura não realizada.")
             return
 
         estado = sincronizacao.obter_estado(db, empresa_id, tipo_doc)
@@ -183,32 +174,28 @@ def importar_documentos(
                 "Empresa %s/%s já está sendo varrida por outra task; sem duplicar consulta.",
                 empresa_id, tipo,
             )
-            execucao.status = StatusExecucao.CONCLUIDA
-            execucao.bloqueado_ate = None
-            execucao.mensagem_erro = None
-            execucao.aviso = _resumir_avisos(
-                execucao.aviso,
-                ["Consulta não duplicada: outra varredura deste CNPJ/tipo já estava em andamento."],
-            )
-            execucao.finalizado_em = _agora()
-            db.commit()
+            # Redelivery pode ser da MESMA execução que está rodando. Não
+            # altere seu status nem finja sucesso sem ter consultado nada.
+            try:
+                importar_documentos.apply_async(
+                    kwargs={"empresa_id": empresa_id, "tipo": tipo, "execucao_id": execucao_id, "tentativa": tentativa},
+                    countdown=60,
+                )
+            except Exception:
+                log.warning("Retomada do lease ocupado dependerá do agendador.")
             return
+
+        execucao.status = StatusExecucao.EM_ANDAMENTO
+        execucao.bloqueado_ate = None
+        execucao.mensagem_erro = None
+        execucao.finalizado_em = None
+        db.commit()
 
         # Batimento: a API usa isto (e o ping do broker) para dizer ao
         # operador se "tem alguém trabalhando" na primeira tela.
         batimento.registrar(db, "worker", f"importar_documentos {empresa_id}/{tipo}")
 
-        # ---------------- janela de consumo ----------------
-        if not getattr(execucao, "forcar", False):
-            libertacao = sincronizacao.liberacao_para(db, empresa_id, tipo_doc)
-            if not libertacao.pode:
-                _aguardar_janela(db, estado, execucao, libertacao)
-                return
-
         ultimo_nsu = _resolver_nsu_inicial(db, empresa_id, tipo_doc, execucao, estado)
-        senha = decifrar_segredo(certificado.senha_cifrada)
-        pfx_bytes = ler_pfx_protegido(certificado.arquivo_path)
-
         importador = obter_importador(tipo_doc)
         total_importado = execucao.documentos_importados or 0
         total_cancelados = execucao.documentos_cancelados or 0
@@ -218,6 +205,120 @@ def importar_documentos(
         total_completados = 0
         periodo = fila_periodo(execucao)
         importou_alguma_coisa = False
+
+        def gravar_lote(lote, arquivo, *, consulta_local: bool = False, recebido_em: datetime | None = None):
+            nonlocal total_importado, total_cancelados, total_nao_reconhecidos
+            nonlocal total_no_periodo, total_fora_do_periodo, total_completados, importou_alguma_coisa
+            for doc in lote.documentos:
+                # XML completo de uma nota que estava só em resumo: promove
+                # sem olhar o período (a nota já é nossa). Uma promoção é
+                # trabalho útil; marcá-la impede um cooldown indevido quando
+                # ainda existem NSUs pendentes no ambiente.
+                if _promover_resumo(db, empresa_id, tipo_doc, doc):
+                    total_completados += 1
+                    importou_alguma_coisa = True
+                    continue
+
+                # Grava SEMPRE. O período virou relatório, não filtro de
+                # gravação: o NSU deste documento está sendo consumido agora
+                # e o cursor nunca regride sozinho. Descartar aqui perderia
+                # a nota em definitivo, pois a SEFAZ não reapresenta NSU já
+                # entregue. Ainda contamos de que lado do intervalo ela caiu
+                # para a execução explicar o resultado ao operador.
+                dentro_do_periodo = _documento_no_periodo(doc, periodo)
+                if _gravar_documento(db, empresa_id, tipo_doc, doc):
+                    total_importado += 1
+                    if dentro_do_periodo:
+                        total_no_periodo += 1
+                    else:
+                        total_fora_do_periodo += 1
+                    importou_alguma_coisa = True
+                    if _aplicar_eventos_pendentes(db, empresa_id, tipo_doc, doc.chave_acesso):
+                        total_cancelados += 1
+
+            for evento in lote.eventos:
+                resultado = _processar_evento(db, empresa_id, tipo_doc, evento)
+                if resultado == "aplicado":
+                    total_cancelados += 1
+
+            total_nao_reconhecidos += lote.eventos_nao_reconhecidos
+            if lote.erros and arquivo is None:
+                raise ValueError("Lote com falha de leitura sem resposta preservada: cursor não avançado.")
+            max_nsu = lote.max_nsu
+            if consulta_local and estado.max_nsu is not None and max_nsu is not None:
+                max_nsu = str(max(int(estado.max_nsu), int(max_nsu)))
+            consulta_anterior = estado.ultima_consulta_em
+            sincronizacao.avançar_cursor(db, estado, ultimo_nsu=lote.proximo_nsu, max_nsu=max_nsu)
+            if consulta_local:
+                estado.ultima_consulta_em = consulta_anterior or recebido_em
+            sincronizacao.renovar_lease(db, estado)
+            execucao.ultimo_nsu = estado.ultimo_nsu
+            execucao.documentos_importados = total_importado
+            execucao.documentos_cancelados = total_cancelados
+            execucao.eventos_nao_reconhecidos = total_nao_reconhecidos
+            execucao.documentos_no_periodo = total_no_periodo
+            execucao.documentos_fora_do_periodo = total_fora_do_periodo
+            if lote.erros:
+                execucao.aviso = _resumir_avisos(execucao.aviso, lote.erros)
+            db.commit()
+            if not lote.erros:
+                lotes_recebidos.confirmar(arquivo)
+
+        # Leia o checkpoint local ANTES de exigir certificado ou consultar
+        # outra vez. Uma falha de parser/DB/disco não pode consumir o NSU e
+        # descartar a resposta que já havia sido recebida.
+        espera_local_ate = None
+        for arquivo in lotes_recebidos.arquivos_pendentes(empresa_id, tipo_doc)[:50]:
+            try:
+                recebido = lotes_recebidos.ler(arquivo, empresa_id, tipo_doc, escritorio_id=empresa.escritorio_id)
+                if recebido.cnpj != empresa.cnpj_cpf:
+                    raise ValueError("Lote recebido pertence a outro documento cadastral.")
+                lote_local = importador.interpretar_lote(recebido.conteudo, recebido.cnpj, recebido.nsu_anterior)
+            except Exception as exc:
+                execucao.aviso = _resumir_avisos(execucao.aviso, [f"Lote local preservado não pôde ser lido: {str(exc)[:200]}"])
+                db.commit()
+                continue
+            gravar_lote(lote_local, arquivo, consulta_local=True, recebido_em=recebido.recebido_em)
+            if (lote_local.sem_novidade or (lote_local.max_nsu is not None and int(lote_local.proximo_nsu) >= int(lote_local.max_nsu))) and sincronizacao.esta_em_dia(estado):
+                quando = recebido.recebido_em + sincronizacao.cooldown_oficial()
+                proxima = estado.proxima_consulta_em
+                proxima = proxima.replace(tzinfo=timezone.utc) if proxima and proxima.tzinfo is None else proxima
+                if proxima is None or proxima < quando:
+                    estado.proxima_consulta_em = quando
+                if espera_local_ate is None or espera_local_ate < quando:
+                    espera_local_ate = quando
+                db.commit()
+        ultimo_nsu = estado.ultimo_nsu
+
+        local_completo_recente = espera_local_ate and espera_local_ate > _agora() and lotes_recebidos.quantidade_pendente(empresa_id, tipo_doc) == 0
+        if execucao.origem == "reprocessamento" or local_completo_recente:
+            pendentes = lotes_recebidos.quantidade_pendente(empresa_id, tipo_doc)
+            if pendentes:
+                _marcar_erro(db, execucao, f"Importação parcial: {pendentes} lote(s) recebido(s) ainda exigem correção. Respostas preservadas no volume; nenhuma consulta fiscal foi repetida.")
+            else:
+                execucao.status = StatusExecucao.CONCLUIDA
+                execucao.aviso = _resumir_avisos(execucao.aviso, ["Lotes recebidos reprocessados localmente, sem nova consulta à SEFAZ/ADN."])
+                execucao.finalizado_em = _agora()
+                db.commit()
+            return
+
+        # ---------------- janela de consumo ----------------
+        if not getattr(execucao, "forcar", False):
+            libertacao = sincronizacao.liberacao_para(db, empresa_id, tipo_doc)
+            if not libertacao.pode:
+                _aguardar_janela(db, estado, execucao, libertacao)
+                return
+        status_preflight, mensagem_preflight = fila.verificar_empresa(db, empresa, tipo_doc)
+        if status_preflight != "ok":
+            _marcar_erro(db, execucao, mensagem_preflight)
+            return
+        certificado = (
+            db.query(Certificado)
+            .filter(Certificado.empresa_id == empresa_id, Certificado.ativo.is_(True))
+            .first()
+        )
+        senha = decifrar_segredo(certificado.senha_cifrada)
+        pfx_bytes = ler_pfx_protegido(certificado.arquivo_path)
 
         # Telemetria do A1: o centro de certificados mostra "última utilização"
         # e "último erro de autenticação". Abrir o .pfx com a senha É a
@@ -253,53 +354,13 @@ def importar_documentos(
                     tratar_ambiente_indisponivel(db, execucao, exc, tentativa)
                     return
 
-                for doc in lote.documentos:
-                    # XML completo de uma nota que estava só em resumo: promove
-                    # sem olhar o período (a nota já é nossa). Uma promoção é
-                    # trabalho útil; marcá-la impede um cooldown indevido quando
-                    # ainda existem NSUs pendentes no ambiente.
-                    if _promover_resumo(db, empresa_id, tipo_doc, doc):
-                        total_completados += 1
-                        importou_alguma_coisa = True
-                        continue
-
-                    # Grava SEMPRE. O período virou relatório, não filtro de
-                    # gravação: o NSU deste documento está sendo consumido agora
-                    # e o cursor nunca regride sozinho. Descartar aqui perderia
-                    # a nota em definitivo, pois a SEFAZ não reapresenta NSU já
-                    # entregue. Ainda contamos de que lado do intervalo ela caiu
-                    # para a execução explicar o resultado ao operador.
-                    dentro_do_periodo = _documento_no_periodo(doc, periodo)
-                    if _gravar_documento(db, empresa_id, tipo_doc, doc):
-                        total_importado += 1
-                        if dentro_do_periodo:
-                            total_no_periodo += 1
-                        else:
-                            total_fora_do_periodo += 1
-                        importou_alguma_coisa = True
-                        if _aplicar_eventos_pendentes(db, empresa_id, tipo_doc, doc.chave_acesso):
-                            total_cancelados += 1
-
-                for evento in lote.eventos:
-                    resultado = _processar_evento(db, empresa_id, tipo_doc, evento)
-                    if resultado == "aplicado":
-                        total_cancelados += 1
-
-                total_nao_reconhecidos += lote.eventos_nao_reconhecidos
-                ultimo_nsu = lote.proximo_nsu
-
-                sincronizacao.avançar_cursor(
-                    db, estado, ultimo_nsu=lote.proximo_nsu, max_nsu=lote.max_nsu
+                arquivo_recebido = lotes_recebidos.salvar(
+                    empresa_id, tipo_doc, empresa.cnpj_cpf, ultimo_nsu, lote.resposta_bruta, escritorio_id=empresa.escritorio_id
                 )
-                execucao.ultimo_nsu = ultimo_nsu
-                execucao.documentos_importados = total_importado
-                execucao.documentos_cancelados = total_cancelados
-                execucao.eventos_nao_reconhecidos = total_nao_reconhecidos
-                execucao.documentos_no_periodo = total_no_periodo
-                execucao.documentos_fora_do_periodo = total_fora_do_periodo
-                if lote.erros:
-                    execucao.aviso = _resumir_avisos(execucao.aviso, lote.erros)
-                db.commit()  # checkpoint a cada lote — nada se perde numa queda
+                if lote.ha_mais_documentos and int(lote.proximo_nsu) <= int(ultimo_nsu):
+                    raise ValueError("Ambiente informou mais documentos sem avançar o NSU. Lote preservado; captura interrompida para evitar consultas repetidas.")
+                gravar_lote(lote, arquivo_recebido)
+                ultimo_nsu = estado.ultimo_nsu
 
                 if not lote.ha_mais_documentos:
                     break
@@ -310,7 +371,9 @@ def importar_documentos(
                 return
 
         # ---------------- fim da varredura ----------------
-        if sincronizacao.nunca_consultado(estado):
+        if lote.sem_novidade:
+            sincronizacao.marcar_sem_novidade(db, estado)
+        elif sincronizacao.nunca_consultado(estado):
             # Nunca obtivemos `maxNSU` para esta empresa+tipo: não sabemos se
             # estamos em dia, logo NÃO cabe a espera de 1h. Era exatamente aqui
             # que a NF-e se enterrava: sem importar nada, caía no ramo de "em
@@ -333,7 +396,7 @@ def importar_documentos(
         else:
             sincronizacao.marcar_consulta_ok(db, estado)
 
-        if (estado.max_nsu and int(estado.ultimo_nsu or 0) < int(estado.max_nsu or 0)):
+        if not lote.sem_novidade and (estado.max_nsu and int(estado.ultimo_nsu or 0) < int(estado.max_nsu or 0)):
             sincronizacao.marcar_consulta_ok(db, estado)
 
         if total_completados:
@@ -356,6 +419,10 @@ def importar_documentos(
                 ],
             )
 
+        pendentes = lotes_recebidos.quantidade_pendente(empresa_id, tipo_doc)
+        if pendentes:
+            _marcar_erro(db, execucao, f"Importação parcial: {pendentes} lote(s) com falha de leitura preservado(s) para reprocessamento. Notas válidas foram gravadas; a execução não é confirmação de acervo completo.")
+            return
         execucao.status = StatusExecucao.CONCLUIDA
         execucao.bloqueado_ate = None
         execucao.finalizado_em = _agora()
@@ -525,13 +592,13 @@ def _resolver_nsu_inicial(
     ainda não têm estado (recém-migrado), cai no maior NSU do histórico — e só
     então em "0", que é o único valor que não briga com a sequência do ambiente.
     """
-    if execucao.ultimo_nsu:
-        return execucao.ultimo_nsu
-
     if estado is None:
         estado = sincronizacao.obter_estado(db, empresa_id, tipo, criar=False)
     if estado is not None and estado.ultimo_nsu:
         return estado.ultimo_nsu
+
+    if execucao.ultimo_nsu:
+        return execucao.ultimo_nsu
 
     historico = (
         db.query(ExecucaoImportacao.ultimo_nsu)
@@ -627,7 +694,7 @@ def _promover_resumo(db, empresa_id: int, tipo: TipoDocumentoFiscal, doc) -> boo
     return True
 
 
-def _gravar_documento(db, empresa_id: int, tipo: TipoDocumentoFiscal, doc) -> bool:
+def _gravar_documento(db, empresa_id: int, tipo: TipoDocumentoFiscal, doc, *, origem: str | None = None, identificador_externo: str | None = None, nsu_registro: str | None = None) -> bool:
     """
     Persiste um documento de forma idempotente.
 
@@ -654,7 +721,7 @@ def _gravar_documento(db, empresa_id: int, tipo: TipoDocumentoFiscal, doc) -> bo
         "tipo": tipo,
         "direcao": DirecaoDocumento(direcao),
         "chave_acesso": chave,
-        "nsu": str(doc.nsu),
+        "nsu": nsu_registro if nsu_registro is not None else str(doc.nsu),
         "data_emissao": _parse_data_emissao(doc.data_emissao),
         "competencia": _parse_data(getattr(doc, "competencia", "")),
         "valor_total": valor_monetario(doc.valor_total),
@@ -668,7 +735,7 @@ def _gravar_documento(db, empresa_id: int, tipo: TipoDocumentoFiscal, doc) -> bo
         "destinatario_documento": texto("destinatario_documento", 18),
         "destinatario_nome": texto("destinatario_nome", 255),
         "situacao": texto("status_autorizacao", 255),
-        "origem": "adn" if tipo == TipoDocumentoFiscal.NFSE else "sefaz",
+        "origem": origem or ("adn" if tipo == TipoDocumentoFiscal.NFSE else "sefaz"),
     }
     criado = _inserir_documento_sem_duplicar(db, valores)
     documento = (
@@ -679,15 +746,13 @@ def _gravar_documento(db, empresa_id: int, tipo: TipoDocumentoFiscal, doc) -> bo
     if documento is not None:
         # A nota é única, mas cada confirmação de origem fica rastreável. Não
         # muda o XML quando a mesma chave reaparece por outra fonte.
-        registrar_proveniencia(db, documento.id, valores["origem"] or "desconhecida", str(doc.nsu))
+        registrar_proveniencia(db, documento.id, valores["origem"] or "desconhecida", identificador_externo if identificador_externo is not None else str(doc.nsu))
     if not criado:
         return False
 
     # Só grava o XML depois de vencer a disputa no banco. Assim uma
     # reimportação não sobrescreve o arquivo já associado à nota existente.
-    os.makedirs(pasta, exist_ok=True)
-    with open(xml_path, "wb") as f:
-        f.write(doc.xml)
+    gravar_bytes_atomicamente(xml_path, doc.xml)
     return True
 
 
@@ -817,7 +882,7 @@ def _parse_data_evento(valor: str | None) -> datetime | None:
 
 
 def _resumir_avisos(aviso_atual: str | None, novos: list[str], limite: int = 20) -> str:
-    """Anexa itens ignorados ao aviso da execução, sem crescer sem limite."""
+    """Anexa avisos da execução sem crescer sem limite."""
     itens = [a for a in (aviso_atual or "").split("\n") if a and not a.startswith("…")]
     for novo in novos:
         if novo not in itens:
@@ -825,7 +890,7 @@ def _resumir_avisos(aviso_atual: str | None, novos: list[str], limite: int = 20)
     if len(itens) > limite:
         resto = len(itens) - limite
         itens = itens[:limite]
-        itens.append(f"… e mais {resto} item(ns) ignorado(s) no total")
+        itens.append(f"… e mais {resto} aviso(s) no total")
     return "\n".join(itens)
 
 
@@ -866,6 +931,25 @@ def sincronizar_tudo(self) -> dict:
         batimento.registrar(
             db, "agendador", f"tick de {settings.sincronismo_intervalo_minutos} min"
         )
+        # Um worker morto não pode deixar "em andamento" bloqueando o CNPJ
+        # para sempre. Sem lease vivo, o prazo considera o hard time limit;
+        # tarefas que nem começaram usam a janela conservadora do broker.
+        agora_tick = _agora()
+        candidatas = db.query(ExecucaoImportacao).filter(
+            ExecucaoImportacao.status == StatusExecucao.EM_ANDAMENTO,
+            ExecucaoImportacao.iniciado_em < agora_tick - sincronizacao.LEASE_MAXIMO,
+        ).all()
+        for parada in candidatas:
+            estado_parado = sincronizacao.obter_estado(db, parada.empresa_id, parada.tipo, criar=False)
+            if estado_parado and sincronizacao.esta_travado(estado_parado, agora=agora_tick):
+                continue
+            inicio = parada.iniciado_em.replace(tzinfo=timezone.utc) if parada.iniciado_em.tzinfo is None else parada.iniciado_em
+            tinha_lease = estado_parado is not None and estado_parado.travado_em is not None
+            margem = sincronizacao.LEASE_MAXIMO if tinha_lease else timedelta(seconds=max(settings.broker_visibility_timeout_segundos, settings.limite_tempo_task_segundos + 120))
+            if inicio + margem > agora_tick:
+                continue
+            fila.reagendar(db, parada, agora_tick, motivo="Retomada de execução sem worker/lease ativo; checkpoint preservado.")
+
         # 1) execuções dormindo cujo bloqueio venceu: retoma (backstop caso o
         #    refiro agendado se perca — restart de worker, broker, etc.)
         vencidas = (
@@ -881,6 +965,9 @@ def sincronizar_tudo(self) -> dict:
         for execucao in vencidas:
             empresa = db.get(Empresa, execucao.empresa_id)
             if empresa is None:
+                continue
+            if not empresa.ativa:
+                _marcar_erro(db, execucao, "Empresa inativa: retomada cancelada.")
                 continue
             libertacao = sincronizacao.liberacao_para(db, empresa.id, execucao.tipo)
             if not libertacao.pode:
@@ -898,17 +985,24 @@ def sincronizar_tudo(self) -> dict:
         #    cronômetro do 656 nunca é zerado. Quem está na janela vira
         #    "aguardando" (não é erro) e o próprio tick tenta de novo mais tarde.
         limite = max(1, int(settings.sincronismo_lote_empresas))
-        for empresa, tipos in fila.disponiveis_para_sincronismo_automatico(db, limite=limite):
+        empresas_enfileiradas = 0
+        for empresa, tipos in fila.disponiveis_para_sincronismo_automatico(db):
+            gerou_trabalho = False
             for tipo in tipos:
                 resultado = fila.enfileirar(db, empresa, tipo, origem="auto")
                 if resultado.status == "enfileirada":
                     resumo["enfileiradas"] += 1
+                    gerou_trabalho = True
                 elif resultado.status == "em_cooldown":
                     resumo["aguardando"] += 1
                 else:
                     # em_andamento / sem_certificado / sem_uf / fila_indisponivel:
                     # nenhuma requisição foi feita; só não há o que disparar agora.
                     resumo["ignoradas"] += 1
+            if gerou_trabalho:
+                empresas_enfileiradas += 1
+                if empresas_enfileiradas >= limite:
+                    break
         db.commit()
 
         if resumo["enfileiradas"] or resumo["retomadas"]:
@@ -1107,13 +1201,12 @@ def _sobrescrever_xml(documento: DocumentoFiscal, completo: DocumentoBaixado) ->
     """
     Substitui o resumo pelo XML completo, mantendo o mesmo caminho de arquivo.
 
-    O arquivo é reescrito antes do commit: se o commit falhar, o XML na mão do
-    usuário ainda é o resumo (o que o banco diz), nunca um documento órfão.
+    O arquivo é substituído atomicamente antes do commit: uma falha de disco
+    não trunca a evidência anterior. Se o banco falhar, o lote recebido permite
+    reaplicar a promoção e reconciliar metadados/arquivo na próxima execução.
     """
     caminho = documento.xml_path
-    os.makedirs(os.path.dirname(caminho), exist_ok=True)
-    with open(caminho, "wb") as f:
-        f.write(completo.xml)
+    gravar_bytes_atomicamente(caminho, completo.xml)
 
     documento.leiaute = "completo"
     # O XML integral chegou: qualquer rejeição/pendência anterior de
@@ -1121,7 +1214,7 @@ def _sobrescrever_xml(documento: DocumentoFiscal, completo: DocumentoBaixado) ->
     # manteria a nota fora de `_pendentes_de_completar` para sempre e exibiria
     # um erro velho numa nota que já está completa no acervo.
     documento.manifestacao_erro = None
-    documento.valor_total = valor_monetario(completo.valor_total or documento.valor_total)
+    documento.valor_total = valor_monetario(completo.valor_total if completo.valor_total is not None else documento.valor_total)
     if completo.data_emissao:
         documento.data_emissao = _parse_data_emissao(completo.data_emissao)
     competencia = _parse_data(completo.competencia)
@@ -1133,6 +1226,13 @@ def _sobrescrever_xml(documento: DocumentoFiscal, completo: DocumentoBaixado) ->
         documento.serie = completo.serie[:10]
     if completo.emitente_nome:
         documento.emitente_nome = completo.emitente_nome[:255]
+    for campo, limite in (("emitente_documento", 18), ("destinatario_documento", 18), ("destinatario_nome", 255)):
+        valor = str(getattr(completo, campo, "") or "").strip()
+        if valor:
+            setattr(documento, campo, valor[:limite])
+    situacao = getattr(completo, "status_autorizacao", "")
+    if situacao:
+        documento.situacao = situacao[:255]
 
 
 @celery_app.task(name="varrer_alertas_webhook", bind=True, max_retries=0)

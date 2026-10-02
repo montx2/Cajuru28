@@ -32,7 +32,7 @@ export function BarraProgresso({ valor, maximo, tom = "acento", rotulo, descrica
         aria-label={rotulo}
         aria-valuenow={Math.round(valor)}
         aria-valuemin={0}
-        aria-valuumax={Math.round(maximo)}
+        aria-valuemax={Math.round(maximo)}
         aria-valuetext={descricao ?? `${numero(valor)} de ${numero(maximo)}`}
         className={cn("w-full overflow-hidden rounded-full bg-fundo-afundado", altura === "fina" ? "h-1.5" : "h-2.5")}
       >

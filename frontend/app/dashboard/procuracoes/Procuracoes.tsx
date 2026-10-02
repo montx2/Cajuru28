@@ -17,7 +17,7 @@ import { Botao } from "@/components/ui/Botao";
 import { BotaoIcone } from "@/components/ui/BotaoIcone";
 import { CabecalhoPagina } from "@/components/ui/Cartao";
 import { Busca } from "@/components/ui/Campo";
-import { Cnpj, DataHora, Truncado } from "@/components/ui/Formatadores";
+import { Cnpj, Truncado } from "@/components/ui/Formatadores";
 import { GradeKpis, type KpiProps } from "@/components/ui/Kpi";
 import { Icone } from "@/components/ui/Icone";
 import { IndicadorEstado } from "@/components/ui/IndicadorEstado";
@@ -237,7 +237,7 @@ export function Procuracoes() {
           </Link>
         ),
       },
-      { id: "cnpj", cabecalho: "CNPJ", celula: (linha) => <Cnpj valor={linha.documento} /> },
+      { id: "cnpj", cabecalho: "CNPJ", largura: "min-w-52", celula: (linha) => <Cnpj valor={linha.documento} /> },
       {
         id: "situacao",
         cabecalho: "Autorização",
@@ -312,7 +312,8 @@ export function Procuracoes() {
       },
       {
         id: "acoes",
-        cabecalho: "",
+        fixar: "direita",
+        cabecalho: "Ações",
         alinhamento: "direita",
         celula: (linha) => {
           const precisaDeJob = !linha.job_id && linha.situacao !== "ativa";
@@ -383,15 +384,11 @@ export function Procuracoes() {
   return (
     <div className="space-y-5">
       <CabecalhoPagina
+        kicker="Fiscal · Autorizações"
         titulo="Procurações RFB"
-        descricao="Autorizações de Acesso da Receita Federal: quem já autorizou a contabilidade, quem falta e o que trava cada processo."
+        descricao="Autorizações da carteira, prazos de aceite e processos que precisam de você."
         acoes={
           <div className="flex flex-wrap items-center gap-2">
-            {lista.ultimaAtualizacao ? (
-              <span className="nums text-xs text-tinta-suave">
-                Atualizado <DataHora iso={new Date(lista.ultimaAtualizacao).toISOString()} />
-              </span>
-            ) : null}
             <BotaoIcone
               rotulo="Atualizar procurações"
               dica="Atualizar procurações"
@@ -400,7 +397,7 @@ export function Procuracoes() {
               aria-busy={lista.atualizando}
             />
             <Botao
-              variante="sutil"
+              variante="secundaria"
               onClick={() => setImportacaoAberta(true)}
               disabled={somenteLeitura}
               title={
@@ -412,13 +409,7 @@ export function Procuracoes() {
             >
               Importar lista
             </Botao>
-            <Botao
-              variante="sutil"
-              onClick={() => setConfigAberta(true)}
-              iconeEsquerda={<Icone nome="configuracoes" className="h-4 w-4" />}
-            >
-              Configurar
-            </Botao>
+            <BotaoIcone rotulo="Configurar" dica="Configurar procurações" onClick={() => setConfigAberta(true)} icone={<Icone nome="configuracoes" className="h-4 w-4" />} />
             <Botao
               variante="primaria"
               onClick={processarPendencias}
@@ -433,12 +424,19 @@ export function Procuracoes() {
         }
       />
 
-      <Aviso tom="info" icone="certificado" titulo="Como funciona neste computador">
+      <details className="group rounded-cartao border border-traco bg-superficie">
+        <summary className="flex items-center gap-3 px-4 py-4 text-sm font-medium text-tinta">
+          <Icone nome="info" className="h-4 w-4 flex-none text-info" />
+          Como funciona neste computador
+          <Icone nome="chevron-baixo" className="ml-auto h-4 w-4 flex-none text-tinta-suave transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="border-t border-traco px-4 py-4 text-sm leading-6 text-tinta-suave">
         Pesquise a empresa e clique em <strong>Fazer procuração</strong>. Com o Agent local ligado, ele abre automaticamente a página oficial de
         Autorizações com o A1 do cliente e o painel guarda o processo para você só resolver as proteções oficiais e assinar na janela do SERPRO.
         Se o portal pedir CAPTCHA, validação gov.br ou a senha do certificado, faça essa confirmação na própria página oficial: o Cajuru28 não
         pede, guarda nem tenta contornar essas proteções. Sem Agent, o painel mantém o modo manual e abre o mesmo endereço oficial.
-      </Aviso>
+        </div>
+      </details>
 
       {(notificacoes.dados ?? []).slice(0, 2).map((item) => (
         <Aviso
@@ -485,7 +483,7 @@ export function Procuracoes() {
           },
         }}
         ferramentas={
-          <div className="flex flex-wrap items-end gap-2">
+          <div className="flex min-w-0 flex-col gap-3">
             <Busca
               rotulo="Buscar empresa"
               placeholder="Razão social ou CNPJ"
@@ -494,9 +492,9 @@ export function Procuracoes() {
                 busca.aoMudar(valor);
                 definir({ pagina: null });
               }}
-              className="min-w-64 flex-1"
+              className="w-full sm:max-w-md"
             />
-            <div className="flex flex-wrap items-center gap-1">
+            <div role="group" aria-label="Filtrar por situação" className="rolagem-fina flex max-w-full gap-1 overflow-x-auto rounded-lg border border-traco bg-fundo-afundado p-1">
               {SITUACOES.map((opcao) => (
                 <button
                   key={opcao.valor}
@@ -505,8 +503,8 @@ export function Procuracoes() {
                   aria-pressed={situacao === opcao.valor}
                   className={
                     situacao === opcao.valor
-                      ? "inline-flex h-9 items-center rounded-controle border border-acento bg-acento-tenue px-2.5 text-xs font-medium text-acento"
-                      : "inline-flex h-9 items-center rounded-controle border border-borda-controle bg-superficie px-2.5 text-xs text-tinta-suave transition-colors duration-120 hover:border-tinta-suave hover:text-tinta"
+                      ? "inline-flex h-9 flex-none items-center whitespace-nowrap rounded-controle border border-acento-borda bg-superficie-alta px-3 text-xs font-medium text-acento"
+                      : "inline-flex h-9 flex-none items-center whitespace-nowrap rounded-controle border border-transparent px-3 text-xs text-tinta-suave transition-colors duration-150 hover:bg-superficie hover:text-tinta"
                   }
                 >
                   {opcao.rotulo}

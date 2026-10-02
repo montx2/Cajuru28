@@ -68,9 +68,9 @@ export function SeletorPeriodo({
         ) : null}
       </legend>
 
-      <div className="flex flex-wrap items-start gap-2">
+      <div className="grid w-full max-w-md grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] max-[359px]:grid-cols-1 items-end gap-2">
         <SeletorData
-          className="w-40"
+          className="min-w-0"
           rotulo={rotuloInicio}
           value={periodo.inicio}
           onChange={(evento) => aoMudar({ ...periodo, inicio: evento.target.value })}
@@ -78,11 +78,11 @@ export function SeletorPeriodo({
           obrigatorio={obrigatorio}
           aria-label={rotuloInicio}
         />
-        <span aria-hidden="true" className="mt-8 text-tinta-suave">
+        <span aria-hidden="true" className="pb-3 text-xs text-tinta-suave max-[359px]:hidden">
           até
         </span>
         <SeletorData
-          className="w-40"
+          className="min-w-0"
           rotulo={rotuloFim}
           value={periodo.fim}
           onChange={(evento) => aoMudar({ ...periodo, fim: evento.target.value })}

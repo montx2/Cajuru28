@@ -46,7 +46,7 @@ export function Shell({ children }: { children: ReactNode }) {
 
                   <div className="flex min-w-0 flex-1 flex-col">
                     <Header aoAbrirMenu={() => setMenuAberto(true)} />
-                    <main id="conteudo" tabIndex={-1} className="min-w-0 flex-1 px-4 py-5 sm:px-6 lg:px-8">
+                    <main id="conteudo" tabIndex={-1} className="min-w-0 flex-1 px-4 py-6 outline-none sm:px-6 sm:py-8 lg:px-8">
                       <div className="mx-auto w-full max-w-conteudo">{children}</div>
                     </main>
                   </div>

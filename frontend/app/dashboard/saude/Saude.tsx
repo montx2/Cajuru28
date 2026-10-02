@@ -158,6 +158,7 @@ export function Saude() {
   return (
     <div className="space-y-5">
       <CabecalhoPagina
+        kicker="Sistema · Monitoramento"
         titulo="Saúde"
         descricao="Componentes, disco, banco, fila e backup — o que sustenta a captura automática."
         acoes={

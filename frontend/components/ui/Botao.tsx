@@ -21,39 +21,36 @@ export interface BotaoProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   atalho?: string;
 }
 
-/* Uma primária por tela: `primaria` é o acento índigo e só aparece uma vez.
+/* Uma primária por tela: `primaria` é o acento menta e só aparece uma vez.
    As demais variantes vivem sobre superfície ou sem fundo, para que a hierarquia
    de ação seja lida antes do clique. */
 const VARIANTES: Record<VarianteBotao, string> = {
   primaria:
     "border-acento bg-acento text-acento-contraste hover:border-acento-escuro hover:bg-acento-escuro active:bg-acento-escuro",
   secundaria:
-    "border-borda-controle bg-superficie text-tinta hover:border-tinta-suave hover:bg-fundo-afundado active:bg-fundo-afundado",
+    "border-borda-controle bg-superficie-alta text-tinta hover:border-tinta-suave hover:bg-neutro-tenue active:bg-fundo-afundado",
   sutil: "border-transparent bg-transparent text-tinta-suave hover:bg-fundo-afundado hover:text-tinta-forte active:bg-traco",
-  perigo: "border-erro bg-erro text-acento-contraste hover:opacity-90 active:opacity-80",
+  perigo: "border-destrutivo bg-destrutivo text-destrutivo-contraste hover:border-destrutivo-hover hover:bg-destrutivo-hover active:bg-destrutivo-hover",
   "perigo-sutil": "border-erro/45 bg-superficie text-erro hover:border-erro hover:bg-erro-tenue active:bg-erro-tenue",
   link: "border-transparent bg-transparent px-0 text-acento underline-offset-4 hover:underline",
 };
 
 const TAMANHOS: Record<TamanhoBotao, string> = {
-  sm: "h-8 gap-1.5 px-2.5 text-xs",
-  md: "h-9 gap-2 px-3 text-sm",
-  lg: "h-11 gap-2 px-4 text-base",
+  sm: "botao-sm gap-1.5 px-3 text-xs",
+  md: "gap-2 px-3.5 text-sm",
+  lg: "botao-lg gap-2 px-5 text-base",
 };
 
 /** Classes compartilhadas por `Botao` e `BotaoLink` — um visual, dois elementos. */
 function classesDoBotao(variante: VarianteBotao, tamanho: TamanhoBotao, somenteIcone: boolean, className?: string): string {
   return cn(
-    "relative inline-flex select-none items-center justify-center rounded-controle border font-medium",
+    "botao-controle relative inline-flex min-w-0 select-none items-center justify-center rounded-controle border font-medium",
     "transition-[background-color,border-color,color,opacity] duration-120 ease-produto",
     "disabled:pointer-events-none disabled:opacity-45",
     VARIANTES[variante],
     TAMANHOS[tamanho],
-    somenteIcone && "aspect-square px-0",
-    somenteIcone && tamanho === "sm" && "h-8 w-8",
-    somenteIcone && tamanho === "md" && "h-9 w-9",
-    somenteIcone && tamanho === "lg" && "h-11 w-11",
-    variante === "link" && "h-auto rounded-none disabled:opacity-60",
+    somenteIcone && "botao-icone",
+    variante === "link" && "botao-link rounded-none disabled:opacity-60",
     className
   );
 }
@@ -86,7 +83,7 @@ export const Botao = forwardRef<HTMLButtonElement, BotaoProps>(function Botao(
     >
       {/* O conteúdo fica invisível (não oculto para leitores de tela) durante o
           carregamento: a geometria do botão não muda e o nome acessível fica. */}
-      <span className={cn("inline-flex min-w-0 items-center gap-[inherit]", carregando && "opacity-0")}>
+      <span className={cn("botao-conteudo inline-flex min-w-0 items-center justify-center gap-[inherit]", carregando && "opacity-0")}>
         {iconeEsquerda}
         {children ? <span className="truncate">{children}</span> : null}
         {iconeDireita}
@@ -148,7 +145,7 @@ export function BotaoLink({
       className={classesDoBotao(variante, tamanho, somenteIcone, cn(indisponivel && "pointer-events-none opacity-45", className))}
       {...props}
     >
-      <span className="inline-flex min-w-0 items-center gap-[inherit]">
+      <span className="botao-conteudo inline-flex min-w-0 items-center justify-center gap-[inherit]">
         {iconeEsquerda}
         {children ? <span className="truncate">{children}</span> : null}
         {iconeDireita}

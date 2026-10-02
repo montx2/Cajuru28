@@ -1,5 +1,34 @@
 # Changelog do front-end
 
+## Revisão da captura fiscal — 02/10/2026
+
+- Sincronização passa a diferenciar cursor atualizado de leitura íntegra: lotes com falha aparecem como **Importação parcial** em vez de “Em dia”.
+- Uma resposta sem máximo de NSU confirmado não gera confirmação de acervo completo.
+- Empresas com resposta preservada podem ser selecionadas para reprocessamento local, mesmo sem A1 válido; isso não autoriza nova consulta fiscal sem certificado.
+- API/worker corrigidos para paginação ADN, retomada, fila justa e XML/ZIP; detalhes e limites em `docs/REVISAO_IMPORTACAO_2026.md`.
+- Validação: 446 testes backend / 107 frontend passaram; TypeScript e build de produção passaram. Um teste opcional de assinatura XML independente permaneceu pulado.
+
+
+## Grafite & Menta — revisão visual de 01/10/2026
+
+- Tema grafite por padrão, com acento menta, superfícies opacas e alternativa clara mineral. Preferências salvas continuam respeitadas; “Seguir o sistema” acompanha mudanças sem sobrescrever uma escolha explícita.
+- Botões, ícones e campos compartilham alturas de 36/40/48 px. Campos incluem a borda nessa medida; carregamento preserva rótulo e largura. Espaçamento, tipografia e raios foram unificados.
+- Navegação agrupada, header de 72 px, sidebar de 256/72 px e drawer mobile sempre completo. Login reorganizado em apresentação institucional + formulário contido, sem alterar autenticação.
+- Painel com resumo operacional de dados reais; cabeçalhos, ações, filtros, KPIs e barras de tabela reorganizados. Rótulos de indicadores têm espaço uniforme mesmo quando quebram linha.
+- Tabelas respeitam colunas ocultas por padrão, mantêm CNPJ/badges legíveis e ações acessíveis na rolagem horizontal. Linhas virtualizadas medem a altura real do conteúdo para evitar saltos.
+- Menus/popovers usam portal, limites da viewport e inversão para cima. Clique fora, Escape, retorno de foco e navegação de filtros por Tab foram conferidos; confirmações destrutivas permanecem explícitas.
+- Contraste corrigido nos dois temas, inclusive contadores preenchidos. Abas têm painéis ARIA válidos e filtros segmentados não anunciam painéis inexistentes.
+- Relógios e preferências de layout têm primeira renderização determinística, corrigindo diferenças de hidratação. Impressão mantém fundo branco, texto escuro e tabela plana do fechamento.
+
+### Verificação desta revisão
+
+- Nenhuma dependência de runtime acrescentada; API, autenticação e código do backend preservados.
+- `npm run typecheck`, 18 suítes / 102 testes e build de produção passaram.
+- Navegador autenticado com dados sintéticos: 15 telas desktop nos temas claro/escuro, seis telas mobile e viewport de 320 px; sem overflow da página. Menus, colunas, densidade, seleção, filtros, formulários, paleta, gráficos expandidos e impressão conferidos.
+- Auditoria axe nas 15 telas desktop nos dois temas sem violações nas rotas verificadas; correções de menus, confirmação e painel lateral também conferidas.
+
+---
+
 ## Reconstrução operacional — Fluxa 2.0
 
 Reordenação editorial do front-end para priorizar saúde, decisões humanas e fechamento mensal. O contrato da API, as rotas, o estado na URL, o sistema visual Papel & Grafite e as dependências de runtime permanecem inalterados.

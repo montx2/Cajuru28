@@ -11,7 +11,7 @@ import { useRecurso, type Recurso } from "@/lib/useRecurso";
 import { useUrlEstado } from "@/lib/urlEstado";
 import { useSinalizarAtualizacao } from "@/components/shell/BarraAtualizacao";
 import { useSessao } from "@/components/shell/ProvedorSessao";
-import { Abas, type Aba } from "@/components/ui/Abas";
+import { Abas, PainelAbas, type Aba } from "@/components/ui/Abas";
 import { Alternador, Entrada } from "@/components/ui/Campo";
 import { Aviso } from "@/components/ui/Aviso";
 import { Botao, BotaoLink } from "@/components/ui/Botao";
@@ -63,6 +63,7 @@ export function Configuracoes() {
   return (
     <div className="space-y-5">
       <CabecalhoPagina
+        kicker="Sistema"
         titulo="Configurações"
         descricao="Como esta instalação está montada, o que ela conversa por fora e o que apaga dados."
         acoes={
@@ -89,10 +90,13 @@ export function Configuracoes() {
 
       <Abas rotulo="Seções de configuração" idBase="aba-configuracoes" abas={abas} valor={aba} aoMudar={(valor) => definir({ aba: valor })} />
 
-      {aba === "ambiente" ? <AbaAmbiente sistema={sistema} saude={saude} /> : null}
-      {aba === "integracoes" ? <AbaIntegracoes admin={ehAdmin(papel)} somenteLeitura={somenteLeitura} accessorias={accessorias} /> : null}
-      {aba === "alertas" ? <AbaAlertas admin={ehAdmin(papel)} sistema={sistema} /> : null}
-      {aba === "dados" ? <AbaDados admin={ehAdmin(papel)} /> : null}
+      <PainelAbas idBase="aba-configuracoes" abas={abas} valor={aba} className="space-y-5">
+        {aba === "ambiente" ? <AbaAmbiente sistema={sistema} saude={saude} /> : null}
+        {aba === "integracoes" ? <AbaIntegracoes admin={ehAdmin(papel)} somenteLeitura={somenteLeitura} accessorias={accessorias} /> : null}
+        {aba === "alertas" ? <AbaAlertas admin={ehAdmin(papel)} sistema={sistema} /> : null}
+        {aba === "dados" ? <AbaDados admin={ehAdmin(papel)} /> : null}
+      </PainelAbas>
+
     </div>
   );
 }

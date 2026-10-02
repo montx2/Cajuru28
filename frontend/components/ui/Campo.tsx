@@ -31,12 +31,12 @@ export interface CampoBase {
 }
 
 const CONTROLE =
-  "w-full rounded-controle border border-borda-controle bg-superficie px-2.5 text-sm text-tinta outline-none " +
+  "w-full rounded-controle border border-borda-controle bg-fundo-afundado px-3 text-sm text-tinta outline-none " +
   "transition-[border-color,background-color] duration-120 ease-produto placeholder:text-tinta-suave " +
   "hover:border-tinta-suave focus:border-acento disabled:cursor-not-allowed disabled:border-traco-forte " +
   "disabled:bg-fundo-afundado disabled:text-tinta-suave";
 
-const ALTURAS = { sm: "h-8 text-xs", md: "h-9" } as const;
+const ALTURAS = { sm: "controle-sm text-xs", md: "controle-md", lg: "controle-lg" } as const;
 export type TamanhoCampo = keyof typeof ALTURAS;
 
 function idsDoCampo(id: string, descricao?: ReactNode, erro?: string | null, nota?: ReactNode) {
@@ -61,7 +61,7 @@ export function Campo({ rotulo, descricao, erro, nota, obrigatorio, acaoRotulo, 
 
   return (
     <div className={cn("min-w-0", className)}>
-      <div className="mb-1.5 flex items-baseline justify-between gap-3">
+      <div className="mb-2 flex min-h-[18px] items-baseline justify-between gap-3">
         <label className="text-xs font-medium text-tinta" htmlFor={campoId}>
           {rotulo}
           {obrigatorio ? (
@@ -114,7 +114,8 @@ export const Entrada = forwardRef<HTMLInputElement, EntradaProps>(function Entra
       {(campoId, descritoPor) => (
         <div
           className={cn(
-            "flex items-stretch overflow-hidden rounded-controle border bg-superficie transition-[border-color] duration-120 focus-within:border-acento",
+            "campo-entrada flex items-stretch overflow-hidden rounded-controle border bg-fundo-afundado transition-[border-color] duration-120 focus-within:border-acento",
+            ALTURAS[tamanho],
             erro ? "border-erro" : "border-borda-controle hover:border-tinta-suave",
             props.disabled && "cursor-not-allowed border-traco-forte bg-fundo-afundado"
           )}
@@ -128,15 +129,15 @@ export const Entrada = forwardRef<HTMLInputElement, EntradaProps>(function Entra
             aria-describedby={descritoPor}
             aria-invalid={Boolean(erro) || undefined}
             className={cn(
-              "min-w-0 flex-1 border-0 bg-transparent px-2.5 text-sm text-tinta outline-none placeholder:text-tinta-suave disabled:cursor-not-allowed disabled:text-tinta-suave",
-              ALTURAS[tamanho],
+              "h-full min-w-0 flex-1 border-0 bg-transparent px-3 text-sm text-tinta outline-none placeholder:text-tinta-suave focus-visible:shadow-none focus-visible:outline-none disabled:cursor-not-allowed disabled:text-tinta-suave",
+              tamanho === "sm" && "text-xs",
               numerico && "text-right nums",
               mono && "font-mono text-xs tracking-tight",
               classeControle
             )}
             {...props}
           />
-          {sufixo ? <span className="flex items-center pr-1.5 text-tinta-suave">{sufixo}</span> : null}
+          {sufixo ? <span className="flex flex-none items-center pr-1 text-tinta-suave">{sufixo}</span> : null}
         </div>
       )}
     </Campo>
@@ -181,7 +182,7 @@ export const Busca = forwardRef<HTMLInputElement, BuscaProps>(function Busca(
   return (
     <div className={cn("min-w-0", className)}>
       {rotuloVisivel ? (
-        <div className="mb-1.5 flex items-baseline justify-between gap-3">
+        <div className="mb-2 flex min-h-[18px] items-baseline justify-between gap-3">
           <label className="text-xs font-medium text-tinta" htmlFor={campoId}>
             {rotulo}
           </label>

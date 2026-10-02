@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { useCamada } from "@/lib/useCamada";
 import { Botao, type TamanhoBotao, type VarianteBotao } from "./Botao";
+import { CamadaFlutuante } from "./CamadaFlutuante";
 import { Dica } from "./Dica";
 import { Icone, type NomeIcone } from "./Icone";
 
@@ -24,14 +25,9 @@ export interface PopoverProps {
   carregando?: boolean;
 }
 
-const POSICAO = {
-  esquerda: "left-0",
-  direita: "right-0",
-} as const;
-
 const TOM_CONTADOR = {
-  erro: "bg-erro text-white",
-  espera: "bg-espera text-white",
+  erro: "bg-erro text-erro-contraste",
+  espera: "bg-espera text-espera-contraste",
   neutro: "bg-neutro-tenue text-neutro",
 } as const;
 
@@ -59,12 +55,13 @@ export function Popover({
     <Botao
       variante={variante}
       tamanho={tamanho}
+      somenteIcone={Boolean(icone)}
       onClick={camada.alternar}
       carregando={carregando}
       aria-label={rotulo}
       {...camada.propsGatilho}
       className={cn(
-        "relative h-10 w-10 px-0 text-tinta-suave hover:text-tinta-forte",
+        "relative text-tinta-suave hover:text-tinta-forte",
         camada.aberto && "bg-fundo-afundado text-tinta-forte"
       )}
     >
@@ -86,18 +83,17 @@ export function Popover({
     <div ref={camada.container} className={cn("relative", className)}>
       {dica ? <Dica texto={dica}>{gatilho}</Dica> : gatilho}
       {camada.aberto ? (
-        <div
+        <CamadaFlutuante
+          ancora={camada.container}
+          painel={camada.painel}
+          alinhamento={alinhamento}
           id={camada.idPainel}
           role="dialog"
           aria-label={rotulo}
-          className={cn(
-            "vidro absolute top-full z-camada mt-1.5 overflow-hidden rounded-cartao shadow-nivel1 animate-subir",
-            POSICAO[alinhamento],
-            largura
-          )}
+          className={largura}
         >
           {children(camada.fechar)}
-        </div>
+        </CamadaFlutuante>
       ) : null}
     </div>
   );

@@ -10,6 +10,7 @@ import { rotulo as rotuloCompetencia } from "@/lib/competencia";
 import { intervaloDoMes } from "@/lib/periodo";
 import { useCompetenciaUrl } from "@/lib/usePeriodoUrl";
 import { useRecurso } from "@/lib/useRecurso";
+import { useAgora } from "@/components/shell/ProvedorAgora";
 import { useSinalizarAtualizacao } from "@/components/shell/BarraAtualizacao";
 import { SeletorCompetencia } from "@/components/fiscal/SeletorCompetencia";
 import { GraficoBarras, GraficoDonut } from "@/components/fiscal/Graficos";
@@ -37,6 +38,7 @@ import { ROTULO_TIPO, TIPOS, type FechamentoEmpresa, type ItemConferenciaCompete
  * imprimir a tabela interativa cortaria linhas silenciosamente.
  */
 export function Relatorios() {
+  const agora = useAgora();
   const { mes, competencia, aoMudar, pronto } = useCompetenciaUrl();
   const { avisar } = useToast();
   const [baixando, setBaixando] = useState(false);
@@ -141,6 +143,7 @@ export function Relatorios() {
   return (
     <div className="space-y-5">
       <CabecalhoPagina
+        kicker="Fiscal · Fechamento"
         titulo="Fechamento mensal"
         descricao="Conferência do mês por empresa e tipo, com a folha pronta para o dossiê do cliente."
       />
@@ -172,7 +175,7 @@ export function Relatorios() {
         <h1 className="text-lg font-semibold">Fluxa · Fechamento de {rotuloCompetencia(mes)}</h1>
         <p className="mt-1 text-xs">
           Período de {fechamento.dados ? `${dataCurta(fechamento.dados.inicio)} a ${dataCurta(fechamento.dados.fim)}` : "—"} · gerado em{" "}
-          {new Date().toLocaleString("pt-BR")} · conferência: {conferencia.dados?.status ?? "—"}
+          {agora ? new Date(agora).toLocaleString("pt-BR") : "—"} · conferência: {conferencia.dados?.status ?? "—"}
         </p>
       </div>
 

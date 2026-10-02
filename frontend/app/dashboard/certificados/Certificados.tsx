@@ -218,7 +218,8 @@ export function Certificados() {
       },
       {
         id: "acoes",
-        cabecalho: "",
+        fixar: "direita",
+        cabecalho: "Ações",
         alinhamento: "direita",
         celula: (linha) => (
           <div className="flex items-center justify-end gap-2">
@@ -269,6 +270,7 @@ export function Certificados() {
   return (
     <div className="space-y-5">
       <CabecalhoPagina
+        kicker="Fiscal · Segurança"
         titulo="Certificados"
         descricao="Validade, uso real e falhas de autenticação de cada A1. Sem certificado válido não há captura."
         acoes={

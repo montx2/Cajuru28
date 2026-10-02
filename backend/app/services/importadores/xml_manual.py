@@ -100,6 +100,13 @@ def casar_com_empresa(
     escritório (emitente/prestador). Sem casamento nenhum, o item volta para
     o operador — importar para a empresa errada é pior que não importar.
     """
+    casamentos = casar_com_empresas(db, escritorio_id, doc)
+    return casamentos[0] if casamentos else (None, "")
+
+
+def casar_com_empresas(db: Session, escritorio_id: int, doc: DocumentoBaixado) -> list[tuple[Empresa, str]]:
+    """Ambas as partes cadastradas recebem sua cópia, sem atravessar tenant."""
+    casamentos: list[tuple[Empresa, str]] = []
     for campo, direcao in (
         ("destinatario_documento", "tomada"),
         ("emitente_documento", "prestada"),
@@ -116,9 +123,9 @@ def casar_com_empresa(
             .filter(Empresa.escritorio_id == escritorio_id, Empresa.cnpj_cpf == documento)
             .first()
         )
-        if empresa is not None:
-            return empresa, direcao
-    return None, ""
+        if empresa is not None and all(cadastrada.id != empresa.id for cadastrada, _ in casamentos):
+            casamentos.append((empresa, direcao))
+    return casamentos
 
 
 def _para_datetime(valor: str) -> datetime | None:
@@ -142,72 +149,50 @@ def _para_datetime(valor: str) -> datetime | None:
 def gravar_documento(
     db: Session, empresa: Empresa, tipo: TipoDocumentoFiscal, doc: DocumentoBaixado, nome_arquivo: str
 ) -> str:
-    """"importado" | "duplicada" — idempotente por (empresa, chave)."""
-    chave = "".join(d for d in str(doc.chave_acesso) if d.isdigit()) or str(doc.chave_acesso)
+    """importado | completada | duplicada | sem_chave | sem_data.
+
+    Compartilha o insert idempotente do worker. Importar um XML integral para
+    uma nota em resumo promove a nota existente em vez de ignorar o arquivo.
+    """
+    from app.worker.tasks import _aplicar_eventos_pendentes, _gravar_documento, _normalizar_chave, _sobrescrever_xml
+
+    chave = _normalizar_chave(doc.chave_acesso)
     if not chave:
         return "sem_chave"
-
-    existente = (
-        db.query(DocumentoFiscal)
-        .filter(DocumentoFiscal.empresa_id == empresa.id, DocumentoFiscal.chave_acesso == chave)
-        .first()
-    )
+    existente = db.query(DocumentoFiscal).filter(
+        DocumentoFiscal.empresa_id == empresa.id, DocumentoFiscal.chave_acesso == chave,
+    ).with_for_update().first()
     if existente is not None:
-        # A nota é única, mas cada fonte que a confirma fica rastreável.
         registrar_proveniencia(db, existente.id, "xml", nome_arquivo)
+        if existente.tipo == tipo and existente.leiaute == "resumo" and doc.leiaute == "completo":
+            _sobrescrever_xml(existente, doc)
+            _aplicar_eventos_pendentes(db, empresa.id, tipo, chave)
+            return "completada"
         return "duplicada"
 
     data_emissao = _para_datetime(doc.data_emissao)
     if data_emissao is None and tipo in (TipoDocumentoFiscal.NFE, TipoDocumentoFiscal.CTE):
-        # A chave de acesso carrega AAMM da emissão (formato fixo do Manual
-        # de Orientação do Contribuinte) — leitura, não adivinhação.
-        da_chave = competencia_de_texto(
-            metadados_da_chave(doc.chave_acesso).get("competencia", ""), ""
-        )
+        da_chave = competencia_de_texto(metadados_da_chave(chave).get("competencia", ""), "")
         data_emissao = _para_datetime(da_chave) if da_chave else None
     if data_emissao is None:
-        # Coluna NOT NULL sem valor legível: registrar data inventada é pior
-        # que devolver o item para o operador.
         return "sem_data"
-    competencia_texto = competencia_de_texto(doc.competencia, doc.data_emissao)
-    competencia = None
-    if competencia_texto:
-        try:
-            competencia = date.fromisoformat(competencia_texto[:10])
-        except ValueError:
-            competencia = None
-
-    pasta = os.path.join(settings.dados_dir, "xml", str(empresa.id), tipo.value)
-    nome_seguro = "".join(c for c in chave if c.isalnum() or c in "-_") or nome_arquivo
-    xml_path = os.path.join(pasta, f"{nome_seguro}.xml")
-
-    documento = DocumentoFiscal(
-        empresa_id=empresa.id,
-        tipo=tipo,
-        direcao=DirecaoDocumento(doc.direcao if doc.direcao in ("tomada", "prestada") else "tomada"),
-        chave_acesso=chave,
-        nsu="manual",
-        data_emissao=data_emissao,
-        competencia=competencia,
-        valor_total=float(doc.valor_total or 0),
-        xml_path=xml_path,
-        leiaute=doc.leiaute or "completo",
-        numero=(doc.numero or "")[:20] or None,
-        serie=(doc.serie or "")[:10] or None,
-        emitente_documento=(doc.emitente_documento or "")[:18] or None,
-        emitente_nome=(doc.emitente_nome or "")[:255] or None,
-        destinatario_documento=(doc.destinatario_documento or "")[:18] or None,
-        destinatario_nome=(doc.destinatario_nome or "")[:255] or None,
-        situacao=(doc.status_autorizacao or "")[:255] or None,
-        origem="xml",
-    )
-    db.add(documento)
-    db.flush()
-    registrar_proveniencia(db, documento.id, "xml", nome_arquivo)
-    os.makedirs(pasta, exist_ok=True)
-    with open(xml_path, "wb") as f:
-        f.write(doc.xml)
-    return "importado"
+    doc = replace(doc, chave_acesso=chave, data_emissao=data_emissao)
+    criado = _gravar_documento(db, empresa.id, tipo, doc,
+        origem="xml", identificador_externo=nome_arquivo, nsu_registro="manual")
+    if criado:
+        _aplicar_eventos_pendentes(db, empresa.id, tipo, chave)
+        return "importado"
+    # Um insert concorrente pode ter criado justamente o resumo que este
+    # arquivo completa. Releia o estado atualizado antes de declarar duplicata.
+    db.expire_all()
+    existente = db.query(DocumentoFiscal).filter(
+        DocumentoFiscal.empresa_id == empresa.id, DocumentoFiscal.chave_acesso == chave,
+    ).with_for_update().first()
+    if existente and existente.tipo == tipo and existente.leiaute == "resumo" and doc.leiaute == "completo":
+        _sobrescrever_xml(existente, doc)
+        _aplicar_eventos_pendentes(db, empresa.id, tipo, chave)
+        return "completada"
+    return "duplicada"
 
 
 def documento_com_direcao(doc: DocumentoBaixado, direcao: str) -> DocumentoBaixado:
@@ -223,13 +208,16 @@ def extrair_xmls_do_zip(conteudo: bytes) -> list[tuple[str, bytes]]:
     """
     try:
         with zipfile.ZipFile(io.BytesIO(conteudo)) as arquivo_zip:
-            saida: list[tuple[str, bytes]] = []
-            for membro in arquivo_zip.namelist():
-                nome = os.path.basename(membro)
-                if not nome.lower().endswith(".xml"):
-                    continue
-                saida.append((nome, arquivo_zip.read(membro)))
-            return saida
+            membros = [membro for membro in arquivo_zip.infolist() if not membro.is_dir() and membro.filename.lower().endswith(".xml")]
+            if len(membros) > LIMITE_XMLS:
+                raise ValueError(f"ZIP contém mais de {LIMITE_XMLS} XMLs; importe em etapas.")
+            if any(membro.file_size > LIMITE_BYTES_XML for membro in membros):
+                raise ValueError("ZIP contém XML maior que 2 MB; separe o arquivo antes de importar.")
+            if sum(membro.file_size for membro in membros) > LIMITE_BYTES_LOTE:
+                raise ValueError("Conteúdo descompactado do ZIP ultrapassa o limite do lote.")
+            # ZipInfo identifica a entrada, não apenas seu nome: ZIPs podem
+            # conter dois membros homônimos com notas DIFERENTES.
+            return [(os.path.basename(membro.filename), arquivo_zip.read(membro)) for membro in membros]
     except RuntimeError as exc:
         raise ValueError("ZIP protegido por senha — exporte novamente sem senha.") from exc
     except (zipfile.BadZipFile, NotImplementedError, OSError) as exc:

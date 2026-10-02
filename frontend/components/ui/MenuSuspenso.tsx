@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useEffect, useRef, type ReactNode } from "react";
+import { Fragment, useEffect, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { useCamada } from "@/lib/useCamada";
 import { Botao, type TamanhoBotao, type VarianteBotao } from "./Botao";
+import { CamadaFlutuante } from "./CamadaFlutuante";
 import { Dica } from "./Dica";
 import { Icone, type NomeIcone } from "./Icone";
 
@@ -27,6 +28,8 @@ export interface ItemMenu {
 export interface MenuSuspensoProps {
   rotulo: string;
   itens: ItemMenu[];
+  /** Ações junto a campos de preferência formam um diálogo, não um menu ARIA. */
+  tipo?: "menu" | "dialog";
   icone?: NomeIcone;
   variante?: VarianteBotao;
   tamanho?: TamanhoBotao;
@@ -36,6 +39,9 @@ export interface MenuSuspensoProps {
   className?: string;
   dica?: string;
   aoAbrir?: () => void;
+  /** Avatar/nome ou outro conteúdo do gatilho, preservando a semântica de menu. */
+  conteudoGatilho?: ReactNode;
+  classeGatilho?: string;
 }
 
 /**
@@ -44,21 +50,22 @@ export interface MenuSuspensoProps {
  * continua visível e explica o motivo — sumir com a ação deixa o operador sem
  * saber se o sistema quebrou ou se ele não pode.
  */
-export function MenuSuspenso({ rotulo, itens, icone, variante = "sutil", tamanho = "md", alinhamento = "direita", largura = "w-60", children, className, dica, aoAbrir }: MenuSuspensoProps) {
-  const camada = useCamada("menu", aoAbrir);
-  const lista = useRef<HTMLDivElement | null>(null);
+export function MenuSuspenso({ rotulo, itens, tipo = "menu", icone, variante = "sutil", tamanho = "md", alinhamento = "direita", largura = "w-60", children, className, dica, aoAbrir, conteudoGatilho, classeGatilho }: MenuSuspensoProps) {
+  const camada = useCamada(tipo, aoAbrir);
+  const lista = camada.painel;
 
   const habilitados = itens.filter((item) => !item.desabilitado);
 
   useEffect(() => {
-    if (!camada.aberto || habilitados.length === 0) return;
+    if (tipo !== "menu" || !camada.aberto || habilitados.length === 0) return;
     const primeiro = lista.current?.querySelector<HTMLElement>("[role='menuitem']:not([aria-disabled='true'])");
     primeiro?.focus();
     // `habilitados` é derivado de `itens`, que já é a dependência real do efeito.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [camada.aberto]);
+  }, [camada.aberto, tipo]);
 
   function aoTeclar(evento: React.KeyboardEvent<HTMLDivElement>) {
+    if (tipo !== "menu") return;
     const focaveis = Array.from(lista.current?.querySelectorAll<HTMLElement>("[role='menuitem']:not([aria-disabled='true'])") ?? []);
     if (focaveis.length === 0) return;
     const indice = focaveis.indexOf(document.activeElement as HTMLElement);
@@ -84,14 +91,14 @@ export function MenuSuspenso({ rotulo, itens, icone, variante = "sutil", tamanho
       variante={variante}
       tamanho={tamanho}
       onClick={camada.alternar}
-      aria-label={icone ? rotulo : undefined}
+      aria-label={icone || conteudoGatilho ? rotulo : undefined}
       {...camada.propsGatilho}
-      className={cn(camada.aberto && "bg-fundo-afundado")}
-      iconeDireita={icone ? undefined : <Icone nome="chevron-baixo" className="h-3.5 w-3.5" />}
+      className={cn(camada.aberto && "bg-fundo-afundado", classeGatilho)}
+      iconeDireita={icone || conteudoGatilho ? undefined : <Icone nome="chevron-baixo" className="h-3.5 w-3.5" />}
       iconeEsquerda={icone ? <Icone nome={icone} className="h-4 w-4" /> : undefined}
-      somenteIcone={Boolean(icone)}
+      somenteIcone={Boolean(icone) && !conteudoGatilho}
     >
-      {icone ? null : rotulo}
+      {conteudoGatilho ?? (icone ? null : rotulo)}
     </Botao>
   );
 
@@ -99,17 +106,15 @@ export function MenuSuspenso({ rotulo, itens, icone, variante = "sutil", tamanho
     <div ref={camada.container} className={cn("relative", className)}>
       {dica ? <Dica texto={dica}>{gatilho}</Dica> : gatilho}
       {camada.aberto ? (
-        <div
+        <CamadaFlutuante
+          ancora={camada.container}
+          painel={lista}
+          alinhamento={alinhamento}
           id={camada.idPainel}
-          ref={lista}
-          role="menu"
+          role={tipo}
           aria-label={rotulo}
           onKeyDown={aoTeclar}
-          className={cn(
-            "vidro rolagem-fina absolute top-full z-camada mt-1.5 max-h-[min(70vh,32rem)] overflow-y-auto rounded-cartao py-1 shadow-nivel1 animate-subir",
-            alinhamento === "direita" ? "right-0" : "left-0",
-            largura
-          )}
+          className={cn("py-1.5", largura)}
         >
           {children}
           {itens.map((item) => {
@@ -128,7 +133,7 @@ export function MenuSuspenso({ rotulo, itens, icone, variante = "sutil", tamanho
               </>
             );
             const comum = {
-              role: "menuitem" as const,
+              role: tipo === "menu" ? "menuitem" as const : undefined,
               "aria-disabled": item.desabilitado || undefined,
               title: item.motivo,
               className: classe,
@@ -177,7 +182,7 @@ export function MenuSuspenso({ rotulo, itens, icone, variante = "sutil", tamanho
               </Fragment>
             );
           })}
-        </div>
+        </CamadaFlutuante>
       ) : null}
     </div>
   );

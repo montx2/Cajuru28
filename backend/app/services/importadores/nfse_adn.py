@@ -32,6 +32,7 @@ import base64
 import binascii
 import gzip
 import io
+import json
 import time
 import xml.etree.ElementTree as ET
 import zipfile
@@ -191,6 +192,14 @@ class ImportadorNFSeADN(ImportadorFiscal):
         url = self.base_url.format(nsu=nsu_consulta)
         status_http, payload = self._chamar_com_retentativa(url, cnpj, cert_path, key_path)
 
+        return self._interpretar(payload, cnpj, ultimo_nsu, status_http=status_http)
+
+    def interpretar_lote(self, conteudo: bytes, cnpj: str, ultimo_nsu: str) -> LoteImportado:
+        return self._interpretar(json.loads(conteudo), cnpj, ultimo_nsu)
+
+    def _interpretar(self, payload: dict, cnpj: str, ultimo_nsu: str, *, status_http: int = 200) -> LoteImportado:
+        nsu_consulta = int(ultimo_nsu or "0")
+        bruto = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         # 404 com NENHUM_DOCUMENTO_LOCALIZADO = resposta válida de "nada novo".
         # É literalmente o sinal oficial para esperar 1h — ver docstring.
         if status_http == 404:
@@ -205,12 +214,19 @@ class ImportadorNFSeADN(ImportadorFiscal):
                     ha_mais_documentos=False,
                     max_nsu=_para_inteiro(max_nsu_adn, nsu_consulta),
                     sem_novidade=True,
+                    resposta_bruta=bruto,
                 )
             raise AmbienteIndisponivel(
                 f"ADN retornou HTTP 404: {_texto_de_erros(payload) or payload}"
             )
 
-        brutos = _campo(payload, "LoteDFe", "loteDFe", "loteDfe", "Documentos", "documentos") or []
+        brutos = _campo(payload, "LoteDFe", "loteDFe", "loteDfe", "Documentos", "documentos")
+        if brutos is None or not isinstance(brutos, (list, dict)):
+            return LoteImportado(
+                documentos=[], proximo_nsu=str(nsu_consulta), ha_mais_documentos=False,
+                erros=["ADN devolveu resposta sem um lote de documentos válido; não é confirmação de acervo vazio."],
+                resposta_bruta=bruto,
+            )
         if isinstance(brutos, dict):
             brutos = [brutos]
 
@@ -222,7 +238,7 @@ class ImportadorNFSeADN(ImportadorFiscal):
 
         for item in brutos:
             if not isinstance(item, dict):
-                eventos_nao_reconhecidos += 1
+                erros.append("ADN devolveu item de lote em formato inválido.")
                 continue
 
             nsu_item = str(_campo(item, "NSU", "nsu") or "0")
@@ -287,7 +303,7 @@ class ImportadorNFSeADN(ImportadorFiscal):
                 proximo = max(nsus_brutos, default=nsu_consulta)
         else:
             proximo = max(nsus_brutos, default=nsu_consulta)
-        proximo = max(proximo, nsu_consulta)
+        proximo = max(proximo, nsu_consulta, max(nsus_brutos, default=nsu_consulta))
 
         max_nsu: int | None = None
         if max_nsu_raw is not None:
@@ -296,20 +312,11 @@ class ImportadorNFSeADN(ImportadorFiscal):
             except (TypeError, ValueError):
                 max_nsu = None
 
-        # Página cheia: o lote do ADN traz no máximo 50 itens. A checagem tem
-        # que usar o tamanho do lote BRUTO (eventos incluídos), nunca só os
-        # documentos convertidos — senão a importação "acha" que acabou no
-        # meio de um lote cheio e deixa notas para trás.
-        lote_cheio = len(brutos) >= _TAMANHO_LOTE
-        if not lote_cheio:
-            ha_mais = False
-        elif max_nsu is not None and proximo >= max_nsu:
-            ha_mais = False
-        elif proximo <= nsu_consulta:
-            # Devolveu itens mas não avançou o cursor — evita loop infinito.
-            ha_mais = False
-        else:
-            ha_mais = True
+        # Uma página com menos de 50 itens não prova que acabou. O ADN
+        # pode paginar eventos/notas em lotes menores; maxNSU é prioritário.
+        # Sem maxNSU, continue enquanto houver itens e progresso, até a
+        # resposta explícita de "nada novo".
+        ha_mais = bool(brutos) and proximo > nsu_consulta and (max_nsu is None or proximo < max_nsu)
 
         return LoteImportado(
             documentos=documentos,
@@ -318,8 +325,9 @@ class ImportadorNFSeADN(ImportadorFiscal):
             eventos=eventos,
             eventos_nao_reconhecidos=eventos_nao_reconhecidos,
             erros=erros,
-            max_nsu=_para_inteiro(max_nsu_raw, proximo),
+            max_nsu=str(max_nsu) if max_nsu is not None else None,
             sem_novidade=not brutos,
+            resposta_bruta=bruto,
         )
 
     def buscar_por_nsu(
@@ -462,6 +470,8 @@ class ImportadorNFSeADN(ImportadorFiscal):
             xml_bytes = decodificar_xml_adn(conteudo)
 
         extraido = self._extrair_dados_xml(xml_bytes, cnpj_consultado)
+        if not extraido["data_emissao"]:
+            raise ValueError("XML de NFS-e sem data de emissão: resposta preservada, não será criada nota com data inventada.")
         if not chave:
             chave = extraido["chave"]
         # NFS-e do leiaute nacional sempre chega com o documento inteiro (o
@@ -498,24 +508,10 @@ class ImportadorNFSeADN(ImportadorFiscal):
         precisam: competência (dCompet/PeriodoRef), número, série, prestador,
         tomador e situação de autorização.
         """
-        vazio = {
-            "data_emissao": "",
-            "competencia": "",
-            "valor_total": 0.0,
-            "direcao": "tomada",
-            "chave": "",
-            "numero": "",
-            "serie": "",
-            "prestador": "",
-            "prestador_nome": "",
-            "tomador": "",
-            "tomador_nome": "",
-            "situacao": "",
-        }
         try:
             raiz = ET.fromstring(xml_bytes)
-        except ET.ParseError:
-            return vazio
+        except ET.ParseError as exc:
+            raise ValueError("XML de NFS-e malformado: não pode virar uma nota vazia.") from exc
 
         planos: dict[str, str] = {}
         self._achatar(raiz, "", planos)
@@ -561,16 +557,14 @@ class ImportadorNFSeADN(ImportadorFiscal):
             if _local(elemento.tag) == "infNFSe":
                 for nome, val in elemento.attrib.items():
                     if _local(nome).lower() == "id":
-                        digitos = "".join(c for c in val if c.isdigit())
-                        if len(digitos) >= 44:
-                            chave = digitos
+                        chave_id = val[3:] if val.upper().startswith("NFS") else val
+                        if len(chave_id.strip()) >= 44:
+                            chave = chave_id.strip()
                             break
             if chave:
                 break
         if not chave:
-            chave = "".join(
-                c for c in (valor("chNFSe", "chaveAcesso", "chave") or "") if c.isdigit()
-            )
+            chave = (valor("chNFSe", "chaveAcesso", "chave") or "").strip()
 
         return {
             "data_emissao": data_emissao,

@@ -187,8 +187,8 @@ export function Empresas() {
           </span>
         ),
       },
-      { id: "cnpj", cabecalho: "CNPJ", ordenavel: true, celula: (linha) => <Cnpj valor={linha.empresa.cnpj_cpf} /> },
-      { id: "uf", cabecalho: "UF", ordenavel: true, celula: (linha) => <span className="nums text-tinta-suave">{linha.empresa.uf || "—"}</span> },
+      { id: "cnpj", cabecalho: "CNPJ", largura: "min-w-52", ordenavel: true, celula: (linha) => <Cnpj valor={linha.empresa.cnpj_cpf} /> },
+      { id: "uf", cabecalho: "UF", largura: "w-14 min-w-14", ordenavel: true, celula: (linha) => <span className="nums text-tinta-suave">{linha.empresa.uf || "—"}</span> },
       {
         id: "situacao",
         cabecalho: "Cadastro",
@@ -203,6 +203,7 @@ export function Empresas() {
       {
         id: "certificado",
         cabecalho: "Certificado A1",
+        largura: "min-w-44",
         ordenavel: true,
         celula: (linha) =>
           linha.certificado ? (
@@ -214,6 +215,7 @@ export function Empresas() {
       {
         id: "sincronismo",
         cabecalho: "Sincronismo",
+        largura: "min-w-40",
         ordenavel: true,
         celula: (linha) =>
           linha.sincronismo ? (
@@ -251,6 +253,7 @@ export function Empresas() {
       {
         id: "valor",
         cabecalho: "Valor no mês",
+        ocultaPorPadrao: true,
         alinhamento: "direita",
         numerica: true,
         ordenavel: true,
@@ -292,8 +295,20 @@ export function Empresas() {
   return (
     <div className="space-y-5">
       <CabecalhoPagina
+        kicker="Fiscal · Cadastro"
         titulo="Empresas"
         descricao="Cadastro, certificado A1 e volume capturado de cada CNPJ do escritório."
+        acoes={
+            <Botao
+              variante="primaria"
+              onClick={() => setNovaAberta(true)}
+              disabled={somenteLeitura}
+              title={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined}
+              iconeEsquerda={<Icone nome="adicionar" className="h-3.5 w-3.5" />}
+            >
+              Nova empresa
+            </Botao>
+        }
       />
 
       <Tabela
@@ -327,22 +342,12 @@ export function Empresas() {
             : undefined,
         }}
         ferramentas={
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Busca rotulo="Buscar empresa" placeholder="Razão social ou CNPJ" valor={busca.valor} aoMudar={busca.aoMudar} className="w-64" />
-            <Botao
-              variante="primaria"
-              tamanho="sm"
-              onClick={() => setNovaAberta(true)}
-              disabled={somenteLeitura}
-              title={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined}
-              iconeEsquerda={<Icone nome="adicionar" className="h-3.5 w-3.5" />}
-            >
-              Nova empresa
-            </Botao>
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <Busca rotulo="Buscar empresa" placeholder="Razão social ou CNPJ" valor={busca.valor} aoMudar={busca.aoMudar} className="w-full sm:min-w-64 sm:flex-1" />
+
             <MenuSuspenso
               rotulo="Mais ações e filtros"
               icone="mais"
-              tamanho="sm"
               dica="Mais ações e filtros"
               itens={[
                 ...SITUACOES.map((opcao) => ({
@@ -405,7 +410,7 @@ export function Empresas() {
         largura="estreita"
         rodape={
           <div className="flex items-center justify-between gap-2">
-            <Botao variante="sutil" onClick={() => setColunasVisiveis(null)}>Mostrar todas</Botao>
+            <Botao variante="sutil" onClick={() => setColunasVisiveis(colunas.map((coluna) => coluna.id))}>Mostrar todas</Botao>
             <Botao variante="secundaria" onClick={() => setColunasAbertas(false)}>Concluir</Botao>
           </div>
         }
@@ -415,10 +420,10 @@ export function Empresas() {
             <Caixa
               key={coluna.id}
               rotulo={coluna.cabecalho}
-              checked={coluna.fixa || !colunasVisiveis || colunasVisiveis.includes(coluna.id)}
+              checked={coluna.fixa || (colunasVisiveis ? colunasVisiveis.includes(coluna.id) : !coluna.ocultaPorPadrao)}
               disabled={coluna.fixa}
               onChange={(evento) => {
-                const atuais = colunasVisiveis ?? colunas.map((item) => item.id);
+                const atuais = colunasVisiveis ?? colunas.filter((item) => item.fixa || !item.ocultaPorPadrao).map((item) => item.id);
                 setColunasVisiveis(
                   evento.target.checked
                     ? colunas.map((item) => item.id).filter((id) => id === coluna.id || atuais.includes(id))

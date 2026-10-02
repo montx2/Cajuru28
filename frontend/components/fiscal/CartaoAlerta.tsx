@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { BotaoLink } from "@/components/ui/Botao";
 import { cn } from "@/lib/cn";
 import { estadoDoNivel } from "@/lib/estados";
 import { ROTULO_CATEGORIA_ALERTA, type AlertaItem } from "@/lib/types";
@@ -66,11 +67,11 @@ export function CartaoAlerta({ alerta, lida, aoMarcarLida, aoReabrir, className,
       )}
     >
       <span aria-hidden="true" className={cn("absolute inset-y-0 left-0 w-[3px]", FAIXA[estado.tom])} />
-      <div className={cn("flex flex-wrap items-start gap-3", compacta ? "px-3 py-2.5" : "px-4 py-3")}>
+      <div className={cn("flex flex-col gap-3 sm:flex-row sm:items-center", compacta ? "px-3 py-2.5" : "px-4 py-3")}>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <IndicadorEstado {...estado} variante="etiqueta" />
-            <span className="text-2xs uppercase tracking-[.04em] text-tinta-fraca">
+            <span className="text-2xs uppercase tracking-[.04em] text-tinta-suave">
               {ROTULO_CATEGORIA_ALERTA[alerta.categoria] ?? alerta.categoria}
             </span>
             {alerta.empresa_razao_social ? (
@@ -91,11 +92,12 @@ export function CartaoAlerta({ alerta, lida, aoMarcarLida, aoReabrir, className,
             {alerta.detalhe}
           </p>
         </div>
-        <div className="flex flex-none items-center gap-1.5">
-          <Link
+        <div className="flex flex-none flex-wrap items-center gap-2">
+          <BotaoLink
+            tamanho="sm"
             href={destinoDoAlerta(alerta)}
+            iconeDireita={<Icone nome="seta-direita" className="h-3.5 w-3.5" />}
             className={cn(
-              "inline-flex h-9 items-center gap-2 rounded-controle border px-3 text-sm font-medium transition-colors duration-120",
               // Contorno, nunca preenchido: uma lista de alertas com botão
               // sólido em cada item vira parede de cor. A gravidade já está na
               // faixa, no selo e no tom do texto.
@@ -105,8 +107,7 @@ export function CartaoAlerta({ alerta, lida, aoMarcarLida, aoReabrir, className,
             )}
           >
             {rotuloDaAcao(alerta)}
-            <Icone nome="seta-direita" className="h-3.5 w-3.5" />
-          </Link>
+          </BotaoLink>
           {aoMarcarLida && !lida ? (
             <button
               type="button"

@@ -28,6 +28,8 @@ export interface ColunaTabela<L> {
   alinhamento?: "esquerda" | "direita" | "centro";
   /** Números: alinha à direita e ativa tabular-nums por construção. */
   numerica?: boolean;
+  /** Mantém a coluna de ações acessível na rolagem horizontal. */
+  fixar?: "direita";
   ordenavel?: boolean;
   /** Não pode ser ocultada no menu de colunas. */
   fixa?: boolean;
@@ -140,7 +142,7 @@ export function Tabela<L>({
   const [ultimaSelecionada, setUltimaSelecionada] = useState<number | null>(null);
 
   const visiveis = useMemo(() => {
-    if (!colunasVisiveis) return colunas;
+    if (!colunasVisiveis) return colunas.filter((coluna) => coluna.fixa || !coluna.ocultaPorPadrao);
     return colunas.filter((coluna) => coluna.fixa || colunasVisiveis.includes(coluna.id));
   }, [colunas, colunasVisiveis]);
 
@@ -149,7 +151,9 @@ export function Tabela<L>({
   const selecionadasNaPagina = useMemo(() => chaves.filter((chave) => selecionadas.has(chave)), [chaves, selecionadas]);
 
   const usaVirtualizacao = (virtualizar ?? linhas.length > LIMITE_VIRTUALIZACAO) && linhas.length > 0;
-  const alturaLinha = ALTURA_LINHA[densidade];
+  const configuracaoLinha = `${densidade}:${visiveis.map((coluna) => coluna.id).join(",")}`;
+  const [alturaMedida, setAlturaMedida] = useState<{ configuracao: string; altura: number } | null>(null);
+  const alturaLinha = alturaMedida?.configuracao === configuracaoLinha ? alturaMedida.altura : ALTURA_LINHA[densidade];
 
   useEffect(() => {
     if (!usaVirtualizacao || !corpo.current) return;
@@ -170,6 +174,21 @@ export function Tabela<L>({
     const fim = Math.min(linhas.length, inicio + visiveisPorTela + MARGEM_LINHAS * 2);
     return { inicio, fim };
   }, [alturaLinha, deslocamento, alturaVisivel, linhas.length, usaVirtualizacao]);
+
+  // Nome + CNPJ ocupam mais que uma linha. Medir a altura real evita saltos
+  // e espaçadores incorretos depois de aumentar a fonte ou mostrar colunas.
+  useEffect(() => {
+    if (!usaVirtualizacao || !corpo.current || typeof ResizeObserver === "undefined") return;
+    const observador = new ResizeObserver((entradas) => {
+      const medida = Math.max(ALTURA_LINHA[densidade], ...entradas.map((entrada) => (entrada.target as HTMLElement).offsetHeight));
+      setAlturaMedida((anterior) => {
+        const altura = anterior?.configuracao === configuracaoLinha ? Math.max(anterior.altura, medida) : medida;
+        return anterior?.configuracao === configuracaoLinha && anterior.altura === altura ? anterior : { configuracao: configuracaoLinha, altura };
+      });
+    });
+    corpo.current.querySelectorAll("tbody tr[data-linha]").forEach((linha) => observador.observe(linha));
+    return () => observador.disconnect();
+  }, [configuracaoLinha, densidade, estados.carregando, intervalo.inicio, intervalo.fim, linhas.length, usaVirtualizacao]);
 
   // A linha ativa muda pelo teclado: mantém o índice dentro do que existe.
   useEffect(() => {
@@ -296,7 +315,7 @@ export function Tabela<L>({
   const mostrarBarra = Boolean(selecao && (selecionadas.size > 0 || selecao.todasDoFiltro));
 
   return (
-    <div className={cn("relative overflow-hidden rounded-cartao border border-traco bg-superficie", className)}>
+    <div className={cn("cartao-produto relative min-w-0 rounded-cartao", className)}>
       {mostrarBarra ? (
         <div className="nao-imprimir border-b border-traco bg-superficie px-3 py-2">
           <div className="flex flex-wrap items-center gap-3">
@@ -338,17 +357,10 @@ export function Tabela<L>({
         </div>
       ) : null}
       {!mostrarBarra && (aoMudarDensidade || aoMudarColunas || ferramentas || (selecao && selecao.totalNoFiltro !== undefined)) ? (
-        <div className="nao-imprimir flex flex-wrap items-center justify-between gap-2 border-b border-traco bg-fundo-afundado px-3 py-2">
-          <p className="nums text-xs text-tinta-suave" role="status" aria-live="polite">
-            {estados.carregando
-              ? "Carregando…"
-              : `${numero(linhas.length)} ${linhas.length === 1 ? "linha" : "linhas"} nesta página`}
-            {selecao && selecao.totalNoFiltro !== undefined && selecao.totalNoFiltro !== linhas.length
-              ? ` · ${numero(selecao.totalNoFiltro)} no filtro`
-              : null}
-          </p>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {ferramentas}
+        <div className="nao-imprimir flex min-w-0 flex-col gap-3 rounded-t-cartao border-b border-traco bg-superficie px-4 py-4 sm:px-5">
+
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            {ferramentas ? <div className="ferramentas-tabela">{ferramentas}</div> : null}
             {aoMudarDensidade ? (
               <div className="flex items-center gap-0.5 rounded-controle border border-traco bg-superficie p-0.5" role="group" aria-label="Densidade da tabela">
                 {(["confortavel", "compacta"] as DensidadeTabela[]).map((opcao) => (
@@ -379,11 +391,11 @@ export function Tabela<L>({
                         key={coluna.id}
                         compacta
                         rotulo={coluna.cabecalho}
-                        checked={coluna.fixa || !colunasVisiveis || colunasVisiveis.includes(coluna.id)}
+                        checked={coluna.fixa || (colunasVisiveis ? colunasVisiveis.includes(coluna.id) : !coluna.ocultaPorPadrao)}
                         disabled={coluna.fixa}
                         onChange={(evento) => {
                           if (coluna.fixa) return;
-                          const atuais = colunasVisiveis ?? colunas.map((item) => item.id);
+                          const atuais = colunasVisiveis ?? colunas.filter((item) => item.fixa || !item.ocultaPorPadrao).map((item) => item.id);
                           const proximas = evento.target.checked
                             ? colunas.map((item) => item.id).filter((id) => id === coluna.id || atuais.includes(id))
                             : atuais.filter((id) => id !== coluna.id);
@@ -397,6 +409,14 @@ export function Tabela<L>({
               </Popover>
             ) : null}
           </div>
+          <p className="nums text-xs text-tinta-suave" role="status" aria-live="polite">
+            {estados.carregando
+              ? "Carregando…"
+              : `${numero(linhas.length)} ${linhas.length === 1 ? "linha" : "linhas"} nesta página`}
+            {selecao && selecao.totalNoFiltro !== undefined && selecao.totalNoFiltro !== linhas.length
+              ? ` · ${numero(selecao.totalNoFiltro)} no filtro`
+              : null}
+          </p>
         </div>
       ) : null}
 
@@ -404,8 +424,7 @@ export function Tabela<L>({
         ref={corpo}
         onScroll={aoRolar}
         onKeyDown={aoTeclarNaTabela}
-        className={cn("rolagem-fina relative overflow-auto", altura ?? "max-h-[calc(100vh-14rem)]")}
-        style={altura ? { height: altura } : undefined}
+        className={cn("rolagem-fina relative overflow-auto rounded-b-cartao", altura ?? "max-h-[calc(100dvh-14rem)]")}
       >
         <table className="w-full border-collapse text-sm">
           <caption className="sr-only">{legenda}</caption>
@@ -436,8 +455,10 @@ export function Tabela<L>({
                     aria-sort={ativa ? (ordenacao?.direcao === "asc" ? "ascending" : "descending") : coluna.ordenavel ? "none" : undefined}
                     data-numerico={coluna.numerica || undefined}
                     className={cn(
-                      "sticky top-0 z-10 h-10 whitespace-nowrap bg-fundo-afundado px-3 text-xs font-medium text-tinta-suave",
+                      "sticky top-0 z-10 h-11 whitespace-nowrap bg-fundo-afundado px-3 text-xs font-medium text-tinta-suave",
                       alinhamento,
+                      coluna.fixar === "direita" && "right-0 border-l border-traco",
+                      !coluna.largura && (coluna.numerica ? "min-w-32" : "min-w-24"),
                       coluna.largura,
                       coluna.classeCabecalho
                     )}
@@ -504,6 +525,7 @@ export function Tabela<L>({
                     key={chave}
                     data-chave={chave}
                     data-linha={indice}
+                    style={usaVirtualizacao ? { height: alturaLinha } : undefined}
                     tabIndex={aoAbrirLinha || selecao ? (ativa || (indiceAtivo < 0 && indice === intervalo.inicio) ? 0 : -1) : undefined}
                     aria-selected={selecao ? selecionada : undefined}
                     onClick={(evento) => {
@@ -521,10 +543,10 @@ export function Tabela<L>({
                     }}
                     onFocus={() => setIndiceAtivo(indice)}
                     className={cn(
-                      "border-b border-traco transition-colors duration-120 last:border-0",
+                      "border-b border-traco/70 transition-colors duration-150 last:border-0",
                       densidade === "compacta" ? "h-10" : "h-11",
                       aoAbrirLinha && "cursor-pointer",
-                      selecionada ? "bg-acento-tenue/60" : "hover:bg-fundo-afundado",
+                      selecionada ? "bg-acento-tenue/60" : "hover:bg-superficie-alta",
                       ativa && "shadow-[inset_2px_0_0_0_var(--acento)]",
                       classeLinha?.(linha)
                     )}
@@ -556,9 +578,11 @@ export function Tabela<L>({
                         key={coluna.id}
                         data-numerico={coluna.numerica || undefined}
                         className={cn(
-                          "max-w-0 px-3 align-middle text-tinta",
+                          "max-w-xs px-3 align-middle text-tinta",
                           densidade === "compacta" ? "py-1" : "py-1.5",
                           coluna.numerica ? "text-right nums" : coluna.alinhamento === "direita" ? "text-right" : coluna.alinhamento === "centro" ? "text-center" : "text-left",
+                          coluna.fixar === "direita" && "sticky right-0 z-[1] border-l border-traco bg-superficie",
+                          !coluna.largura && (coluna.numerica ? "min-w-32" : "min-w-24"),
                           coluna.largura,
                           coluna.classeCelula
                         )}

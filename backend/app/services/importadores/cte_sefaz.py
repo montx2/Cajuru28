@@ -124,6 +124,9 @@ class ImportadorCTeSEFAZ(ImportadorFiscal):
             )
         return CODIGO_IBGE_POR_UF[uf.upper()]
 
+    def interpretar_lote(self, conteudo: bytes, cnpj: str, ultimo_nsu: str) -> LoteImportado:
+        return self._interpretar(conteudo, cnpj, ultimo_nsu)
+
     def _interpretar(self, resposta_bytes: bytes, cnpj: str, ultimo_nsu: str) -> LoteImportado:
         resposta = interpretar_resposta(resposta_bytes, ambiente=self.ambiente_nome)
 
@@ -134,6 +137,7 @@ class ImportadorCTeSEFAZ(ImportadorFiscal):
                 ha_mais_documentos=False,
                 max_nsu=_nsu_inteiro(resposta.max_nsu, resposta.ultimo_nsu),
                 sem_novidade=True,
+                resposta_bruta=resposta_bytes,
             )
 
         if resposta.cstat != CSTAT_DOCUMENTOS_LOCALIZADOS:
@@ -167,7 +171,11 @@ class ImportadorCTeSEFAZ(ImportadorFiscal):
                     eventos_nao_reconhecidos += 1
                 continue
 
-            documento = self._converter(nsu, schema, xml_bytes, cnpj, raiz=raiz)
+            try:
+                documento = self._converter(nsu, schema, xml_bytes, cnpj, raiz=raiz)
+            except Exception as exc:  # um item ruim não pode apagar os outros
+                erros.append(f"NSU {nsu}: não foi possível ler o documento ({exc})")
+                continue
             if documento is None:
                 erros.append(f"NSU {nsu}: documento sem chave de acesso — não pode ser gravado")
                 continue
@@ -184,6 +192,7 @@ class ImportadorCTeSEFAZ(ImportadorFiscal):
             eventos_nao_reconhecidos=eventos_nao_reconhecidos,
             erros=erros,
             max_nsu=max_nsu,
+            resposta_bruta=resposta_bytes,
         )
 
     def _converter(
@@ -211,7 +220,7 @@ class ImportadorCTeSEFAZ(ImportadorFiscal):
             chave = raw_id[3:] if raw_id.upper().startswith("CTE") else raw_id
         if not chave:
             return None
-        chave = "".join(c for c in chave if c.isdigit()) or chave
+        chave = chave.strip()
 
         metadados = extrair_metadados(raiz)
         try:

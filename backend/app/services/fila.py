@@ -19,7 +19,7 @@ Travas aplicadas (nesta ordem, da mais barata para a mais cara):
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func
 
@@ -32,7 +32,7 @@ from app.models import (
     StatusExecucao,
     TipoDocumentoFiscal,
 )
-from app.services import sincronizacao
+from app.services import lotes_recebidos, sincronizacao
 from app.services.importadores._distribuicao_dfe import CODIGO_IBGE_POR_UF
 from app.services.periodo import Periodo
 
@@ -99,6 +99,8 @@ def verificar_empresa(
     db: Session, empresa: Empresa, tipo: TipoDocumentoFiscal
 ) -> tuple[str, str]:
     """Pré-voo local (não custa requisição): devolve (status, mensagem)."""
+    if not empresa.ativa:
+        return "bloqueado", "Empresa inativa: reative o cadastro antes de capturar."
     tem_certificado = (
         db.query(Certificado)
         .filter(Certificado.empresa_id == empresa.id, Certificado.ativo.is_(True))
@@ -109,6 +111,10 @@ def verificar_empresa(
             "sem_certificado",
             "Envie o certificado A1 (.pfx) desta empresa antes de importar.",
         )
+
+    validade = _aware(tem_certificado.validade)
+    if validade is None or validade <= datetime.now(timezone.utc):
+        return "sem_certificado", "Certificado A1 vencido ou sem validade: substitua-o antes de capturar."
 
     if tipo in TIPOS_COM_UF:
         uf = (empresa.uf or "").strip().upper()
@@ -137,14 +143,16 @@ def enfileirar(
     o comportamento certo para um clique duplo acidental (e para o agendador
     batendo na porta de uma varredura que ainda não terminou).
     """
+    tem_lotes = lotes_recebidos.quantidade_pendente(empresa.id, tipo) > 0
+    if not empresa.ativa:
+        return ResultadoEnfileiramento("bloqueado", empresa.id, tipo.value, mensagem="Empresa inativa.")
     status_preflight, mensagem_preflight = verificar_empresa(db, empresa, tipo)
-    if status_preflight != "ok":
-        return ResultadoEnfileiramento(
-            status=status_preflight,
-            empresa_id=empresa.id,
-            tipo=tipo.value,
-            mensagem=mensagem_preflight,
-        )
+    if status_preflight != "ok" and not tem_lotes:
+        return ResultadoEnfileiramento(status_preflight, empresa.id, tipo.value, mensagem=mensagem_preflight)
+    libertacao = sincronizacao.liberacao_para(db, empresa.id, tipo)
+    # Um lote ilegível não pode impedir a captura de notas NOVAS quando a
+    # janela abrir. Somente o replay dispensa A1 e contorna uma janela fechada.
+    recuperacao = tem_lotes and (status_preflight != "ok" or (not libertacao.pode and not forcar))
 
     andamento = _em_andamento(db, empresa.id, tipo)
     if andamento is not None:
@@ -156,8 +164,17 @@ def enfileirar(
             mensagem="Já existe uma varredura em andamento para esta empresa e tipo.",
         )
 
+    if recuperacao and origem == "auto":
+        anterior = db.query(ExecucaoImportacao).filter(
+            ExecucaoImportacao.empresa_id == empresa.id, ExecucaoImportacao.tipo == tipo,
+            ExecucaoImportacao.origem == "reprocessamento", ExecucaoImportacao.status == StatusExecucao.ERRO,
+        ).order_by(ExecucaoImportacao.id.desc()).first()
+        fim = _aware(anterior.finalizado_em) if anterior else None
+        if fim and fim + timedelta(hours=1) > datetime.now(timezone.utc):
+            return ResultadoEnfileiramento("em_cooldown", empresa.id, tipo.value,
+                disponivel_em=fim + timedelta(hours=1), mensagem="Lote com erro de leitura preservado; reprocessamento automático local tentará novamente em uma hora.")
     libertacao = sincronizacao.liberacao_para(db, empresa.id, tipo)
-    if not libertacao.pode and not forcar:
+    if not recuperacao and not libertacao.pode and not forcar:
         mensagem = (
             ("Bloqueado pela SEFAZ (consumo indevido). " if libertacao.bloqueado else "")
             + f"Nova tentativa automática em {libertacao.quando:%d/%m/%Y %H:%M}."
@@ -177,10 +194,10 @@ def enfileirar(
         status=StatusExecucao.EM_ANDAMENTO,
         data_inicio=periodo.inicio if periodo else None,
         data_fim=periodo.fim if periodo else None,
-        origem=origem,
+        origem="reprocessamento" if recuperacao else origem,
         forcar=bool(forcar),
     )
-    if forcar and not libertacao.pode:
+    if forcar and not recuperacao and not libertacao.pode:
         execucao.aviso = (
             "Consulta FORÇADA dentro da janela de consumo. Se o ambiente "
             "responder 656, o bloqueio recomeça do zero."
@@ -211,7 +228,7 @@ def enfileirar(
         empresa_id=empresa.id,
         tipo=tipo.value,
         execucao_id=execucao.id,
-        mensagem="Varredura enfileirada.",
+        mensagem="Reprocessamento local de lotes recebidos enfileirado (sem repetir consulta fiscal)." if recuperacao else "Varredura enfileirada.",
     )
 
 
@@ -329,12 +346,15 @@ def disponiveis_para_sincronismo_automatico(
 
     resultados: list[tuple[Empresa, list[TipoDocumentoFiscal]]] = []
     for empresa, _mais_antiga in consulta.all():
-        tipos = [
-            TipoDocumentoFiscal(item.strip())
-            for item in (empresa.quais_tipos_sincronizar or "").split(",")
-            if item.strip()
-        ]
-        if not tipos:
+        configurados = (empresa.quais_tipos_sincronizar or "").strip()
+        tipos = list(dict.fromkeys(
+            TipoDocumentoFiscal(item.strip().lower())
+            for item in configurados.split(",")
+            if item.strip().lower() in {tipo.value for tipo in TipoDocumentoFiscal}
+        ))
+        if not configurados:
             tipos = list(TipoDocumentoFiscal)
+        if not tipos:
+            continue
         resultados.append((empresa, tipos))
     return resultados

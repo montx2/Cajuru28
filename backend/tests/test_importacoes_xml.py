@@ -156,6 +156,7 @@ def test_zip_com_nfe_e_cte_importa_as_notas(cliente, tmp_path):
     assert por_tipo["nfe"].origem == "xml"
     assert por_tipo["nfe"].direcao.value == "tomada"
     assert float(por_tipo["nfe"].valor_total) == 4321.10
+    assert float(por_tipo["cte"].valor_total) == 750.00
     assert por_tipo["nfe"].competencia is not None
     assert (tmp_path / por_tipo["nfe"].xml_path.removeprefix(str(tmp_path) + "/")).exists() or (
         por_tipo["nfe"].xml_path.startswith(str(tmp_path))
@@ -270,3 +271,108 @@ def test_nfse_do_leiaute_nacional_importa(cliente):
     documento = db.query(DocumentoFiscal).one()
     assert documento.direcao.value == "prestada"
     assert float(documento.valor_total) == 1500.00
+
+
+def test_xml_completo_promove_resumo_em_vez_de_ignorar_como_duplicata(cliente, tmp_path):
+    from app.models import DirecaoDocumento, StatusDocumentoFiscal, TipoDocumentoFiscal
+    from datetime import datetime, timezone
+
+    client, db, _ = cliente
+    empresa = db.query(Empresa).one()
+    caminho = tmp_path / "resumo.xml"
+    caminho.write_bytes(b"<resNFe/>")
+    existente = DocumentoFiscal(
+        empresa_id=empresa.id, tipo=TipoDocumentoFiscal.NFE, direcao=DirecaoDocumento.TOMADA,
+        chave_acesso=CHAVE_NFE, nsu="42", data_emissao=datetime(2026, 8, 11, tzinfo=timezone.utc),
+        valor_total=1, xml_path=str(caminho), leiaute="resumo", origem="sefaz",
+        status=StatusDocumentoFiscal.CANCELADA,
+    )
+    db.add(existente)
+    db.commit()
+    xml = _proc_nfe(CHAVE_NFE, CNPJ_FORNECEDOR, CNPJ_EMPRESA)
+    resposta = client.post("/importacoes/xml", files=[("arquivos", ("completo.xml", xml, "application/xml"))])
+    assert resposta.status_code == 200
+    assert resposta.json()["importados"] == 1
+    assert "substituiu o resumo" in resposta.json()["itens"][0]["mensagem"]
+    db.expire_all()
+    doc = db.query(DocumentoFiscal).one()
+    assert doc.leiaute == "completo"
+    assert doc.nsu == "42"  # XML manual não é um NSU novo da distribuição
+    assert doc.status == StatusDocumentoFiscal.CANCELADA
+    assert float(doc.valor_total) == 4321.10
+    assert caminho.read_bytes() == xml
+
+
+def test_xml_alfa_numerico_preserva_chave_integral(cliente):
+    client, db, _ = cliente
+    chave = CHAVE_NFE[:8] + "ABCD" + CHAVE_NFE[12:]
+    xml = _proc_nfe(chave, CNPJ_FORNECEDOR, CNPJ_EMPRESA)
+    resposta = client.post("/importacoes/xml", files=[("arquivos", ("chave.xml", xml, "application/xml"))])
+    assert resposta.status_code == 200
+    assert resposta.json()["importados"] == 1
+    assert db.query(DocumentoFiscal).one().chave_acesso == chave
+
+
+def test_zip_homonimo_nao_repete_ultimo_xml_deixando_primeiro_de_fora(cliente):
+    client, db, _ = cliente
+    buffer = io.BytesIO()
+    outra = CHAVE_NFE[:-1] + "7"
+    with zipfile.ZipFile(buffer, "w") as arquivo:
+        arquivo.writestr("nota.xml", _proc_nfe(CHAVE_NFE, CNPJ_FORNECEDOR, CNPJ_EMPRESA))
+        with pytest.warns(UserWarning, match="Duplicate name"):
+            arquivo.writestr("nota.xml", _proc_nfe(outra, CNPJ_FORNECEDOR, CNPJ_EMPRESA))
+    resposta = client.post("/importacoes/xml", files=[("arquivos", ("notas.zip", buffer.getvalue(), "application/zip"))])
+    assert resposta.status_code == 200
+    assert resposta.json()["importados"] == 2
+    assert {doc.chave_acesso for doc in db.query(DocumentoFiscal).all()} == {CHAVE_NFE, outra}
+
+
+def test_duas_empresas_do_escritorio_recebem_seu_lado_sem_atravessar_tenant(cliente):
+    client, db, escritorio_id = cliente
+    fornecedor = Empresa(escritorio_id=escritorio_id, cnpj_cpf=CNPJ_FORNECEDOR, razao_social="FORNECEDOR CLIENTE", uf="MG")
+    outro = Escritorio(nome="Outro tenant")
+    db.add_all([fornecedor, outro])
+    db.flush()
+    db.add(Empresa(escritorio_id=outro.id, cnpj_cpf=CNPJ_EMPRESA, razao_social="Outro escritório", uf="MG"))
+    db.commit()
+    resposta = client.post("/importacoes/xml", files=[("arquivos", ("entre-clientes.xml", _proc_nfe(CHAVE_NFE, CNPJ_FORNECEDOR, CNPJ_EMPRESA), "application/xml"))])
+    assert resposta.status_code == 200
+    assert resposta.json()["importados"] == 2
+    documentos = db.query(DocumentoFiscal).all()
+    assert len(documentos) == 2
+    assert {doc.direcao.value for doc in documentos} == {"prestada", "tomada"}
+    assert all(db.get(Empresa, doc.empresa_id).escritorio_id == escritorio_id for doc in documentos)
+    repetida = client.post("/importacoes/xml", files=[("arquivos", ("entre-clientes.xml", _proc_nfe(CHAVE_NFE, CNPJ_FORNECEDOR, CNPJ_EMPRESA), "application/xml"))])
+    assert repetida.json()["duplicadas"] == 2
+    assert db.query(DocumentoFiscal).count() == 2
+
+
+def test_falha_em_um_xml_nao_desfaz_outros_validos_do_lote(cliente, monkeypatch):
+    from app.worker import tasks
+
+    client, db, _ = cliente
+    chave_ruim = CHAVE_NFE[:-1] + "8"
+    original = tasks._gravar_documento
+    def falhar_apenas_um(*args, **kwargs):
+        if args[3].chave_acesso == chave_ruim:
+            raise OSError("Disco falhou apenas neste arquivo")
+        return original(*args, **kwargs)
+    monkeypatch.setattr(tasks, "_gravar_documento", falhar_apenas_um)
+    resposta = client.post("/importacoes/xml", files=[
+        ("arquivos", ("valida.xml", _proc_nfe(CHAVE_NFE, CNPJ_FORNECEDOR, CNPJ_EMPRESA), "application/xml")),
+        ("arquivos", ("ruim.xml", _proc_nfe(chave_ruim, CNPJ_FORNECEDOR, CNPJ_EMPRESA), "application/xml")),
+    ])
+    assert resposta.status_code == 200
+    assert resposta.json()["importados"] == 1
+    assert resposta.json()["erros"] == 1
+    assert db.query(DocumentoFiscal).one().chave_acesso == CHAVE_NFE
+
+
+def test_zip_rejeita_bomba_e_limites_antes_de_descompactar(monkeypatch):
+    from app.services.importadores import xml_manual
+
+    monkeypatch.setattr(xml_manual, "LIMITE_BYTES_XML", 32)
+    zip_bytes = _zip_bytes({"gigante.xml": b"x" * 33})
+    monkeypatch.setattr(zipfile.ZipFile, "read", lambda *args, **kwargs: pytest.fail("Não pode descompactar entrada acima do limite"))
+    with pytest.raises(ValueError, match="maior"):
+        xml_manual.extrair_xmls_do_zip(zip_bytes)

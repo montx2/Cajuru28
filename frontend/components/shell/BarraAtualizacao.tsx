@@ -22,7 +22,8 @@ const Contexto = createContext<ContextoProgresso>({ definir: () => undefined, ul
 export function ProvedorProgresso({ children }: { children: ReactNode }) {
   const [ativo, setAtivo] = useState(false);
   const ativoRef = useRef(false);
-  const [ultimaAtualizacao, setUltimaAtualizacao] = useState(() => Date.now());
+  const [ultimaAtualizacao, setUltimaAtualizacao] = useState(0);
+  useEffect(() => setUltimaAtualizacao(Date.now()), []);
   const definir = useCallback((valor: boolean) => {
     if (ativoRef.current && !valor) setUltimaAtualizacao(Date.now());
     ativoRef.current = valor;
