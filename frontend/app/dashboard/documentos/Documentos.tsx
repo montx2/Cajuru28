@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { api, type FiltrosDocumentos } from "@/lib/api";
-import { bytesParaTexto, chaveEmGrupos, dataCurta, numero, plural } from "@/lib/format";
+import { bytesParaTexto, chaveEmGrupos, dataCurta, formatarCnpjCpf, numero, plural } from "@/lib/format";
 import { estadoDoDocumento } from "@/lib/estados";
 import { mensagemDoErro } from "@/lib/erros";
 import { MOTIVO_SOMENTE_LEITURA } from "@/lib/papel";
-import { paraFiltro, rotuloPeriodo, sufixoArquivo } from "@/lib/periodo";
+import { intervaloDoMes, mesDoIntervalo, paraFiltro, periodoValido, rotuloPeriodo, sufixoArquivo, type Periodo } from "@/lib/periodo";
+import { hrefComEstado } from "@/lib/urlEstadoLink";
 import { useBuscaUrl } from "@/lib/useBuscaUrl";
 import { usePreferencia } from "@/lib/usePreferencia";
 import { usePeriodoUrl } from "@/lib/usePeriodoUrl";
@@ -16,11 +17,13 @@ import { useUrlEstado } from "@/lib/urlEstado";
 import { useSinalizarAtualizacao } from "@/components/shell/BarraAtualizacao";
 import { useSessao } from "@/components/shell/ProvedorSessao";
 import { PainelDocumento } from "@/components/fiscal/PainelDocumento";
+import { SeletorCompetencia } from "@/components/fiscal/SeletorCompetencia";
 import { SeletorPeriodo } from "@/components/fiscal/SeletorPeriodo";
 import { ModalImportarXmls } from "@/app/dashboard/importacoes/ImportarXmls";
 import { Botao, BotaoLink } from "@/components/ui/Botao";
 import { CabecalhoPagina, Cartao } from "@/components/ui/Cartao";
 import { Busca, Caixa, Entrada, Selecao } from "@/components/ui/Campo";
+import { Combobox, type OpcaoCombobox } from "@/components/ui/Combobox";
 import { Dado } from "@/components/ui/Dado";
 import { DialogoConfirmacao } from "@/components/ui/DialogoConfirmacao";
 import { Etiqueta } from "@/components/ui/Etiqueta";
@@ -64,11 +67,12 @@ const LEIAUTES: LeiauteDocumento[] = ["completo", "resumo", "metadados"];
  *     do disco, não só registro.
  */
 export function Documentos() {
-  const { definir, ler, lerNumero } = useUrlEstado();
-  const { periodo, aoMudar: aoMudarPeriodo, pronto } = usePeriodoUrl();
+  const { definir, ler, lerNumero, parametros } = useUrlEstado();
+  const { periodo, pronto } = usePeriodoUrl();
   const busca = useBuscaUrl();
   const { somenteLeitura } = useSessao();
   const { avisar } = useToast();
+  const [mostrarIntervaloPersonalizado, setMostrarIntervaloPersonalizado] = useState(false);
 
   const tipo = ler("tipo");
   const direcao = ler("direcao");
@@ -117,6 +121,23 @@ export function Documentos() {
   const documentos = useRecurso(() => api.listarDocumentos({ ...filtros, limit: PASSO, offset: 0 }), [chaveFiltros], { automatico: pronto });
   const resumo = useRecurso(() => api.resumoDocumentos(filtros), [chaveFiltros], { automatico: pronto });
   const empresas = useRecurso(() => api.listarEmpresas(), []);
+  const opcoesEmpresa = useMemo<OpcaoCombobox[]>(
+    () => [
+      { valor: "", rotulo: "Todas as empresas" },
+      ...(empresas.dados ?? []).map((item) => ({
+        valor: String(item.id),
+        rotulo: item.razao_social,
+        descricao: `${formatarCnpjCpf(item.cnpj_cpf)} · ${item.uf}`,
+        termosBusca: item.cnpj_cpf,
+      })),
+    ],
+    [empresas.dados]
+  );
+  const empresaSelecionada = (empresas.dados ?? []).find((item) => item.id === empresa) ?? null;
+  const escopoEmpresa = empresaSelecionada?.razao_social ?? "Todas as empresas";
+  const mesDoPeriodo = mesDoIntervalo(periodo);
+  const intervaloPersonalizado = mostrarIntervaloPersonalizado || (pronto && !mesDoPeriodo);
+  const mesSelecionado = mesDoPeriodo || periodo.inicio.slice(0, 7);
 
   useSinalizarAtualizacao(documentos.atualizando || resumo.atualizando);
 
@@ -148,7 +169,36 @@ export function Documentos() {
 
   const total = resumo.dados?.total ?? null;
   const filtroAtivo = Boolean(tipo || direcao || status || leiaute || valorMin || valorMax || empresa || busca.valor.trim());
-  const quantidadeFiltros = [tipo, direcao, status, leiaute, valorMin, valorMax, empresa].filter(Boolean).length;
+  // Empresa fica visível na barra da tabela; o contador aqui representa apenas o popover.
+  const quantidadeFiltros = [tipo, direcao, status, leiaute, valorMin, valorMax].filter(Boolean).length;
+
+  function hrefDoAcervo(mudancas: Record<string, string | null> = {}, remover: string[] = []) {
+    const temPeriodo = periodoValido(periodo);
+    return hrefComEstado(
+      "/dashboard/documentos",
+      parametros.toString(),
+      {
+        data_inicio: temPeriodo ? periodo.inicio : null,
+        data_fim: temPeriodo ? periodo.fim : null,
+        mes: null,
+        competencia: null,
+        busca: busca.valor.trim() || null,
+        ...mudancas,
+      },
+      remover
+    );
+  }
+
+  function mudarPeriodo(proximo: Periodo) {
+    definir({
+      data_inicio: proximo.inicio,
+      data_fim: proximo.fim,
+      mes: null,
+      competencia: null,
+      pagina: null,
+      doc: null,
+    });
+  }
 
   function limparFiltros() {
     definir({ tipo: null, direcao: null, status: null, leiaute: null, valor_min: null, valor_max: null, empresa: null, busca: null, ordem: null, sentido: null });
@@ -188,10 +238,18 @@ export function Documentos() {
     try {
       if (exportacao === "xml") {
         await api.baixarZip(filtros, `Fluxa_xmls_${sufixoArquivo(periodo)}.zip`);
-        avisar({ tom: "ok", titulo: "ZIP gerado", descricao: `${rotuloPeriodo(periodo)} · ${estimativa ? numero(estimativa.documentos) : ""} documentos` });
+        avisar({
+          tom: "ok",
+          titulo: "ZIP gerado",
+          descricao: `${escopoEmpresa} · ${rotuloPeriodo(periodo)} · ${estimativa ? numero(estimativa.documentos) : ""} documentos`,
+        });
       } else {
         await api.baixarCsvDocumentos(filtros, `Fluxa_relacao_${sufixoArquivo(periodo)}.csv`);
-        avisar({ tom: "ok", titulo: "Relação em CSV gerada", descricao: rotuloPeriodo(periodo) });
+        avisar({
+          tom: "ok",
+          titulo: "Relação em CSV gerada",
+          descricao: `${escopoEmpresa} · ${rotuloPeriodo(periodo)}`,
+        });
       }
       setExportacao(null);
     } catch (falha) {
@@ -208,10 +266,18 @@ export function Documentos() {
       const filtroSelecao = { ...filtros, documento_ids: idsSelecionados.join(",") };
       if (qual === "xml") {
         await api.baixarZip(filtroSelecao, `Fluxa_selecao_${sufixoArquivo(periodo)}.zip`);
-        avisar({ tom: "ok", titulo: "XMLs da seleção baixados", descricao: `${numero(idsSelecionados.length)} ${plural(idsSelecionados.length, "documento", "documentos")}` });
+        avisar({
+          tom: "ok",
+          titulo: "XMLs da seleção baixados",
+          descricao: `${escopoEmpresa} · ${numero(idsSelecionados.length)} ${plural(idsSelecionados.length, "documento", "documentos")}`,
+        });
       } else {
         await api.baixarCsvDocumentos(filtroSelecao, `Fluxa_selecao_${sufixoArquivo(periodo)}.csv`);
-        avisar({ tom: "ok", titulo: "CSV da seleção gerado", descricao: `${numero(idsSelecionados.length)} ${plural(idsSelecionados.length, "documento", "documentos")}` });
+        avisar({
+          tom: "ok",
+          titulo: "CSV da seleção gerado",
+          descricao: `${escopoEmpresa} · ${numero(idsSelecionados.length)} ${plural(idsSelecionados.length, "documento", "documentos")}`,
+        });
       }
     } catch (falha) {
       avisar({ tom: "erro", titulo: "Não foi possível baixar a seleção", descricao: mensagemDoErro(falha, "baixar a seleção") });
@@ -420,13 +486,13 @@ export function Documentos() {
           rotulo: "Canceladas",
           valor: numero(resumo.dados.canceladas),
           tom: resumo.dados.canceladas > 0 ? "espera" : "neutro",
-          href: "/dashboard/documentos?status=cancelada",
+          href: hrefDoAcervo({ status: "cancelada" }, ["doc", "pagina"]),
         },
         ...TIPOS.filter((tipoItem) => (resumo.dados?.por_tipo[tipoItem] ?? 0) > 0).map((tipoItem) => ({
           rotulo: ROTULO_TIPO[tipoItem],
           valor: numero(resumo.dados?.por_tipo[tipoItem] ?? 0),
           contexto: "no recorte",
-          href: `/dashboard/documentos?tipo=${tipoItem}`,
+          href: hrefDoAcervo({ tipo: tipoItem }, ["doc", "pagina"]),
         })),
       ]
     : [];
@@ -436,11 +502,48 @@ export function Documentos() {
       <CabecalhoPagina
         kicker="Fiscal · Acervo"
         titulo="Documentos"
-        descricao="Localize a nota, confira a chave e entregue XMLs ou a relação do período."
+        descricao="Localize a nota, confira a chave e entregue XMLs ou a relação da competência escolhida."
       />
 
       <Cartao densidade="compacta" className="nao-imprimir">
-        <SeletorPeriodo periodo={periodo} aoMudar={aoMudarPeriodo} obrigatorio />
+        {!pronto ? (
+          <SeletorPeriodo periodo={periodo} aoMudar={mudarPeriodo} obrigatorio />
+        ) : intervaloPersonalizado ? (
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <SeletorPeriodo periodo={periodo} aoMudar={mudarPeriodo} obrigatorio className="min-w-0 flex-1" />
+            <Botao
+              tamanho="sm"
+              variante="sutil"
+              className="mb-1 w-full sm:w-auto"
+              onClick={() => {
+                setMostrarIntervaloPersonalizado(false);
+                mudarPeriodo(intervaloDoMes(mesSelecionado));
+              }}
+            >
+              Voltar à competência mensal
+            </Botao>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <SeletorCompetencia
+              className="min-w-0 flex-1"
+              mes={mesSelecionado}
+              aoMudar={(mes) => {
+                setMostrarIntervaloPersonalizado(false);
+                mudarPeriodo(intervaloDoMes(mes));
+              }}
+              descricao="O mês escolhido vale para a lista, a seleção e os downloads."
+            />
+            <Botao
+              tamanho="sm"
+              variante="sutil"
+              className="mb-1 w-full sm:w-auto"
+              onClick={() => setMostrarIntervaloPersonalizado(true)}
+            >
+              Período personalizado
+            </Botao>
+          </div>
+        )}
         {leiaute === "metadados" ? (
           <p className="mt-3 rounded-controle border border-espera/40 bg-espera-tenue px-3 py-2 text-sm text-espera">
             Estas NFS-e foram registradas sem XML original. A exportação inclui um JSON normalizado e a relação CSV.
@@ -496,10 +599,10 @@ export function Documentos() {
           carregando: documentos.carregando,
           erro: documentos.erro,
           aoTentarNovamente: documentos.atualizar,
-          vazioTitulo: pronto ? "Nenhum documento neste recorte" : "Escolha o período para consultar",
+          vazioTitulo: pronto ? "Nenhum documento neste recorte" : "Escolha a competência para consultar",
           vazioInstrucao: pronto
-            ? "Nenhuma nota foi capturada com esta combinação de período, empresa e filtros. Se o período estiver certo, dispare a importação."
-            : "A API exige data inicial e final para listar o acervo — é o que impede varrer meses que ninguém pediu.",
+            ? "Nenhuma nota foi capturada com esta combinação de competência, empresa e filtros. Se o recorte estiver certo, dispare a importação."
+            : "A consulta precisa de uma competência mensal ou de um intervalo com início e fim.",
           vazioAcao: pronto ? (
             <BotaoLink variante="secundaria" href="/dashboard/importacoes">
               Disparar importação
@@ -510,13 +613,25 @@ export function Documentos() {
           aoLimparFiltro: filtroAtivo ? limparFiltros : undefined,
         }}
         ferramentas={
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-end gap-2">
             <Busca
               rotulo="Buscar documento"
+              rotuloVisivel
               placeholder="Chave, número, NSU ou parte"
               valor={busca.valor}
               aoMudar={busca.aoMudar}
               className="w-full sm:min-w-64 sm:flex-1"
+            />
+            <Combobox
+              rotulo="Empresa"
+              descricao="Digite o nome ou CNPJ. Lista e downloads ficam limitados à empresa escolhida."
+              placeholder="Todas as empresas"
+              valor={empresa ? String(empresa) : ""}
+              aoMudar={(valor) => definir({ empresa: valor || null, doc: null, pagina: null })}
+              opcoes={opcoesEmpresa}
+              carregando={empresas.carregando}
+              vazio="Nenhuma empresa encontrada pelo nome ou CNPJ."
+              className="w-full sm:w-64 sm:flex-none"
             />
             <Popover
               rotulo="Filtros"
@@ -573,16 +688,6 @@ export function Documentos() {
                         { valor: "completo", rotulo: "XML completo" },
                         { valor: "resumo", rotulo: "Resumo pendente" },
                         { valor: "metadados", rotulo: "Metadados sem XML" },
-                      ]}
-                    />
-                    <Selecao
-                      rotulo="Empresa"
-                      value={empresa ? String(empresa) : ""}
-                      onChange={(evento) => definir({ empresa: evento.target.value || null })}
-                      className="sm:col-span-2"
-                      opcoes={[
-                        { valor: "", rotulo: "Todas as empresas" },
-                        ...(empresas.dados ?? []).map((item) => ({ valor: String(item.id), rotulo: item.razao_social })),
                       ]}
                     />
                     <Entrada
@@ -668,6 +773,7 @@ export function Documentos() {
 
       <PainelDocumento
         documentoId={documentoAberto}
+        hrefAcervo={hrefDoAcervo({}, ["doc"])}
         aoFechar={() => definir({ doc: null })}
         aoExcluir={somenteLeitura ? undefined : (detalhe) => setExcluirUm(detalhe)}
         somenteLeitura={somenteLeitura}
@@ -721,7 +827,11 @@ export function Documentos() {
         aberto={exportacao !== null}
         aoFechar={() => setExportacao(null)}
         titulo={exportacao === "csv" ? "Exportar relação em CSV" : "Baixar XMLs do filtro"}
-        descricao="Confira o tamanho antes: o download roda na API e pode levar minutos em períodos grandes."
+        descricao={
+          empresaSelecionada
+            ? `O download ficará restrito a ${empresaSelecionada.razao_social}. Confira o tamanho: períodos grandes podem levar alguns minutos.`
+            : "Sem empresa escolhida, o download inclui todas as empresas do escritório que atendem aos filtros. Selecione uma empresa para limitar."
+        }
         largura="media"
         rodape={
           <div className="flex flex-wrap items-center justify-end gap-2">

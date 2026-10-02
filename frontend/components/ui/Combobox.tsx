@@ -10,6 +10,8 @@ export interface OpcaoCombobox {
   rotulo: string;
   /** Segunda linha da opção (CNPJ, situação, contagem). */
   descricao?: string;
+  /** Texto adicional pesquisável, sem precisar exibi-lo (ex.: CNPJ sem pontuação). */
+  termosBusca?: string;
   desabilitada?: boolean;
 }
 
@@ -64,7 +66,7 @@ export function Combobox({
     const termo = busca.trim().toLocaleLowerCase("pt-BR");
     if (!termo) return opcoes;
     return opcoes.filter((opcao) =>
-      `${opcao.rotulo} ${opcao.descricao ?? ""}`.toLocaleLowerCase("pt-BR").includes(termo)
+      `${opcao.rotulo} ${opcao.descricao ?? ""} ${opcao.termosBusca ?? ""}`.toLocaleLowerCase("pt-BR").includes(termo)
     );
   }, [busca, opcoes]);
 
@@ -89,7 +91,7 @@ export function Combobox({
   useEffect(() => {
     if (!aberto || ativo < 0) return;
     const elemento = document.getElementById(`${idLista}-opcao-${ativo}`);
-    elemento?.scrollIntoView({ block: "nearest" });
+    elemento?.scrollIntoView?.({ block: "nearest" });
   }, [aberto, ativo, idLista]);
 
   function escolher(opcao: OpcaoCombobox) {
