@@ -18,6 +18,7 @@ const ROTAS_API = [
 
 const nextConfig = {
   output: "standalone",
+  devIndicators: false,
   // Next só aceita hosts de desenvolvimento explicitamente autorizados. Em
   // preview informe NEXT_ALLOWED_DEV_ORIGINS=host-do-preview; produção não
   // aceita wildcard de origem para o canal de desenvolvimento.

@@ -16,12 +16,13 @@ import { CartaoAlerta } from "@/components/fiscal/CartaoAlerta";
 import { GraficoBarras, GraficoDonut } from "@/components/fiscal/Graficos";
 import { LinhaExecucao } from "@/components/fiscal/LinhaExecucao";
 import { SeletorCompetencia } from "@/components/fiscal/SeletorCompetencia";
-import { Aviso } from "@/components/ui/Aviso";
+import { BotaoIcone } from "@/components/ui/BotaoIcone";
 import { BotaoLink } from "@/components/ui/Botao";
 import { CabecalhoPagina, Cartao } from "@/components/ui/Cartao";
 import { EsqueletoBloco, EsqueletoLista } from "@/components/ui/Esqueleto";
 import { EstadoErro } from "@/components/ui/EstadoErro";
 import { EstadoVazio } from "@/components/ui/EstadoVazio";
+import { Etiqueta } from "@/components/ui/Etiqueta";
 import { Cnpj, ValorMoeda } from "@/components/ui/Formatadores";
 import { GradeKpis, type KpiProps } from "@/components/ui/Kpi";
 import { Icone } from "@/components/ui/Icone";
@@ -108,6 +109,7 @@ export function Painel() {
   const itens: KpiProps[] = [
     {
       rotulo: `Documentos em ${rotuloCompetencia(mes || null)}`,
+      icone: "documento",
       valor: numero(indicadores?.documentos_mes ?? pontoAtual?.total ?? documentos.mes),
       contexto: `${numero(indicadores?.documentos_mes_anterior ?? pontoAnterior?.total ?? 0)} no mês anterior`,
       variacao: {
@@ -121,6 +123,7 @@ export function Painel() {
     },
     {
       rotulo: "Valor dos documentos",
+      icone: "moeda",
       valor: moeda(indicadores?.valor_mes ?? pontoAtual?.valor ?? documentos.valor_mes),
       contexto: `${moeda(pontoAnterior?.valor ?? 0)} no mês anterior`,
       variacao: { valor: variacaoEntre(pontoAtual?.valor, pontoAnterior?.valor), base: "vs. mês anterior" },
@@ -130,6 +133,7 @@ export function Painel() {
     },
     {
       rotulo: "NFS-e (nota de serviço)",
+      icone: "fechamento",
       valor: numero(pontoAtual?.nfse ?? 0),
       contexto: `${numero(pontoAnterior?.nfse ?? 0)} no mês anterior`,
       variacao: { valor: variacaoEntre(pontoAtual?.nfse, pontoAnterior?.nfse), base: "vs. mês anterior" },
@@ -150,37 +154,69 @@ export function Painel() {
   return (
     <div className="space-y-6">
       <CabecalhoPagina
-        titulo="Painel"
-        descricao={
+        kicker="Visão geral"
+        titulo="Painel operacional"
+        descricao="Sua operação fiscal em um só lugar. Acompanhe o que importa e resolva o que precisa de você."
+        acoes={
           <>
-            {geral.resumo}
-            {painel.ultimaAtualizacao ? (
-              <span className="nums ml-2 text-tinta-suave">
-                · atualizado {tempoRelativo(new Date(painel.ultimaAtualizacao).toISOString(), agora)}
-              </span>
+            <BotaoIcone rotulo="Atualizar painel" dica="Atualizar painel" icone={<Icone nome="atualizar" className="h-4 w-4" />} onClick={recarregar} carregando={atualizando} />
+            {pendencias > 0 ? (
+              <BotaoLink variante="primaria" href="/dashboard/atencao" iconeDireita={<Icone nome="seta-direita" className="h-4 w-4" />}>
+                Ver {numero(pendencias)} {plural(pendencias, "pendência", "pendências")}
+              </BotaoLink>
             ) : null}
           </>
         }
-        acima={
-          <Aviso tom={geral.tom} titulo={geral.titulo} icone={geral.icone}>
-            {painel.dados.mensagem ||
-              (geral.tom === "ok"
-                ? `Última varredura automática ${documentos.competencia ? `na competência ${rotuloCompetencia(documentos.competencia)}` : "concluída"}.`
-                : `Certificados vencidos: ${numero(certificados.vencidos)} · empresas sem certificado: ${numero(empresas.sem_certificado)} · execuções com erro em 24 h: ${numero(execucoes.erros_24h)}.`)}
-          </Aviso>
-        }
-        acoes={
-          pendencias > 0 ? (
-            <BotaoLink variante="primaria" href="/dashboard/atencao">
-              Ver {numero(pendencias)} {plural(pendencias, "pendência", "pendências")}
-            </BotaoLink>
-          ) : undefined
-        }
       />
+
+      <section aria-label="Resumo da operação" className="painel-status overflow-hidden rounded-cartao border border-traco">
+        <div className="flex flex-col gap-6 p-5 sm:p-6 xl:flex-row xl:items-center xl:justify-between">
+          <div className="min-w-0 flex-1">
+            <div className="mb-3 flex flex-wrap items-center gap-3">
+              <Etiqueta tom={geral.tom} ponto>{geral.rotulo}</Etiqueta>
+              <span className="text-xs text-tinta-suave">{new Date(agora).toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" })}</span>
+            </div>
+            <h2 className="text-lg font-semibold tracking-tight">{geral.titulo}</h2>
+            <p className="mt-2 max-w-xl text-sm leading-6 text-tinta-suave">{painel.dados.mensagem || geral.resumo}</p>
+          </div>
+          <div className="w-full max-w-sm rounded-lg border border-traco bg-fundo/40 p-4 xl:w-72">
+            <div className="flex items-center gap-2 text-xs text-tinta-suave">
+              <Icone nome="sincronizar" className="h-4 w-4" /> Sincronizadas hoje
+            </div>
+            <p className="nums mt-2 text-xl font-semibold tracking-tight text-tinta-forte">
+              {numero(empresas.sincronizadas_hoje)} <span className="text-base font-normal text-tinta-suave">de {numero(empresas.habilitadas_sincronizacao)} empresas</span>
+            </p>
+            <div
+              role="progressbar"
+              aria-label="Empresas sincronizadas hoje"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={empresas.habilitadas_sincronizacao > 0 ? Math.min(100, Math.round(empresas.sincronizadas_hoje / empresas.habilitadas_sincronizacao * 100)) : 0}
+              className="mt-3 h-1.5 overflow-hidden rounded-full bg-traco"
+            >
+              <div className="h-full rounded-full bg-acento" style={{ width: `${empresas.habilitadas_sincronizacao > 0 ? Math.min(100, empresas.sincronizadas_hoje / empresas.habilitadas_sincronizacao * 100) : 0}%` }} />
+            </div>
+          </div>
+        </div>
+        <dl className="grid grid-cols-2 gap-px border-t border-traco bg-traco lg:grid-cols-4">
+          {[
+            { rotulo: "Empresas ativas", valor: empresas.ativas, icone: "empresa" as const, href: "/dashboard/empresas" },
+            { rotulo: "Documentos hoje", valor: documentos.hoje, icone: "documento" as const, href: "/dashboard/documentos" },
+            { rotulo: "Capturas concluídas hoje", valor: execucoes.concluidas_hoje, icone: "verificar-circulo" as const, href: "/dashboard/execucoes" },
+            { rotulo: "Certificados válidos", valor: certificados.validos, icone: "certificado" as const, href: "/dashboard/certificados" },
+          ].map((item) => (
+            <div key={item.rotulo} className="bg-superficie px-4 py-4 sm:px-6">
+              <dt className="flex items-center gap-2 text-xs text-tinta-suave"><Icone nome={item.icone} className="h-4 w-4 flex-none" />{item.rotulo}</dt>
+              <dd className="nums mt-2 text-lg font-semibold tracking-tight"><Link href={item.href} className="rounded-sm hover:text-acento">{numero(item.valor)}</Link></dd>
+            </div>
+          ))}
+        </dl>
+      </section>
 
       <div className="grid gap-4 xl:grid-cols-3">
         <Cartao
           titulo="Precisa da sua atenção"
+          icone="alerta"
           descricao={
             pendencias > 0
               ? `${numero(pendencias)} ${plural(pendencias, "item", "itens")} em aberto, do mais grave para o menos grave`
@@ -217,6 +253,7 @@ export function Painel() {
 
         <Cartao
           titulo="Execuções agora"
+          icone="execucao"
           descricao={
             execucoes.em_andamento > 0
               ? `${numero(execucoes.em_andamento)} em andamento · média de ${execucoes.duracao_media_minutos !== null ? numero(execucoes.duracao_media_minutos, 1) : "—"} min`
@@ -249,19 +286,19 @@ export function Painel() {
       <section aria-labelledby="titulo-numeros-mes" className="space-y-3">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h2 id="titulo-numeros-mes" className="text-sm font-semibold text-tinta-forte">Números do mês</h2>
+            <h2 id="titulo-numeros-mes" className="text-md font-semibold tracking-tight text-tinta-forte">Números do mês</h2>
             <p className="text-xs text-tinta-suave">Cada valor compara a competência anterior.</p>
           </div>
-          <SeletorCompetencia mes={mes} aoMudar={aoMudar} descricao="Competência dos indicadores" />
+          <SeletorCompetencia mes={mes} aoMudar={aoMudar} atalhos={0} className="w-full sm:w-auto" />
         </div>
         <GradeKpis itens={itens} colunas={3} rotulo={`Indicadores de ${rotuloCompetencia(mes)}`} />
       </section>
 
       <details className="group overflow-hidden rounded-cartao border border-traco bg-superficie">
-        <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-medium text-tinta-forte marker:hidden">
+        <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 text-sm font-medium text-tinta-forte marker:hidden">
           <span>
             Mês em números
-            <span className="ml-2 font-normal text-tinta-suave">evolução, tipos e maiores emitentes</span>
+            <span className="mt-1 block text-xs font-normal text-tinta-suave sm:ml-2 sm:mt-0 sm:inline sm:text-sm">evolução, tipos e maiores emitentes</span>
           </span>
           <Icone nome="chevron-baixo" className="h-4 w-4 text-tinta-suave transition-transform duration-120 group-open:rotate-180" />
         </summary>

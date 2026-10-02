@@ -27,7 +27,7 @@ export const BotaoIcone = forwardRef<HTMLButtonElement, BotaoIconeProps>(functio
       variante={variante}
       aria-label={rotulo}
       somenteIcone
-      className={cn("h-10 w-10 flex-none text-tinta-suave hover:text-tinta-forte", className)}
+      className={cn("flex-none text-tinta-suave hover:text-tinta-forte", className)}
       {...props}
     >
       {icone}

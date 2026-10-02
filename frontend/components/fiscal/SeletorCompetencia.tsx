@@ -1,5 +1,6 @@
 "use client";
 
+import { useId } from "react";
 import { cn } from "@/lib/cn";
 import { mesAtual, mesesAnteriores, rotulo as rotuloCompetencia, ultimosMeses } from "@/lib/competencia";
 import { BotaoIcone } from "@/components/ui/BotaoIcone";
@@ -19,6 +20,7 @@ export interface SeletorCompetenciaProps {
 
 /** Competência sempre MM/AAAA na superfície, com navegação ‹ ›. */
 export function SeletorCompetencia({ mes, aoMudar, className, rotulo = "Competência", atalhos = 6, descricao }: SeletorCompetenciaProps) {
+  const idDescricao = useId();
   const atual = mes || mesAtual();
   const ehOMesAtual = atual === mesAtual();
   const anoSeguinte = () => {
@@ -35,14 +37,14 @@ export function SeletorCompetencia({ mes, aoMudar, className, rotulo = "Competê
           dica="Mês anterior"
           icone={<Icone nome="chevron-esquerda" className="h-4 w-4" />}
           onClick={() => aoMudar(mesesAnteriores(atual, 1))}
-          className="mb-0.5"
+
         />
         <SeletorMes
-          className="w-44"
+          className="min-w-0 flex-1 sm:w-44 sm:flex-none"
           rotulo={rotulo}
           value={atual}
           max={mesAtual()}
-          descricao={descricao}
+          aria-describedby={descricao ? idDescricao : undefined}
           onChange={(evento) => aoMudar(evento.target.value)}
         />
         <BotaoIcone
@@ -51,9 +53,10 @@ export function SeletorCompetencia({ mes, aoMudar, className, rotulo = "Competê
           icone={<Icone nome="chevron-direita" className="h-4 w-4" />}
           onClick={() => aoMudar(anoSeguinte())}
           disabled={ehOMesAtual}
-          className="mb-0.5"
+
         />
       </div>
+      {descricao ? <p id={idDescricao} className="mt-2 text-xs text-tinta-suave">{descricao}</p> : null}
       {atalhos > 0 ? (
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           <span className="text-xs text-tinta-suave">Atalhos</span>

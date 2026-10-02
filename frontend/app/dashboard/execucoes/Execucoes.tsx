@@ -17,7 +17,7 @@ import { useAgora } from "@/components/shell/ProvedorAgora";
 import { useSinalizarAtualizacao } from "@/components/shell/BarraAtualizacao";
 import { useSessao } from "@/components/shell/ProvedorSessao";
 import { LinhaExecucao } from "@/components/fiscal/LinhaExecucao";
-import { Abas, type Aba } from "@/components/ui/Abas";
+import { Abas, PainelAbas, type Aba } from "@/components/ui/Abas";
 import { Aviso } from "@/components/ui/Aviso";
 import { Botao, BotaoLink } from "@/components/ui/Botao";
 import { BotaoIcone } from "@/components/ui/BotaoIcone";
@@ -258,6 +258,7 @@ export function Execucoes() {
   return (
     <div className="space-y-5">
       <CabecalhoPagina
+        kicker="Visão geral"
         titulo="Execuções"
         descricao="O que a captura está fazendo agora, o que fará na próxima janela e o que falhou."
         acoes={
@@ -289,160 +290,162 @@ export function Execucoes() {
 
       <Abas rotulo="Visão das execuções" idBase="aba-execucao" abas={abas} valor={aba} aoMudar={(valor) => definir({ aba: valor })} />
 
-      {aba === "agora" ? (
-        central.carregando ? (
-          <EsqueletoLista itens={3} linhas={2} />
-        ) : central.erro ? (
-          <EstadoErro erro={central.erro} aoTentarNovamente={central.atualizar} contexto="carregar as execuções em andamento" />
-        ) : emAndamento.length > 0 ? (
-          <ul className="divide-y divide-traco rounded-cartao border border-traco bg-superficie">
-            {emAndamento.map((execucao) => (
-              <LinhaExecucao key={execucao.execucao_id} execucao={execucao} />
-            ))}
-          </ul>
-        ) : (
-          <EstadoVazio
-            titulo="Nenhuma execução em andamento"
-            instrucao="A captura automática dispara na próxima janela. Se houver documento faltando, dispare manualmente pelo período e empresa."
-            acao={<BotaoLink variante="secundaria" href="/dashboard/importacoes">Ir para Importações</BotaoLink>}
-            icone="execucao"
-          />
-        )
-      ) : null}
+      <PainelAbas idBase="aba-execucao" abas={abas} valor={aba} className="space-y-5">
+        {aba === "agora" ? (
+          central.carregando ? (
+            <EsqueletoLista itens={3} linhas={2} />
+          ) : central.erro ? (
+            <EstadoErro erro={central.erro} aoTentarNovamente={central.atualizar} contexto="carregar as execuções em andamento" />
+          ) : emAndamento.length > 0 ? (
+            <ul className="divide-y divide-traco rounded-cartao border border-traco bg-superficie">
+              {emAndamento.map((execucao) => (
+                <LinhaExecucao key={execucao.execucao_id} execucao={execucao} />
+              ))}
+            </ul>
+          ) : (
+            <EstadoVazio
+              titulo="Nenhuma execução em andamento"
+              instrucao="A captura automática dispara na próxima janela. Se houver documento faltando, dispare manualmente pelo período e empresa."
+              acao={<BotaoLink variante="secundaria" href="/dashboard/importacoes">Ir para Importações</BotaoLink>}
+              icone="execucao"
+            />
+          )
+        ) : null}
 
-      {aba === "fila" ? (
-        central.carregando ? (
-          <EsqueletoLista itens={4} linhas={2} />
-        ) : central.erro ? (
-          <EstadoErro erro={central.erro} aoTentarNovamente={central.atualizar} contexto="carregar as próximas janelas" />
-        ) : (central.dados?.proximas.length ?? 0) > 0 ? (
-          <Tabela
-            linhas={central.dados?.proximas ?? []}
-            chaveDaLinha={(janela: JanelaProximaConsulta) => `${janela.empresa_id}-${janela.tipo}`}
-            legenda="Próximas consultas agendadas"
-            colunas={[
-              {
-                id: "empresa",
-                cabecalho: "Empresa",
-                celula: (janela: JanelaProximaConsulta) => (
-                  <Link href={`/dashboard/empresa?id=${janela.empresa_id}&aba=sincronismo`} className="truncate text-tinta underline-offset-4 hover:text-acento hover:underline">
-                    {janela.razao_social}
-                  </Link>
-                ),
-              },
-              { id: "tipo", cabecalho: "Tipo", celula: (janela: JanelaProximaConsulta) => <Etiqueta>{janela.tipo.toUpperCase()}</Etiqueta> },
-              {
-                id: "proxima",
-                cabecalho: "Próxima consulta",
-                alinhamento: "direita",
-                celula: (janela: JanelaProximaConsulta) => (
-                  <span className="nums whitespace-nowrap text-tinta">
-                    {contagemRegressiva(janela.proxima_consulta_em, agora) ?? tempoRelativo(janela.proxima_consulta_em, agora)}
-                    <span className="ml-2 text-xs text-tinta-fraca">{new Date(janela.proxima_consulta_em).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
-                  </span>
-                ),
-              },
-              {
-                id: "pendencia",
-                cabecalho: "Pendência",
-                alinhamento: "direita",
-                numerica: true,
-                celula: (janela: JanelaProximaConsulta) => numero(janela.pendencia),
-              },
-              {
-                id: "situacao",
-                cabecalho: "Situação",
-                celula: (janela: JanelaProximaConsulta) =>
-                  janela.bloqueada ? (
-                    <IndicadorEstado tom="espera" rotulo="Janela SEFAZ" icone="ampulheta" />
-                  ) : (
-                    <IndicadorEstado tom="ok" rotulo="Liberada" icone="verificar-circulo" />
+        {aba === "fila" ? (
+          central.carregando ? (
+            <EsqueletoLista itens={4} linhas={2} />
+          ) : central.erro ? (
+            <EstadoErro erro={central.erro} aoTentarNovamente={central.atualizar} contexto="carregar as próximas janelas" />
+          ) : (central.dados?.proximas.length ?? 0) > 0 ? (
+            <Tabela
+              linhas={central.dados?.proximas ?? []}
+              chaveDaLinha={(janela: JanelaProximaConsulta) => `${janela.empresa_id}-${janela.tipo}`}
+              legenda="Próximas consultas agendadas"
+              colunas={[
+                {
+                  id: "empresa",
+                  cabecalho: "Empresa",
+                  celula: (janela: JanelaProximaConsulta) => (
+                    <Link href={`/dashboard/empresa?id=${janela.empresa_id}&aba=sincronismo`} className="truncate text-tinta underline-offset-4 hover:text-acento hover:underline">
+                      {janela.razao_social}
+                    </Link>
                   ),
-              },
-            ]}
-            estados={{
-              carregando: false,
-              vazioTitulo: "Nenhuma janela agendada",
-              vazioInstrucao: "As próximas consultas aparecem quando a agenda automática tem trabalho a fazer.",
-            }}
+                },
+                { id: "tipo", cabecalho: "Tipo", celula: (janela: JanelaProximaConsulta) => <Etiqueta>{janela.tipo.toUpperCase()}</Etiqueta> },
+                {
+                  id: "proxima",
+                  cabecalho: "Próxima consulta",
+                  alinhamento: "direita",
+                  celula: (janela: JanelaProximaConsulta) => (
+                    <span className="nums whitespace-nowrap text-tinta">
+                      {contagemRegressiva(janela.proxima_consulta_em, agora) ?? tempoRelativo(janela.proxima_consulta_em, agora)}
+                      <span className="ml-2 text-xs text-tinta-fraca">{new Date(janela.proxima_consulta_em).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>
+                    </span>
+                  ),
+                },
+                {
+                  id: "pendencia",
+                  cabecalho: "Pendência",
+                  alinhamento: "direita",
+                  numerica: true,
+                  celula: (janela: JanelaProximaConsulta) => numero(janela.pendencia),
+                },
+                {
+                  id: "situacao",
+                  cabecalho: "Situação",
+                  celula: (janela: JanelaProximaConsulta) =>
+                    janela.bloqueada ? (
+                      <IndicadorEstado tom="espera" rotulo="Janela SEFAZ" icone="ampulheta" />
+                    ) : (
+                      <IndicadorEstado tom="ok" rotulo="Liberada" icone="verificar-circulo" />
+                    ),
+                },
+              ]}
+              estados={{
+                carregando: false,
+                vazioTitulo: "Nenhuma janela agendada",
+                vazioInstrucao: "As próximas consultas aparecem quando a agenda automática tem trabalho a fazer.",
+              }}
+              densidade={densidade}
+              aoMudarDensidade={setDensidade}
+            />
+          ) : (
+            <EstadoVazio titulo="Nenhuma janela agendada" instrucao="Todas as empresas estão em dia ou com sincronismo automático desligado." icone="ampulheta" />
+          )
+        ) : null}
+
+        {aba === "historico" || aba === "erros" ? (
+          <Tabela
+            linhas={linhas}
+            colunas={colunas}
+            chaveDaLinha={(execucao) => execucao.id}
+            legenda={aba === "erros" ? "Execuções com erro" : "Histórico de execuções"}
+            ordenacao={ordenacao}
+            aoOrdenar={aoOrdenar}
+            aoAbrirLinha={setDetalhe}
             densidade={densidade}
             aoMudarDensidade={setDensidade}
+            colunasVisiveis={colunasVisiveis ?? undefined}
+            aoMudarColunas={(ids) => setColunasVisiveis(ids)}
+            virtualizar
+            estados={{
+              carregando: aba === "historico" ? historico.carregando : central.carregando,
+              erro: aba === "historico" ? historico.erro : central.erro,
+              aoTentarNovamente: aba === "historico" ? historico.atualizar : central.atualizar,
+              vazioTitulo: aba === "erros" ? "Nenhuma execução com erro" : "Nenhuma execução neste recorte",
+              vazioInstrucao:
+                aba === "erros"
+                  ? "Nada falhou nas últimas execuções. Quando algo falhar, o motivo e o passo seguinte aparecem aqui."
+                  : "Ajuste empresa, tipo ou busca — ou dispare uma importação para gerar histórico.",
+              vazioAcao:
+                aba === "erros" ? undefined : (
+                  <BotaoLink variante="secundaria" href="/dashboard/importacoes">
+                    Disparar importação
+                  </BotaoLink>
+                ),
+              vazioIcone: aba === "erros" ? "verificar-circulo" : "historico",
+              filtroAtivo,
+              aoLimparFiltro: filtroAtivo
+                ? () => {
+                    definir({ empresa: null, tipo: null, busca: null });
+                    busca.aoMudar("");
+                  }
+                : undefined,
+            }}
+            ferramentas={
+              <div className="flex flex-wrap items-end gap-2">
+                <Busca rotuloVisivel rotulo="Buscar execução" placeholder="Empresa, tipo ou mensagem de erro" valor={busca.valor} aoMudar={busca.aoMudar} className="min-w-56 flex-1" />
+                <Selecao
+                  rotulo="Empresa"
+                  className="w-56"
+                  value={empresaFiltro}
+                  onChange={(evento) => definir({ empresa: evento.target.value || null })}
+                  opcoes={[
+                    { valor: "", rotulo: "Todas as empresas" },
+                    ...(empresas.dados ?? []).map((empresa) => ({ valor: String(empresa.id), rotulo: empresa.razao_social })),
+                  ]}
+                />
+                <Selecao
+                  rotulo="Tipo"
+                  className="w-40"
+                  value={tipoFiltro}
+                  onChange={(evento) => definir({ tipo: evento.target.value || null })}
+                  opcoes={[
+                    { valor: "", rotulo: "Todos os tipos" },
+                    ...(["nfse", "nfe", "cte"] as TipoDocumentoFiscal[]).map((tipo) => ({ valor: tipo, rotulo: ROTULO_TIPO[tipo] })),
+                  ]}
+                />
+              </div>
+            }
+            rodape={
+              <p className="text-xs text-tinta-suave">
+                {numero(linhas.length)} {plural(linhas.length, "execução", "execuções")} no recorte · clique em uma linha para ver o detalhe técnico
+              </p>
+            }
           />
-        ) : (
-          <EstadoVazio titulo="Nenhuma janela agendada" instrucao="Todas as empresas estão em dia ou com sincronismo automático desligado." icone="ampulheta" />
-        )
-      ) : null}
-
-      {aba === "historico" || aba === "erros" ? (
-        <Tabela
-          linhas={linhas}
-          colunas={colunas}
-          chaveDaLinha={(execucao) => execucao.id}
-          legenda={aba === "erros" ? "Execuções com erro" : "Histórico de execuções"}
-          ordenacao={ordenacao}
-          aoOrdenar={aoOrdenar}
-          aoAbrirLinha={setDetalhe}
-          densidade={densidade}
-          aoMudarDensidade={setDensidade}
-          colunasVisiveis={colunasVisiveis ?? undefined}
-          aoMudarColunas={(ids) => setColunasVisiveis(ids)}
-          virtualizar
-          estados={{
-            carregando: aba === "historico" ? historico.carregando : central.carregando,
-            erro: aba === "historico" ? historico.erro : central.erro,
-            aoTentarNovamente: aba === "historico" ? historico.atualizar : central.atualizar,
-            vazioTitulo: aba === "erros" ? "Nenhuma execução com erro" : "Nenhuma execução neste recorte",
-            vazioInstrucao:
-              aba === "erros"
-                ? "Nada falhou nas últimas execuções. Quando algo falhar, o motivo e o passo seguinte aparecem aqui."
-                : "Ajuste empresa, tipo ou busca — ou dispare uma importação para gerar histórico.",
-            vazioAcao:
-              aba === "erros" ? undefined : (
-                <BotaoLink variante="secundaria" href="/dashboard/importacoes">
-                  Disparar importação
-                </BotaoLink>
-              ),
-            vazioIcone: aba === "erros" ? "verificar-circulo" : "historico",
-            filtroAtivo,
-            aoLimparFiltro: filtroAtivo
-              ? () => {
-                  definir({ empresa: null, tipo: null, busca: null });
-                  busca.aoMudar("");
-                }
-              : undefined,
-          }}
-          ferramentas={
-            <div className="flex flex-wrap items-end gap-2">
-              <Busca rotuloVisivel rotulo="Buscar execução" placeholder="Empresa, tipo ou mensagem de erro" valor={busca.valor} aoMudar={busca.aoMudar} className="min-w-56 flex-1" />
-              <Selecao
-                rotulo="Empresa"
-                className="w-56"
-                value={empresaFiltro}
-                onChange={(evento) => definir({ empresa: evento.target.value || null })}
-                opcoes={[
-                  { valor: "", rotulo: "Todas as empresas" },
-                  ...(empresas.dados ?? []).map((empresa) => ({ valor: String(empresa.id), rotulo: empresa.razao_social })),
-                ]}
-              />
-              <Selecao
-                rotulo="Tipo"
-                className="w-40"
-                value={tipoFiltro}
-                onChange={(evento) => definir({ tipo: evento.target.value || null })}
-                opcoes={[
-                  { valor: "", rotulo: "Todos os tipos" },
-                  ...(["nfse", "nfe", "cte"] as TipoDocumentoFiscal[]).map((tipo) => ({ valor: tipo, rotulo: ROTULO_TIPO[tipo] })),
-                ]}
-              />
-            </div>
-          }
-          rodape={
-            <p className="text-xs text-tinta-suave">
-              {numero(linhas.length)} {plural(linhas.length, "execução", "execuções")} no recorte · clique em uma linha para ver o detalhe técnico
-            </p>
-          }
-        />
-      ) : null}
+        ) : null}
+      </PainelAbas>
 
       <Painel
         aberto={detalhe !== null}

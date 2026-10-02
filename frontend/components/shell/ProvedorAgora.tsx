@@ -12,9 +12,11 @@ const Contexto = createContext<number | null>(null);
  * acordaria 500 vezes por minuto. O tick é de 30 s e pausa com a aba oculta.
  */
 export function ProvedorAgora({ children }: { children: ReactNode }) {
-  const [agora, setAgora] = useState(() => Date.now());
+  // O primeiro render é idêntico no servidor e no navegador.
+  const [agora, setAgora] = useState(0);
 
   useEffect(() => {
+    setAgora(Date.now());
     let temporizador = 0;
 
     function agendar() {

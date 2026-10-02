@@ -51,7 +51,7 @@ export function Modal({ aberto, aoFechar, titulo, descricao, children, rodape, l
     <div className="fixed inset-0 z-modal flex items-start justify-center overflow-y-auto p-4 sm:p-6">
       <div
         aria-hidden="true"
-        className="fixed inset-0 bg-grafite/50 animate-entrar"
+        className="fixed inset-0 bg-grafite/70 backdrop-blur-sm animate-entrar"
         onClick={aoFechar}
       />
       <div
@@ -61,14 +61,14 @@ export function Modal({ aberto, aoFechar, titulo, descricao, children, rodape, l
         aria-labelledby={idTitulo}
         aria-describedby={descricao ? `${idTitulo}-descricao` : undefined}
         className={cn(
-          "vidro relative my-auto flex max-h-[calc(100vh-3rem)] w-full flex-col overflow-hidden rounded-camada shadow-nivel2 animate-subir",
+          "vidro relative my-auto flex max-h-[calc(100dvh-2rem)] w-full flex-col overflow-hidden rounded-camada shadow-nivel2 animate-subir",
           LARGURAS[largura],
           className
         )}
       >
-        <header className="flex items-start justify-between gap-4 border-b border-traco px-5 py-3.5">
+        <header role="presentation" className="flex items-start justify-between gap-4 border-b border-traco px-5 py-5 sm:px-6">
           <div className="min-w-0">
-            <h2 id={idTitulo} className="text-md font-semibold text-tinta-forte">
+            <h2 id={idTitulo} className="text-lg font-semibold tracking-tight text-tinta-forte">
               {titulo}
             </h2>
             {descricao ? (
@@ -87,10 +87,10 @@ export function Modal({ aberto, aoFechar, titulo, descricao, children, rodape, l
           </button>
         </header>
         {children ? (
-          <div className={cn("rolagem-fina min-h-0 flex-1 overflow-y-auto", semPadding ? "" : "px-5 py-4")}>{children}</div>
+          <div className={cn("rolagem-fina min-h-0 flex-1 overflow-y-auto", semPadding ? "" : "px-5 py-5 sm:px-6")}>{children}</div>
         ) : null}
         {rodape ? (
-          <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-traco bg-fundo-afundado px-5 py-3">
+          <footer role="presentation" className="flex flex-wrap items-center justify-end gap-2 border-t border-traco bg-fundo-afundado px-5 py-4 sm:px-6">
             {rodape}
           </footer>
         ) : null}

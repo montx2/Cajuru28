@@ -1,6 +1,6 @@
-# Papel & Grafite
+# Grafite & Menta
 
-Sistema visual e arquitetura do front-end do Fluxa. Três critérios, nesta ordem: **silencioso, preciso, confiável**.
+Sistema visual e arquitetura do front-end do Fluxa. Revisão de 01/10/2026. Três critérios, nesta ordem: **organizado, legível, confiável**. Tema grafite por padrão, com acento menta e alternativa clara calibrada separadamente.
 
 A interface é um instrumento de operação contínua, não uma vitrine. Hierarquia vem de espaço, peso e alinhamento; cor existe apenas para indicar ação ou estado. Tudo que vale regra está implementado — este documento descreve o código, não uma intenção.
 
@@ -103,42 +103,43 @@ Hidratação é o detalhe que quebra esse padrão: `usePeriodoUrl` e `useCompete
 
 ## 2. Cor
 
-Todos os valores vivem em `app/globals.css` e chegam aos componentes por nomes semânticos do Tailwind. Nenhuma cor é escrita em componente — nem hex, nem `text-white/70`.
+Todos os valores vivem em `app/globals.css` e chegam aos componentes por nomes semânticos do Tailwind. O tema padrão é **escuro**, mesmo em um sistema operacional claro. Claro e “Seguir o sistema” continuam disponíveis; uma escolha explícita já salva é respeitada.
 
 | Papel | Claro | Escuro | Uso |
 |---|---|---|---|
-| Fundo | `#EEF1F8` | `#0A0D1C` | canvas (com gradiente de vidro, §17) |
-| Fundo afundado | `#E3E8F3` | `#0E1226` | cabeçalho de tabela, recessos |
-| Superfície | `#FFFFFF` | `#161B34` | cartão e tabela (opaca) |
-| Superfície alta | `#FFFFFF` | `#1C2240` | camada sobre superfície |
-| Tinta forte | `#101425` | `#F2F3FB` | título, número-chave |
-| Tinta | `#2A3050` | `#E2E4F5` | corpo |
-| Tinta suave | `#565D80` | `#A8ADCF` | metadado, placeholder |
-| Tinta fraca | `#8388A8` | `#767CA3` | **só** desabilitado e ornamento |
-| Traço | `#DDE1EF` | `#262C4D` | divisor |
-| Traço forte | `#C3C9E2` | `#3A4270` | divisor que precisa ser visto |
-| Borda de controle | `#7D84AE` | `#7981AD` | input, botão secundário (1.4.11 pede 3:1) |
-| Acento | `#4338CA` | `#8B85F0` | **única** cor de ação primária (índigo) |
-| OK | `#157A5C` | `#5FD0A8` | operação confirmada |
-| Espera | `#8A6210` | `#E1B958` | janela oficial SEFAZ, cota, `aguardando` |
-| Erro | `#B23A45` | `#F19A94` | falha que exige ação humana |
-| Informação | `#2F5FD6` | `#8FB3FB` | contexto não operacional |
-| Grafite | `#0C1024` | `#060814` | sidebar, login, XML — superfície, não estado (grafite azulado, coerente com o acento) |
+| Fundo | `#F0F3F2` | `#101318` | canvas neutro |
+| Fundo afundado | `#E9EEEC` | `#12171D` | campos, cabeçalho de tabela e recessos |
+| Superfície | `#FBFCFC` | `#181D24` | cartões e tabelas |
+| Superfície alta | `#FFFFFF` | `#20262E` | modais, drawers e controles elevados |
+| Tinta forte | `#172321` | `#F1F4F7` | títulos e números-chave |
+| Tinta | `#34433F` | `#D6DCE4` | corpo |
+| Tinta suave | `#5D6C67` | `#9AA6B5` | metadados e placeholders |
+| Tinta fraca | `#5F6E66` | `#8491A2` | informação secundária |
+| Traço | `#D9E2DE` | `#2B333E` | divisores |
+| Traço forte | `#BAC9C2` | `#414D5C` | separação reforçada |
+| Borda de controle | `#7B8B83` | `#657386` | contorno identificável de input e botão |
+| Acento | `#176B49` | `#7CE0B3` | ação primária e seleção |
+| OK | `#176B49` | `#78D8AC` | operação confirmada |
+| Espera | `#835B12` | `#EAC27B` | janela oficial SEFAZ e cota |
+| Erro | `#B23647` | `#F0A1A5` | falha que exige ação humana |
+| Informação | `#365CAB` | `#98B4F0` | contexto |
+| Grafite | `#0D1015` | `#0D1015` | navegação e apresentação do login, grafite nos dois temas |
 
 ### 2.1 Contraste medido
 
-Tema claro sobre superfície branca: tinta forte 17,3:1 · tinta 12,2:1 · tinta suave 5,7:1 · acento 7,3:1 · erro 6,1:1 · info 5,3:1 · ok 5,7:1 · espera 5,5:1 · borda de controle 3,5:1. Tema escuro sobre `#161B34`: tinta forte 15,1:1 · tinta 13,0:1 · tinta suave 7,3:1 · acento 7,1:1 · borda de controle 4,5:1 · texto sobre o acento 8,3:1 (o acento clareia e o texto sobre ele escurece — inverter a paleta quebraria o botão primário).
+Sobre `superficie`: tinta forte **15,34:1** no escuro / **15,73:1** no claro; tinta **12,27:1** / **10,11:1**; tinta suave **6,85:1** / **5,37:1**; acento **10,62:1** / **6,31:1**. Borda de controle: **3,51:1** / **3,48:1**.
 
-`--tinta-fraca` fica em 3,2:1 no claro (4,0:1 no escuro): por isso é reservado a placeholder de campo desabilitado e ornamento, e o placeholder ativo usa `tinta-suave`. Todo texto útil passa de 4,5:1.
+`testes/contraste.test.tsx` lê os tokens reais do CSS e exige texto ≥ 4,5:1 e contorno ≥ 3:1 sobre fundo, fundo afundado, superfície e superfície alta nos dois temas. `acento-contraste`, `erro-contraste` e `espera-contraste` mantêm o texto legível também sobre preenchimentos fortes: escuro sobre pastel no tema escuro, branco sobre cores profundas no claro.
 
-Cada valor de `--acento`, `--ok`, `--espera`, `--erro`, `--info` e `--tinta-*` traz o contraste medido em comentário ao lado, em `globals.css` — este documento e o código nunca podem divergir.
+Não reduza a opacidade de um bloco que contém texto útil. Campos desabilitados podem ter tratamento próprio, mas CNPJ, motivo de bloqueio e situação continuam legíveis.
 
-### 2.2 Regras de cor
+### 2.2 Preferência e regras de cor
 
-- Estados usam **ícone + palavra + cor**. Nunca só cor (1.4.1).
-- `aguardando`, janela oficial da SEFAZ, cota e cStat 656 são sempre **espera** (âmbar), com previsão de retomada. Esperar não é falhar: vermelho aqui ensina o operador a ignorar vermelho.
-- Um acento só (índigo). Duas ações de acento concorrentes na mesma tela é erro de design, não de estilo.
-- Cor não é decoração: sem gradiente saturado, sem sombra colorida, sem ícone em círculo pastel. O gradiente sutil do `body` e o vidro (§17) são a única exceção, e têm função (dar ao vidro algo para "flutuar sobre").
+- `lib/preferenciaTema.ts` é a fonte compartilhada do tema padrão, chave de armazenamento, validação e script de primeira pintura. O script não mantém listeners antigos; `lib/tema.ts` gerencia mudanças de sistema e sincroniza seletores/abas.
+- Armazenamento indisponível não impede usar a interface ou mudar o tema.
+- Estados usam **ícone + palavra + cor**; nunca só cor.
+- `aguardando`, janela SEFAZ, cota e cStat 656 são **espera**, não erro.
+- Menta é o acento de ação. Evite duas ações primárias concorrentes, gradientes saturados, transparência em leitura densa e sombras coloridas.
 
 ---
 
@@ -146,7 +147,7 @@ Cada valor de `--acento`, `--ok`, `--espera`, `--erro`, `--info` e `--tinta-*` t
 
 Inter (self-hosted, `--fonte-sans`, fallback métrico Arial/system-ui) para interface; JetBrains Mono (`--fonte-mono`) para CNPJ, chave de acesso, NSU, competência e XML.
 
-Escala (`tailwind.config.ts`, em `fontSize`): `2xs` 12/16 · `xs` 12/18 · `sm` 13/20 · `base` 14/22 · `md` 16/24 · `lg` 20/28 · `xl` 26/32 · `2xl` 34/40. `text-sm` (13/20) é o padrão de dados densos. **Nenhum texto útil abaixo de 12 px.**
+Escala (`tailwind.config.ts`, em `fontSize`): `2xs` 12/16 · `xs` 12/18 · `sm` 14/22 · `base` 15/24 · `md` 16/26 · `lg` 20/28 · `xl` 28/36 · `2xl` 36/44. `text-sm` (14/22) é o padrão de dados densos. **Nenhum texto útil abaixo de 12 px.**
 
 Pesos permitidos: **400, 500, 600**. A config rebatiza `bold`/`extrabold`/`black` para 600 e `light`/`thin` para 400 — escrever `font-bold` não produz 700.
 
@@ -158,13 +159,15 @@ Tempo tem **duas camadas**: relativo para decidir ("há 12 min", "em 3 h") e abs
 
 ## 4. Forma, espaço e elevação
 
-Espaço em múltiplos de 4 px. Raios: 4 px (badge/etiqueta), 6 px (controle), 8 px (cartão), 12 px (camada). A config resolve `rounded-2xl` e `rounded-3xl` para 12 px: nada no produto é mais arredondado que um modal.
+Espaço em múltiplos de 4 px. Raios: 6 px (badge), 8 px (controle), 12 px (cartão), 16 px (camada). Cartões têm borda definida e sombra neutra discreta; não levantam no hover.
 
-Elevação tem **três níveis**, todos semânticos: nível 0 = borda sem sombra (cartão, tabela, campo); `shadow-nivel1` = popover, menu, toast; `shadow-nivel2` = modal e drawer. `shadow-sm` a `shadow-2xl` resolvem para `none` na config. Cartão não sobe no hover — nada aqui é clicável por inteiro.
+**Geometria única:** `Botao` e controles de campo medem 40 px no padrão, 36 px no compacto e 48 px no grande/login. `BotaoIcone` usa o mesmo componente, em formato quadrado, sem acumular classes de altura conflitantes. A borda faz parte da medida do campo; entradas e comboboxes ocupam a altura interna, sem acrescentar 2 px ao contêiner. Carregamento desabilita a ação sem apagar o rótulo ou alterar sua largura.
 
-Larguras: conteúdo até 1440 px, formulário até 560 px, leitura até 72ch, painel lateral `min(620px, 92vw)`. Geometria do shell: header sticky de 56 px (`--altura-cabecalho`) define `scroll-padding-top` de todo alvo; sidebar de 240 px colapsa para 56 px e persiste a preferência.
+Larguras: conteúdo até 1600 px, formulário até 560 px, formulário de login 440 px, leitura até 72ch, painel lateral `min(620px, 100vw)`. Header sticky de 72 px (`--altura-cabecalho`), sidebar de 256 px que recolhe para 72 px. No celular a navegação abre completa, independentemente do recolhimento do desktop.
 
-`z-index` é vocabulário fechado: `cabecalho` 30 · `camada` 40 · `overlay` 60 · `modal` 70 · `aviso` 80 · `pulo` 90.
+Barras de página separam título/descrição da ação principal; ferramentas de tabela quebram linha com espaçamento regular, e a busca ocupa a largura disponível. KPIs com mais de três itens usam duas colunas no celular; Documentos escolhe três a seis colunas no desktop conforme o recorte.
+
+`z-index`: `cabecalho` 30 · `camada` 40 · `overlay` 60 · `modal` 70 · `flutuante` 75 · `aviso` 80 · `pulo` 90. `CamadaFlutuante` usa portal, mede a viewport, acompanha resize/scroll e abre para cima quando necessário. Menus não ficam presos no overflow da tabela. Clique fora, Escape e retorno de foco são compartilhados por `useCamada`; Tab percorre o conteúdo dos popovers antes de sair.
 
 ---
 
@@ -197,7 +200,7 @@ Vazio com filtro ativo é outro estado: `filtroAtivo` + `aoLimparFiltro` oferece
 
 ### 7.1 `components/ui/` (primitivos)
 
-`Icone` (paths inline, sem pacote de ícones) · `Botao`/`BotaoLink`/`BotaoIcone` · `Spinner` · `Dica` (tooltip) · `Campo`: `Entrada`, `Area`, `Selecao`, `Caixa`, `Radio`, `GrupoRadio`, `Alternador`, `Busca` · `CampoArquivo` (arrastar e soltar, limite de tamanho) · `Combobox` (busca com lista filtrável) · `SeletorData`/`SeletorMes` · `Etiqueta` · `IndicadorEstado` · `Aviso` · `Cartao` · `Dado` (par rótulo/valor de `<dl>`) · `Kpi`/`GradeKpis` · `Esqueleto*` · `EstadoVazio` · `EstadoErro` · `Migalhas` · `BarraProgresso` · `Paginacao` · `CopiavelMono` · `Formatadores` (`DataHora`, `ValorMoeda`, `Truncado`, `Ausente`) · `Modal` · `Painel` (drawer) · `DialogoConfirmacao` · `Popover`/`MenuSuspenso` · `Abas` · `Toast` (`useToast`) · `Tabela`.
+`Icone` (paths inline, sem pacote de ícones) · `Botao`/`BotaoLink`/`BotaoIcone` · `Spinner` · `Dica` (tooltip) · `Campo`: `Entrada`, `Area`, `Selecao`, `Caixa`, `Radio`, `GrupoRadio`, `Alternador`, `Busca` · `CampoArquivo` (arrastar e soltar, limite de tamanho) · `Combobox` (busca com lista filtrável) · `SeletorData`/`SeletorMes` · `Etiqueta` · `IndicadorEstado` · `Aviso` · `Cartao` · `Dado` (par rótulo/valor de `<dl>`) · `Kpi`/`GradeKpis` · `Esqueleto*` · `EstadoVazio` · `EstadoErro` · `Migalhas` · `BarraProgresso` · `Paginacao` · `CopiavelMono` · `Formatadores` (`DataHora`, `ValorMoeda`, `Truncado`, `Ausente`) · `Modal` · `Painel` (drawer) · `DialogoConfirmacao` · `CamadaFlutuante` · `Popover`/`MenuSuspenso` · `Abas`/`PainelAbas` · `Toast` (`useToast`) · `Tabela`.
 
 ### 7.2 `components/fiscal/` (domínio)
 
@@ -213,7 +216,7 @@ Vazio com filtro ativo é outro estado: `filtroAtivo` + `aoLimparFiltro` oferece
 |---|---|---|
 | Botão | uma primária por tela; verbo específico ("Baixar XMLs do mês") | duas ações de acento concorrentes; "OK", "Clique aqui" |
 | Campo | `<label>` real, descrição e erro junto ao campo | placeholder como rótulo; erro só em vermelho |
-| Tabela | `caption`, `th scope`, linhas de 40–44 px, números à direita | cards para centenas de registros; ordenação sem indicador |
+| Tabela | `caption`, `th scope`, linhas de 40–44 px, números à direita e larguras mínimas legíveis | comprimir CNPJ e badges até virarem reticências; ordenação sem indicador |
 | Estado | ícone + palavra + tom | depender só de cor |
 | Alerta | impacto e ação de resolução | oferecer "tentar agora" dentro de janela oficial |
 | Modal | prender e devolver foco; ação destrutiva à esquerda, cancelar focado | `window.confirm` |
@@ -230,10 +233,13 @@ Vazio com filtro ativo é outro estado: `filtroAtivo` + `aoLimparFiltro` oferece
 
 ## 8. Dados em escala
 
+- Colunas com `ocultaPorPadrao` começam ocultas; uma preferência explícita do operador tem prioridade. “Mostrar todas” seleciona todos os IDs. `fixar: "direita"` mantém ações acessíveis na rolagem horizontal. A largura excedente fica no contêiner da tabela, não na página.
+- Abas de conteúdo usam `PainelAbas` para manter todos os destinos `aria-controls` existentes sem montar conteúdo inativo. Filtros segmentados usam `Abas modo="filtros"` com `aria-pressed`, não painéis fictícios.
+
 Escala real: centenas de empresas, milhões de documentos. As decisões seguem daí.
 
 - **Paginação por passo, não por página.** Documentos usa passo 500 com "carregar mais"; Auditoria usa passo 100. Contagem total vem de endpoint próprio (`resumoDocumentos`), porque listar milhões de linhas para contar é caro.
-- **Virtualização acima de 300 linhas** (`LIMITE_VIRTUALIZACAO` em `Tabela`): altura de linha fixa por densidade (40/44 px), espaçadores `aria-hidden` antes e depois da janela e margem de 8 linhas acima e abaixo para o rolamento não mostrar vazio. Telas que podem crescer passam `virtualizar` explicitamente; as outras herdam o limite.
+- **Virtualização acima de 300 linhas** (`LIMITE_VIRTUALIZACAO` em `Tabela`): altura uniforme, com mínimo por densidade (40/44 px) e medição real via ResizeObserver quando nome/CNPJ ou outro conteúdo exigir mais espaço, espaçadores `aria-hidden` antes e depois da janela e margem de 8 linhas acima e abaixo para o rolamento não mostrar vazio. Telas que podem crescer passam `virtualizar` explicitamente; as outras herdam o limite.
 - **Polling proporcional ao interesse.** Painel e Execuções: 5 s quando há execução em andamento, 30 s em repouso. Saúde, Importações e o sino de alertas: 60 s. Tudo pausado com a aba oculta.
 - **Ordenação no cliente quando o backend não ordena.** `/documentos` não aceita parâmetro de ordenação e devolve array simples — a ordenação é client-side sobre a página carregada e o rótulo da coluna diz isso. Inventar `ordenar_por` produziria filtro silenciosamente ignorado.
 - **Downloads via `fetch` + blob** (`baixarZip`, `baixarCsvDocumentos`, `baixarXmlDocumento`, `baixarFechamentoCsv`): o cookie HttpOnly não viaja em `<a download>` de outro host, e o botão precisa mostrar progresso e erro.
@@ -254,10 +260,10 @@ Decisão não óbvia: a tela usa `Tabela` virtualizada, e virtualização **cort
 
 | Critério | Implementação |
 |---|---|
-| 1.4.3 / 1.4.6 Contraste | paleta medida (§2.1); `tinta-fraca` restrito a desabilitado |
+| 1.4.3 / 1.4.6 Contraste | paleta medida e testada (§2.1), sem apagar texto com opacidade |
 | 1.4.4 Redimensionamento | `rem` em toda a escala; zoom 200% sem perda |
 | 1.4.10 Reflow | `min-width: 320px`; sidebar vira drawer, tabela rola em container próprio e a linha ativa é focalizável (`tabindex` móvel), então o teclado alcança e rola o conteúdo |
-| 1.4.11 Contraste não textual | borda de controle ≥ 3,5:1; foco com traço + halo |
+| 1.4.11 Contraste não textual | borda de controle ≥ 3:1; foco com traço + halo |
 | 1.4.12 Espaçamento | altura de linha e tracking acima do mínimo |
 | 1.4.13 Conteúdo sobreposto | popover/menu fecham com Esc e click-outside; tooltip não intercepta ponteiro |
 | 2.1.1 / 2.1.2 Teclado | tudo operável sem mouse; nenhum atalho prende o foco; `Esc` sempre sai |
@@ -265,8 +271,8 @@ Decisão não óbvia: a tela usa `Tabela` virtualizada, e virtualização **cort
 | 2.4.3 Ordem de foco | DOM = ordem visual; camadas usam `useFocoPreso` |
 | 2.4.7 Foco visível | anel de 2 px + halo em `:focus-visible`, em todas as superfícies |
 | 2.4.11 Foco não obscurecido | `scroll-margin-top: calc(var(--altura-cabecalho) + 16px)` |
-| 2.5.8 Alvo mínimo | controles isolados ≥ 40 px (`BotaoIcone` é 40×40); linhas de tabela 40–44 px; nada clicável abaixo de 24 px |
-| 3.2.1 / 3.2.2 Sem surpresa | nada muda contexto em `onFocus`/`onChange`; filtros exigem ação explícita |
+| 2.5.8 Alvo mínimo | controles padrão de 40 px (`BotaoIcone` é 40×40), compactos de 36 px; linhas de tabela 40–44 px; nada clicável abaixo de 24 px |
+| 3.2.1 / 3.2.2 Sem surpresa | nada muda de rota por foco; filtros preservam o estado na URL e não roubam o cursor |
 | 3.3.1 / 3.3.2 Erros e rótulos | erro ligado por `aria-describedby`, com texto de correção |
 | 4.1.2 / 4.1.3 Nome, papel, estado | padrões APG: `combobox`, `listbox`, `dialog`, `tablist`, `switch`, `progressbar`, `status` em toast |
 
@@ -329,11 +335,11 @@ Registro único em `lib/atalhos.ts`: o mapa (`?`), a paleta (`Ctrl/⌘K`) e o ou
 2. **Zero dependência nova.** Tabela, virtualização, camadas, paleta e gráficos são do produto. Cada dependência a mais é superfície de manutenção, versão e CVE num sistema que roda em máquina de cliente.
 3. **Fontes locais.** `next/font/google` exige rede no build; o Docker de produção é offline. Woff2 latin commitado em `fontes/` com `LEIA-ME.md` de procedência.
 4. **Autenticação é da API.** Sem middleware: um único juiz evita tela liberada com chamada 403 (ou o contrário).
-5. **URL como estado, `localStorage` como preferência.** Link compartilhável e recarregável; tema/densidade/colunas por operador.
+5. **URL como estado, `localStorage` como preferência.** Link compartilhável e recarregável; tema/densidade/colunas por operador. Preferências de layout usam a mesma primeira renderização no servidor e cliente e só restauram armazenamento depois de montar.
 6. **Refetch mantém conteúdo.** `carregando` só sem dados; `atualizando` sinaliza no topo.
 7. **Espera nunca é erro.** Janela SEFAZ, cota e `aguardando` são âmbar com previsão de retomada; vermelho fica para o que exige ação.
 8. **Ordem dos provedores fixa.** Sessão → Alertas → Toast → Agora → Progresso → Comandos.
-9. **Um relógio só.** `ProvedorAgora` (30 s) alimenta todo tempo relativo; sem timer por componente.
+9. **Um relógio só.** `ProvedorAgora` (30 s) alimenta todo tempo relativo; sem timer por componente. Relógios começam em zero no servidor e na primeira renderização do cliente; a hora real entra no efeito, evitando diferenças de hidratação.
 10. **Tabela plana para imprimir.** Virtualização cortaria linhas na folha (§9).
 11. **Ordenação client-side em `/documentos`.** O endpoint não ordena; fingir que ordena é pior que o limite explícito.
 12. **`noUnusedLocals`/`noUnusedParameters` ligados.** Import esquecido é sinal de código abandonado no meio de um rebuild.
@@ -357,17 +363,12 @@ Registro único em `lib/atalhos.ts`: o mapa (`?`), a paleta (`Ctrl/⌘K`) e o ou
 
 ## 16. O que não existe aqui
 
-Emoji · copy de marketing · `rounded-3xl` real · sombra colorida · `fade-up` global de página · segundo acento · KPI com ícone em círculo pastel · hero section · esqueleto que não reproduz a tela · ilustração de vazio · `window.confirm`/`alert`/`prompt` · token em JavaScript · peso 700+ · texto útil abaixo de 12 px · card que levanta no hover · cor sem significado · botão sem verbo · erro sem próximo passo.
+Emoji · copy de marketing · sombra colorida · `fade-up` global de página · segundo acento · KPI com ícone em círculo pastel · hero section · esqueleto que não reproduz a tela · ilustração de vazio · `window.confirm`/`alert`/`prompt` · token em JavaScript · peso 700+ · texto útil abaixo de 12 px · card que levanta no hover · cor sem significado · botão sem verbo · erro sem próximo passo.
 
-Exceção controlada: o vidro (§17) e o gradiente de fundo do `body` que o sustenta **existem de propósito** — não são o "glassmorphism decorativo" que esta lista sempre baniu (blur solto em qualquer superfície, sem função). Fora das duas classes `.vidro`/`.vidro-grafite` e do gradiente fixo do `body`, a regra permanece: nenhum outro componente aplica `backdrop-filter`, gradiente decorativo ou sombra colorida.
+## 17. Superfícies e camadas
 
-## 17. Vidro — regra de uso
+A revisão removeu o vidro translúcido generalizado e o fundo azulado/índigo. Texto, formulários, tabelas, cartões, menus, modais e drawers têm superfícies opacas e previsíveis. As classes legadas `.vidro`/`.vidro-grafite` permanecem compatíveis, mas agora usam fundo sólido, borda semântica e sombra neutra.
 
-A Fluxa é compartilhada com outro operador e precisa parecer um produto vendável, não uma tela genérica gerada por IA. A camada de navegação e as camadas flutuantes (nunca a leitura densa) usam um vidro sutil e funcional:
+Apenas o header sticky admite transparência discreta com fallback opaco; o backdrop de modal/drawer usa escurecimento e blur para separar a tarefa da tela atrás. O resumo operacional tem um realce sutil em menta, sem gradiente forte. O login usa uma área institucional grafite e um formulário contido, com controles grandes e hierarquia clara.
 
-- **Onde**: `Header`, `Sidebar` (`.vidro-grafite`), `Modal`, `Popover`, `MenuSuspenso`, `Toast`, dropdown de `Combobox` e `Cartao` (o cartão de conteúdo, que soma leve elevação ao invés de ficar plano).
-- **Onde não**: texto de corpo, tabela densa, formulário de captura, célula de dado — ali a leitura vem antes de qualquer textura, e a superfície continua opaca (`bg-superficie`).
-- **Como**: classes `.vidro`/`.vidro-grafite` (`globals.css`, camada `utilities`), nunca `backdrop-filter` escrito à mão em componente. Cada uma já embute borda translúcida própria — não combine com `border-*` no elemento.
-- **Variáveis**: `--vidro-rgb`, `--vidro-alpha`, `--vidro-borda-rgb/alpha`, `--vidro-blur` — um valor por tema (claro/escuro), recalibrados junto com o acento índigo.
-- **Degradação**: `@supports not (backdrop-filter: blur(1px))` cai para a superfície opaca equivalente — nunca uma tela transparente sem fallback.
-- **Acessibilidade**: `prefers-contrast: more` derruba a transparência do vidro para 0,94/0,90 — o texto por cima nunca depende do blur para ter contraste.
+Ao acrescentar tela ou componente, reutilize esses tokens e controles. Não corrija alinhamento com margens negativas, alturas avulsas ou cores literais.

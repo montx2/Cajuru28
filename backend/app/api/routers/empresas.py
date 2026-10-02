@@ -294,6 +294,8 @@ def excluir_empresa(
             detail="Aguarde a importação em andamento terminar antes de excluir a empresa.",
         )
 
+    from app.services import lotes_recebidos
+    caminhos_lotes = [str(arquivo) for tipo in TipoDocumentoFiscal for arquivo in lotes_recebidos.arquivos_pendentes(empresa.id, tipo)]
     caminhos = [c.arquivo_path for c in db.query(Certificado).filter_by(empresa_id=empresa.id)]
     caminhos += [d.xml_path for d in db.query(DocumentoFiscal).filter_by(empresa_id=empresa.id) if d.xml_path]
     caminhos += [f.xml_path for f in db.query(DocumentoFiscalFonte).join(DocumentoFiscal, DocumentoFiscal.id == DocumentoFiscalFonte.documento_id).filter(DocumentoFiscal.empresa_id == empresa.id) if f.xml_path]
@@ -311,7 +313,7 @@ def excluir_empresa(
     db.delete(empresa)
     db.flush()
 
-    for caminho in caminhos:
+    for caminho in caminhos + caminhos_lotes:
         try:
             if caminho and os.path.exists(caminho):
                 os.remove(caminho)

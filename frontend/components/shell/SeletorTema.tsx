@@ -13,7 +13,7 @@ const OPCOES: Array<{ valor: Tema; rotulo: string; icone: NomeIcone }> = [
 /** Tema claro e escuro são calibrados separadamente — não é a paleta invertida. */
 export function SeletorTema() {
   const { tema, definir } = useTema();
-  const atual = OPCOES.find((opcao) => opcao.valor === tema) ?? OPCOES[2];
+  const atual = OPCOES.find((opcao) => opcao.valor === tema) ?? OPCOES[1];
 
   return (
     <MenuSuspenso

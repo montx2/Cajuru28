@@ -530,6 +530,8 @@ class EstadoSincronizacaoResposta(BaseModel):
     ultimo_nsu: str = "0"
     max_nsu: str | None = None
     pendencia: int = 0
+    # Respostas já recebidas que ainda têm itens ilegíveis; não é fila SEFAZ.
+    lotes_pendentes: int = 0
     em_dia: bool = False
     bloqueado_ate: datetime | None = None
     motivo_bloqueio: str | None = None

@@ -135,7 +135,8 @@ export function Usuarios() {
       { id: "criado", cabecalho: "Criado em", alinhamento: "direita", ordenavel: true, celula: (usuario) => <DataHora iso={usuario.criado_em} /> },
       {
         id: "acoes",
-        cabecalho: "",
+        fixar: "direita",
+        cabecalho: "Ações",
         alinhamento: "direita",
         celula: (usuario) => (
           <Botao
@@ -168,6 +169,7 @@ export function Usuarios() {
   return (
     <div className="space-y-5">
       <CabecalhoPagina
+        kicker="Sistema · Acesso"
         titulo="Equipe"
         descricao="Quem entra no Fluxa e o que cada papel pode fazer. Desativar mantém o histórico de auditoria."
         acoes={

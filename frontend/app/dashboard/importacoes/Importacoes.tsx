@@ -110,12 +110,15 @@ export function Importacoes() {
 
   const bloqueios = useMemo(() => {
     const mapa = new Map<number, string>();
+    const comLotesRecebidos = new Set((estados.dados ?? []).filter((estado) => (estado.lotes_pendentes ?? 0) > 0).map((estado) => estado.empresa_id));
     for (const certificado of certificados.dados ?? []) {
+      // Reprocessar resposta já recebida é operação local, não exige A1.
+      if (comLotesRecebidos.has(certificado.empresa_id)) continue;
       if (!certificado.tem_certificado) mapa.set(certificado.empresa_id, "Sem certificado A1 cadastrado");
       else if (certificado.vencido) mapa.set(certificado.empresa_id, `Certificado vencido em ${certificado.validade}`);
     }
     return mapa;
-  }, [certificados.dados]);
+  }, [certificados.dados, estados.dados]);
 
   const situacoes = useMemo(() => {
     const mapa = new Map<number, EstadoVisual>();
@@ -232,7 +235,8 @@ export function Importacoes() {
       },
       {
         id: "acoes",
-        cabecalho: "",
+        fixar: "direita",
+        cabecalho: "Ações",
         alinhamento: "direita",
         celula: (estado) => (
           <Botao
@@ -335,6 +339,7 @@ export function Importacoes() {
   return (
     <div className="space-y-5" ref={topo}>
       <CabecalhoPagina
+        kicker="Fiscal · Captura"
         titulo="Importações"
         descricao="A captura automática mostra o que está em dia, o que aguarda janela e o que precisa ser disparado."
         acoes={

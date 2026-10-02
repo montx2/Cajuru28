@@ -112,6 +112,7 @@ export function Atencao() {
   return (
     <div className="space-y-5">
       <CabecalhoPagina
+        kicker="Visão geral"
         titulo="Precisa da sua atenção"
         descricao={
           alertas.dados
@@ -139,7 +140,7 @@ export function Atencao() {
         }
       />
 
-      <Abas rotulo="Nível do alerta" idBase="nivel-alerta" abas={abas} valor={nivel} aoMudar={(valor) => definir({ nivel: valor || null })} />
+      <Abas modo="filtros" rotulo="Nível do alerta" idBase="nivel-alerta" abas={abas} valor={nivel} aoMudar={(valor) => definir({ nivel: valor || null })} />
 
       <Cartao densidade="compacta" className="nao-imprimir">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">

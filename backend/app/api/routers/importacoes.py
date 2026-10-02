@@ -53,12 +53,13 @@ from app.schemas import (
     ResultadoImportacaoSelecionada,
     ResumoSincronizacao,
 )
-from app.services import fila, sincronizacao
+from app.services import fila, lotes_recebidos, sincronizacao
 from app.services.importadores.xml_manual import (
     LIMITE_BYTES_LOTE,
     LIMITE_BYTES_XML,
     LIMITE_XMLS,
     casar_com_empresa,
+    casar_com_empresas,
     classificar_xml,
     converter_xml,
     documento_com_direcao,
@@ -287,9 +288,14 @@ async def importar_xmls(
 
     itens: list[ItemImportacaoXml] = []
     xmls: list[tuple[str, bytes]] = []
+    bytes_recebidos = 0
+    bytes_xml = 0
     for upload in arquivos:
         nome = (upload.filename or "arquivo").strip()
-        conteudo = await upload.read()
+        conteudo = await upload.read(LIMITE_BYTES_LOTE + 1)
+        bytes_recebidos += len(conteudo)
+        if bytes_recebidos > LIMITE_BYTES_LOTE:
+            raise HTTPException(status_code=413, detail="Arquivos enviados ultrapassam o limite do lote.")
         if nome.lower().endswith(".zip"):
             if len(conteudo) > LIMITE_BYTES_LOTE:
                 raise HTTPException(status_code=413, detail="ZIP maior que 100 MB.")
@@ -319,6 +325,12 @@ async def importar_xmls(
                 )
             )
 
+        bytes_xml = sum(len(dados) for _, dados in xmls)
+        if bytes_xml > LIMITE_BYTES_LOTE:
+            raise HTTPException(status_code=413, detail="XMLs descompactados ultrapassam o limite do lote.")
+        if len(xmls) > LIMITE_XMLS:
+            raise HTTPException(status_code=400, detail=f"O limite é {LIMITE_XMLS} XMLs por lote. Importe em etapas.")
+
     if len(xmls) > LIMITE_XMLS:
         raise HTTPException(
             status_code=400,
@@ -326,7 +338,19 @@ async def importar_xmls(
         )
 
     for nome, dados in xmls:
-        itens.append(_importar_um_xml(db, escritorio_id, nome, dados))
+        # A nota é única POR EMPRESA. Emissão entre dois clientes cadastrados
+        # tem de aparecer como tomada em um e prestada no outro.
+        try:
+            tipo_xml = classificar_xml(dados)
+            convertido = converter_xml(dados, tipo_xml) if tipo_xml in _TIPO_DO_LEIAUTE else None
+            casamentos = casar_com_empresas(db, escritorio_id, convertido) if convertido else []
+        except (ValueError, TypeError):
+            casamentos = []
+        if len(casamentos) > 1:
+            for empresa, _ in casamentos:
+                itens.append(_importar_um_xml(db, escritorio_id, nome, dados, empresa_destino=empresa))
+        else:
+            itens.append(_importar_um_xml(db, escritorio_id, nome, dados))
 
     importados = sum(1 for item in itens if item.status == "importado")
     duplicadas = sum(1 for item in itens if item.status == "duplicada")
@@ -356,7 +380,7 @@ async def importar_xmls(
 
 
 def _importar_um_xml(
-    db: Session, escritorio_id: int, nome: str, dados: bytes
+    db: Session, escritorio_id: int, nome: str, dados: bytes, *, empresa_destino: Empresa | None = None
 ) -> ItemImportacaoXml:
     """Um XML do lote: erros de leitura viram item do resultado, nunca erro 500."""
     tipo = classificar_xml(dados)
@@ -394,6 +418,9 @@ def _importar_um_xml(
         )
 
     empresa, direcao = casar_com_empresa(db, escritorio_id, doc)
+    if empresa_destino is not None:
+        empresa, direcao = next(((cadastrada, lado) for cadastrada, lado in casar_com_empresas(db, escritorio_id, doc)
+            if cadastrada.id == empresa_destino.id), (None, ""))
     if empresa is None:
         documento_de = (doc.destinatario_documento or doc.emitente_documento or "").strip()
         return ItemImportacaoXml(
@@ -406,7 +433,14 @@ def _importar_um_xml(
         )
 
     doc = documento_com_direcao(doc, direcao)
-    resultado = gravar_documento(db, empresa, _TIPO_DO_LEIAUTE[tipo], doc, nome)
+    try:
+        with db.begin_nested():
+            resultado = gravar_documento(db, empresa, _TIPO_DO_LEIAUTE[tipo], doc, nome)
+    except Exception as exc:
+        # Rollback só DESTE XML: um item inválido não cancela as notas válidas.
+        return ItemImportacaoXml(origem=nome, tipo=tipo, chave=doc.chave_acesso,
+            razao_social=empresa.razao_social, cnpj_cpf=empresa.cnpj_cpf,
+            status="erro", mensagem=f"Não foi possível salvar este XML: {str(exc)[:300]}")
     if resultado == "sem_data":
         return ItemImportacaoXml(
             origem=nome,
@@ -421,11 +455,11 @@ def _importar_um_xml(
         chave=doc.chave_acesso,
         razao_social=empresa.razao_social,
         cnpj_cpf=empresa.cnpj_cpf,
-        status="importado" if resultado == "importado" else "duplicada",
+        status="importado" if resultado in {"importado", "completada"} else "duplicada",
         mensagem=(
-            "Nota gravada no acervo."
-            if resultado == "importado"
-            else "Já estava no acervo; a fonte ficou registrada."
+            "XML completo substituiu o resumo; a nota não foi duplicada."
+            if resultado == "completada" else "Nota gravada no acervo."
+            if resultado == "importado" else "Já estava no acervo; a fonte ficou registrada."
         ),
     )
 
@@ -569,6 +603,10 @@ def _prever(
     janela da SEFAZ, pode rodar). A prévia e o disparo real usam esta função,
     então a tela nunca promete uma coisa e faz outra.
     """
+    if empresa.ativa and lotes_recebidos.quantidade_pendente(empresa.id, tipo):
+        if fila.em_andamento(db, empresa.id, tipo) is not None:
+            return "ja_em_andamento", "Já existe uma execução em andamento.", None
+        return "ok", "Reprocessará lotes recebidos localmente, sem gastar consulta fiscal.", None
     status, mensagem = fila.verificar_empresa(db, empresa, tipo)
     if status != "ok":
         return status, mensagem, None
@@ -757,6 +795,7 @@ def estados_do_escritorio(
     for empresa in empresas:
         for tipo in TipoDocumentoFiscal:
             estado = sincronizacao.obter_estado(db, empresa.id, tipo, criar=False)
+            pendentes_locais = lotes_recebidos.quantidade_pendente(empresa.id, tipo)
             em_andamento = (
                 db.query(ExecucaoImportacao)
                 .filter(
@@ -774,6 +813,7 @@ def estados_do_escritorio(
                         razao_social=empresa.razao_social,
                         tipo=tipo.value,
                         ultimo_nsu="0",
+                        lotes_pendentes=pendentes_locais,
                         em_andamento=em_andamento,
                         sincronizar_automaticamente=empresa.sincronizar_automaticamente,
                         cota_pontual_disponivel=settings.limite_consultas_pontuais_por_hora,
@@ -794,7 +834,7 @@ def estados_do_escritorio(
             dias_sem_varrer = (
                 (agora - ultima_varredura).days if ultima_varredura is not None else None
             )
-            em_dia = sincronizacao.esta_em_dia(estado)
+            em_dia = sincronizacao.esta_em_dia(estado) and pendentes_locais == 0
             # A distribuição guarda poucos meses para trás. Se o cursor está
             # parado há mais que isso E ainda falta documento, a janela de
             # recuperação está se fechando — é o único caso em que esperar é
@@ -819,6 +859,7 @@ def estados_do_escritorio(
                     ultimo_nsu=estado.ultimo_nsu,
                     max_nsu=estado.max_nsu,
                     pendencia=sincronizacao.pendencia_de_documentos(estado),
+                    lotes_pendentes=pendentes_locais,
                     em_dia=em_dia,
                     nunca_consultado=sincronizacao.nunca_consultado(estado),
                     bloqueado_ate=bloqueado_ate if bloqueado_ate and bloqueado_ate > agora else None,
@@ -994,9 +1035,6 @@ def _status_conferencia(
         .first()
     )
     status_preflight, mensagem_preflight = fila.verificar_empresa(db, empresa, tipo)
-    if status_preflight == "sem_certificado":
-        return ("sem_certificado", mensagem_preflight, None, None, 0, None, None, None)
-
     validade = _naive_para_aware(certificado.validade if certificado is not None else None)
     if validade is not None and validade < agora:
         return (
@@ -1009,6 +1047,9 @@ def _status_conferencia(
             None,
             None,
         )
+
+    if status_preflight == "sem_certificado":
+        return ("sem_certificado", mensagem_preflight, None, None, 0, None, None, None)
 
     if status_preflight == "sem_uf":
         return ("sem_uf", mensagem_preflight, None, None, 0, None, None, None)
@@ -1037,6 +1078,10 @@ def _status_conferencia(
             proxima_visivel,
             bloqueado_visivel,
         )
+
+    if lotes_recebidos.quantidade_pendente(empresa.id, tipo):
+        return ("erro", "Existem lotes recebidos com falha de leitura preservados. Reprocesse-os antes de confirmar o fechamento.",
+            ultimo_nsu, max_nsu, pendencia, ultima_consulta, proxima_visivel, bloqueado_visivel)
 
     ultima = _ultima_execucao(db, empresa.id, tipo)
     erro_ativo = bool(ultima and ultima.status == StatusExecucao.ERRO)

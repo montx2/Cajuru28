@@ -185,6 +185,10 @@ def reset_geral(
                 detail="Há importação em andamento. Aguarde terminar ou repita com forcar=true para zerar mesmo assim.",
             )
 
+    from app.models import TipoDocumentoFiscal
+    from app.services import lotes_recebidos
+    caminhos_lotes = [str(arquivo) for empresa_id in empresa_ids for tipo in TipoDocumentoFiscal
+        for arquivo in lotes_recebidos.arquivos_pendentes(empresa_id, tipo)]
     caminhos_xml = [linha[0] for linha in db.query(DocumentoFiscal.xml_path).filter(DocumentoFiscal.empresa_id.in_(empresa_ids or [-1])).all()]
     caminhos_cert = [linha[0] for linha in db.query(Certificado.arquivo_path).filter(Certificado.empresa_id.in_(empresa_ids or [-1])).all()]
 
@@ -240,7 +244,7 @@ def reset_geral(
     )
     db.commit()
 
-    arquivos_removidos = _remover_arquivos_locais(caminhos_xml + caminhos_cert)
+    arquivos_removidos = _remover_arquivos_locais(caminhos_xml + caminhos_cert + caminhos_lotes)
     return ResetGeralResposta(
         empresas=empresas,
         documentos=documentos,

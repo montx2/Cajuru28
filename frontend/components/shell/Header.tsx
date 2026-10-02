@@ -24,7 +24,7 @@ import { useContagemAlertas } from "./ProvedorAlertas";
 import { useSessao } from "./ProvedorSessao";
 
 /**
- * Cabeçalho de 56 px: trilha, busca global, tema, alertas e usuário.
+ * Cabeçalho de 72 px: trilha, busca global, tema, alertas e usuário.
  *
  * A "caixa de busca" abre a paleta em vez de ser um input solto: um campo que
  * não filtra nada ali seria controle morto, e a paleta já busca tela, empresa e
@@ -39,42 +39,42 @@ export function Header({ aoAbrirMenu }: { aoAbrirMenu: () => void }) {
   const isoAtualizacao = new Date(ultimaAtualizacao).toISOString();
 
   return (
-    <header className="vidro nao-imprimir sticky top-0 z-cabecalho flex h-14 flex-none items-center gap-2 px-3 sm:px-4">
+    <header className="cabecalho-shell nao-imprimir sticky top-0 z-cabecalho flex flex-none items-center gap-2 px-4 sm:gap-4 sm:px-6 lg:px-8">
       <button
         type="button"
         onClick={aoAbrirMenu}
         aria-label="Abrir menu de navegação"
-        className="flex h-10 w-10 flex-none items-center justify-center rounded-controle text-tinta-suave transition-colors duration-120 hover:bg-fundo-afundado hover:text-tinta lg:hidden"
+        className="flex h-10 w-10 flex-none items-center justify-center rounded-controle text-tinta-suave transition-colors hover:bg-superficie-alta hover:text-tinta lg:hidden"
       >
         <Icone nome="menu" className="h-5 w-5" />
       </button>
 
-      <div className="min-w-0 flex-none">
-        <Migalhas className="hidden sm:flex" itens={migalhasDoCaminho(caminho)} />
+      <div className="hidden min-w-0 flex-1 lg:block">
+        <Migalhas itens={caminho === "/dashboard" ? [{ rotulo: "Visão geral" }, { rotulo: "Painel" }] : migalhasDoCaminho(caminho)} />
       </div>
 
       <button
         type="button"
         onClick={abrirPaleta}
-        className="mx-auto flex h-9 w-full max-w-md items-center gap-2 rounded-controle border border-borda-controle bg-superficie-alta px-2.5 text-sm text-tinta-suave transition-colors duration-120 hover:border-traco-forte hover:text-tinta"
+        aria-label="Buscar tela, empresa ou documento"
+        className="flex h-10 min-w-0 flex-1 items-center gap-2.5 rounded-controle border border-traco-forte bg-superficie px-3 text-sm text-tinta-suave transition-colors hover:border-borda-controle hover:text-tinta sm:max-w-sm lg:max-w-[320px] max-[359px]:w-10 max-[359px]:flex-none max-[359px]:justify-center max-[359px]:p-0"
       >
         <Icone nome="busca" className="h-4 w-4 flex-none" />
-        <span className="min-w-0 flex-1 truncate text-left">Buscar tela, empresa ou documento</span>
-        <kbd className="hidden flex-none rounded-badge border border-traco bg-fundo-afundado px-1.5 py-0.5 font-mono text-2xs sm:inline">
+        <span className="min-w-0 flex-1 truncate text-left max-[359px]:hidden"><span className="sm:hidden">Buscar</span><span className="hidden sm:inline">Buscar no Fluxa</span></span>
+        <kbd className="ml-auto hidden flex-none rounded-badge border border-traco bg-fundo-afundado px-1.5 py-0.5 font-mono text-xs sm:inline">
           {simbolo} K
         </kbd>
       </button>
 
-      <div className="ml-auto flex flex-none items-center gap-1">
-        <span
-          className="nums mr-1 hidden whitespace-nowrap text-2xs text-tinta-suave xl:inline"
-          title={new Date(ultimaAtualizacao).toLocaleString("pt-BR")}
-        >
-          Atualizado {tempoRelativo(isoAtualizacao, agora)}
+      <div className="ml-auto flex flex-none items-center gap-1 sm:gap-2">
+        <span className="nums mr-2 hidden whitespace-nowrap text-xs text-tinta-suave 2xl:inline" title={ultimaAtualizacao ? new Date(ultimaAtualizacao).toLocaleString("pt-BR") : undefined}>
+          {ultimaAtualizacao ? `Atualizado ${tempoRelativo(isoAtualizacao, agora)}` : ""}
         </span>
         <SeletorTema />
         <SinoAlertas />
-        <MenuUsuario aoAbrirAtalhos={abrirAtalhos} />
+        <div className="ml-1 border-l border-traco pl-2 sm:ml-2 sm:pl-3">
+          <MenuUsuario aoAbrirAtalhos={abrirAtalhos} />
+        </div>
       </div>
     </header>
   );
@@ -208,7 +208,22 @@ function MenuUsuario({ aoAbrirAtalhos }: { aoAbrirAtalhos: () => void }) {
 
   return (
     <>
-      <MenuSuspenso rotulo={usuario?.nome ?? "Conta"} itens={itens} alinhamento="direita" largura="w-64">
+      <MenuSuspenso
+        rotulo={usuario?.nome ?? "Conta"}
+        itens={itens}
+        alinhamento="direita"
+        largura="w-64"
+        classeGatilho="px-1.5 sm:px-2"
+        conteudoGatilho={
+          <span className="flex items-center gap-2.5">
+            <span aria-hidden="true" className="flex h-7 w-7 items-center justify-center rounded-full border border-acento-borda bg-acento-tenue text-xs font-semibold text-acento">
+              {usuario?.nome?.trim().split(/\s+/).slice(0, 2).map((parte) => parte[0]).join("").toUpperCase() || <Icone nome="usuario" className="h-4 w-4" />}
+            </span>
+            <span className="hidden max-w-28 truncate text-xs font-medium text-tinta md:block">{usuario?.nome?.split(" ")[0] ?? "Conta"}</span>
+            <Icone nome="chevron-baixo" className="hidden h-3.5 w-3.5 text-tinta-suave md:block" />
+          </span>
+        }
+      >
         <div className="border-b border-traco px-3 pb-2.5 pt-2">
           <p className="truncate text-sm font-medium text-tinta-forte">{usuario?.nome ?? "Sem sessão"}</p>
           <p className="truncate text-xs text-tinta-suave">{usuario?.email ?? "Não autenticado"}</p>

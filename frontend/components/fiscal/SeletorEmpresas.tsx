@@ -191,7 +191,7 @@ export function SeletorEmpresas({
                   className={cn(
                     "flex items-center gap-2 border-b border-traco px-2 last:border-0",
                     selecionadas.has(empresa.id) && "bg-acento-tenue/60",
-                    desabilitada && "opacity-60"
+                    desabilitada && "bg-fundo-afundado"
                   )}
                 >
                   <Caixa

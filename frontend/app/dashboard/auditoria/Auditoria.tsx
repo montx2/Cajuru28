@@ -97,6 +97,7 @@ export function Auditoria() {
   return (
     <div className="space-y-5">
       <CabecalhoPagina
+        kicker="Sistema · Histórico"
         titulo="Auditoria"
         descricao="Registro imutável das ações executadas no sistema: login, cadastros, capturas, downloads e exclusões."
         acoes={

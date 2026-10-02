@@ -21,7 +21,7 @@ import { ModalCertificado } from "@/components/fiscal/ModalCertificado";
 import { PainelDocumento } from "@/components/fiscal/PainelDocumento";
 import { ResumoNSU } from "@/components/fiscal/MedidorNSU";
 import { SeletorPeriodo } from "@/components/fiscal/SeletorPeriodo";
-import { Abas, type Aba } from "@/components/ui/Abas";
+import { Abas, PainelAbas, type Aba } from "@/components/ui/Abas";
 import { Alternador, Caixa, Entrada, Selecao } from "@/components/ui/Campo";
 import { Aviso } from "@/components/ui/Aviso";
 import { Botao, BotaoLink } from "@/components/ui/Botao";
@@ -256,181 +256,182 @@ export function Empresa() {
 
       <Abas rotulo="Seções da empresa" idBase="aba-empresa" abas={abas} valor={aba} aoMudar={(valor) => definir({ aba: valor })} />
 
-      {aba === "dados" ? (
-        <div className="grid gap-4 xl:grid-cols-2">
-          <Cartao titulo="Cadastro">
-            <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
-              <Dado rotulo="Razão social" valor={dados.razao_social} />
-              <Dado rotulo="CNPJ" valor={<Cnpj valor={dados.cnpj_cpf} />} />
-              <Dado rotulo="UF" valor={dados.uf || "—"} />
-              <Dado rotulo="Código IBGE" valor={dados.codigo_ibge || "—"} mono />
-              <Dado rotulo="Inscrição municipal" valor={dados.inscricao_municipal || "—"} mono />
-              <Dado rotulo="Cadastrada" valor={<DataHora iso={dados.criado_em} />} />
-            </dl>
-          </Cartao>
+      <PainelAbas idBase="aba-empresa" abas={abas} valor={aba} className="space-y-5">
+        {aba === "dados" ? (
+          <div className="grid gap-4 xl:grid-cols-2">
+            <Cartao titulo="Cadastro">
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+                <Dado rotulo="Razão social" valor={dados.razao_social} />
+                <Dado rotulo="CNPJ" valor={<Cnpj valor={dados.cnpj_cpf} />} />
+                <Dado rotulo="UF" valor={dados.uf || "—"} />
+                <Dado rotulo="Código IBGE" valor={dados.codigo_ibge || "—"} mono />
+                <Dado rotulo="Inscrição municipal" valor={dados.inscricao_municipal || "—"} mono />
+                <Dado rotulo="Cadastrada" valor={<DataHora iso={dados.criado_em} />} />
+              </dl>
+            </Cartao>
 
-          <Cartao titulo="Captura" descricao="O que esta empresa permite ao robô fazer">
-            <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
-              <Dado rotulo="Situação" valor={dados.ativa ? "Ativa" : "Inativa"} />
-              <Dado rotulo="Sincronismo automático" valor={dados.sincronizar_automaticamente ? "Ligado" : "Desligado"} tom={dados.sincronizar_automaticamente ? undefined : "espera"} />
-              <Dado rotulo="Manifestação automática (NF-e)" valor={dados.manifestar_automaticamente ? "Ligada" : "Desligada"} tom={dados.manifestar_automaticamente ? undefined : "espera"} />
-              <Dado
-                rotulo="Tipos sincronizados"
-                valor={
-                  (dados.quais_tipos_sincronizar ?? "").trim()
-                    ? (dados.quais_tipos_sincronizar ?? "")
-                        .split(",")
-                        .filter(Boolean)
-                        .map((tipo) => tipo.trim().toUpperCase())
-                        .join(", ")
-                    : "Todos os tipos"
-                }
-              />
-              <Dado rotulo="Combinações monitoradas" valor={numero((sincronizacao.dados ?? []).length)} />
-            </dl>
-            <div className="mt-4 flex flex-wrap gap-2 border-t border-traco pt-3">
-              <BotaoLink variante="sutil" tamanho="sm" href={`/dashboard/documentos?empresa=${dados.id}`}>
-                Ver documentos
-              </BotaoLink>
-              <BotaoLink variante="sutil" tamanho="sm" href={`/dashboard/execucoes?empresa=${dados.id}&aba=historico`}>
-                Ver execuções
-              </BotaoLink>
-            </div>
-          </Cartao>
-        </div>
-      ) : null}
-
-      {aba === "certificado" ? (
-        <Cartao
-          titulo="Certificado A1"
-          descricao="O arquivo fica cifrado no servidor. A senha nunca volta ao navegador nem aparece em tela."
-        >
-          <CartaoCertificado
-            certificado={
-              certificado ?? {
-                empresa_id: dados.id,
-                razao_social: dados.razao_social,
-                tem_certificado: false,
-                validade: null,
-                dias_para_vencer: null,
-                vencido: false,
-                vence_em_breve: false,
-              }
-            }
-            aoSubstituir={undefined}
-            somenteLeitura={somenteLeitura}
-          />
-          {certificado && (!certificado.tem_certificado || certificado.vencido) ? (
-            <Aviso tom="erro" className="mt-3" titulo="Captura interrompida">
-              Sem certificado válido a SEFAZ recusa a consulta: os documentos desta empresa param de chegar e o cursor (NSU) fica para trás. Envie um
-              A1 novo para retomar — a varredura volta sozinha na próxima janela.
-            </Aviso>
-          ) : null}
-        </Cartao>
-      ) : null}
-
-      {aba === "sincronismo" ? (
-        <Cartao titulo="Sincronismo por tipo" descricao="Cursor (NSU), pendência e janela de cada combinação empresa × tipo">
-          {sincronizacao.carregando ? (
-            <EsqueletoBloco linhas={4} />
-          ) : sincronizacao.erro ? (
-            <EstadoErro erro={sincronizacao.erro} aoTentarNovamente={sincronizacao.atualizar} contexto="carregar o sincronismo" />
-          ) : (sincronizacao.dados ?? []).length === 0 ? (
-            <EstadoVazio inline titulo="Sem histórico de sincronismo" instrucao="Dispare a primeira captura para criar o cursor desta empresa." icone="sincronizar" />
-          ) : (
-            <ul className="divide-y divide-traco">
-              {(sincronizacao.dados ?? []).map((estado) => (
-                <li key={`${estado.empresa_id}-${estado.tipo}`} className="flex flex-wrap items-center gap-4 py-3">
-                  <div className="min-w-32 flex-none">
-                    <p className="text-sm font-medium text-tinta-forte">{estado.tipo.toUpperCase()}</p>
-                    <IndicadorEstado {...estadoDaSincronizacao(estado, agora)} variante="texto" titulo={estado.motivo_bloqueio ?? undefined} />
-                  </div>
-                  <ResumoNSU estado={estado} className="min-w-56 flex-1" />
-                  <dl className="grid flex-none grid-cols-2 gap-x-6 gap-y-1 text-xs text-tinta-suave">
-                    <Dado compacto rotulo="Próxima consulta" valor={estado.proxima_consulta_em ? dataHora(estado.proxima_consulta_em) : "—"} />
-                    <Dado compacto rotulo="Última consulta" valor={estado.ultima_consulta_em ? dataHora(estado.ultima_consulta_em) : "—"} />
-                    <Dado compacto rotulo="Automático" valor={estado.sincronizar_automaticamente ? "ligado" : "desligado"} />
-                    <Dado compacto rotulo="Cota pontual" valor={numero(estado.cota_pontual_disponivel)} />
-                  </dl>
-                  {estado.risco_documento_fora_da_distribuicao ? (
-                    <Etiqueta tom="erro" titulo={estado.dias_sem_varrer !== null ? `${numero(estado.dias_sem_varrer)} dias sem varrer` : undefined}>
-                      risco de perda
-                    </Etiqueta>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          )}
-        </Cartao>
-      ) : null}
-
-      {aba === "documentos" ? (
-        <Cartao
-          titulo={`Documentos · ${rotuloPeriodo(periodo)}`}
-          descricao="Acervo capturado desta empresa no período escolhido"
-        >
-          <div className="mb-3">
-            <SeletorPeriodo periodo={periodo} aoMudar={aoMudarPeriodo} obrigatorio />
+            <Cartao titulo="Captura" descricao="O que esta empresa permite ao robô fazer">
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+                <Dado rotulo="Situação" valor={dados.ativa ? "Ativa" : "Inativa"} />
+                <Dado rotulo="Sincronismo automático" valor={dados.sincronizar_automaticamente ? "Ligado" : "Desligado"} tom={dados.sincronizar_automaticamente ? undefined : "espera"} />
+                <Dado rotulo="Manifestação automática (NF-e)" valor={dados.manifestar_automaticamente ? "Ligada" : "Desligada"} tom={dados.manifestar_automaticamente ? undefined : "espera"} />
+                <Dado
+                  rotulo="Tipos sincronizados"
+                  valor={
+                    (dados.quais_tipos_sincronizar ?? "").trim()
+                      ? (dados.quais_tipos_sincronizar ?? "")
+                          .split(",")
+                          .filter(Boolean)
+                          .map((tipo) => tipo.trim().toUpperCase())
+                          .join(", ")
+                      : "Todos os tipos"
+                  }
+                />
+                <Dado rotulo="Combinações monitoradas" valor={numero((sincronizacao.dados ?? []).length)} />
+              </dl>
+              <div className="mt-4 flex flex-wrap gap-2 border-t border-traco pt-3">
+                <BotaoLink variante="sutil" tamanho="sm" href={`/dashboard/documentos?empresa=${dados.id}`}>
+                  Ver documentos
+                </BotaoLink>
+                <BotaoLink variante="sutil" tamanho="sm" href={`/dashboard/execucoes?empresa=${dados.id}&aba=historico`}>
+                  Ver execuções
+                </BotaoLink>
+              </div>
+            </Cartao>
           </div>
-          <Tabela
-            linhas={documentosNoPeriodo}
-            colunas={colunasDocumentos}
-            chaveDaLinha={(documento) => documento.id}
-            legenda={`Documentos de ${dados.razao_social}`}
-            aoAbrirLinha={(documento) => definir({ doc: documento.id })}
-            virtualizar
-            estados={{
-              carregando: documentos.carregando,
-              erro: documentos.erro,
-              aoTentarNovamente: documentos.atualizar,
-              vazioTitulo: pronto ? "Nenhum documento neste período" : "Escolha o período",
-              vazioInstrucao: pronto
-                ? "Se o certificado estiver válido, dispare a captura deste período — o documento pode ainda não ter sido distribuído pela SEFAZ."
-                : "A API exige data inicial e final para listar o acervo.",
-              vazioAcao:
-                pronto && !somenteLeitura ? (
-                  <BotaoLink variante="secundaria" href={`/dashboard/importacoes?empresa_ids=${dados.id}`}>
-                    Disparar captura
-                  </BotaoLink>
-                ) : undefined,
-              vazioIcone: "documento",
-            }}
-            rodape={
-              <p className="nums text-xs text-tinta-suave">
-                {numero(documentosNoPeriodo.length)} {plural(documentosNoPeriodo.length, "documento", "documentos")} ·{" "}
-                {numero(documentosNoPeriodo.filter((documento) => documento.leiaute !== "completo").length)} sem XML completo · clique numa linha para abrir o detalhe
-              </p>
-            }
-          />
-        </Cartao>
-      ) : null}
+        ) : null}
 
-      {aba === "execucoes" ? (
-        <Cartao titulo="Execuções desta empresa" descricao="Histórico de capturas, com o motivo de cada falha">
-          <Tabela
-            linhas={execucoes.dados ?? []}
-            colunas={colunasExecucoes(agora)}
-            chaveDaLinha={(execucao) => execucao.id}
-            legenda={`Execuções de ${dados.razao_social}`}
-            virtualizar
-            estados={{
-              carregando: execucoes.carregando,
-              erro: execucoes.erro,
-              aoTentarNovamente: execucoes.atualizar,
-              vazioTitulo: "Nenhuma execução registrada",
-              vazioInstrucao: "Dispare a captura para criar o primeiro histórico desta empresa.",
-              vazioIcone: "execucao",
-            }}
-            rodape={
-              <p className="nums text-xs text-tinta-suave">
-                {numero((execucoes.dados ?? []).length)} {plural((execucoes.dados ?? []).length, "execução", "execuções")} ·{" "}
-                {numero((execucoes.dados ?? []).filter((execucao) => execucao.status === "erro").length)} com erro
-              </p>
-            }
-          />
-        </Cartao>
-      ) : null}
+        {aba === "certificado" ? (
+          <Cartao
+            titulo="Certificado A1"
+            descricao="O arquivo fica cifrado no servidor. A senha nunca volta ao navegador nem aparece em tela."
+          >
+            <CartaoCertificado
+              certificado={
+                certificado ?? {
+                  empresa_id: dados.id,
+                  razao_social: dados.razao_social,
+                  tem_certificado: false,
+                  validade: null,
+                  dias_para_vencer: null,
+                  vencido: false,
+                  vence_em_breve: false,
+                }
+              }
+              aoSubstituir={undefined}
+              somenteLeitura={somenteLeitura}
+            />
+            {certificado && (!certificado.tem_certificado || certificado.vencido) ? (
+              <Aviso tom="erro" className="mt-3" titulo="Captura interrompida">
+                Sem certificado válido a SEFAZ recusa a consulta: os documentos desta empresa param de chegar e o cursor (NSU) fica para trás. Envie um
+                A1 novo para retomar — a varredura volta sozinha na próxima janela.
+              </Aviso>
+            ) : null}
+          </Cartao>
+        ) : null}
 
+        {aba === "sincronismo" ? (
+          <Cartao titulo="Sincronismo por tipo" descricao="Cursor (NSU), pendência e janela de cada combinação empresa × tipo">
+            {sincronizacao.carregando ? (
+              <EsqueletoBloco linhas={4} />
+            ) : sincronizacao.erro ? (
+              <EstadoErro erro={sincronizacao.erro} aoTentarNovamente={sincronizacao.atualizar} contexto="carregar o sincronismo" />
+            ) : (sincronizacao.dados ?? []).length === 0 ? (
+              <EstadoVazio inline titulo="Sem histórico de sincronismo" instrucao="Dispare a primeira captura para criar o cursor desta empresa." icone="sincronizar" />
+            ) : (
+              <ul className="divide-y divide-traco">
+                {(sincronizacao.dados ?? []).map((estado) => (
+                  <li key={`${estado.empresa_id}-${estado.tipo}`} className="flex flex-wrap items-center gap-4 py-3">
+                    <div className="min-w-32 flex-none">
+                      <p className="text-sm font-medium text-tinta-forte">{estado.tipo.toUpperCase()}</p>
+                      <IndicadorEstado {...estadoDaSincronizacao(estado, agora)} variante="texto" titulo={estado.motivo_bloqueio ?? undefined} />
+                    </div>
+                    <ResumoNSU estado={estado} className="min-w-56 flex-1" />
+                    <dl className="grid flex-none grid-cols-2 gap-x-6 gap-y-1 text-xs text-tinta-suave">
+                      <Dado compacto rotulo="Próxima consulta" valor={estado.proxima_consulta_em ? dataHora(estado.proxima_consulta_em) : "—"} />
+                      <Dado compacto rotulo="Última consulta" valor={estado.ultima_consulta_em ? dataHora(estado.ultima_consulta_em) : "—"} />
+                      <Dado compacto rotulo="Automático" valor={estado.sincronizar_automaticamente ? "ligado" : "desligado"} />
+                      <Dado compacto rotulo="Cota pontual" valor={numero(estado.cota_pontual_disponivel)} />
+                    </dl>
+                    {estado.risco_documento_fora_da_distribuicao ? (
+                      <Etiqueta tom="erro" titulo={estado.dias_sem_varrer !== null ? `${numero(estado.dias_sem_varrer)} dias sem varrer` : undefined}>
+                        risco de perda
+                      </Etiqueta>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Cartao>
+        ) : null}
+
+        {aba === "documentos" ? (
+          <Cartao
+            titulo={`Documentos · ${rotuloPeriodo(periodo)}`}
+            descricao="Acervo capturado desta empresa no período escolhido"
+          >
+            <div className="mb-3">
+              <SeletorPeriodo periodo={periodo} aoMudar={aoMudarPeriodo} obrigatorio />
+            </div>
+            <Tabela
+              linhas={documentosNoPeriodo}
+              colunas={colunasDocumentos}
+              chaveDaLinha={(documento) => documento.id}
+              legenda={`Documentos de ${dados.razao_social}`}
+              aoAbrirLinha={(documento) => definir({ doc: documento.id })}
+              virtualizar
+              estados={{
+                carregando: documentos.carregando,
+                erro: documentos.erro,
+                aoTentarNovamente: documentos.atualizar,
+                vazioTitulo: pronto ? "Nenhum documento neste período" : "Escolha o período",
+                vazioInstrucao: pronto
+                  ? "Se o certificado estiver válido, dispare a captura deste período — o documento pode ainda não ter sido distribuído pela SEFAZ."
+                  : "A API exige data inicial e final para listar o acervo.",
+                vazioAcao:
+                  pronto && !somenteLeitura ? (
+                    <BotaoLink variante="secundaria" href={`/dashboard/importacoes?empresa_ids=${dados.id}`}>
+                      Disparar captura
+                    </BotaoLink>
+                  ) : undefined,
+                vazioIcone: "documento",
+              }}
+              rodape={
+                <p className="nums text-xs text-tinta-suave">
+                  {numero(documentosNoPeriodo.length)} {plural(documentosNoPeriodo.length, "documento", "documentos")} ·{" "}
+                  {numero(documentosNoPeriodo.filter((documento) => documento.leiaute !== "completo").length)} sem XML completo · clique numa linha para abrir o detalhe
+                </p>
+              }
+            />
+          </Cartao>
+        ) : null}
+
+        {aba === "execucoes" ? (
+          <Cartao titulo="Execuções desta empresa" descricao="Histórico de capturas, com o motivo de cada falha">
+            <Tabela
+              linhas={execucoes.dados ?? []}
+              colunas={colunasExecucoes(agora)}
+              chaveDaLinha={(execucao) => execucao.id}
+              legenda={`Execuções de ${dados.razao_social}`}
+              virtualizar
+              estados={{
+                carregando: execucoes.carregando,
+                erro: execucoes.erro,
+                aoTentarNovamente: execucoes.atualizar,
+                vazioTitulo: "Nenhuma execução registrada",
+                vazioInstrucao: "Dispare a captura para criar o primeiro histórico desta empresa.",
+                vazioIcone: "execucao",
+              }}
+              rodape={
+                <p className="nums text-xs text-tinta-suave">
+                  {numero((execucoes.dados ?? []).length)} {plural((execucoes.dados ?? []).length, "execução", "execuções")} ·{" "}
+                  {numero((execucoes.dados ?? []).filter((execucao) => execucao.status === "erro").length)} com erro
+                </p>
+              }
+            />
+          </Cartao>
+        ) : null}
+      </PainelAbas>
 
       <PainelDocumento
         documentoId={documentoAberto}

@@ -284,7 +284,7 @@ export function Documentos() {
       {
         id: "emissao",
         cabecalho: "Emissão",
-        largura: "w-28",
+        largura: "min-w-28",
         ordenavel: true,
         celula: (documento) => <span className="nums whitespace-nowrap text-tinta">{dataCurta(documento.data_emissao)}</span>,
       },
@@ -297,6 +297,7 @@ export function Documentos() {
       {
         id: "numero",
         cabecalho: "Número",
+        largura: "min-w-36",
         ordenavel: true,
         celula: (documento) => (
           <span className="nums whitespace-nowrap text-tinta">
@@ -351,6 +352,7 @@ export function Documentos() {
       {
         id: "status",
         cabecalho: "Situação",
+        largura: "min-w-36",
         ordenavel: true,
         celula: (documento) => (
           <IndicadorEstado
@@ -362,6 +364,7 @@ export function Documentos() {
       {
         id: "chave",
         cabecalho: "Chave de acesso",
+        ocultaPorPadrao: true,
         largura: "min-w-52",
         celula: (documento) => (
           <span className="block max-w-56 truncate font-mono text-xs text-tinta-suave" title={chaveEmGrupos(documento.chave_acesso)}>
@@ -385,7 +388,9 @@ export function Documentos() {
       },
       {
         id: "acoes",
-        cabecalho: "",
+        fixar: "direita",
+        cabecalho: "Ações",
+        largura: "w-16 min-w-16",
         alinhamento: "direita",
         fixa: true,
         celula: (documento) => (
@@ -429,6 +434,7 @@ export function Documentos() {
   return (
     <div className="space-y-5">
       <CabecalhoPagina
+        kicker="Fiscal · Acervo"
         titulo="Documentos"
         descricao="Localize a nota, confira a chave e entregue XMLs ou a relação do período."
       />
@@ -446,7 +452,7 @@ export function Documentos() {
           </p>
         ) : null}
       </Cartao>
-      {resumo.dados ? <GradeKpis itens={indicadores} colunas={5} rotulo="Resumo do recorte" /> : null}
+      {resumo.dados ? <GradeKpis itens={indicadores} colunas={indicadores.length <= 3 ? 3 : indicadores.length <= 4 ? 4 : indicadores.length <= 5 ? 5 : 6} rotulo="Resumo do recorte" /> : null}
 
       <Tabela
         linhas={linhas}
@@ -459,7 +465,7 @@ export function Documentos() {
         aoOrdenar={(proxima) => definir({ ordem: proxima?.coluna ?? null, sentido: proxima?.direcao ?? null })}
         densidade={densidade}
         colunasVisiveis={colunasVisiveis ?? undefined}
-        altura="h-[calc(100vh-24rem)]"
+        altura="h-[max(320px,calc(100dvh-28rem))]"
         selecao={{
           chaves: selecao,
           aoMudar: setSelecao,
@@ -504,13 +510,13 @@ export function Documentos() {
           aoLimparFiltro: filtroAtivo ? limparFiltros : undefined,
         }}
         ferramentas={
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <Busca
               rotulo="Buscar documento"
               placeholder="Chave, número, NSU ou parte"
               valor={busca.valor}
               aoMudar={busca.aoMudar}
-              className="w-64"
+              className="w-full sm:min-w-64 sm:flex-1"
             />
             <Popover
               rotulo="Filtros"
@@ -684,7 +690,7 @@ export function Documentos() {
         largura="media"
         rodape={
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <Botao variante="sutil" onClick={() => setColunasVisiveis(null)}>Mostrar todas</Botao>
+            <Botao variante="sutil" onClick={() => setColunasVisiveis(colunas.map((coluna) => coluna.id))}>Mostrar todas</Botao>
             <Botao variante="secundaria" onClick={() => setColunasAbertas(false)}>Concluir</Botao>
           </div>
         }
@@ -695,11 +701,11 @@ export function Documentos() {
               key={coluna.id}
               compacta
               rotulo={coluna.cabecalho}
-              checked={coluna.fixa || !colunasVisiveis || colunasVisiveis.includes(coluna.id)}
+              checked={coluna.fixa || (colunasVisiveis ? colunasVisiveis.includes(coluna.id) : !coluna.ocultaPorPadrao)}
               disabled={coluna.fixa}
               onChange={(evento) => {
                 if (coluna.fixa) return;
-                const atuais = colunasVisiveis ?? colunas.map((item) => item.id);
+                const atuais = colunasVisiveis ?? colunas.filter((item) => item.fixa || !item.ocultaPorPadrao).map((item) => item.id);
                 setColunasVisiveis(
                   evento.target.checked
                     ? colunas.map((item) => item.id).filter((id) => id === coluna.id || atuais.includes(id))

@@ -24,7 +24,7 @@ export interface PaginacaoProps {
 export function Paginacao({ total, exibidos, aoCarregarMais, aoAnterior, aoProximo, carregando, passo = 500, className, complemento }: PaginacaoProps) {
   const temMais = exibidos < total;
   return (
-    <div className={cn("flex flex-wrap items-center justify-between gap-3 border-t border-traco px-3 py-2.5 text-xs text-tinta-suave", className)}>
+    <div className={cn("flex flex-wrap items-center justify-between gap-3 border-t border-traco px-4 py-3 text-xs text-tinta-suave", className)}>
       <p className="nums" role="status" aria-live="polite">
         {total === 0 ? (
           "Nenhum registro"
@@ -34,7 +34,7 @@ export function Paginacao({ total, exibidos, aoCarregarMais, aoAnterior, aoProxi
             <span className="font-medium text-tinta-forte">{numero(total)}</span>
           </>
         )}
-        {complemento}
+        {complemento ? <span className="ml-2">{complemento}</span> : null}
       </p>
       <div className="flex flex-wrap items-center gap-2">
         {aoAnterior ? (

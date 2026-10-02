@@ -40,7 +40,7 @@ export const CampoSenha = forwardRef<HTMLInputElement, CampoSenhaProps>(function
             aria-label={visivel ? "Ocultar senha" : "Mostrar senha"}
             aria-describedby={idAviso}
             disabled={props.disabled}
-            className="flex h-8 w-8 items-center justify-center rounded-controle text-tinta-suave transition-colors duration-120 hover:bg-fundo-afundado hover:text-tinta disabled:cursor-not-allowed disabled:text-tinta-fraca"
+            className="flex h-9 w-9 flex-none items-center justify-center rounded-controle text-tinta-suave transition-colors duration-120 hover:bg-fundo-afundado hover:text-tinta disabled:cursor-not-allowed disabled:text-tinta-fraca"
           >
             <Icone nome={visivel ? "ocultar" : "ver"} className="h-4 w-4" />
           </button>

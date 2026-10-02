@@ -97,9 +97,9 @@ class ImportadorNFeSEFAZ(ImportadorFiscal):
         self, cnpj: str, cert_path: str, key_path: str, chave_acesso: str, uf: str | None = None
     ) -> DocumentoBaixado | None:
         """`consChNFe`: recupera a NFe completa pela chave (20 consultas/h)."""
-        digitos = "".join(c for c in chave_acesso if c.isdigit())
+        digitos = "".join(c for c in str(chave_acesso).strip().upper() if c.isascii() and c.isalnum())
         if len(digitos) != 44:
-            raise ValueError(f"Chave de acesso de NFe deve ter 44 dígitos, veio {len(digitos)}.")
+            raise ValueError(f"Chave de acesso de NFe deve ter 44 caracteres, veio {len(digitos)}.")
         cuf_autor = self._cuf_autor(uf, "NFe")
         envelope = montar_envelope(
             cnpj,
@@ -156,6 +156,9 @@ class ImportadorNFeSEFAZ(ImportadorFiscal):
             )
         return CODIGO_IBGE_POR_UF[uf.upper()]
 
+    def interpretar_lote(self, conteudo: bytes, cnpj: str, ultimo_nsu: str) -> LoteImportado:
+        return self._interpretar(conteudo, cnpj, ultimo_nsu)
+
     def _interpretar(self, resposta_bytes: bytes, cnpj: str, ultimo_nsu: str) -> LoteImportado:
         resposta = interpretar_resposta(resposta_bytes, ambiente=self.ambiente_nome)
 
@@ -166,6 +169,7 @@ class ImportadorNFeSEFAZ(ImportadorFiscal):
                 ha_mais_documentos=False,
                 max_nsu=_nsu_inteiro(resposta.max_nsu, resposta.ultimo_nsu),
                 sem_novidade=True,
+                resposta_bruta=resposta_bytes,
             )
 
         if resposta.cstat != CSTAT_DOCUMENTOS_LOCALIZADOS:
@@ -199,7 +203,11 @@ class ImportadorNFeSEFAZ(ImportadorFiscal):
                     eventos_nao_reconhecidos += 1
                 continue
 
-            documento = self._converter(nsu, schema, xml_bytes, cnpj, raiz=raiz)
+            try:
+                documento = self._converter(nsu, schema, xml_bytes, cnpj, raiz=raiz)
+            except Exception as exc:  # um item ruim não pode apagar os outros
+                erros.append(f"NSU {nsu}: não foi possível ler o documento ({exc})")
+                continue
             if documento is None:
                 erros.append(f"NSU {nsu}: documento sem chave de acesso — não pode ser gravado")
                 continue
@@ -217,6 +225,7 @@ class ImportadorNFeSEFAZ(ImportadorFiscal):
             eventos_nao_reconhecidos=eventos_nao_reconhecidos,
             erros=erros,
             max_nsu=max_nsu,
+            resposta_bruta=resposta_bytes,
         )
 
     def _converter(
@@ -243,7 +252,7 @@ class ImportadorNFeSEFAZ(ImportadorFiscal):
                 chave = (inf_nfe.get("Id", "") or "")[3:]
         if not chave:
             return None
-        chave = "".join(c for c in chave if c.isdigit()) or chave
+        chave = chave.strip()
 
         metadados = extrair_metadados(raiz)
         try:

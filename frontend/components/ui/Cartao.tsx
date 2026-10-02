@@ -1,98 +1,72 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/cn";
+import { Icone, type NomeIcone } from "./Icone";
 
 export interface CartaoProps {
   titulo?: ReactNode;
   descricao?: ReactNode;
+  icone?: NomeIcone;
   acoes?: ReactNode;
   rodape?: ReactNode;
-  /** `compacta` para tabelas densas; `confortavel` para telas de leitura. */
   densidade?: "compacta" | "confortavel";
   children?: ReactNode;
   className?: string;
   classeCorpo?: string;
-  /** Faixa de estado de 3 px à esquerda do cabeçalho. */
   tomFaixa?: string;
   semBorda?: boolean;
 }
 
-/**
- * Cartão sem sombra: a separação vem da borda de 1 px e do espaço. Ele sobe de
- * nível (sombra) apenas quando vira camada flutuante — nunca no hover.
- */
-export function Cartao({
-  titulo,
-  descricao,
-  acoes,
-  rodape,
-  densidade = "confortavel",
-  children,
-  className,
-  classeCorpo,
-  tomFaixa,
-  semBorda,
-}: CartaoProps) {
-  const padding = densidade === "compacta" ? "p-3" : "p-4 sm:p-5";
+/** Superfície opaca e ações alinhadas ao título, sem vidro sobre os dados. */
+export function Cartao({ titulo, descricao, icone, acoes, rodape, densidade = "confortavel", children, className, classeCorpo, tomFaixa, semBorda }: CartaoProps) {
+  const compacta = densidade === "compacta";
   return (
-    <section
-      className={cn(
-        "vidro relative overflow-hidden rounded-cartao",
-        semBorda && "!border-0",
-        className
-      )}
-    >
-      {tomFaixa ? <span aria-hidden="true" className={cn("absolute inset-y-0 left-0 w-[3px]", tomFaixa)} /> : null}
+    <section className={cn("cartao-produto relative min-w-0 rounded-cartao", semBorda && "!border-0", className)}>
+      {tomFaixa ? <span aria-hidden="true" className={cn("absolute inset-y-3 left-0 w-[3px] rounded-full", tomFaixa)} /> : null}
       {titulo || acoes ? (
-        <header
-          className={cn(
-            "flex flex-wrap items-start justify-between gap-3 border-b border-traco",
-            densidade === "compacta" ? "px-3 py-2.5" : "px-4 py-3 sm:px-5"
-          )}
-        >
-          <div className="min-w-0">
-            {titulo ? <h2 className="text-md font-semibold text-tinta-forte">{titulo}</h2> : null}
-            {descricao ? <p className="mt-0.5 max-w-leitura text-sm leading-6 text-tinta-suave">{descricao}</p> : null}
+        <header className={cn("flex min-w-0 flex-wrap items-center justify-between gap-3 border-b border-traco", compacta ? "px-4 py-3" : "px-4 py-4 sm:px-5")}>
+          <div className="min-w-0 flex-1 basis-48">
+            {titulo ? (
+              <h2 className="flex items-center gap-2.5 text-md font-semibold tracking-tight text-tinta-forte">
+                {icone ? <Icone nome={icone} className="h-[18px] w-[18px] flex-none text-tinta-suave" /> : null}
+                <span>{titulo}</span>
+              </h2>
+            ) : null}
+            {descricao ? <p className="mt-1 max-w-leitura text-xs leading-5 text-tinta-suave">{descricao}</p> : null}
           </div>
-          {acoes ? <div className="flex flex-none flex-wrap items-center gap-2">{acoes}</div> : null}
+          {acoes ? <div className="flex min-w-0 flex-wrap items-center gap-2">{acoes}</div> : null}
         </header>
       ) : null}
-      {children ? <div className={cn(padding, classeCorpo)}>{children}</div> : null}
-      {rodape ? (
-        <footer className="border-t border-traco bg-fundo-afundado px-4 py-2.5 text-xs text-tinta-suave">{rodape}</footer>
-      ) : null}
+      {children ? <div className={cn(compacta ? "p-4" : "p-4 sm:p-5", classeCorpo)}>{children}</div> : null}
+      {rodape ? <footer className="rounded-b-cartao border-t border-traco bg-fundo-afundado px-4 py-3 text-xs text-tinta-suave sm:px-5">{rodape}</footer> : null}
     </section>
   );
 }
 
 export interface CabecalhoPaginaProps {
-  /** Contexto curto acima do título (ex.: "Fiscal", competência atual). */
   kicker?: ReactNode;
   titulo: string;
   descricao?: ReactNode;
   acoes?: ReactNode;
-  /** Navegação estrutural (Migalhas) acima do título. */
   acima?: ReactNode;
-  /** Barra de filtros ou resumo colada ao cabeçalho. */
   children?: ReactNode;
   className?: string;
 }
 
-/** Um `h1` por tela, sempre no mesmo lugar — a leitura começa sempre igual. */
+/** Uma linha de leitura estável. Quando não há espaço, as ações ocupam uma
+ * linha própria, em vez de espremer o título ou quebrar rótulos dos botões. */
 export function CabecalhoPagina({ kicker, titulo, descricao, acoes, acima, children, className }: CabecalhoPaginaProps) {
   return (
-    <header className={cn("nao-imprimir mb-5", className)}>
-      {acima}
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="min-w-0">
-          {kicker ? (
-            <p className="mb-1 text-2xs font-medium uppercase tracking-[.04em] text-tinta-suave">{kicker}</p>
-          ) : null}
-          <h1 className="text-lg font-semibold leading-7 text-tinta-forte">{titulo}</h1>
-          {descricao ? <p className="mt-1 max-w-leitura text-sm leading-6 text-tinta-suave">{descricao}</p> : null}
+    <header className={cn("cabecalho-pagina nao-imprimir", className)}>
+      {acima ? <div className="mb-5">{acima}</div> : null}
+      <div className="flex min-w-0 flex-wrap items-start justify-between gap-5">
+        <div className="min-w-0 flex-1 basis-72">
+          {kicker ? <p className="mb-2 text-xs font-medium uppercase tracking-[.12em] text-tinta-suave">{kicker}</p> : null}
+          <h1 className="text-xl font-semibold text-tinta-forte">{titulo}</h1>
+          {descricao ? <p className="mt-2 max-w-leitura text-sm leading-6 text-tinta-suave">{descricao}</p> : null}
         </div>
-        {acoes ? <div className="flex flex-wrap items-center gap-2">{acoes}</div> : null}
+        {acoes ? <div className="acoes-pagina sm:pt-1">{acoes}</div> : null}
       </div>
-      {children ? <div className="mt-4">{children}</div> : null}
+      {children ? <div className="mt-5">{children}</div> : null}
     </header>
   );
 }

@@ -152,6 +152,8 @@ export interface EstadoSincronizacao {
   ultimo_nsu: string;
   max_nsu: string | null;
   pendencia: number;
+  /** Lotes recebidos com erro de leitura, preservados para reprocessamento local. */
+  lotes_pendentes?: number;
   em_dia: boolean;
   bloqueado_ate: string | null;
   motivo_bloqueio: string | null;

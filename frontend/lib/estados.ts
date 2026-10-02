@@ -1,5 +1,5 @@
 import type { NomeIcone } from "@/components/ui/Icone";
-import { contagemRegressiva, numero, tempoRelativo } from "./format";
+import { contagemRegressiva, numero, plural, tempoRelativo } from "./format";
 import type {
   DocumentoFiscal,
   EstadoSincronizacao,
@@ -228,6 +228,12 @@ export function estadoDaSincronizacao(estado: EstadoSincronizacao, agora = Date.
       absoluto: estado.ultima_consulta_em ? tempoRelativo(estado.ultima_consulta_em, agora) : undefined,
     };
   }
+  if ((estado.lotes_pendentes ?? 0) > 0) {
+    return {
+      tom: "erro", rotulo: "Importação parcial", icone: "alerta",
+      absoluto: `${numero(estado.lotes_pendentes!)} ${plural(estado.lotes_pendentes!, "lote recebido precisa", "lotes recebidos precisam")} de reprocessamento local. As respostas foram preservadas.`,
+    };
+  }
   if (estado.risco_documento_fora_da_distribuicao) {
     return {
       tom: "erro",
@@ -268,6 +274,9 @@ export function estadoDaSincronizacao(estado: EstadoSincronizacao, agora = Date.
   }
   if (!estado.ultima_consulta_em) {
     return { tom: "neutro", rotulo: "Nunca consultada", icone: "ajuda" };
+  }
+  if (estado.nunca_consultado) {
+    return { tom: "neutro", rotulo: "Cursor não confirmado", icone: "ajuda", absoluto: "O ambiente ainda não informou o NSU máximo; não é confirmação de acervo completo." };
   }
   if (estado.em_dia) {
     return { tom: "ok", rotulo: "Em dia", icone: "verificar-circulo" };

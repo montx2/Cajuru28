@@ -22,6 +22,8 @@ export interface AbasProps {
   idBase: string;
   className?: string;
   rotulo: string;
+  /** Filtros segmentados não fingem controlar painéis de conteúdo. */
+  modo?: "abas" | "filtros";
 }
 
 /**
@@ -29,7 +31,7 @@ export interface AbasProps {
  * O estado mora na URL (quem chama decide), então a aba sobrevive a reload e
  * pode ser enviada por link.
  */
-export function Abas({ abas, valor, aoMudar, idBase, className, rotulo }: AbasProps) {
+export function Abas({ abas, valor, aoMudar, idBase, className, rotulo, modo = "abas" }: AbasProps) {
   const container = useRef<HTMLDivElement | null>(null);
 
   function aoTeclar(evento: React.KeyboardEvent<HTMLDivElement>) {
@@ -49,26 +51,27 @@ export function Abas({ abas, valor, aoMudar, idBase, className, rotulo }: AbasPr
   }
 
   return (
-    <div ref={container} role="tablist" aria-label={rotulo} onKeyDown={aoTeclar} className={cn("rolagem-fina flex gap-1 overflow-x-auto border-b border-traco", className)}>
+    <div ref={container} role={modo === "abas" ? "tablist" : "group"} aria-label={rotulo} onKeyDown={aoTeclar} className={cn("rolagem-fina flex max-w-full gap-1 overflow-x-auto rounded-lg border border-traco bg-fundo-afundado p-1", className)}>
       {abas.map((aba) => {
         const ativa = aba.valor === valor;
         return (
           <button
             key={aba.valor}
             id={`${idBase}-aba-${aba.valor}`}
-            role="tab"
+            role={modo === "abas" ? "tab" : undefined}
             type="button"
-            aria-selected={ativa}
-            aria-controls={`${idBase}-painel-${aba.valor}`}
+            aria-selected={modo === "abas" ? ativa : undefined}
+            aria-pressed={modo === "filtros" ? ativa : undefined}
+            aria-controls={modo === "abas" ? `${idBase}-painel-${aba.valor}` : undefined}
             tabIndex={ativa ? 0 : -1}
             disabled={aba.desabilitada}
             title={aba.motivo}
             onClick={() => aoMudar(aba.valor)}
             className={cn(
-              "relative -mb-px flex min-h-10 items-center gap-2 whitespace-nowrap border-b-2 px-3 text-sm transition-colors duration-120",
+              "relative flex min-h-10 flex-none items-center gap-2 whitespace-nowrap rounded-controle border border-transparent px-3.5 text-sm transition-colors duration-150",
               ativa
-                ? "border-acento font-medium text-tinta-forte"
-                : "border-transparent text-tinta-suave hover:border-traco-forte hover:text-tinta",
+                ? "border-acento-borda bg-superficie-alta font-medium text-acento"
+                : "text-tinta-suave hover:bg-superficie hover:text-tinta",
               aba.desabilitada && "cursor-not-allowed opacity-55 hover:border-transparent"
             )}
           >
@@ -87,10 +90,18 @@ export function Abas({ abas, valor, aoMudar, idBase, className, rotulo }: AbasPr
 }
 
 export function PainelAba({ idBase, valor, ativo, children, className }: { idBase: string; valor: string; ativo: boolean; children: ReactNode; className?: string }) {
-  if (!ativo) return null;
   return (
-    <div id={`${idBase}-painel-${valor}`} role="tabpanel" aria-labelledby={`${idBase}-aba-${valor}`} tabIndex={0} className={cn("pt-4 outline-none", className)}>
-      {children}
+    <div id={`${idBase}-painel-${valor}`} role="tabpanel" aria-labelledby={`${idBase}-aba-${valor}`} hidden={!ativo} tabIndex={ativo ? 0 : -1} className={cn("outline-none", className)}>
+      {ativo ? children : null}
     </div>
   );
+}
+
+/** Mantém os destinos ARIA de todas as abas sem montar conteúdo inativo. */
+export function PainelAbas({ abas, valor, idBase, children, className }: Pick<AbasProps, "abas" | "valor" | "idBase" | "className"> & { children: ReactNode }) {
+  return abas.map((aba) => (
+    <PainelAba key={aba.valor} idBase={idBase} valor={aba.valor} ativo={aba.valor === valor} className={className}>
+      {children}
+    </PainelAba>
+  ));
 }
