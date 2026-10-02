@@ -20,6 +20,8 @@ import { useToast } from "@/components/ui/Toast";
 export interface PainelDocumentoProps {
   documentoId: number | null;
   aoFechar: () => void;
+  /** Retorno à lista de origem, preservando período e filtros quando informado. */
+  hrefAcervo?: string;
   /** A exclusão é confirmada pela tela dona da lista: ela conhece o impacto. */
   aoExcluir?: (detalhe: DocumentoDetalhe) => void;
   somenteLeitura?: boolean;
@@ -29,7 +31,7 @@ export interface PainelDocumentoProps {
  * Detalhe do documento em painel lateral: o operador confere a chave contra o
  * XML do cliente sem perder a lista de origem — `Esc` devolve o foco à linha.
  */
-export function PainelDocumento({ documentoId, aoFechar, aoExcluir, somenteLeitura }: PainelDocumentoProps) {
+export function PainelDocumento({ documentoId, aoFechar, hrefAcervo = "/dashboard/documentos", aoExcluir, somenteLeitura }: PainelDocumentoProps) {
   return (
     <Painel
       aberto={documentoId !== null}
@@ -38,7 +40,7 @@ export function PainelDocumento({ documentoId, aoFechar, aoExcluir, somenteLeitu
       contexto="Acervo de documentos fiscais"
       acoes={
         <Link
-          href="/dashboard/documentos"
+          href={hrefAcervo}
           className="flex h-9 items-center gap-1.5 rounded-controle px-2 text-xs font-medium text-tinta-suave transition-colors duration-120 hover:bg-fundo-afundado hover:text-tinta"
         >
           <Icone nome="documento" className="h-4 w-4" />
