@@ -29,10 +29,12 @@ import type {
   JobProcuracaoDetalhe,
   KpisDashboard,
   ListaProcuracoes,
+  MetricasProcuracoes,
   ModeloProcuracao,
   NotificacaoProcuracao,
   PassoRoteiro,
   ProcessarPendenciasResultado,
+  RelatorioPrevoo,
   RequisitosAgente,
   ResultadoSincronizacaoProcuracoes,
   ResumoProcuracoes,
@@ -649,6 +651,32 @@ export const api = {
    */
 
   resumoProcuracoes: () => chamar<ResumoProcuracoes>("/procuracoes/resumo"),
+
+  /**
+   * Pré-voo do lote. Somente leitura no servidor: pode ser chamado à vontade
+   * sem criar job nem alterar autorização.
+   */
+  preVooProcuracoes: (empresaIds: number[] = []) =>
+    chamar<RelatorioPrevoo>(
+      `/procuracoes/pre-voo${empresaIds.length ? `?empresa_ids=${empresaIds.join(",")}` : ""}`,
+    ),
+
+  metricasProcuracoes: (dias = 30) =>
+    chamar<MetricasProcuracoes>(`/procuracoes/metricas${montarParams({ dias })}`),
+
+  /**
+   * CSV da carteira. Vai por `fetch` + blob, e não por `<a download>`: o
+   * cookie de sessão é HttpOnly e não viaja em navegação cross-origin — o
+   * link direto voltaria 401 e o operador veria um arquivo de erro.
+   */
+  baixarRelatorioProcuracoes: (opcoes: { somentePendentes?: boolean } = {}) =>
+    baixarArquivo(
+      `/procuracoes/relatorio${montarParams({
+        formato: "csv",
+        somente_pendentes: opcoes.somentePendentes ? true : undefined,
+      })}`,
+      "autorizacoes-de-acesso.csv",
+    ),
 
   listarProcuracoes: (filtros: {
     situacao?: string;

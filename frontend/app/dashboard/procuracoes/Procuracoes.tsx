@@ -13,7 +13,7 @@ import { useUrlEstado } from "@/lib/urlEstado";
 import { useSinalizarAtualizacao } from "@/components/shell/BarraAtualizacao";
 import { useSessao } from "@/components/shell/ProvedorSessao";
 import { Aviso } from "@/components/ui/Aviso";
-import { Botao } from "@/components/ui/Botao";
+import { Botao, BotaoLink } from "@/components/ui/Botao";
 import { BotaoIcone } from "@/components/ui/BotaoIcone";
 import { CabecalhoPagina } from "@/components/ui/Cartao";
 import { Busca } from "@/components/ui/Campo";
@@ -410,6 +410,14 @@ export function Procuracoes() {
               Importar lista
             </Botao>
             <BotaoIcone rotulo="Configurar" dica="Configurar procurações" onClick={() => setConfigAberta(true)} icone={<Icone nome="configuracoes" className="h-4 w-4" />} />
+            <BotaoLink
+              href="/dashboard/procuracoes/pre-voo"
+              tamanho="sm"
+              iconeEsquerda={<Icone nome="lista-verificacao" className="h-4 w-4" />}
+              title="Conferir ambiente, certificados e pendências antes de iniciar"
+            >
+              Pré-voo
+            </BotaoLink>
             <Botao
               variante="primaria"
               onClick={processarPendencias}

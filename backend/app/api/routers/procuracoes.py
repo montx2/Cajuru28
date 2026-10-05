@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import (
     APIRouter,
@@ -31,7 +31,12 @@ from fastapi import (
 )
 from sqlalchemy.orm import Session
 
-from app.api.deps import escritorio_id_atual, requer_escrita, requer_papel, usuario_atual
+from app.api.deps import (
+    escritorio_id_atual,
+    requer_escrita,
+    requer_papel,
+    usuario_atual,
+)
 from app.core.vault import cifrar_segredo
 from app.db.session import get_db
 from app.models import Empresa, Usuario
@@ -41,7 +46,6 @@ from app.procuracoes.estados import (
     ESTADOS_TERMINAIS,
     FUNDAMENTO_IN_2320,
     CodigoErro,
-    ModoOperacao,
     StatusAutorizacao,
     StatusJob,
     avaliar_modo,
@@ -52,6 +56,8 @@ from app.procuracoes.integracoes.registro import (
     FONTES_REMOTAS,
     ROTULOS,
     construir,
+)
+from app.procuracoes.integracoes.registro import (
     credencial as obter_credencial,
 )
 from app.procuracoes.modelos import (
@@ -71,6 +77,8 @@ from app.procuracoes.servicos import eventos as srv_eventos
 from app.procuracoes.servicos import evidencias as srv_evidencias
 from app.procuracoes.servicos import fila as srv_fila
 from app.procuracoes.servicos import painel as srv_painel
+from app.procuracoes.servicos import prevoo as srv_prevoo
+from app.procuracoes.servicos import relatorio as srv_relatorio
 from app.procuracoes.servicos import sincronizacao as srv_sinc
 from app.services import auditoria
 
@@ -287,6 +295,112 @@ def processar_pendencias(
         motivos=motivos,
         job_ids=relatorio["job_ids"],
     )
+
+
+# ---------------------------------------------------------------------------
+# Pré-voo, relatório e métricas
+# ---------------------------------------------------------------------------
+
+
+@router.get("/pre-voo")
+def pre_voo(
+    response: Response,
+    empresa_ids: str = Query("", max_length=4000),
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+):
+    """Confere o lote inteiro antes de abrir o primeiro navegador.
+
+    Somente leitura: não cria job, não altera autorização, não toca o portal.
+    Pode ser chamado quantas vezes quiser sem efeito colateral — é justamente
+    o que permite usá-lo como "conferir antes de iniciar".
+    """
+    response.headers["Cache-Control"] = "no-store"
+    ids: list[int] | None = None
+    if empresa_ids:
+        partes = [parte.strip() for parte in empresa_ids.split(",")]
+        if any(not parte or not parte.isascii() or not parte.isdigit() for parte in partes):
+            raise HTTPException(
+                status_code=422,
+                detail="empresa_ids deve ser uma lista separada por vírgula de IDs inteiros positivos.",
+            )
+        ids = list(dict.fromkeys(int(parte) for parte in partes))
+        if any(empresa_id < 1 for empresa_id in ids):
+            raise HTTPException(
+                status_code=422,
+                detail="empresa_ids deve conter apenas IDs inteiros positivos.",
+            )
+
+    relatorio = srv_prevoo.executar(db, escritorio_id, empresa_ids=ids)
+    return relatorio.para_json()
+
+
+@router.get("/relatorio")
+def relatorio_final(
+    response: Response,
+    formato: str = Query("json", pattern="^(json|csv)$"),
+    somente_pendentes: bool = Query(False),
+    documento_completo: bool = Query(
+        False,
+        description="Exporta CNPJ/CPF sem máscara. Fica registrado na auditoria.",
+    ),
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+    usuario: Usuario = Depends(usuario_atual),
+):
+    """Relatório consolidado da carteira em CSV ou JSON."""
+    response.headers["Cache-Control"] = "no-store"
+    if documento_completo:
+        # Exportar em claro é mais permissivo que apenas consultar a tela:
+        # perfil somente-leitura não pode baixar a carteira inteira sem máscara.
+        requer_escrita(usuario)
+
+    registros = srv_relatorio.linhas(
+        db, escritorio_id, somente_pendentes=somente_pendentes
+    )
+    mascarar = not documento_completo
+
+    # Exportar documento em claro é decisão consciente e auditável: o arquivo
+    # sai da ferramenta e passa a circular fora dela.
+    if documento_completo:
+        auditoria.registrar(
+            db,
+            usuario,
+            "procuracao.relatorio.exportado_sem_mascara",
+            entidade="procuracao_autorizacao",
+            entidade_id=None,
+            detalhe=f"{len(registros)} linha(s) exportada(s) com documento completo",
+            escritorio_id=escritorio_id,
+        )
+        db.commit()
+
+    if formato == "csv":
+        conteudo = srv_relatorio.para_csv(registros, mascarar=mascarar)
+        carimbo = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
+        return Response(
+            content=conteudo.encode("utf-8"),
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="autorizacoes-{carimbo}.csv"'
+                ),
+                "Cache-Control": "no-store",
+            },
+        )
+    return srv_relatorio.para_json(registros, mascarar=mascarar)
+
+
+@router.get("/metricas")
+def metricas_operacionais(
+    response: Response,
+    dias: int = Query(30, ge=1, le=365),
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+):
+    """Onde o tempo foi parar: por etapa, e separando espera humana."""
+    response.headers["Cache-Control"] = "no-store"
+    desde = datetime.now(timezone.utc) - timedelta(days=dias)
+    return srv_relatorio.metricas(db, escritorio_id, desde=desde).para_json()
 
 
 @router.get("/jobs", response_model=list[esq.JobResumoSaida])
