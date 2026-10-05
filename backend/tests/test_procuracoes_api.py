@@ -784,3 +784,139 @@ def test_alertas_denunciam_estacao_muda_com_job_preso_na_fila(api):
     assert "esperando estação" in presos["titulo"]
     # O job em fila não vira alerta de "esperando você": ele espera máquina.
     assert not any(a["id"] == f"proc-job-{job_id}" for a in alertas)
+
+
+# ---------------------------------------------------------------------------
+# Pré-voo, relatório e métricas (via HTTP)
+# ---------------------------------------------------------------------------
+
+
+def _configurar_outorgado(api):
+    resposta = api["cliente"].put(
+        "/procuracoes/configuracao",
+        json={"outorgado_documento": OUTORGADO, "outorgado_nome": "CAJURU CONTABIL"},
+    )
+    assert resposta.status_code == 200
+
+
+def test_pre_voo_sem_outorgado_bloqueia_e_nao_lista_empresas(api):
+    resposta = api["cliente"].get("/procuracoes/pre-voo")
+    assert resposta.status_code == 200
+    dados = resposta.json()
+    assert dados["pode_iniciar"] is False
+    assert dados["bloqueio_de_ambiente"] is True
+    assert {a["codigo"] for a in dados["ambiente"]} >= {"OUTORGADO_AUSENTE"}
+    assert dados["linhas"] == []
+
+
+def test_pre_voo_lista_empresas_e_mascara_documento(api):
+    _configurar_outorgado(api)
+    resposta = api["cliente"].get("/procuracoes/pre-voo")
+    dados = resposta.json()
+
+    assert resposta.headers["cache-control"] == "no-store"
+    assert dados["bloqueio_de_ambiente"] is False
+    assert len(dados["linhas"]) == 2
+    documentos = {linha["documento"] for linha in dados["linhas"]}
+    assert CLIENTE not in documentos
+    assert "12.***.***/0001-95" in documentos
+    # Sem certificado importado, tudo bloqueado — e o motivo vem agrupado.
+    assert dados["contagem"]["bloqueado"] == 2
+    assert sum(dados["por_codigo"].values()) >= 2
+
+
+def test_pre_voo_aceita_filtro_de_empresa(api):
+    _configurar_outorgado(api)
+    empresa_id = api["db"].query(Empresa).order_by(Empresa.id).first().id
+    dados = api["cliente"].get(f"/procuracoes/pre-voo?empresa_ids={empresa_id}").json()
+    assert len(dados["linhas"]) == 1
+    assert dados["linhas"][0]["empresa_id"] == empresa_id
+
+
+def test_pre_voo_rejeita_filtro_parcialmente_invalido(api):
+    _configurar_outorgado(api)
+    empresa_id = api["db"].query(Empresa).order_by(Empresa.id).first().id
+
+    resposta = api["cliente"].get(
+        f"/procuracoes/pre-voo?empresa_ids={empresa_id},invalido"
+    )
+
+    assert resposta.status_code == 422
+
+
+def test_pre_voo_e_somente_leitura(api):
+    """Chamar o pré-voo não pode criar job nem autorização."""
+    from app.procuracoes.modelos import Autorizacao, JobProcuracao
+
+    _configurar_outorgado(api)
+    api["cliente"].get("/procuracoes/pre-voo")
+    api["cliente"].get("/procuracoes/pre-voo")
+    assert api["db"].query(JobProcuracao).count() == 0
+    assert api["db"].query(Autorizacao).count() == 0
+
+
+def test_relatorio_json_lista_a_carteira(api):
+    resposta = api["cliente"].get("/procuracoes/relatorio")
+    dados = resposta.json()
+    assert resposta.headers["cache-control"] == "no-store"
+    assert dados["total"] == 2
+    assert "cliente" in dados["colunas"]
+    assert all(linha["situacao"] == "Sem autorização" for linha in dados["linhas"])
+
+
+def test_relatorio_csv_vem_como_anexo_para_excel(api):
+    resposta = api["cliente"].get("/procuracoes/relatorio?formato=csv")
+    assert resposta.status_code == 200
+    assert "text/csv" in resposta.headers["content-type"]
+    assert "attachment" in resposta.headers["content-disposition"]
+    assert resposta.headers["cache-control"] == "no-store"
+    texto = resposta.content.decode("utf-8")
+    assert texto.startswith("\ufeff")  # Excel pt-BR precisa do BOM
+    assert CLIENTE not in texto  # mascarado por padrão
+
+
+def test_relatorio_sem_mascara_fica_registrado_na_auditoria(api):
+    from app.models import RegistroAuditoria
+
+    resposta = api["cliente"].get(
+        "/procuracoes/relatorio?formato=csv&documento_completo=true"
+    )
+    assert CLIENTE in resposta.content.decode("utf-8")
+
+    registros = (
+        api["db"]
+        .query(RegistroAuditoria)
+        .filter(RegistroAuditoria.acao == "procuracao.relatorio.exportado_sem_mascara")
+        .all()
+    )
+    assert len(registros) == 1
+
+
+def test_relatorio_sem_mascara_requer_perfil_com_escrita(api):
+    usuario = api["db"].query(Usuario).first()
+    usuario.papel = "leitura"
+    api["db"].commit()
+
+    resposta = api["cliente"].get(
+        "/procuracoes/relatorio?formato=csv&documento_completo=true"
+    )
+
+    assert resposta.status_code == 403
+    assert api["cliente"].get("/procuracoes/relatorio?formato=csv").status_code == 200
+
+
+def test_relatorio_recusa_formato_desconhecido(api):
+    assert api["cliente"].get("/procuracoes/relatorio?formato=pdf").status_code == 422
+
+
+def test_metricas_respondem_zeradas_sem_job(api):
+    resposta = api["cliente"].get("/procuracoes/metricas")
+    dados = resposta.json()
+    assert resposta.headers["cache-control"] == "no-store"
+    assert dados["jobs_considerados"] == 0
+    assert dados["tempo_por_etapa"] == {}
+
+
+def test_metricas_limitam_a_janela_pedida(api):
+    assert api["cliente"].get("/procuracoes/metricas?dias=400").status_code == 422
+    assert api["cliente"].get("/procuracoes/metricas?dias=7").status_code == 200

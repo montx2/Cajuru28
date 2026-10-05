@@ -18,71 +18,22 @@ from typing import Any, Mapping
 
 from sqlalchemy.orm import Session
 
+from app.core.mascaramento import CHAVES_PROIBIDAS as _CHAVES_PROIBIDAS
+from app.core.mascaramento import sanitizar
 from app.models import Usuario
 from app.procuracoes.modelos import JobProcuracao, NotificacaoProcuracao
 
 log = logging.getLogger("cajuru.procuracoes.eventos")
 
-#: Chaves que nunca podem ser persistidas nem logadas, venham de onde vierem.
-CHAVES_PROIBIDAS = frozenset(
-    {
-        "senha",
-        "password",
-        "pin",
-        "pfx",
-        "p12",
-        "chave_privada",
-        "private_key",
-        "token",
-        "access_token",
-        "refresh_token",
-        "authorization",
-        "cookie",
-        "cookies",
-        "set-cookie",
-        "secret",
-        "segredo",
-        "consumer_secret",
-        "client_secret",
-        "senha_certificado",
-        "credencial",
-    }
-)
+#: Mascaramento vive em `app.core.mascaramento` — função transversal de
+#: segurança, usada também por logs, relatórios e diagnóstico. Reexportado
+#: aqui para não quebrar quem já importava de `servicos.eventos`.
+CHAVES_PROIBIDAS = _CHAVES_PROIBIDAS
 
+#: Corte da mensagem legível do evento. Maior que o limite de redação de
+#: `mascaramento` porque aqui o texto é a descrição que o operador lê na
+#: trilha, não um valor de campo técnico.
 _LIMITE_TEXTO = 2000
-
-
-def sanitizar(dados: Mapping[str, Any] | None) -> dict[str, Any]:
-    """Remove chaves sensíveis em qualquer profundidade e limita o tamanho.
-
-    A comparação é por *substring* em minúsculas: `senha_do_certificado`,
-    `X-Auth-Token` e `clientSecret` caem todos no filtro.
-    """
-    if not dados:
-        return {}
-
-    def _limpar(valor: Any, profundidade: int = 0) -> Any:
-        if profundidade > 6:
-            return "…"
-        if isinstance(valor, Mapping):
-            saida: dict[str, Any] = {}
-            for chave, item in valor.items():
-                texto_chave = str(chave)
-                normalizada = texto_chave.lower().replace("-", "_")
-                if any(proibida in normalizada for proibida in CHAVES_PROIBIDAS):
-                    saida[texto_chave] = "[redigido]"
-                    continue
-                saida[texto_chave] = _limpar(item, profundidade + 1)
-            return saida
-        if isinstance(valor, (list, tuple)):
-            return [_limpar(item, profundidade + 1) for item in valor[:50]]
-        if isinstance(valor, str):
-            return valor[:500]
-        if isinstance(valor, (int, float, bool)) or valor is None:
-            return valor
-        return str(valor)[:500]
-
-    return _limpar(dict(dados))
 
 
 def _serializar(dados: Mapping[str, Any] | None) -> str:
@@ -111,8 +62,6 @@ def rotulo_do_ator(
         ids |= {i for i in usuario_ids if i is not None}
     if not ids:
         return {}
-    from app.models import Usuario
-
     return {
         linha[0]: linha[1]
         for linha in db.query(Usuario.id, Usuario.nome).filter(Usuario.id.in_(ids)).all()

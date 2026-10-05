@@ -7,16 +7,107 @@ e o que entra no backup.
 
 ## 1. O dia típico
 
-1. abrir **Procurações** e olhar o primeiro KPI: *sem autorização*;
-2. clicar em **Processar pendências** — a fila é montada e o que já nasce
-   travado (certificado ausente, vencido, ambíguo) aparece com o motivo;
-3. nas estações, o Cajuru Agent pega os jobs e chama o operador;
-4. acompanhar o KPI *precisa de você*: é o número que dimensiona o dia;
-5. no fim, conferir *aguardando aceite* — cada um desses tem um relógio de 30
+1. abrir **Procurações → Pré-voo** e deixar a checagem rodar (§1.1). É de
+   graça e não altera nada; o que ela evita é caro;
+2. resolver o que estiver **bloqueado** — quase sempre certificado ausente ou
+   vencido, e quase sempre o mesmo motivo repetido em vários clientes;
+3. voltar e clicar em **Processar pendências** — a fila é montada;
+4. nas estações, o Cajuru Agent pega os jobs e chama o operador;
+5. acompanhar o KPI *precisa de você*: é o número que dimensiona o dia;
+6. no fim, conferir *aguardando aceite* — cada um desses tem um relógio de 30
    dias correndo.
 
 O que **não** precisa ser feito manualmente: vigiar validade, contar prazo,
 descobrir qual certificado usar, lembrar de sincronizar.
+
+### 1.1 Pré-voo: a checagem antes do primeiro navegador abrir
+
+`Procurações → Pré-voo` (`GET /procuracoes/pre-voo`) responde uma pergunta só:
+**quais clientes dá para tocar hoje, e o que falta nos outros.**
+
+Descobrir no cliente 12 de 15 que o A1 venceu custa a sessão inteira: o portal
+já está aberto, o operador já está em ritmo, e a correção exige sair, importar
+certificado e recomeçar. Descobrir isso no pré-voo custa trinta segundos.
+
+A tela é **somente leitura por construção**. O endpoint não cria job, não toca
+em autorização e não escreve evento — pode ser recarregado à vontade, inclusive
+no meio de um lote em andamento. Há teste dedicado a isso
+(`test_prevoo_nao_tem_efeito_colateral`) e outro que garante que o pré-voo e a
+`criar_job` recusam pelos mesmos motivos (`test_prevoo_e_a_fila_concordam`) —
+um pré-voo que diga "apto" para algo que a fila vai recusar é pior que não ter
+pré-voo.
+
+**Ambiente e empresa são avaliados em níveis separados.** Outorgado
+inválido/ausente ou modelo inválido bloqueiam o lote; nesse caso o pré-voo não
+lista empresas e `pode_iniciar` é `false`. Se ainda não há configuração/modelo
+persistidos, o pré-voo avalia os defaults em memória sem gravá-los. Estação ausente/offline
+e Assinador não apto são **avisos**, não bloqueios: a fila pode ser montada,
+mas o trabalho espera até uma estação disponível e apta. O relatório continua
+avaliando cada empresa nesses casos.
+
+Depois vêm as verificações *por cliente*:
+
+| Situação | Significa | O que fazer |
+|---|---|---|
+| **Apto** | requisitos validados; sem ressalvas | pode entrar na fila |
+| **Atenção** | há uma ressalva: A1 vencendo, renovação ou aceite pendente, modo ajustado ou job já em andamento | leia o motivo; job ativo não deve ser iniciado de novo |
+| **Bloqueado** | falta algo concreto, como documento ou certificado | resolver antes; a fila recusaria do mesmo jeito |
+| **Dispensado** | já tem autorização ativa fora da janela de renovação | **nada a fazer** |
+
+`Dispensado` é deliberadamente separado de `bloqueado`. "Já está resolvido" não
+é problema, e misturar os dois faz o operador perseguir cliente que não precisa
+de nada. Por padrão a tela esconde os dispensados.
+
+O agrupamento **Pendências por motivo** existe porque o mesmo código costuma ter
+a mesma causa: oito `CERTIFICADO_NAO_ENCONTRADO` normalmente são uma pasta de A1
+que não foi importada, não oito problemas diferentes.
+
+### 1.2 Exportar a carteira (CSV/JSON)
+
+`GET /procuracoes/relatorio` — botão **Baixar CSV** no pré-voo.
+
+- `formato=csv` ou `formato=json` (padrão da rota; o botão pede CSV);
+- `somente_pendentes=true` deixa fora quem já está autorizado;
+- 12 colunas: cliente, documento, situação, validade, dias para vencer,
+  procurador, prazo de aceite, ID e estado do job, etapa, erro e data de
+  atualização.
+
+O CSV sai com separador `;` e **BOM UTF-8**: sem isso o Excel em português não
+separa colunas e come os acentos. Valores textuais que começam com `=`, `+`,
+`-` ou `@` são neutralizados antes da exportação para evitar injeção de fórmula
+em planilhas. O arquivo é baixado por `fetch` autenticado, não por link direto
+— o cookie de sessão é HttpOnly e um `<a href>` voltaria 401. As respostas não
+são armazenadas em cache.
+
+**Documentos vêm mascarados** (`12.***.***/0001-95`). Para exportar o CNPJ
+inteiro é preciso pedir `documento_completo=true`, e essa escolha **fica
+registrada na auditoria** como `procuracao.relatorio.exportado_sem_mascara`,
+com usuário e horário. O perfil somente leitura não pode exportar dados sem
+máscara; os demais perfis com permissão de escrita podem pedir a exportação, que
+continua auditada.
+
+### 1.3 Métricas: onde o tempo realmente foi
+
+`GET /procuracoes/metricas?dias=30`, também no rodapé do pré-voo.
+
+Os números são **reconstruídos do histórico de eventos** (`JobEvento`), não de
+contadores gravados no job. É mais trabalho a cada leitura e é de propósito: um
+contador incrementado a cada transição vira uma segunda fonte de verdade que
+diverge no primeiro crash no meio de uma etapa, e aí ninguém mais confia no
+painel. A consulta filtra uma janela de 1 a 365 dias e transmite jobs/eventos em
+lotes ordenados, mantendo na memória apenas os eventos do job sendo calculado;
+isso evita materializar uma carteira inteira de eventos a cada leitura.
+
+A divisão que importa é **espera humana × processamento**:
+
+- *espera humana* é o tempo em que o job estava parado esperando pessoa —
+  operador no portal, cliente confirmando, aceite pendente;
+- *processamento* é o tempo em que o sistema estava trabalhando.
+
+Em operação saudável a espera humana domina o relógio, e isso **não é defeito**.
+A leitura útil é comparativa: se o tempo por etapa de uma etapa específica
+disparou, ou se `erros_por_codigo` concentra em um código só, aí há o que
+consertar. Perseguir a média geral leva a otimizar o que não é gargalo.
 
 ---
 
@@ -245,3 +336,7 @@ podendo clicar em "Processar pendências" quando quiser.
 - [ ] Backup do banco verificado — inclui todo o estado do módulo
 - [ ] Piloto com uma empresa concluído de ponta a ponta
       (ver [`PROCURACOES_INTEGRACOES.md`](PROCURACOES_INTEGRACOES.md) §4)
+- [ ] **Pré-voo sem bloqueio de ambiente** (`GET /procuracoes/pre-voo` →
+      `pode_iniciar: true`) — é o mesmo gate que o operador vê na tela
+- [ ] `cajuru-agent diagnostico` saindo com código 0 em cada estação
+      (ver [`AGENT_CAJURU.md`](AGENT_CAJURU.md) §6)

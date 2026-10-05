@@ -33,6 +33,7 @@ export const ROTAS: RotaApp[] = [
   { caminho: "/dashboard/empresa", titulo: "Empresa", grupo: "Fiscal", icone: "empresa", oculta: true, pai: "/dashboard/empresas" },
   { caminho: "/dashboard/certificados", titulo: "Certificados", grupo: "Fiscal", icone: "certificado", tecla: "c", descricao: "Validade e uso dos certificados A1" },
   { caminho: "/dashboard/procuracoes", titulo: "Procurações RFB", grupo: "Fiscal", icone: "cadeado", tecla: "r", descricao: "Autorizações de acesso: quem falta, o que está pendente" },
+  { caminho: "/dashboard/procuracoes/pre-voo", titulo: "Pré-voo do lote", grupo: "Fiscal", icone: "lista-verificacao", oculta: true, pai: "/dashboard/procuracoes", descricao: "O que dá para tocar hoje e o que falta nos outros" },
   { caminho: "/dashboard/procuracoes/empresa", titulo: "Procuração da empresa", grupo: "Fiscal", icone: "cadeado", oculta: true, pai: "/dashboard/procuracoes" },
   { caminho: "/dashboard/relatorios", titulo: "Fechamento", grupo: "Fiscal", icone: "fechamento", tecla: "f", descricao: "Conferência do mês e folha para o dossiê" },
   { caminho: "/dashboard/saude", titulo: "Saúde", grupo: "Sistema", icone: "saude", tecla: "s", descricao: "Componentes, diagnóstico e backup" },
