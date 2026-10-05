@@ -20,6 +20,7 @@ import unicodedata
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import escritorio_id_atual, requer_escrita
@@ -36,7 +37,14 @@ from app.models import (
     ExecucaoImportacao,
     SincronizacaoDFe,
     StatusExecucao,
+    TipoDocumentoFiscal,
     Usuario,
+)
+from app.procuracoes.modelos import (
+    Autorizacao,
+    CertificadoInventario,
+    JobProcuracao,
+    NotificacaoProcuracao,
 )
 from app.services import auditoria
 from app.schemas import (
@@ -298,7 +306,22 @@ def excluir_empresa(
     caminhos_lotes = [str(arquivo) for tipo in TipoDocumentoFiscal for arquivo in lotes_recebidos.arquivos_pendentes(empresa.id, tipo)]
     caminhos = [c.arquivo_path for c in db.query(Certificado).filter_by(empresa_id=empresa.id)]
     caminhos += [d.xml_path for d in db.query(DocumentoFiscal).filter_by(empresa_id=empresa.id) if d.xml_path]
-    caminhos += [f.xml_path for f in db.query(DocumentoFiscalFonte).join(DocumentoFiscal, DocumentoFiscal.id == DocumentoFiscalFonte.documento_id).filter(DocumentoFiscal.empresa_id == empresa.id) if f.xml_path]
+
+    # Procurações RFB também apontam para a empresa (FK sem ON DELETE). Sem
+    # limpar estas linhas primeiro, o DELETE da empresa quebra com foreign key
+    # violation no PostgreSQL — mesma ordem usada no "Apagar tudo"
+    # (`sistema.py`). Notificações vêm antes dos jobs e os jobs antes das
+    # autorizações, porque as FKs entre eles não têm ON DELETE.
+    ids_dos_jobs = select(JobProcuracao.id).where(JobProcuracao.empresa_id == empresa.id)
+    db.query(NotificacaoProcuracao).filter(
+        or_(
+            NotificacaoProcuracao.empresa_id == empresa.id,
+            NotificacaoProcuracao.job_id.in_(ids_dos_jobs),
+        )
+    ).delete(synchronize_session=False)
+    db.query(JobProcuracao).filter(JobProcuracao.empresa_id == empresa.id).delete(synchronize_session=False)
+    db.query(Autorizacao).filter(Autorizacao.empresa_id == empresa.id).delete(synchronize_session=False)
+    db.query(CertificadoInventario).filter(CertificadoInventario.empresa_id == empresa.id).delete(synchronize_session=False)
 
     db.query(EventoFiscalPendente).filter(EventoFiscalPendente.empresa_id == empresa.id).delete()
     db.query(SincronizacaoDFe).filter(SincronizacaoDFe.empresa_id == empresa.id).delete()
