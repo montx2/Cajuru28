@@ -267,6 +267,13 @@ export interface FiltrosExportacao extends Omit<FiltrosDocumentos, "limit" | "of
   incluir_relatorio?: boolean;
   /** seleção da tela ("baixar só estes"): ids separados por vírgula */
   documento_ids?: string;
+  /**
+   * Leva também os documentos sem XML completo, em `Fluxa/_sem-xml-completo/`.
+   * Fora desse diretório eles nunca entram: o importador da contabilidade lê a
+   * pasta da empresa e reclama "isto é uma autorização de nota" quando acha um
+   * resumo no meio das NF-e.
+   */
+  incluir_incompletos?: boolean;
 }
 
 async function baixarArquivo(caminho: string, nomePadrao: string): Promise<void> {
@@ -417,7 +424,11 @@ export const api = {
   estimarExportacao: (filtros: FiltrosExportacao = {}) =>
     chamar<EstimativaExportacao>(`/documentos/exportar/estimativa${montarParams(filtros)}`),
 
-  /** O download em massa: ZIP com todos os XMLs do filtro + relação em CSV. */
+  /**
+   * O download em massa: ZIP com os XMLs de **nota** do filtro + `relacao.csv`
+   * (o inventário completo) + `pendencias.csv` (o que ficou de fora, com motivo
+   * e o que fazer). Só XML de nota vai para a pasta da empresa.
+   */
   baixarZip: (filtros: FiltrosExportacao = {}, nome?: string) =>
     baixarArquivo(
       `/documentos/exportar${montarParams(filtros)}`,

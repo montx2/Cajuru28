@@ -11,7 +11,11 @@ dia no escritório:
 - **o recorte acontece no banco**, sobre a data de emissão do documento, então
   trocar de mês custa zero requisições à SEFAZ;
 - **download em massa** (`/exportar`): um ZIP com os XMLs por empresa + uma
-  planilha de relação, que é exatamente o pacote que se manda por e-mail.
+  planilha de relação, que é exatamente o pacote que se manda por e-mail. A
+  pasta da empresa leva **só XML de nota** (classificado pelo conteúdo do
+  arquivo); o que ficou de fora vai para `pendencias.csv` com o motivo e o que
+  fazer — assim o importador da contabilidade não responde "isto é uma
+  autorização de nota" no meio de um lote de NF-e.
 
 O único caminho que dispensa período é a exportação por seleção explícita
 (`documento_ids=12,34`): ali o operador já apontou nota a nota o que quer.
@@ -535,12 +539,29 @@ def estimativa_exportacao(
         valor_max=valor_max,
     )
     total = consulta.count()
+    # Mesmo filtro, contando só o que não é nota inteira. É um COUNT no banco
+    # (a estimativa existe para responder rápido, não para ler o acervo), então
+    # vale o cadastro: uma linha "completo" que na verdade guarda um resNFe só
+    # aparece na pendencias.csv do pacote. Melhor avisar "≈N" antes do clique do
+    # que deixar o operador descobrir no arquivo.
+    sem_xml_completo = (
+        consulta.filter(
+            or_(
+                DocumentoFiscal.leiaute.is_(None),
+                DocumentoFiscal.leiaute != "completo",
+            )
+        )
+        .with_entities(func.count(DocumentoFiscal.id))
+        .scalar()
+        or 0
+    )
     return EstimativaExportacao(
         documentos=total,
         limite=settings.limite_documentos_por_exportacao,
         empresas=len(ids or []),
         periodo=periodo.rotulo(),
         estimado_bytes=_estimar_bytes(db, ids, total),
+        sem_xml_completo=int(sem_xml_completo),
     )
 
 
@@ -649,19 +670,31 @@ def exportar_xmls(
     valor_min: float | None = Query(default=None),
     valor_max: float | None = Query(default=None),
     incluir_relatorio: bool = Query(default=True, description="CSV com a relação, pronto para o Excel"),
+    incluir_incompletos: bool = Query(
+        default=False,
+        description=(
+            "leva também os documentos sem XML completo, em Fluxa/_sem-xml-completo/ "
+            "(nunca misturados com as notas)"
+        ),
+    ),
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
     usuario: Usuario = Depends(usuario_atual),
 ):
     """
-    ZIP com **todos** os XMLs do filtro — a resposta para "baixar todos os XMLs
+    ZIP com **todas as notas** do filtro — a resposta para "baixar todos os XMLs
     encontrados", que antes só existia nota a nota.
 
-    Estrutura: `Fluxa/<empresa>/<tipo>/<chave>.xml`, mais o `relacao.csv`
-    (separador `;` + BOM, abre direto no Excel pt-BR). O arquivo é montado em
-    streaming no disco temporário e apagado no fim — 25 mil XMLs não cabem na
-    memória do container, e um navegador não precisa esperar o ZIP inteiro
-    estar pronto para o download começar.
+    Estrutura: `Fluxa/<empresa>/<tipo>/<chave>.xml`, mais `relacao.csv` e
+    `pendencias.csv` (separador `;` + BOM, abrem direto no Excel pt-BR). O
+    arquivo é montado em streaming no disco temporário e apagado no fim — 25 mil
+    XMLs não cabem na memória do container, e um navegador não precisa esperar o
+    ZIP inteiro estar pronto para o download começar.
+
+    **Só XML de nota entra na pasta da empresa.** Resumo, protocolo e evento
+    ficam de fora e aparecem em `Fluxa/pendencias.csv` com o motivo e o que
+    fazer — o pacote que o contador recebe é importável de primeira, em vez de
+    devolver "isto é uma autorização de nota" no meio do lote.
     """
     ids, periodo, apenas_nao_canceladas, selecionados = _params_export(
         db,
@@ -697,7 +730,7 @@ def exportar_xmls(
 
     limite = settings.limite_documentos_por_exportacao
     total = consulta.count()
-    auditoria.registrar(
+    registro_auditoria = auditoria.registrar(
         db, usuario, "exportacao_zip",
         detalhe=f"{total} documento(s) · {periodo.rotulo()}" + (f" · tipo {tipo.value}" if tipo else ""),
     )
@@ -719,11 +752,23 @@ def exportar_xmls(
             ),
         )
 
-    caminho = _montar_zip(
+    caminho, notas_no_pacote, total_pendencias = _montar_zip(
         consulta.order_by(Empresa.razao_social, DocumentoFiscal.data_emissao.desc()).yield_per(200),
         periodo,
         incluir_relatorio=incluir_relatorio,
+        incluir_incompletos=incluir_incompletos,
     )
+
+    # A auditoria é o único rastro de "o que o contador recebeu naquele dia".
+    # Sem a contagem de pendências não dá para responder depois a pergunta
+    # "por que o lote de 09 faltou 14 notas?" — agora dá.
+    registro_auditoria.detalhe = (
+        f"{total} documento(s) no filtro · {notas_no_pacote} XML(s) de nota no pacote · "
+        f"{total_pendencias} pendência(s) · {periodo.rotulo()}"
+        + (f" · tipo {tipo.value}" if tipo else "")
+        + (" · incluiu incompletos" if incluir_incompletos else "")
+    )
+    db.commit()
 
     nome = "Fluxa_" + re.sub(r"[^0-9A-Za-z_.-]+", "_", periodo.rotulo()) + ".zip"
     from starlette.background import BackgroundTask
@@ -886,6 +931,163 @@ def _cabecalho_relatorio() -> list[str]:
     ]
 
 
+def _situacao_do_xml(
+    documento: DocumentoFiscal,
+    conteudo: bytes | None,
+    *,
+    arquivo_ausente_no_disco: bool = False,
+) -> tuple[str, str | None]:
+    """Diz, do mesmo jeito para todo o pacote, se o XML daquele documento é a NOTA.
+
+    Devolve `(situacao_csv, leiaute_real)`. É **uma** função porque o ZIP, a
+    `relacao.csv` e a `pendencias.csv` precisam concordar — antes cada um
+    classificava por conta própria e o pacote podia levar um `resNFe` na pasta
+    da empresa enquanto o CSV dizia "so-resumo": dois relatos diferentes do
+    mesmo arquivo, e o importador da contabilidade era quem pagava a conta.
+
+    `situacao_csv` é o valor da coluna `xml_completo`:
+
+    - `sim`                       → o pacote tem a nota inteira;
+    - `so-resumo`                 → o arquivo é resNFe/protNFe/evento (não é a nota);
+    - `metadados-sem-xml`         → a fonte nunca entregou XML (NFS-e por metadados);
+    - `arquivo-ausente-no-disco`  → o banco diz "completo", o arquivo sumiu.
+
+    A decisão sai do CONTEÚDO, não do cadastro: no legado há linha marcada
+    "completo" com `resNFe` no disco, e é justamente essa linha que fazia o
+    importador responder "isto é uma autorização de nota".
+    """
+    if arquivo_ausente_no_disco:
+        # O banco diz "XML completo" (leiaute == completo), mas o arquivo não
+        # está no disco na hora de montar o pacote — sem isto o contador via
+        # "sim" e "arquivo" vazio sem entender por quê, achando que o download
+        # simplesmente falhou. Aparece separado de "so-resumo"/"metadados-sem-xml"
+        # porque a causa é outra: perda/ausência do arquivo, não falta de captura.
+        return "arquivo-ausente-no-disco", None
+
+    real = xml_integridade.classificar_bytes(conteudo) or xml_integridade.leiaute_do_arquivo(
+        documento.xml_path
+    )
+    if real is None:
+        # Sem arquivo legível não há o que conferir: vale o cadastro.
+        return (
+            (
+                "sim"
+                if documento.leiaute == "completo"
+                else "metadados-sem-xml"
+                if documento.leiaute == "metadados"
+                else "so-resumo"
+            ),
+            None,
+        )
+    if xml_integridade.nao_e_a_nota(real):
+        return "so-resumo", real
+    return "sim", real
+
+
+def _cabecalho_pendencias() -> list[str]:
+    """Cabeçalho da `pendencias.csv` — o que ficou FORA do pacote de notas."""
+    return [
+        "empresa",
+        "cnpj",
+        "tipo",
+        "chave_acesso",
+        "competencia",
+        "data_emissao",
+        "numero",
+        "serie",
+        "emitente_cnpj_cpf",
+        "emitente_razao_social",
+        "valor_total",
+        "situacao",
+        "motivo",
+        "o_que_fazer",
+        "arquivo_no_pacote",
+    ]
+
+
+def _motivo_e_acao(
+    documento: DocumentoFiscal,
+    situacao_xml: str,
+    leiaute_real: str | None,
+) -> tuple[str, str]:
+    """Causa e saída de cada documento que não entrou no pacote de notas.
+
+    A `pendencias.csv` existe para a pergunta que o operador fazia abrindo o
+    ZIP: "cadê a nota X?". Sem esta lista a resposta era abrir a
+    `relacao.csv`, ler `so-resumo` e adivinhar o resto. Cada linha sai com o
+    porquê e a ação, usando os MESMOS rótulos da tela ("Buscar XML completo",
+    "Manifestar operação") para ninguém ter que traduzir.
+    """
+    if situacao_xml == "arquivo-ausente-no-disco":
+        return (
+            "o cadastro diz 'XML completo', mas o arquivo não está no disco do servidor",
+            "Recapturar o XML pela SEFAZ (distribuição) e gerar o pacote de novo",
+        )
+    if situacao_xml == "metadados-sem-xml":
+        return (
+            "a fonte de origem não disponibilizou XML (NFS-e recebida por metadados)",
+            "Escriturar pelo JSON normalizado na pasta metadados/, ou pedir o XML ao prestador",
+        )
+    if documento.manifestacao_cstat == "596":
+        return (
+            "a SEFAZ não aceita mais a Ciência da Operação nesta nota "
+            "(cStat 596 — passou dos 10 dias da autorização)",
+            "Manifestar operação (Confirmação da Operação, evento 210200) para liberar o XML completo",
+        )
+    if documento.manifestacao_erro:
+        return (
+            f"a manifestação foi recusada pela SEFAZ: {documento.manifestacao_erro}",
+            "Manifestar operação — conferindo antes a recusa registrada na SEFAZ",
+        )
+    if leiaute_real == "protocolo":
+        return (
+            "o arquivo em disco é só o protocolo de autorização (protNFe), sem a nota",
+            "Buscar XML completo",
+        )
+    if leiaute_real == "evento":
+        return (
+            "o arquivo em disco é um evento da nota (cancelamento/carta de correção), não a nota",
+            "Buscar XML completo",
+        )
+    if documento.manifestado_em is None:
+        return (
+            "a SEFAZ distribui apenas o resumo (resNFe) enquanto a nota não for manifestada",
+            "Manifestar operação (Ciência da Operação) e depois Buscar XML completo",
+        )
+    return (
+        "a nota já foi manifestada, mas o XML completo ainda não foi capturado",
+        "Buscar XML completo",
+    )
+
+
+def _linha_pendencias(
+    documento: DocumentoFiscal,
+    empresa: Empresa,
+    situacao_xml: str,
+    leiaute_real: str | None,
+    arquivo_no_pacote: str,
+) -> list[str]:
+    """Uma linha da `pendencias.csv`: quem é, por que ficou fora e o que fazer."""
+    motivo, acao = _motivo_e_acao(documento, situacao_xml, leiaute_real)
+    return [
+        empresa.razao_social,
+        empresa.cnpj_cpf,
+        documento.tipo.value if hasattr(documento.tipo, "value") else str(documento.tipo),
+        documento.chave_acesso,
+        documento.competencia.strftime("%m/%Y") if documento.competencia else "",
+        documento.data_emissao.strftime("%d/%m/%Y") if documento.data_emissao else "",
+        documento.numero or "",
+        documento.serie or "",
+        documento.emitente_documento or "",
+        documento.emitente_nome or "",
+        f"{documento.valor_total:.2f}".replace(".", ","),
+        situacao_xml,
+        motivo,
+        acao,
+        arquivo_no_pacote,
+    ]
+
+
 def _linha_relatorio(
     documento: DocumentoFiscal,
     empresa: Empresa,
@@ -902,30 +1104,9 @@ def _linha_relatorio(
     resumo) aparece como `so-resumo`, e não como "sim" — é o que separa um
     pacote fiscal de um pacote de autorizações.
     """
-    if arquivo_ausente_no_disco:
-        # O banco diz "XML completo" (leiaute == completo), mas o arquivo não
-        # está no disco na hora de montar o pacote — sem isto o contador via
-        # "sim" e "arquivo" vazio sem entender por quê, achando que o download
-        # simplesmente falhou. Aparece separado de "so-resumo"/"metadados-sem-xml"
-        # porque a causa é outra: perda/ausência do arquivo, não falta de captura.
-        situacao_xml = "arquivo-ausente-no-disco"
-    else:
-        real = xml_integridade.classificar_bytes(conteudo) or xml_integridade.leiaute_do_arquivo(
-            documento.xml_path
-        )
-        if real is None:
-            # Sem arquivo legível não há o que conferir: vale o cadastro.
-            situacao_xml = (
-                "sim"
-                if documento.leiaute == "completo"
-                else "metadados-sem-xml"
-                if documento.leiaute == "metadados"
-                else "so-resumo"
-            )
-        elif xml_integridade.nao_e_a_nota(real):
-            situacao_xml = "so-resumo"
-        else:
-            situacao_xml = "sim"
+    situacao_xml, _ = _situacao_do_xml(
+        documento, conteudo, arquivo_ausente_no_disco=arquivo_ausente_no_disco
+    )
     return [
         empresa.razao_social,
         empresa.cnpj_cpf,
@@ -969,10 +1150,34 @@ def _montar_csv_arquivo(consulta) -> tuple[str, int]:
     return caminho, linhas
 
 
-def _montar_zip(consulta, periodo, *, incluir_relatorio: bool) -> str:
+def _montar_zip(
+    consulta,
+    periodo,
+    *,
+    incluir_relatorio: bool,
+    incluir_incompletos: bool = False,
+) -> tuple[str, int, int]:
     """
-    Escreve o ZIP num arquivo temporário e devolve o caminho. O chamador serve
-    via FileResponse e apaga no `BackgroundTask`.
+    Escreve o ZIP num arquivo temporário e devolve
+    `(caminho, notas_no_pacote, pendencias)`. O chamador serve via FileResponse
+    e apaga no `BackgroundTask`.
+
+    ## A regra que este pacote obedece
+
+    A árvore do ZIP contém **só XML de nota** — o arquivo que tem `infNFe` /
+    `infCTe` / `infNFSe` dentro. Nada mais entra na pasta da empresa.
+
+    Por quê: o importador do sistema contábil lê o que está na pasta e reclama
+    "isto é uma autorização de nota" quando acha um `resNFe` ou um `protNFe`
+    entre as NF-e. O operador baixava o período, mandava por e-mail e recebia
+    um erro que não dizia qual arquivo era o culpado. Separar por conteúdo (e
+    não pelo `leiaute` do cadastro, que mente no legado) é o que torna o
+    pacote importável de primeira.
+
+    O que ficou de fora não some: vai para `Fluxa/pendencias.csv`, com o motivo
+    e a ação por documento. Com `incluir_incompletos=True` os XMLs incompletos
+    também são gravados, mas em `Fluxa/_sem-xml-completo/` — nunca misturados
+    com as notas.
     """
     fd, caminho = tempfile.mkstemp(prefix="notasflow-export-", suffix=".zip")
     os.close(fd)
@@ -981,15 +1186,18 @@ def _montar_zip(consulta, periodo, *, incluir_relatorio: bool) -> str:
     escritor = csv.writer(relatorio, delimiter=";", lineterminator="\r\n")
     escritor.writerow(_cabecalho_relatorio())
 
+    pendencias = io.StringIO()
+    escritor_pendencias = csv.writer(pendencias, delimiter=";", lineterminator="\r\n")
+    escritor_pendencias.writerow(_cabecalho_pendencias())
+
     usados: set[str] = set()
     arquivos_ausentes = 0
+    total_pendencias = 0
+    notas_no_pacote = 0
     with zipfile.ZipFile(caminho, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as pacote:
         for documento, empresa in consulta.yield_per(200):
             nome_arquivo = f"{documento.chave_acesso}.xml"
-            pasta = f"Fluxa/{_slug(empresa.razao_social)}/{documento.tipo.value}"
-            endereco = f"{pasta}/{nome_arquivo}"
-            if endereco in usados:  # chave repetida entre empresas diferentes já tem pasta própria
-                endereco = f"{pasta}/{documento.id}_{nome_arquivo}"
+            pasta_empresa = f"Fluxa/{_slug(empresa.razao_social)}/{documento.tipo.value}"
 
             conteudo = b""
             if documento.xml_path and os.path.isfile(documento.xml_path):
@@ -999,70 +1207,127 @@ def _montar_zip(consulta, periodo, *, incluir_relatorio: bool) -> str:
                 except OSError:
                     conteudo = b""
 
-            if conteudo:
+            ausente_no_disco = documento.leiaute == "completo" and not conteudo
+            if ausente_no_disco:
+                arquivos_ausentes += 1
+            situacao_xml, leiaute_real = _situacao_do_xml(
+                documento, conteudo, arquivo_ausente_no_disco=ausente_no_disco
+            )
+
+            arquivo_relatorio = ""
+            if situacao_xml == "sim":
+                # É a nota inteira: é isto que o pacote existe para entregar.
+                endereco = f"{pasta_empresa}/{nome_arquivo}"
+                if endereco in usados:  # chave repetida entre empresas diferentes já tem pasta própria
+                    endereco = f"{pasta_empresa}/{documento.id}_{nome_arquivo}"
                 pacote.writestr(endereco, conteudo)
                 usados.add(endereco)
                 arquivo_relatorio = endereco
-            else:
+                notas_no_pacote += 1
+            elif conteudo and incluir_incompletos:
+                # Pedido explícito do operador (checkbox na tela): leva o
+                # incompleto também, mas numa árvore à parte. Sem isto o
+                # importador voltava a reclamar de "autorização de nota".
+                endereco = f"Fluxa/_sem-xml-completo/{_slug(empresa.razao_social)}/{documento.tipo.value}/{nome_arquivo}"
+                if endereco in usados:
+                    endereco = (
+                        f"Fluxa/_sem-xml-completo/{_slug(empresa.razao_social)}"
+                        f"/{documento.tipo.value}/{documento.id}_{nome_arquivo}"
+                    )
+                pacote.writestr(endereco, conteudo)
+                usados.add(endereco)
+                arquivo_relatorio = endereco
+            elif documento.leiaute == "metadados":
                 # Algumas fontes entregam NFS-e como metadados, sem contrato
                 # de download de XML. Em vez de omitir a nota do pacote (ou
                 # fingir que JSON é XML), entregamos sua representação
                 # normalizada e deixamos isso explícito no relatório.
-                arquivo_relatorio = ""
-                # Caso diferente do de cima: o banco registra leiaute "completo"
-                # (o XML foi capturado), mas o arquivo sumiu do disco (disco
-                # cheio, restauração parcial, etc.). Sem marcar isso a nota some
-                # do pacote em silêncio e a coluna "xml_completo" mentia "sim".
-                if documento.leiaute == "completo":
-                    arquivos_ausentes += 1
-                if documento.leiaute == "metadados":
-                    endereco_metadados = f"{pasta}/metadados/{documento.id}_{documento.chave_acesso}.json"
-                    pacote.writestr(
-                        endereco_metadados,
-                        json.dumps(
-                            {
-                                "aviso": "A fonte de origem não disponibilizou XML original para esta NFS-e.",
-                                "empresa": {"id": empresa.id, "razao_social": empresa.razao_social, "cnpj_cpf": empresa.cnpj_cpf},
-                                "documento": {
-                                    "id": documento.id,
-                                    "tipo": documento.tipo.value,
-                                    "chave_acesso": documento.chave_acesso,
-                                    "numero": documento.numero,
-                                    "serie": documento.serie,
-                                    "data_emissao": documento.data_emissao.isoformat() if documento.data_emissao else None,
-                                    "competencia": documento.competencia.isoformat() if documento.competencia else None,
-                                    "valor_total": f"{documento.valor_total:.2f}",
-                                    "situacao": documento.situacao,
-                                    "origem": documento.origem,
-                                    "identificador_fonte": documento.nsu,
-                                },
+                endereco_metadados = (
+                    f"{pasta_empresa}/metadados/{documento.id}_{documento.chave_acesso}.json"
+                )
+                pacote.writestr(
+                    endereco_metadados,
+                    json.dumps(
+                        {
+                            "aviso": "A fonte de origem não disponibilizou XML original para esta NFS-e.",
+                            "empresa": {
+                                "id": empresa.id,
+                                "razao_social": empresa.razao_social,
+                                "cnpj_cpf": empresa.cnpj_cpf,
                             },
-                            ensure_ascii=False,
-                            indent=2,
-                        ),
-                    )
-                    arquivo_relatorio = endereco_metadados
+                            "documento": {
+                                "id": documento.id,
+                                "tipo": documento.tipo.value,
+                                "chave_acesso": documento.chave_acesso,
+                                "numero": documento.numero,
+                                "serie": documento.serie,
+                                "data_emissao": (
+                                    documento.data_emissao.isoformat()
+                                    if documento.data_emissao
+                                    else None
+                                ),
+                                "competencia": (
+                                    documento.competencia.isoformat()
+                                    if documento.competencia
+                                    else None
+                                ),
+                                "valor_total": f"{documento.valor_total:.2f}",
+                                "situacao": documento.situacao,
+                                "origem": documento.origem,
+                                "identificador_fonte": documento.nsu,
+                            },
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                )
+                arquivo_relatorio = endereco_metadados
 
             escritor.writerow(
                 _linha_relatorio(
                     documento,
                     empresa,
                     arquivo_relatorio,
-                    arquivo_ausente_no_disco=(documento.leiaute == "completo" and not conteudo),
+                    arquivo_ausente_no_disco=ausente_no_disco,
                     conteudo=conteudo or None,
                 )
             )
 
+            if situacao_xml != "sim":
+                # Tudo que não é nota entra na lista de pendências — inclusive o
+                # JSON de metadados, que está no pacote mas não é importável
+                # pela rotina de NF-e/NFS-e do sistema contábil.
+                total_pendencias += 1
+                escritor_pendencias.writerow(
+                    _linha_pendencias(
+                        documento, empresa, situacao_xml, leiaute_real, arquivo_relatorio
+                    )
+                )
+
         if incluir_relatorio:
             # BOM: sem ele o Excel pt-BR abre "empresa;razao" numa coluna só.
             pacote.writestr("Fluxa/relacao.csv", "\ufeff" + relatorio.getvalue())
+            pacote.writestr("Fluxa/pendencias.csv", "\ufeff" + pendencias.getvalue())
             pacote.writestr(
                 "Fluxa/LEIA-ME.txt",
-                _leia_me(periodo, len(usados), arquivos_ausentes),
+                _leia_me(
+                    periodo,
+                    notas_no_pacote,
+                    arquivos_ausentes,
+                    pendencias=total_pendencias,
+                    incluir_incompletos=incluir_incompletos,
+                ),
             )
-    return caminho
+    return caminho, notas_no_pacote, total_pendencias
 
-def _leia_me(periodo, quantidade: int, arquivos_ausentes: int = 0) -> str:
+def _leia_me(
+    periodo,
+    quantidade: int,
+    arquivos_ausentes: int = 0,
+    *,
+    pendencias: int = 0,
+    incluir_incompletos: bool = False,
+) -> str:
     aviso_ausentes = (
         (
             f"\nATENÇÃO: {arquivos_ausentes} documento(s) constam como 'XML completo'\n"
@@ -1075,18 +1340,45 @@ def _leia_me(periodo, quantidade: int, arquivos_ausentes: int = 0) -> str:
         if arquivos_ausentes > 0
         else ""
     )
+    if pendencias > 0:
+        aviso_pendencias = (
+            f"\n{pendencias} documento(s) do filtro NÃO entraram no pacote de notas.\n"
+            "Estão listados em pendencias.csv, com o motivo e o que fazer em\n"
+            "cada caso (buscar XML completo, manifestar operação, recapturar).\n"
+            + (
+                "Os XMLs deles foram gravados em Fluxa/_sem-xml-completo/ porque\n"
+                "você marcou 'incluir incompletos' — não misture essa pasta com\n"
+                "as notas na importação.\n"
+                if incluir_incompletos
+                else ""
+            )
+        )
+    else:
+        aviso_pendencias = (
+            "\nNenhum documento do filtro ficou de fora: tudo que está aqui é\n"
+            "XML de nota inteira (pendencias.csv saiu só com o cabeçalho).\n"
+        )
     return (
         "Fluxa — pacote de XMLs fiscais\n"
         "====================================\n"
         f"Período (competência): {periodo.rotulo()}\n"
-        f"Documentos no pacote: {quantidade}\n"
+        f"XMLs de nota no pacote: {quantidade}\n"
         f"Gerado em: {datetime.now(timezone.utc):%d/%m/%Y %H:%M} UTC\n"
-        f"{aviso_ausentes}\n"
+        f"{aviso_ausentes}{aviso_pendencias}\n"
         "Estrutura: Fluxa/<empresa>/<tipo>/<chave>.xml\n"
-        "relacao.csv abre direto no Excel (separador ';').\n\n"
+        "  — SÓ XML de nota entra nessas pastas. O pacote é classificado pelo\n"
+        "  CONTEÚDO do arquivo, não pelo cadastro: se o XML no disco é um\n"
+        "  resNFe/protNFe (resumo/autorização), ele NÃO vai para a pasta da\n"
+        "  empresa. É o que impede o importador contábil de responder \"isso é\n"
+        "  uma autorização de nota\" no meio de um lote de NF-e.\n"
+        "relacao.csv lista TUDO do filtro (coluna xml_completo diz a verdade).\n"
+        "pendencias.csv lista o que ficou de fora, com motivo e o que fazer.\n"
+        "Ambos abrem direto no Excel (separador ';').\n\n"
         "Notas com 'so-resumo' na coluna xml_completo: a SEFAZ distribui o\n"
-        "resumo até que a nota seja manifestada. Use o botão 'completar XML'\n"
-        "no painel — a busca pela chave é limitada a 20 consultas/h por CNPJ.\n\n"
+        "resumo até que a nota seja manifestada. Use 'Buscar XML completo'\n"
+        "no painel — a busca pela chave é limitada a 20 consultas/h por CNPJ.\n"
+        "Se a nota passou dos 10 dias da autorização (cStat 596), a Ciência\n"
+        "não é mais aceita: a saída é 'Manifestar operação'.\n\n"
         "NFS-e (pasta nfse/): o XML está no leiaute NACIONAL (SPED,\n"
         "nfse.gov.br) — o mesmo documento que a prefeitura/emissor entrega,\n"
         "com a DPS e a assinatura digital dentro. Importe pela rotina de\n"
