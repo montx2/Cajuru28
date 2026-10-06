@@ -14,6 +14,7 @@ reais de fluxo, não de estilo:
    filtros de proveniência da tela.
 """
 
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -33,6 +34,26 @@ from app.worker.tasks import _gravar_documento, _promover_resumo
 
 NFE = TipoDocumentoFiscal.NFE
 CHAVE = "35260812345678000199550010000001231234567890"
+
+
+def _res_nfe(chave: str) -> bytes:
+    return f'<resNFe xmlns="http://www.portalfiscal.inf.br/nfe"><chNFe>{chave}</chNFe></resNFe>'.encode()
+
+
+def _proc_nfe(chave: str) -> bytes:
+    return f'<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe"><NFe><infNFe Id="NFe{chave}"><ide><nNF>777</nNF><serie>2</serie><dhEmi>2026-08-20T14:30:00-03:00</dhEmi></ide><total><ICMSTot><vNF>250.00</vNF></ICMSTot></total></infNFe></NFe></nfeProc>'.encode()
+
+
+def _sessao_mtls_falsa(tmp_path):
+    @contextmanager
+    def _ctx(*args, **kwargs):
+        c = tmp_path / "cert.pem"
+        k = tmp_path / "key.pem"
+        c.write_text("cert")
+        k.write_text("key")
+        yield str(c), str(k)
+
+    return _ctx
 
 
 @pytest.fixture
@@ -340,12 +361,15 @@ def test_completar_xmls_manifesta_mesmo_com_janela_dist_nsu_fechada(db, tmp_path
     monkeypatch.setattr(sessao, "close", lambda: None)
     monkeypatch.setattr(tasks, "ler_pfx_protegido", lambda _: b"fake")
     monkeypatch.setattr(tasks, "sessao_mtls", _sessao_mtls_falsa(tmp_path))
-    monkeypatch.setattr(tasks, "manifestar_ciencia", lambda **_: "135123456789012")
+    monkeypatch.setattr(
+        tasks,
+        "manifestar_ciencia",
+        lambda **_: SimpleNamespace(protocolo="135123456789012", ja_estava_manifestada=False),
+    )
 
     class _ImportadorFake:
         def buscar_por_chave(self, **kwargs):
             return DocumentoBaixado(
-                tipo=NFE,
                 chave_acesso=CHAVE,
                 nsu="101",
                 numero="777",
@@ -362,7 +386,7 @@ def test_completar_xmls_manifesta_mesmo_com_janela_dist_nsu_fechada(db, tmp_path
 
     resultado = tasks.completar_xmls_pendentes(empresa_id=empresa.id, limite=20)
     assert resultado["manifestados"] == 1
-    assert resultado["completados"] == 1
+    assert resultado["completos"] == 1
     assert doc.leiaute == "completo"
     assert doc.manifestado_em is not None
     assert b"<nfeProc" in xml_resumo.read_bytes()

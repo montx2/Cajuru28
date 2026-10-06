@@ -572,19 +572,16 @@ def _documento_no_periodo(doc, periodo) -> bool:
     """
     A nota recém-baixada pertence ao período pedido?
 
-    Critério: **data de emissão** — a mesma regra que as telas usam para
-    filtrar (`app/services/referencia.py`), para o que foi importado em agosto
-    ser exatamente o que aparece quando se filtra agosto.
-
-    Desde a v3.2 isto **não decide mais se a nota é gravada** (ela sempre é);
-    decide apenas em qual contador ela entra, `documentos_no_periodo` ou
-    `documentos_fora_do_periodo`. Quando não dá para afirmar que está fora,
-    o documento conta como dentro — contador inflado é ruído, e o antigo
-    comportamento de descartar na dúvida perdia nota de verdade.
+    Critério: **competência** com fallback para data de emissão — a mesma
+    regra fiscal que as consultas ao banco usam (`app/services/referencia.py`),
+    para o que foi importado no mês ser exatamente o que aparece quando se filtra
+    pela competência.
     """
     if periodo is None or not periodo.definido:
         return True
-    quando = _parse_data(str(getattr(doc, "data_emissao", "") or ""))
+    quando = _parse_data(str(getattr(doc, "competencia", "") or ""))
+    if quando is None:
+        quando = _parse_data(str(getattr(doc, "data_emissao", "") or ""))
     if quando is None:
         return True
     return periodo.contem(quando)
@@ -722,14 +719,19 @@ def _gravar_documento(db, empresa_id: int, tipo: TipoDocumentoFiscal, doc, *, or
         valor = str(getattr(doc, field, "") or "").strip()
         return valor[:limite] or None
 
+    data_emissao_parsed = _parse_data_emissao(doc.data_emissao)
+    competencia_parsed = _parse_data(getattr(doc, "competencia", ""))
+    if competencia_parsed is None and data_emissao_parsed is not None:
+        competencia_parsed = data_emissao_parsed.date()
+
     valores = {
         "empresa_id": empresa_id,
         "tipo": tipo,
         "direcao": DirecaoDocumento(direcao),
         "chave_acesso": chave,
         "nsu": nsu_registro if nsu_registro is not None else str(doc.nsu),
-        "data_emissao": _parse_data_emissao(doc.data_emissao),
-        "competencia": _parse_data(getattr(doc, "competencia", "")),
+        "data_emissao": data_emissao_parsed,
+        "competencia": competencia_parsed,
         "valor_total": valor_monetario(doc.valor_total),
         "xml_path": xml_path,
         "status": StatusDocumentoFiscal.NORMAL,

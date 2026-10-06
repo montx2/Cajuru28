@@ -518,14 +518,26 @@ class ImportadorNFSeADN(ImportadorFiscal):
 
         def valor(*sufixos: str) -> str:
             for sufixo in sufixos:
+                sufixo_clean = sufixo.strip().lower()
                 for caminho, conteudo in planos.items():
-                    if caminho == sufixo or caminho.endswith("/" + sufixo):
+                    caminho_clean = caminho.strip().lower()
+                    if caminho_clean == sufixo_clean or caminho_clean.endswith("/" + sufixo_clean):
                         return conteudo
             return ""
 
-        data_emissao = valor("dhEmi", "dCompet", "DataHoraGeracao") or ""
-        competencia = valor("dCompet", "PeriodoRef/apuracao", "competencia") or ""
-        valor_texto = (valor("vLiq", "vServ", "vServPrest", "vBC") or "0").replace(",", ".")
+        data_emissao = (
+            valor("dhProc", "dhEmi", "DataHoraGeracao", "DataEmissao", "dhGer", "dEmi")
+            or valor("dCompet", "dComp")
+            or ""
+        )
+        competencia = (
+            valor("dCompet", "dComp", "competencia", "PeriodoRef/apuracao", "periodoApuracao", "PeriodoCompetencia", "cPerCont")
+            or ""
+        )
+        valor_texto = (
+            valor("vLiq", "vServ", "vServPrest", "vBC", "vNF", "vTotal")
+            or "0"
+        ).replace(",", ".")
         try:
             valor_total = float(valor_texto or 0)
         except ValueError:
@@ -533,8 +545,9 @@ class ImportadorNFSeADN(ImportadorFiscal):
 
         prestador = ""
         for caminho, conteudo in planos.items():
-            if caminho.startswith("prest/") or "/prest/" in f"/{caminho}/":
-                if caminho.endswith("/CNPJ") or caminho.endswith("/CPF"):
+            caminho_lower = f"/{caminho.lower()}/"
+            if "/prest/" in caminho_lower or "/emit/" in caminho_lower:
+                if caminho_lower.endswith("/cnpj/") or caminho_lower.endswith("/cpf/"):
                     prestador = _documento_xml(conteudo)
                     if prestador:
                         break
@@ -543,8 +556,9 @@ class ImportadorNFSeADN(ImportadorFiscal):
 
         tomador = ""
         for caminho, conteudo in planos.items():
-            if caminho.startswith("toma/") or "/toma/" in f"/{caminho}/":
-                if caminho.endswith("/CNPJ") or caminho.endswith("/CPF"):
+            caminho_lower = f"/{caminho.lower()}/"
+            if "/toma/" in caminho_lower or "/dest/" in caminho_lower:
+                if caminho_lower.endswith("/cnpj/") or caminho_lower.endswith("/cpf/"):
                     tomador = _documento_xml(conteudo)
                     if tomador:
                         break
@@ -554,7 +568,7 @@ class ImportadorNFSeADN(ImportadorFiscal):
 
         chave = ""
         for elemento in raiz.iter():
-            if _local(elemento.tag) == "infNFSe":
+            if _local(elemento.tag).lower() == "infnfse":
                 for nome, val in elemento.attrib.items():
                     if _local(nome).lower() == "id":
                         chave_id = val[3:] if val.upper().startswith("NFS") else val
@@ -575,9 +589,9 @@ class ImportadorNFSeADN(ImportadorFiscal):
             "numero": valor("nNFSe", "nInscri", "numNFSe"),
             "serie": valor("serie"),
             "prestador": prestador,
-            "prestador_nome": valor("prest/xNome", "emit/xNome"),
+            "prestador_nome": valor("prest/xNome", "emit/xNome", "xNome"),
             "tomador": tomador,
-            "tomador_nome": valor("toma/xNome"),
+            "tomador_nome": valor("toma/xNome", "dest/xNome"),
             "situacao": valor("xSit", "descSit"),
         }
 

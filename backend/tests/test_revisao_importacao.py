@@ -87,6 +87,11 @@ def test_adn_json_inesperado_nao_e_acervo_vazio():
 def test_competencia_mensal_nao_causa_indexerror():
     assert competencia_de_texto("2026-08", "2026-09-02") == "2026-08-01"
     assert competencia_de_texto("", "2026-09-02T12:30:00-03:00") == "2026-09-02"
+    assert competencia_de_texto("09/2026", "2026-10-02") == "2026-09-01"
+    assert competencia_de_texto("2026-09-30", "2026-10-02") == "2026-09-30"
+    assert competencia_de_texto("30/09/2026", "2026-10-02") == "2026-09-30"
+    assert competencia_de_texto("202609", "2026-10-02") == "2026-09-01"
+    assert competencia_de_texto("2026/09", "2026-10-02") == "2026-09-01"
 
 
 def test_adn_xml_malformado_nao_vira_nota_vazia_com_data_atual():

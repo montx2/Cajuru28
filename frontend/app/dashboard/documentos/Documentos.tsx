@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { api, type FiltrosDocumentos } from "@/lib/api";
-import { bytesParaTexto, chaveEmGrupos, dataCurta, formatarCnpjCpf, numero, plural } from "@/lib/format";
+import { bytesParaTexto, chaveEmGrupos, dataCurta, formatarCnpjCpf, mesAno, numero, plural } from "@/lib/format";
 import { estadoDoDocumento } from "@/lib/estados";
 import { mensagemDoErro } from "@/lib/erros";
 import { MOTIVO_SOMENTE_LEITURA } from "@/lib/papel";
@@ -353,6 +353,17 @@ export function Documentos() {
         largura: "min-w-28",
         ordenavel: true,
         celula: (documento) => <span className="nums whitespace-nowrap text-tinta">{dataCurta(documento.data_emissao)}</span>,
+      },
+      {
+        id: "competencia",
+        cabecalho: "Competência",
+        largura: "min-w-28",
+        ordenavel: true,
+        celula: (documento) => (
+          <span className="nums whitespace-nowrap text-tinta">
+            {documento.competencia ? mesAno(documento.competencia) : "—"}
+          </span>
+        ),
       },
       {
         id: "tipo",
@@ -925,6 +936,11 @@ function compararDocumentos(a: DocumentoFiscal, b: DocumentoFiscal, coluna: stri
   switch (coluna) {
     case "emissao":
       return new Date(a.data_emissao).getTime() - new Date(b.data_emissao).getTime();
+    case "competencia": {
+      const dataA = a.competencia || a.data_emissao;
+      const dataB = b.competencia || b.data_emissao;
+      return new Date(dataA).getTime() - new Date(dataB).getTime();
+    }
     case "tipo":
       return a.tipo.localeCompare(b.tipo);
     case "numero":

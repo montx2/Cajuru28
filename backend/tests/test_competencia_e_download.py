@@ -370,6 +370,83 @@ def test_data_inicial_depois_da_final_explica_o_erro(cliente):
     assert "depois da data final" in resposta.json()["detail"]
 
 
+def test_competencia_distinta_de_data_emissao_filtra_por_competencia(cliente):
+    """
+    Nota emitida em 02/10/2026 com competência 09/2026 e valor R$ 3.333,22:
+    - O filtro por competência 09/2026 DEVE incluir o documento.
+    - O filtro por competência 10/2026 NÃO DEVE incluir o documento.
+    - O resumo financeiro de 09/2026 DEVE somar os R$ 3.333,22.
+    """
+    client, db, empresa_id = cliente["client"], cliente["db"], cliente["empresa_id"]
+    chave = "35261012345678000199550010000000099999999999"
+    doc = DocumentoFiscal(
+        empresa_id=empresa_id,
+        tipo=TipoDocumentoFiscal.NFSE,
+        direcao="tomada",
+        chave_acesso=chave,
+        nsu="99",
+        data_emissao=datetime(2026, 10, 2, 10, 0, tzinfo=timezone.utc),
+        competencia=date(2026, 9, 1),
+        valor_total=3333.22,
+        xml_path="/tmp/fake_nfse.xml",
+        leiaute="completo",
+        numero="999",
+        serie="1",
+        emitente_nome="Prestador do Portal NFSe",
+        emitente_documento="99999999000188",
+    )
+    db.add(doc)
+    db.commit()
+
+    # Filtro competência 09/2026
+    setembro = client.get(
+        "/documentos", params={"empresa_id": empresa_id, "competencia": "09/2026"}
+    ).json()
+    assert any(d["chave_acesso"] == chave for d in setembro)
+
+    # Filtro competência 10/2026
+    outubro = client.get(
+        "/documentos", params={"empresa_id": empresa_id, "competencia": "10/2026"}
+    ).json()
+    assert not any(d["chave_acesso"] == chave for d in outubro)
+
+    # Resumo de 09/2026
+    resumo_setembro = client.get(
+        "/documentos/resumo", params={"empresa_id": empresa_id, "competencia": "09/2026"}
+    ).json()
+    assert any(d["chave_acesso"] == chave and d["valor_total"] == 3333.22 for d in setembro)
+    assert resumo_setembro["total"] >= 2
+
+
+def test_extracao_nfse_adn_com_competencia_anterior_a_emissao():
+    from app.services.importadores.nfse_adn import ImportadorNFSeADN
+
+    xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<NFSe xmlns="http://www.sped.fazenda.gov.br/nfse" versao="1.01">
+  <infNFSe Id="NFS35261012345678000199550010000000099999999999">
+    <nNFSe>999</nNFSe>
+    <dhProc>2026-10-02T14:30:00-03:00</dhProc>
+    <DPS>
+      <infDPS Id="DPS35261012345678000199550010000000099999999999">
+        <dhEmi>2026-10-02T10:00:00-03:00</dhEmi>
+        <dCompet>2026-09-30</dCompet>
+        <prest><CNPJ>99999999000188</CNPJ><xNome>Prestador Nacional</xNome></prest>
+        <toma><CNPJ>12345678000199</CNPJ><xNome>Tomador Nacional</xNome></toma>
+        <valores><vLiq>3333.22</vLiq></valores>
+      </infDPS>
+    </DPS>
+  </infNFSe>
+</NFSe>"""
+    importador = ImportadorNFSeADN()
+    doc = importador._converter_documento(
+        {"NSU": "99", "ArquivoXml": xml, "Schema": "nfse_v1.01.xsd"},
+        cnpj_consultado="12345678000199",
+    )
+    assert doc.data_emissao.startswith("2026-10-02")
+    assert doc.competencia.startswith("2026-09-30")
+    assert doc.valor_total == 3333.22
+
+
 def test_resumo_bate_com_a_lista_no_mesmo_filtro(cliente):
     client, empresa_id = cliente["client"], cliente["empresa_id"]
     resumo = client.get(

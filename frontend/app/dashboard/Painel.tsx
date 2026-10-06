@@ -118,7 +118,7 @@ export function Painel() {
       },
       href: `/dashboard/documentos?mes=${mes}`,
       carregando: pronto && (kpis.carregando || evolucao.carregando),
-      dica: "Documentos fiscais capturados com data de emissão dentro da competência.",
+      dica: "Documentos fiscais capturados dentro da competência.",
       destaque: true,
     },
     {
@@ -304,7 +304,7 @@ export function Painel() {
         </summary>
         <div className="space-y-4 border-t border-traco p-4">
           <div className="grid gap-4 xl:grid-cols-3">
-            <Cartao titulo="Evolução dos últimos 12 meses" descricao="Documentos por mês de emissão" className="xl:col-span-2">
+            <Cartao titulo="Evolução dos últimos 12 meses" descricao="Documentos por mês de competência" className="xl:col-span-2">
               {evolucao.carregando ? (
                 <EsqueletoBloco linhas={4} />
               ) : evolucao.erro ? (
