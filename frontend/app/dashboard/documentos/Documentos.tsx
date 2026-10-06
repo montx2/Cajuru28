@@ -94,6 +94,10 @@ export function Documentos() {
   const [carregandoEstimativa, setCarregandoEstimativa] = useState(false);
   const [erroExportacao, setErroExportacao] = useState<string | null>(null);
   const [baixando, setBaixando] = useState(false);
+  // Opt-in explícito: por padrão o pacote leva só XML de nota. Quem precisa do
+  // resumo marca a caixa e recebe esses arquivos numa pasta à parte — nunca
+  // misturados, porque o importador contábil lê a pasta da empresa e reclama.
+  const [incluirIncompletos, setIncluirIncompletos] = useState(false);
 
   const [importacaoXmlAberta, setImportacaoXmlAberta] = useState(false);
   const [colunasAbertas, setColunasAbertas] = useState(false);
@@ -237,11 +241,19 @@ export function Documentos() {
     setErroExportacao(null);
     try {
       if (exportacao === "xml") {
-        await api.baixarZip(filtros, `Fluxa_xmls_${sufixoArquivo(periodo)}.zip`);
+        await api.baixarZip(
+          { ...filtros, incluir_incompletos: incluirIncompletos },
+          `Fluxa_xmls_${sufixoArquivo(periodo)}.zip`
+        );
+        // A confirmação diz o que de fato entrou no pacote: sem isso o operador
+        // só descobre as pendências abrindo o ZIP.
+        const pendentes = estimativa?.sem_xml_completo ?? 0;
         avisar({
           tom: "ok",
           titulo: "ZIP gerado",
-          descricao: `${escopoEmpresa} · ${rotuloPeriodo(periodo)} · ${estimativa ? numero(estimativa.documentos) : ""} documentos`,
+          descricao:
+            `${escopoEmpresa} · ${rotuloPeriodo(periodo)} · ${estimativa ? numero(estimativa.documentos) : ""} documentos` +
+            (pendentes > 0 ? ` · ${numero(pendentes)} listados em pendencias.csv` : ""),
         });
       } else {
         await api.baixarCsvDocumentos(filtros, `Fluxa_relacao_${sufixoArquivo(periodo)}.csv`);
@@ -881,6 +893,26 @@ export function Documentos() {
                 O tamanho estimado ({bytesParaTexto(estimativa.estimado_bytes)}) passa do limite de {bytesParaTexto(estimativa.limite)}. Reduza o
                 período ou filtre por empresa antes de baixar.
               </p>
+            ) : null}
+            {exportacao === "xml" && estimativa.sem_xml_completo > 0 ? (
+              // O aviso vem ANTES do clique: baixar 900 arquivos e só então
+              // descobrir, abrindo o ZIP, que 140 eram resumo é o susto que
+              // levou o contador a desconfiar do pacote inteiro.
+              <div className="space-y-2 rounded-controle border border-espera/40 bg-espera-tenue px-3 py-2 text-sm leading-6 text-espera">
+                <p>
+                  {numero(estimativa.sem_xml_completo)}{" "}
+                  {plural(estimativa.sem_xml_completo, "documento está", "documentos estão")} sem XML
+                  completo (resumo, protocolo ou evento). O pacote leva{" "}
+                  <strong>só XML de nota</strong>; o que ficou de fora vai para{" "}
+                  <code>pendencias.csv</code> com o motivo e o que fazer.
+                </p>
+                <Caixa
+                  compacta
+                  rotulo="Incluir os incompletos numa pasta à parte (Fluxa/_sem-xml-completo/)"
+                  checked={incluirIncompletos}
+                  onChange={(evento) => setIncluirIncompletos(evento.target.checked)}
+                />
+              </div>
             ) : null}
           </div>
         ) : null}

@@ -682,6 +682,12 @@ class EstimativaExportacao(BaseModel):
     periodo: str
     estimado_bytes: int
     limite: int
+    # Quantos documentos do filtro NÃO vão entrar no pacote de notas. A tela
+    # avisa ANTES do clique: baixar 900 arquivos e só depois abrir o ZIP para
+    # descobrir que 140 eram resumo é exatamente o susto que isto evita.
+    # Conta pelo cadastro (`leiaute != completo`) — a estimativa não lê os
+    # arquivos; quem diz a verdade definitiva é a pendencias.csv do pacote.
+    sem_xml_completo: int = 0
 
     @property
     def estourou_limite(self) -> bool:

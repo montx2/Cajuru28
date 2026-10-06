@@ -133,19 +133,51 @@ com a frase do formato aceito. A única exceção é a exportação por
 — obrigatórios salvo com `documento_ids` —, `competencia`, `busca`) e devolve:
 
 ```
-Fluxa/<empresa-slug>/<tipo>/<chave>.xml
+Fluxa/<empresa-slug>/<tipo>/<chave>.xml   ; SÓ XML de nota
+Fluxa/_sem-xml-completo/<empresa>/<tipo>/<chave>.xml  ; só com incluir_incompletos=true
 Fluxa/relacao.csv      ; e BOM — abre direto no Excel brasileiro
+Fluxa/pendencias.csv   ; o que ficou de fora, com motivo e o que fazer
 Fluxa/LEIA-ME.txt      o que o pacote contém e o que falta
 ```
+
+### Por que a pasta da empresa leva só XML de nota
+
+O pacote é o que vai para o sistema contábil. Enquanto `resNFe`/`protNFe`
+entravam na mesma pasta das NF-e, todos com o nome `<chave>.xml`, o importador
+respondia **"isto é uma autorização de nota"** no meio de um lote — e ninguém
+tinha como saber qual arquivo era o culpado sem abrir um por um.
+
+A decisão é pelo **conteúdo** do arquivo (`app/services/xml_integridade`), não
+pelo cadastro: no legado existe linha marcada `leiaute = "completo"` com um
+`resNFe` no disco, herança do `consChNFe` que devolvia resumo. Confiar no
+cadastro aqui é reproduzir o defeito.
+
+- entra na pasta da empresa: XML com `infNFe` / `infCTe` / `infNFSe`;
+- `resumo`, `protocolo`, `evento`, `metadados-sem-xml` e
+  `arquivo-ausente-no-disco` ficam de fora e viram linha em `pendencias.csv`,
+  com `motivo` e `o_que_fazer` (o 596 diz "Manifestar operação", o resto diz
+  "Buscar XML completo");
+- `relacao.csv` continua listando **tudo** do filtro, com a coluna
+  `xml_completo` dizendo a verdade (`sim`, `so-resumo`, `metadados-sem-xml`,
+  `arquivo-ausente-no-disco`);
+- `incluir_incompletos=true` (checkbox no diálogo de exportação) grava os
+  incompletos em `Fluxa/_sem-xml-completo/` — **nunca** misturados com as notas.
 
 - O ZIP nasce de um `SELECT` único (`.yield_per(200)`), não de N requests: um
   pacote com 20.000 XMLs não custa 20.000 chamadas de API.
 - `LIMITE_DOCUMENTOS_POR_EXPORTACAO` (25.000) vira **413 com explicação** em vez
   de um download que estoura o navegador.
-- `GET /documentos/exportar/estimativa` devolve a contagem e o tamanho estimado
-  **antes** do clique, para a tela poder avisar "são 4.213 arquivos, ~24 MB".
+- `GET /documentos/exportar/estimativa` devolve a contagem, o tamanho estimado e
+  `sem_xml_completo` **antes** do clique, para a tela poder avisar "são 4.213
+  arquivos, ~24 MB, e 140 não vão entrar no pacote". A contagem de
+  `sem_xml_completo` vem do cadastro (a estimativa não lê arquivos); a verdade
+  definitiva é a `pendencias.csv` do pacote.
 - Como a listagem, o resumo e o ZIP compartilham a mesma função de filtro,
   o número da tela bate com o número de arquivos.
+- A auditoria (`exportacao_zip`) registra quantas notas entraram e quantas
+  pendências ficaram: é o que responde depois a pergunta "por que o lote de
+  09 faltou nota?".
+
 
 ## 6. Ajustes que dá para fazer sem tocar em código
 

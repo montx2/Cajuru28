@@ -133,6 +133,14 @@ export interface EstimativaExportacao {
   periodo: string;
   estimado_bytes: number;
   limite: number;
+  /**
+   * Quantos documentos do filtro NÃO vão entrar no pacote de notas (resumo,
+   * protocolo, evento, metadados sem XML). A tela avisa antes do clique:
+   * baixar o período inteiro e descobrir depois, abrindo o ZIP, é exatamente o
+   * susto que isto evita. A contagem vem do cadastro; a verdade definitiva
+   * está em `pendencias.csv` dentro do pacote.
+   */
+  sem_xml_completo: number;
 }
 
 export interface ExecucaoImportacao {
