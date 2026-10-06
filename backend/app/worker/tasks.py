@@ -428,6 +428,12 @@ def importar_documentos(
         execucao.finalizado_em = _agora()
         db.commit()
 
+        if tipo_doc == TipoDocumentoFiscal.NFE and _pendentes_de_completar(db, empresa, 1):
+            try:
+                completar_xmls_pendentes.delay(empresa_id=empresa_id)
+            except Exception:  # noqa: BLE001
+                pass
+
     except Exception as exc:  # noqa: BLE001 — task de background: captura, registra, não derruba o worker
         log.exception("Importação %s/%s falhou", empresa_id, tipo)
         db.rollback()
@@ -1007,6 +1013,20 @@ def sincronizar_tudo(self) -> dict:
 
         if resumo["enfileiradas"] or resumo["retomadas"]:
             log.info("Agendador: %s", resumo)
+        if (
+            db.query(DocumentoFiscal.id)
+            .filter(
+                DocumentoFiscal.leiaute == "resumo",
+                DocumentoFiscal.tipo == TipoDocumentoFiscal.NFE,
+                DocumentoFiscal.manifestacao_erro.is_(None),
+            )
+            .first()
+            is not None
+        ):
+            try:
+                completar_xmls_pendentes.delay()
+            except Exception:  # noqa: BLE001
+                pass
         return resumo
     except Exception as exc:  # noqa: BLE001 — o tick do agendador nunca derruba o beat
         log.exception("Agendador falhou: %s", exc)
@@ -1085,8 +1105,11 @@ def completar_xmls_pendentes(self, empresa_id: int | None = None, limite: int | 
             estado = sincronizacao.obter_estado(db, empresa.id, TipoDocumentoFiscal.NFE)
             if estado is None:
                 continue
+            precisa_manifestar = empresa.manifestar_automaticamente and any(
+                not doc.manifestado_em for doc in documentos_pendentes
+            )
             liberacao = sincronizacao.liberacao_para(db, empresa.id, TipoDocumentoFiscal.NFE)
-            if not liberacao.pode:
+            if not liberacao.pode and not precisa_manifestar:
                 resultado["aguardando_janela"] += len(documentos_pendentes)
                 continue
             if not sincronizacao.travar(db, estado):
@@ -1096,11 +1119,12 @@ def completar_xmls_pendentes(self, empresa_id: int | None = None, limite: int | 
             try:
                 db.commit()
                 # A task pode ter esperado pelo lease; revalida a janela antes
-                # de chamar consChNFe. Sem este preflight, o botão "completar
-                # XML" gastava cota pontual dentro da mesma 1h e reiniciava
-                # bloqueios oficiais.
+                # de chamar consChNFe. Notas ainda não manifestadas continuam
+                # podendo receber a Ciência da Operação (210210), pois ela vai
+                # para o NFeRecepcaoEvento4 e não consome a janela de 1h da
+                # distribuição DFe.
                 liberacao = sincronizacao.liberacao_para(db, empresa.id, TipoDocumentoFiscal.NFE)
-                if not liberacao.pode:
+                if not liberacao.pode and not precisa_manifestar:
                     resultado["aguardando_janela"] += len(documentos_pendentes)
                     continue
                 importador = obter_importador(TipoDocumentoFiscal.NFE)
@@ -1109,19 +1133,11 @@ def completar_xmls_pendentes(self, empresa_id: int | None = None, limite: int | 
 
                 with sessao_mtls(pfx_bytes, senha) as (cert_path, key_path):
                     for documento in documentos_pendentes:
-                        liberacao = sincronizacao.liberacao_para(db, empresa.id, TipoDocumentoFiscal.NFE)
-                        if not liberacao.pode:
-                            resultado["aguardando_janela"] += 1
-                            break
-                        disponivel = sincronizacao.cota_pontual_disponivel(db, estado)
-                        if disponivel <= 0:
-                            resultado["sem_cota"] += 1
-                            break
                         # A distribuição só entrega `resNFe` enquanto a nota
                         # não é manifestada; sem a Ciência da Operação, o
                         # consChNFe abaixo volta vazio para sempre. Por isso
-                        # manifestamos ANTES de gastar a cota pontual — mas
-                        # somente nas empresas que optaram (ato jurídico).
+                        # manifestamos ANTES de checar/gastar a cota pontual.
+                        acabou_de_manifestar = False
                         if not documento.manifestado_em:
                             if not empresa.manifestar_automaticamente:
                                 resultado["aguardando_manifestacao"] += 1
@@ -1145,9 +1161,25 @@ def completar_xmls_pendentes(self, empresa_id: int | None = None, limite: int | 
                                 break
                             documento.manifestado_em = _agora()
                             documento.manifestacao_erro = None
+                            acabou_de_manifestar = True
                             if not manifesto.ja_estava_manifestada:
                                 resultado["manifestados"] += 1
+                            # Com a Ciência registrada, há novo XML completo a
+                            # buscar na distribuição/consChNFe: libera a espera
+                            # de "sem novidade" (preservando bloqueio 656 real).
+                            bloqueado_ate = sincronizacao._aware(estado.bloqueado_ate)
+                            if not (bloqueado_ate and bloqueado_ate > _agora()):
+                                estado.proxima_consulta_em = None
                             db.commit()
+
+                        liberacao = sincronizacao.liberacao_para(db, empresa.id, TipoDocumentoFiscal.NFE)
+                        if not liberacao.pode:
+                            resultado["aguardando_janela"] += 1
+                            continue
+                        disponivel = sincronizacao.cota_pontual_disponivel(db, estado)
+                        if disponivel <= 0:
+                            resultado["sem_cota"] += 1
+                            continue
 
                         try:
                             completo = importador.buscar_por_chave(
@@ -1157,6 +1189,15 @@ def completar_xmls_pendentes(self, empresa_id: int | None = None, limite: int | 
                                 chave_acesso=documento.chave_acesso,
                                 uf=empresa.uf,
                             )
+                            if (completo is None or not completo.xml) and acabou_de_manifestar and ESPERA_ENTRE_LOTES > 0:
+                                time.sleep(min(2.0, ESPERA_ENTRE_LOTES))
+                                completo = importador.buscar_por_chave(
+                                    cnpj=empresa.cnpj_cpf,
+                                    cert_path=cert_path,
+                                    key_path=key_path,
+                                    chave_acesso=documento.chave_acesso,
+                                    uf=empresa.uf,
+                                )
                         except ConsumoIndevido as exc:
                             sincronizacao.consumir_cota_pontual(db, estado)
                             if exc.ultimo_nsu:
@@ -1233,6 +1274,132 @@ def _sobrescrever_xml(documento: DocumentoFiscal, completo: DocumentoBaixado) ->
     situacao = getattr(completo, "status_autorizacao", "")
     if situacao:
         documento.situacao = situacao[:255]
+
+
+def completar_xml_documento_imediato(db, documento: DocumentoFiscal) -> tuple[bool, str]:
+    """
+    Registra a Ciência da Operação (210210) e busca o XML completo (`procNFe`)
+    pela chave (`consChNFe`) sob demanda para uma NF-e individual.
+
+    Permite que ao abrir ou baixar uma nota em `resumo` (`resNFe`), o sistema
+    obtenha a nota fiscal completa diretamente na SEFAZ usando o certificado A1
+    da empresa — sem exigir consulta externa em ferramentas como FSist/Portal.
+    """
+    if documento.tipo != TipoDocumentoFiscal.NFE:
+        return documento.leiaute == "completo", ""
+
+    empresa = db.get(Empresa, documento.empresa_id)
+    if empresa is None:
+        return False, "Empresa não encontrada."
+
+    certificado = (
+        db.query(Certificado)
+        .filter(Certificado.empresa_id == empresa.id, Certificado.ativo.is_(True))
+        .first()
+    )
+    if certificado is None or not certificado.arquivo_path or not os.path.isfile(certificado.arquivo_path):
+        return (
+            False,
+            "Esta nota ainda está apenas em resumo (resNFe) e a empresa está sem certificado A1 ativo para buscar o XML completo na SEFAZ.",
+        )
+
+    estado = sincronizacao.obter_estado(db, empresa.id, TipoDocumentoFiscal.NFE)
+    importador = obter_importador(TipoDocumentoFiscal.NFE)
+    try:
+        senha = decifrar_segredo(certificado.senha_cifrada)
+        pfx_bytes = ler_pfx_protegido(certificado.arquivo_path)
+    except Exception as exc:  # noqa: BLE001
+        return False, f"Não foi possível abrir o certificado A1 da empresa: {exc}"
+
+    try:
+        with sessao_mtls(pfx_bytes, senha) as (cert_path, key_path):
+            acabou_de_manifestar = False
+            if not documento.manifestado_em:
+                try:
+                    manifestar_ciencia(
+                        chave=documento.chave_acesso,
+                        cnpj=empresa.cnpj_cpf,
+                        cert_path=cert_path,
+                        key_path=key_path,
+                        uf=empresa.uf,
+                    )
+                except ManifestacaoRecusada as exc:
+                    documento.manifestacao_erro = str(exc)[:500]
+                    db.commit()
+                    return False, f"A SEFAZ recusou a Ciência da Operação desta nota: {exc}"
+                except AmbienteIndisponivel as exc:
+                    return False, f"Ambiente Nacional da SEFAZ indisponível no momento para registrar a Ciência: {exc}"
+
+                documento.manifestado_em = _agora()
+                documento.manifestacao_erro = None
+                acabou_de_manifestar = True
+                if estado is not None:
+                    bloqueado_ate = sincronizacao._aware(estado.bloqueado_ate)
+                    if not (bloqueado_ate and bloqueado_ate > _agora()):
+                        estado.proxima_consulta_em = None
+                db.commit()
+
+            try:
+                completo = importador.buscar_por_chave(
+                    cnpj=empresa.cnpj_cpf,
+                    cert_path=cert_path,
+                    key_path=key_path,
+                    chave_acesso=documento.chave_acesso,
+                    uf=empresa.uf,
+                )
+                if (completo is None or not completo.xml) and acabou_de_manifestar and ESPERA_ENTRE_LOTES > 0:
+                    time.sleep(min(2.0, ESPERA_ENTRE_LOTES))
+                    completo = importador.buscar_por_chave(
+                        cnpj=empresa.cnpj_cpf,
+                        cert_path=cert_path,
+                        key_path=key_path,
+                        chave_acesso=documento.chave_acesso,
+                        uf=empresa.uf,
+                    )
+            except ConsumoIndevido as exc:
+                if estado is not None:
+                    sincronizacao.consumir_cota_pontual(db, estado)
+                    if exc.ultimo_nsu:
+                        sincronizacao.realinhar_cursor(
+                            db, estado, ultimo_nsu=exc.ultimo_nsu, max_nsu=exc.max_nsu
+                        )
+                    sincronizacao.marcar_consumo_indevido(
+                        db, estado, motivo=f"consChNFe: {exc.motivo}", bloqueio=getattr(exc, "bloqueio", None)
+                    )
+                    db.commit()
+                return (
+                    False,
+                    f"Ciência da Operação registrada, mas a SEFAZ limitou a consulta imediata por chave ({exc.motivo}). O robô baixará o XML completo automaticamente assim que a janela abrir.",
+                )
+            except AmbienteIndisponivel as exc:
+                return (
+                    False,
+                    f"Ciência da Operação registrada, mas a consulta por chave na SEFAZ oscilou ({exc}). Tente novamente em instantes.",
+                )
+
+            if estado is not None:
+                sincronizacao.consumir_cota_pontual(db, estado)
+
+            if completo is not None and completo.xml:
+                _sobrescrever_xml(documento, completo)
+                if estado is not None:
+                    sincronizacao.marcar_consulta_ok(db, estado)
+                db.commit()
+                return True, "XML completo (procNFe) obtido da SEFAZ."
+
+            db.commit()
+            try:
+                completar_xmls_pendentes.delay(empresa_id=empresa.id)
+            except Exception:  # noqa: BLE001
+                pass
+            return (
+                False,
+                "Ciência da Operação registrada na SEFAZ. O Ambiente Nacional ainda está liberando o XML completo (procNFe) desta nota — aguarde alguns instantes e clique novamente.",
+            )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("completar_xml_documento_imediato falhou para doc %s: %s", documento.id, exc)
+        return False, f"Não foi possível consultar o XML completo na SEFAZ agora: {exc}"
+
 
 
 @celery_app.task(name="varrer_alertas_webhook", bind=True, max_retries=0)

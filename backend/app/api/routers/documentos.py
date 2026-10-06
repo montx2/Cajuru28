@@ -1097,29 +1097,60 @@ def _xml_e_apenas_autorizacao(caminho: str) -> bool:
     return local(raiz.tag) == "protNFe" and raiz.find(".//{*}infNFe") is None
 
 
+def _xml_e_apenas_resumo(caminho: str) -> bool:
+    """Detecta quando o arquivo salvo em disco ainda é apenas `resNFe` / `resCTe`."""
+    try:
+        raiz = ET.parse(caminho).getroot()
+    except (OSError, ET.ParseError):
+        return False
+    local = lambda tag: tag.rsplit("}", 1)[-1]
+    return local(raiz.tag) in {"resNFe", "resCTe"} and raiz.find(".//{*}infNFe") is None
+
+
 @router.get("/{documento_id}/xml")
 def baixar_xml(
     documento_id: int,
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
 ):
-    """Entrega somente o XML fiscal completo, nunca o protocolo isolado."""
+    """Entrega somente o XML fiscal completo, buscando-o na SEFAZ sob demanda quando ainda em resumo."""
     documento = _documento_do_escritorio(db, documento_id, escritorio_id)
+    tem_arquivo = bool(documento.xml_path and os.path.isfile(documento.xml_path))
+    eh_resumo_ou_prot = (
+        documento.leiaute == "resumo"
+        or (tem_arquivo and (_xml_e_apenas_resumo(documento.xml_path) or _xml_e_apenas_autorizacao(documento.xml_path)))
+    )
 
-    if documento.xml_path and os.path.isfile(documento.xml_path) and _xml_e_apenas_autorizacao(documento.xml_path):
-        # O arquivo anexado pelo usuário é exatamente este caso. A nota deve
-        # ser recuperada novamente pela SEFAZ; nunca enviamos o protocolo ao
-        # contador, pois o sistema contábil corretamente o rejeita.
+    mensagem_tentativa = ""
+    if documento.tipo == TipoDocumentoFiscal.NFE and (eh_resumo_ou_prot or not tem_arquivo):
+        from app.worker.tasks import completar_xml_documento_imediato
+
+        _, mensagem_tentativa = completar_xml_documento_imediato(db, documento)
+        db.refresh(documento)
+        tem_arquivo = bool(documento.xml_path and os.path.isfile(documento.xml_path))
+
+    if tem_arquivo and _xml_e_apenas_autorizacao(documento.xml_path):
         raise HTTPException(
             status_code=409,
-            detail=(
+            detail=mensagem_tentativa
+            or (
                 "O arquivo armazenado é somente o protocolo de autorização (protNFe). "
                 "A NF-e completa (procNFe) ainda precisa ser recuperada pela SEFAZ. "
                 "Use 'Completar XMLs' e baixe novamente após a conclusão."
             ),
         )
 
-    if not documento.xml_path or not os.path.isfile(documento.xml_path):
+    if documento.leiaute == "resumo" or (tem_arquivo and _xml_e_apenas_resumo(documento.xml_path)):
+        raise HTTPException(
+            status_code=409,
+            detail=mensagem_tentativa
+            or (
+                "Esta nota ainda está apenas em resumo (resNFe). "
+                "A Ciência da Operação foi solicitada à SEFAZ; aguarde alguns instantes para baixar a NF-e completa (procNFe)."
+            ),
+        )
+
+    if not tem_arquivo:
         if documento.leiaute == "metadados":
             raise HTTPException(
                 status_code=409,
@@ -1134,10 +1165,38 @@ def baixar_xml(
     )
 
 
+@router.post("/{documento_id}/completar-xml", response_model=DocumentoDetalhe)
+def completar_xml_individual(
+    documento_id: int,
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+    usuario: Usuario = Depends(requer_escrita),
+):
+    """Registra Ciência da Operação (210210) e baixa o XML completo (`procNFe`) pela chave imediatamente."""
+    documento = _documento_do_escritorio(db, documento_id, escritorio_id)
+    from app.worker.tasks import completar_xml_documento_imediato
+
+    documento.manifestacao_erro = None
+    db.commit()
+    ok, mensagem = completar_xml_documento_imediato(db, documento)
+    auditoria.registrar(
+        db,
+        usuario,
+        "xml_completar_individual",
+        entidade="documento_fiscal",
+        entidade_id=documento.id,
+        detalhe=f"{documento.chave_acesso} ({'completo' if ok else 'pendente'})",
+    )
+    db.commit()
+    if not ok and documento.leiaute != "completo":
+        raise HTTPException(status_code=409, detail=mensagem)
+    return detalhe_documento(documento_id=documento.id, db=db, escritorio_id=escritorio_id)
+
+
 @router.post("/completar-xmls")
 def completar_xmls(
     empresa_id: int | None = None,
-    limite: int = Query(default=20, le=20, ge=1),
+    limite: int = Query(default=20, le=200, ge=1),
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
     usuario: Usuario = Depends(requer_escrita),
@@ -1154,15 +1213,15 @@ def completar_xmls(
         db, usuario, "xmls_completar",
         entidade="empresa" if empresa_id else None,
         entidade_id=empresa_id,
-        detalhe=f"limite {limite}/h",
+        detalhe=f"limite {min(limite, 20)}/h",
     )
     db.commit()
-    completar_xmls_pendentes.delay(empresa_id=empresa_id, limite=limite)
+    completar_xmls_pendentes.delay(empresa_id=empresa_id, limite=min(limite, 20))
     return {
         "disparado": True,
         "aviso": (
-            "O limite oficial é de 20 consultas por chave por hora por CNPJ; o resto "
-            "fica para a próxima rodada automática."
+            "Ciência da Operação e busca do XML completo pela chave foram disparadas "
+            "(respeitando o limite oficial de 20 consultas/h por CNPJ na SEFAZ)."
         ),
     }
 
@@ -1261,6 +1320,15 @@ def detalhe_documento(
 ):
     """Ficha completa de um documento para o painel de detalhes."""
     documento = _documento_do_escritorio(db, documento_id, escritorio_id)
+    if (
+        documento.tipo == TipoDocumentoFiscal.NFE
+        and documento.leiaute == "resumo"
+        and documento.manifestacao_erro is None
+    ):
+        from app.worker.tasks import completar_xml_documento_imediato
+
+        completar_xml_documento_imediato(db, documento)
+        db.refresh(documento)
     empresa = db.get(Empresa, documento.empresa_id)
     xml_disponivel = bool(documento.xml_path and os.path.isfile(documento.xml_path))
     tamanho = None

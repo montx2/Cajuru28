@@ -100,6 +100,7 @@ for /f "usebackq eol=# tokens=1,* delims==" %%A in ("%ARQ_PORTAS%") do (
 echo [OK] Portas definidas: painel %PORTA_PAINEL% - API %PORTA_API%.
 echo.
 
+:SUBIR
 REM ---------- 5. Subir ----------
 echo Subindo containers (primeira vez demora)...
 set "LOG_SUBIDA=%TEMP%\notasflow_up.log"
@@ -114,9 +115,12 @@ docker compose up --build -d 2>&1 | powershell -NoProfile -Command "$input | Tee
 REM ---------- 5b. TODOS os servicos estao de pe? ----------
 REM Antes so a API era verificada: com o frontend caido o script dizia
 REM "Pronto!" e abria uma pagina que nao carregava. Agora confere os 6.
+REM IMPORTANTE: NAO usar findstr /x ou /e aqui - o binario Go do docker compose
+REM emite quebras de linha LF (\n) sem CR (\r), e o /x do findstr no Windows
+REM exige \r antes de \n, falhando em 100% das linhas mesmo com tudo rodando.
 set FALTANDO_SERVICOS=0
 for %%S in (api frontend worker beat db redis) do (
-  docker compose ps --services --status running 2>nul | findstr /x /i "%%S" >nul 2>nul
+  docker compose ps --services --status running 2>nul | findstr /i /c:"%%S" >nul 2>nul
   if errorlevel 1 set /a FALTANDO_SERVICOS+=1
 )
 if %FALTANDO_SERVICOS%==0 goto SUBIDA_OK
@@ -250,7 +254,7 @@ echo.
 echo Log dos containers que nao subiram:
 echo.
 for %%S in (api frontend worker beat db redis) do (
-  docker compose ps --services --status running 2>nul | findstr /x /i "%%S" >nul 2>nul
+  docker compose ps --services --status running 2>nul | findstr /i /c:"%%S" >nul 2>nul
   if errorlevel 1 docker compose logs --tail 30 %%S
 )
 echo.

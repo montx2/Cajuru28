@@ -72,9 +72,11 @@ REM UTF-8 sem BOM (o Tee-Object antigo gravava UTF-16 e o findstr nao achava nad
 docker compose up --build -d 2>&1 | powershell -NoProfile -Command "$input | Tee-Object -Variable saida | ForEach-Object { Write-Host $_ }; if ($saida) { [IO.File]::WriteAllLines('%LOG_UP%', [string[]]$saida, (New-Object Text.UTF8Encoding($false))) }"
 
 REM TODOS os servicos de pe? (antes so a API era verificada)
+REM NAO usar findstr /x ou /e: docker compose emite LF (\n) sem CR (\r),
+REM e /x no findstr do Windows exige \r, falhando mesmo com o servico rodando.
 set FALTANDO_SERVICOS=0
 for %%S in (api frontend worker beat db redis) do (
-  docker compose ps --services --status running 2>nul | findstr /x /i "%%S" >nul 2>nul
+  docker compose ps --services --status running 2>nul | findstr /i /c:"%%S" >nul 2>nul
   if errorlevel 1 set /a FALTANDO_SERVICOS+=1
 )
 if %FALTANDO_SERVICOS%==0 goto OK

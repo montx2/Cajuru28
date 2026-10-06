@@ -101,7 +101,8 @@ def test_fila_nao_e_bloqueada_por_notas_rejeitadas(db):
 
 def test_sem_manifestacao_automatica_so_entram_notas_ja_manifestadas(db):
     sessao, empresa = db
-    assert empresa.manifestar_automaticamente is False
+    assert empresa.manifestar_automaticamente is True
+    empresa.manifestar_automaticamente = False
     for n in range(1, 25):
         _resumo_no_banco(sessao, empresa, n)  # nunca manifestadas
     _resumo_no_banco(sessao, empresa, 100, manifestado_em=datetime.now(timezone.utc))

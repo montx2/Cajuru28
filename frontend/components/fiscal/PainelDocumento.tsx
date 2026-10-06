@@ -62,6 +62,7 @@ function ConteudoDocumento({ id, aoExcluir, somenteLeitura }: { id: number; aoEx
   const [carregandoXml, setCarregandoXml] = useState(false);
   const [erroXml, setErroXml] = useState<string | null>(null);
   const [baixando, setBaixando] = useState(false);
+  const [completando, setCompletando] = useState(false);
 
   if (recurso.carregando) {
     return (
@@ -85,7 +86,11 @@ function ConteudoDocumento({ id, aoExcluir, somenteLeitura }: { id: number; aoEx
     setCarregandoXml(true);
     setErroXml(null);
     try {
-      setXml(await api.obterXmlTexto(id));
+      const conteudo = await api.obterXmlTexto(id);
+      setXml(conteudo);
+      if (documento.leiaute === "resumo") {
+        recurso.atualizar();
+      }
     } catch (falha) {
       setErroXml(falha instanceof Error ? falha.message : "Não foi possível ler o XML.");
     } finally {
@@ -99,11 +104,29 @@ function ConteudoDocumento({ id, aoExcluir, somenteLeitura }: { id: number; aoEx
       // Cookie HttpOnly não viaja em `<a download>` cross-origin: o arquivo vem
       // por `fetch` + blob e o nome real sai do `content-disposition`.
       await api.baixarXmlDocumento(id, `${documento.chave_acesso || `documento-${id}`}.xml`);
+      if (documento.leiaute === "resumo") {
+        recurso.atualizar();
+      }
       avisar({ tom: "ok", titulo: "XML baixado", descricao: documento.chave_acesso ? chaveEmGrupos(documento.chave_acesso) : undefined });
     } catch (falha) {
       avisar({ tom: "erro", titulo: "Não foi possível baixar o XML", descricao: falha instanceof Error ? falha.message : undefined });
     } finally {
       setBaixando(false);
+    }
+  }
+
+  async function completarXmlAgora() {
+    setCompletando(true);
+    setErroXml(null);
+    try {
+      await api.completarXmlDocumento(id);
+      recurso.atualizar();
+      avisar({ tom: "ok", titulo: "XML completo obtido da SEFAZ", descricao: documento.chave_acesso ? chaveEmGrupos(documento.chave_acesso) : undefined });
+    } catch (falha) {
+      avisar({ tom: "espera", titulo: "Buscando XML completo na SEFAZ", descricao: falha instanceof Error ? falha.message : undefined });
+      recurso.atualizar();
+    } finally {
+      setCompletando(false);
     }
   }
 
@@ -137,16 +160,30 @@ function ConteudoDocumento({ id, aoExcluir, somenteLeitura }: { id: number; aoEx
             "só resumo" e não tinha como saber se falta manifestar, se a SEFAZ
             recusou, ou qual foi o motivo — só abrindo o banco. */}
         {documento.manifestacao_erro ? (
-          <p className="mt-2 rounded-controle border border-erro/40 bg-erro-tenue px-3 py-2 text-sm leading-6 text-erro">
-            <span className="font-medium">Ciência da Operação recusada: </span>
-            {documento.manifestacao_erro}
-          </p>
-        ) : documento.leiaute === "resumo" && !documento.manifestado_em ? (
-          <p className="mt-2 rounded-controle border border-espera/40 bg-espera-tenue px-3 py-2 text-sm leading-6 text-espera">
-            Aguardando a Ciência da Operação. O Ambiente Nacional só entrega o XML
-            completo depois dela. Ligue “Manifestação automática” na empresa para
-            que o sistema registre sozinho.
-          </p>
+          <div className="mt-2 space-y-2 rounded-controle border border-erro/40 bg-erro-tenue px-3 py-2 text-sm leading-6 text-erro">
+            <p>
+              <span className="font-medium">Ciência da Operação recusada: </span>
+              {documento.manifestacao_erro}
+            </p>
+            {!somenteLeitura ? (
+              <Botao tamanho="sm" variante="secundaria" onClick={completarXmlAgora} carregando={completando} iconeEsquerda={<Icone nome="sincronizar" className="h-3.5 w-3.5" />}>
+                Tentar buscar XML completo na SEFAZ
+              </Botao>
+            ) : null}
+          </div>
+        ) : documento.leiaute === "resumo" ? (
+          <div className="mt-2 space-y-2 rounded-controle border border-espera/40 bg-espera-tenue px-3 py-2 text-sm leading-6 text-espera">
+            <p>
+              {documento.manifestado_em
+                ? `Ciência da Operação registrada em ${dataHora(documento.manifestado_em)}. O XML completo (procNFe) está sendo liberado pela SEFAZ.`
+                : "Esta nota chegou inicialmente em resumo (resNFe). O sistema registra a Ciência da Operação e busca o XML completo (procNFe) pela chave na SEFAZ usando o certificado A1 da empresa."}
+            </p>
+            {!somenteLeitura ? (
+              <Botao tamanho="sm" variante="secundaria" onClick={completarXmlAgora} carregando={completando} iconeEsquerda={<Icone nome="sincronizar" className="h-3.5 w-3.5" />}>
+                Buscar XML completo na SEFAZ agora
+              </Botao>
+            ) : null}
+          </div>
         ) : documento.manifestado_em ? (
           <p className="mt-2 text-xs text-tinta-suave">
             Ciência da Operação registrada em {dataHora(documento.manifestado_em)}.

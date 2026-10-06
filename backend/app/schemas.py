@@ -138,7 +138,7 @@ class EmpresaResposta(BaseModel):
     criado_em: datetime
     sincronizar_automaticamente: bool = True
     quais_tipos_sincronizar: str = "nfse,nfe,cte"
-    manifestar_automaticamente: bool = False
+    manifestar_automaticamente: bool = True
     codigo_ibge: str | None = None
     inscricao_municipal: str | None = None
 

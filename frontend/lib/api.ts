@@ -483,6 +483,12 @@ export const api = {
       { method: "POST" }
     ),
 
+  /** Registra Ciência da Operação e baixa o XML completo (procNFe) de uma nota individual. */
+  completarXmlDocumento: (documentoId: number) =>
+    chamar<DocumentoDetalhe>(`/documentos/${documentoId}/completar-xml`, {
+      method: "POST",
+    }),
+
   // ---------------------------------------------------------------
   // Importar SÓ as empresas marcadas
   // ---------------------------------------------------------------

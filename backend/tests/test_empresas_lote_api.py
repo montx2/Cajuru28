@@ -641,3 +641,44 @@ def test_nenhuma_senha_das_planilhas_abre_conta_quantas_foram_testadas(cliente):
     item = resposta.json()["itens"][0]
     assert item["status"] == "erro"
     assert "Foram testadas 2 senha(s) declaradas" in item["mensagem"]
+
+
+def test_criar_empresa_ja_existente_atualiza_e_reativa_sem_erro_409(cliente, monkeypatch):
+    client, db, escritorio_id = cliente
+    from app.api.routers import empresas as router_empresas
+
+    monkeypatch.setattr(
+        router_empresas,
+        "consultar_cnpj",
+        lambda cnpj: DadosCNPJ(
+            documento=cnpj,
+            razao_social="ESTUDIO DE ESTAMPARIA RAFAELLA REGAL LTDA",
+            uf="MG",
+            municipio="Itaúna",
+            codigo_ibge="3133808",
+        ),
+    )
+
+    existente = Empresa(
+        escritorio_id=escritorio_id,
+        razao_social="NOME ANTIGO LTDA",
+        cnpj_cpf=CNPJ_A,
+        uf="",
+        ativa=False,
+    )
+    db.add(existente)
+    db.commit()
+
+    resposta = client.post(
+        "/empresas",
+        json={"cnpj_cpf": CNPJ_A, "razao_social": "ESTUDIO DE ESTAMPARIA RAFAELLA REGAL LTDA", "uf": "MG"},
+    )
+    assert resposta.status_code == 201, resposta.text
+    corpo = resposta.json()
+    assert corpo["id"] == existente.id
+    assert corpo["razao_social"] == "ESTUDIO DE ESTAMPARIA RAFAELLA REGAL LTDA"
+    assert corpo["uf"] == "MG"
+    assert corpo["codigo_ibge"] == "3133808"
+    assert corpo["ativa"] is True
+    assert db.query(Empresa).filter_by(escritorio_id=escritorio_id).count() == 1
+

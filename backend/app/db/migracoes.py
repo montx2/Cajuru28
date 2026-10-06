@@ -74,9 +74,9 @@ _COLUNAS_POR_TABELA: dict[str, list[tuple[str, str]]] = {
     "empresas": [
         ("sincronizar_automaticamente", "BOOLEAN NOT NULL DEFAULT TRUE"),
         ("quais_tipos_sincronizar", "VARCHAR(30) NOT NULL DEFAULT 'nfse,nfe,cte'"),
-        # Opt-in da manifestação do destinatário (210210). Default FALSE: nunca
-        # manifestar em nome de uma empresa sem decisão explícita do operador.
-        ("manifestar_automaticamente", "BOOLEAN NOT NULL DEFAULT FALSE"),
+        # Ciência da Operação (210210) ativada por padrão para liberar o XML
+        # completo (procNFe) automaticamente no Ambiente Nacional.
+        ("manifestar_automaticamente", "BOOLEAN NOT NULL DEFAULT TRUE"),
         ("codigo_ibge", "VARCHAR(7)"),
         ("inscricao_municipal", "VARCHAR(100)"),
     ],
@@ -191,8 +191,51 @@ def aplicar_migracoes() -> None:
     _normalizar_valor_total_numerico()
     _criar_indices()
     _preencher_competencia_faltante()
+    _habilitar_manifestacao_automatica_padrao()
     _apagar_credenciais_jettax()
     _semear_sincronizacoes()
+
+
+def _habilitar_manifestacao_automatica_padrao() -> None:
+    """
+    Ativa `manifestar_automaticamente` por padrão nas empresas existentes.
+
+    Antes o default da coluna era FALSE, deixando todas as NF-e tomadas presas
+    em `resNFe` ("Aguardando a Ciência da Operação"). No PostgreSQL, quando o
+    default da coluna ainda consta como FALSE, trocamos para TRUE e ativamos as
+    empresas que nasceram com o valor antigo.
+    """
+    if "manifestar_automaticamente" not in _colunas_existentes("empresas"):
+        return
+    if engine.dialect.name == "postgresql":
+        try:
+            with engine.begin() as conexao:
+                padrao = conexao.execute(
+                    text(
+                        "SELECT column_default FROM information_schema.columns "
+                        "WHERE table_name = 'empresas' AND column_name = 'manifestar_automaticamente'"
+                    )
+                ).scalar()
+                if padrao is None or "false" in str(padrao).lower():
+                    conexao.execute(
+                        text(
+                            "ALTER TABLE empresas "
+                            "ALTER COLUMN manifestar_automaticamente SET DEFAULT TRUE"
+                        )
+                    )
+                    resultado = conexao.execute(
+                        text(
+                            "UPDATE empresas SET manifestar_automaticamente = TRUE "
+                            "WHERE manifestar_automaticamente = FALSE"
+                        )
+                    )
+                    if resultado.rowcount:
+                        log.info(
+                            "Migração: manifestar_automaticamente ativado em %d empresa(s)",
+                            resultado.rowcount,
+                        )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Migração: ajuste de manifestar_automaticamente pulado (%s)", exc)
 
 
 def _apagar_credenciais_jettax() -> None:

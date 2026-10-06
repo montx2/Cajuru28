@@ -101,7 +101,7 @@ def _consulta_publica(cnpj_cpf: str):
     return consultar_cnpj(cnpj_cpf)
 
 
-def _completar_dados_empresa(dados: EmpresaCriar) -> dict:
+def _completar_dados_empresa(dados: EmpresaCriar, existente: Empresa | None = None) -> dict:
     """
     Aplica o preenchimento automático de UF/razão social pelo CNPJ.
 
@@ -122,6 +122,11 @@ def _completar_dados_empresa(dados: EmpresaCriar) -> dict:
         uf = uf or _validar_uf_ou_vazio(consulta.uf)
         razao = razao or consulta.razao_social or consulta.nome_fantasia
         codigo_ibge = codigo_ibge or consulta.codigo_ibge or None
+
+    if existente is not None:
+        uf = uf or _validar_uf_ou_vazio(existente.uf)
+        razao = razao or (existente.razao_social or "").strip()
+        codigo_ibge = codigo_ibge or existente.codigo_ibge or None
 
     if not razao:
         raise HTTPException(
@@ -158,14 +163,30 @@ def criar_empresa(
     escritorio_id: int = Depends(escritorio_id_atual),
     usuario: Usuario = Depends(requer_escrita),
 ):
-    dados_empresa = _completar_dados_empresa(dados)
+    documento = normalizar_documento(dados.cnpj_cpf)
     ja_existe = (
         db.query(Empresa)
-        .filter(Empresa.escritorio_id == escritorio_id, Empresa.cnpj_cpf == dados_empresa["cnpj_cpf"])
+        .filter(Empresa.escritorio_id == escritorio_id, Empresa.cnpj_cpf == documento)
         .first()
     )
-    if ja_existe:
-        raise HTTPException(status_code=409, detail="Já existe uma empresa com esse CNPJ/CPF")
+    dados_empresa = _completar_dados_empresa(dados, existente=ja_existe)
+    if ja_existe is not None:
+        ja_existe.razao_social = dados_empresa["razao_social"]
+        ja_existe.uf = dados_empresa["uf"]
+        if dados_empresa.get("codigo_ibge"):
+            ja_existe.codigo_ibge = dados_empresa["codigo_ibge"]
+        if dados_empresa.get("inscricao_municipal"):
+            ja_existe.inscricao_municipal = dados_empresa["inscricao_municipal"]
+        ja_existe.ativa = True
+        db.flush()
+        auditoria.registrar(
+            db, usuario, "empresa_atualizada",
+            entidade="empresa", entidade_id=ja_existe.id,
+            detalhe=f"{ja_existe.razao_social} ({ja_existe.cnpj_cpf}/{ja_existe.uf})",
+        )
+        db.commit()
+        db.refresh(ja_existe)
+        return ja_existe
 
     empresa = Empresa(escritorio_id=escritorio_id, **dados_empresa)
     db.add(empresa)
@@ -813,6 +834,8 @@ def _obter_ou_criar_empresa(
         .first()
     )
     if empresa is not None:
+        if not empresa.ativa:
+            empresa.ativa = True
         if not empresa.razao_social and razao_social:
             empresa.razao_social = razao_social[:255]
         if not empresa.uf and uf:
@@ -848,7 +871,18 @@ def _criar_empresa_de_linha(
         .first()
     )
     if existente is not None:
-        empresa, _ = _obter_ou_criar_empresa(db, escritorio_id, cnpj, razao, "", vistos)
+        uf_existente = (existente.uf or linha.get("uf") or uf_padrao or "").upper()
+        if uf_existente not in _UFS_VALIDAS:
+            publico_existente = _consulta_publica(cnpj)
+            uf_existente = (publico_existente.uf if publico_existente else "").upper()
+        empresa, _ = _obter_ou_criar_empresa(
+            db,
+            escritorio_id,
+            cnpj,
+            razao,
+            uf_existente if uf_existente in _UFS_VALIDAS else "",
+            vistos,
+        )
         return ItemLoteEmpresas(
             origem=origem,
             cnpj_cpf=cnpj,
@@ -861,7 +895,7 @@ def _criar_empresa_de_linha(
     publico = None
     if not (linha.get("uf") or uf_padrao):
         publico = _consulta_publica(cnpj)
-    razao = razao or (publico.razao_social if publico else "")
+    razao = razao or (publico.razao_social if publico else "") or (publico.nome_fantasia if publico else "")
     uf = (linha.get("uf") or uf_padrao or (publico.uf if publico else "")).upper()
 
     if not razao:

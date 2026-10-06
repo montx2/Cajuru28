@@ -96,12 +96,11 @@ class Empresa(Base):
     sincronizar_automaticamente: Mapped[bool] = mapped_column(Boolean, default=True)
     quais_tipos_sincronizar: Mapped[str] = mapped_column(String(30), default="nfse,nfe,cte")
     # Manifestação do Destinatário (evento 210210, Ciência da Operação).
-    # É o que libera o XML completo da NF-e em que a empresa é destinatária.
-    # Fica DESLIGADO por padrão de propósito: a Ciência é um ato jurídico
-    # irreversível registrado na SEFAZ em nome da empresa e dispara o prazo
-    # legal de manifestação conclusiva. Só o operador decide quem entra.
+    # É o que libera o XML completo (procNFe) da NF-e em que a empresa é
+    # destinatária. Ativado por padrão para que o sistema registre a Ciência e
+    # baixe a nota completa automaticamente sem exigir consulta externa manual.
     manifestar_automaticamente: Mapped[bool] = mapped_column(
-        Boolean, default=False, server_default="false"
+        Boolean, default=True, server_default="true"
     )
     # Dados municipais do cadastro da empresa. Opcionais: a captura oficial
     # ADN/SEFAZ não depende deles.

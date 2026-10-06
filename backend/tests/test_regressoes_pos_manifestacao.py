@@ -288,3 +288,82 @@ def test_fila_de_completar_alcanca_notas_ainda_nao_manifestadas(db):
         "empresa com Ciência automática precisa ver as notas não manifestadas, "
         "senão a manifestação nunca é disparada e tudo fica em resumo"
     )
+
+
+def test_completar_xmls_manifesta_mesmo_com_janela_dist_nsu_fechada(db, tmp_path, monkeypatch):
+    """Depois que `importar_documentos` termina no topo da fila (`ultNSU == maxNSU`),
+    `marcar_sem_novidade` agenda `proxima_consulta_em` para daqui a 1 hora.
+    Isso NÃO pode impedir `completar_xmls_pendentes` de enviar a Ciência da
+    Operação (`NFeRecepcaoEvento4` é outro webservice) e buscar o XML completo.
+    """
+    from app.core.vault import cifrar_segredo
+    from app.models import Certificado
+    from app.services import sincronizacao
+    from app.services.importadores.base import DocumentoBaixado
+    from app.worker import tasks
+
+    sessao, empresa = db
+    pfx = tmp_path / "cert.pfx"
+    pfx.write_bytes(b"fake")
+    sessao.add(
+        Certificado(
+            empresa_id=empresa.id,
+            arquivo_path=str(pfx),
+            senha_cifrada=cifrar_segredo("123"),
+            validade=datetime(2027, 1, 1, tzinfo=timezone.utc),
+            ativo=True,
+        )
+    )
+    xml_resumo = tmp_path / f"{CHAVE}.xml"
+    xml_resumo.write_bytes(_res_nfe(CHAVE))
+    doc = DocumentoFiscal(
+        empresa_id=empresa.id,
+        tipo=NFE,
+        direcao="tomada",
+        chave_acesso=CHAVE,
+        nsu="100",
+        data_emissao=datetime(2026, 8, 20, tzinfo=timezone.utc),
+        valor_total=250.0,
+        xml_path=str(xml_resumo),
+        leiaute="resumo",
+    )
+    sessao.add(doc)
+    sessao.flush()
+
+    estado = sincronizacao.obter_estado(sessao, empresa.id, NFE)
+    estado.ultimo_nsu = "100"
+    estado.max_nsu = "100"
+    sincronizacao.marcar_sem_novidade(sessao, estado)
+    sessao.commit()
+
+    monkeypatch.setattr(tasks, "SessionLocal", lambda: sessao)
+    monkeypatch.setattr(sessao, "close", lambda: None)
+    monkeypatch.setattr(tasks, "ler_pfx_protegido", lambda _: b"fake")
+    monkeypatch.setattr(tasks, "sessao_mtls", _sessao_mtls_falsa(tmp_path))
+    monkeypatch.setattr(tasks, "manifestar_ciencia", lambda **_: "135123456789012")
+
+    class _ImportadorFake:
+        def buscar_por_chave(self, **kwargs):
+            return DocumentoBaixado(
+                tipo=NFE,
+                chave_acesso=CHAVE,
+                nsu="101",
+                numero="777",
+                serie="2",
+                data_emissao="2026-08-20T14:30:00-03:00",
+                competencia="2026-08-01",
+                valor_total=250.0,
+                xml=_proc_nfe(CHAVE),
+                direcao="tomada",
+                leiaute="completo",
+            )
+
+    monkeypatch.setattr(tasks, "obter_importador", lambda _: _ImportadorFake())
+
+    resultado = tasks.completar_xmls_pendentes(empresa_id=empresa.id, limite=20)
+    assert resultado["manifestados"] == 1
+    assert resultado["completados"] == 1
+    assert doc.leiaute == "completo"
+    assert doc.manifestado_em is not None
+    assert b"<nfeProc" in xml_resumo.read_bytes()
+
