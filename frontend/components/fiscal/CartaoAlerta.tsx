@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ROTULO_ACAO_LOTE } from "@/lib/acoes-documento";
 import { BotaoLink } from "@/components/ui/Botao";
 import { cn } from "@/lib/cn";
 import { estadoDoNivel } from "@/lib/estados";
@@ -50,9 +51,29 @@ export function destinoDoAlerta(alerta: AlertaItem): string {
   return rota;
 }
 
+/**
+ * Rótulo definitivo da ação de cada categoria.
+ *
+ * O fallback antigo era o mesmo para todas as categorias: um botão que não diz
+ * o que faz exige ler o alerta inteiro antes do clique, e a mesma ação aparecia
+ * com nomes diferentes em telas diferentes. Aqui o verbo é o da tela de destino
+ * — `xml` usa exatamente o mesmo rótulo do acervo (Buscar todos os XMLs).
+ */
+const ROTULO_POR_CATEGORIA: Record<string, string> = {
+  certificado: "Resolver certificado",
+  cadastro: "Completar cadastro",
+  sefaz: "Ver captura",
+  distribuicao: "Ver captura",
+  sincronismo: "Ver sincronismo",
+  xml: ROTULO_ACAO_LOTE.buscarXml,
+  execucao: "Ver execução",
+  sistema: "Ver saúde do sistema",
+  procuracao: "Ver procuração",
+};
+
 export function rotuloDaAcao(alerta: AlertaItem): string {
   if (alerta.acao_rotulo) return alerta.acao_rotulo;
-  return alerta.acao_href || ROTA_POR_CATEGORIA[alerta.categoria] ? "Resolver" : "Ver detalhe";
+  return ROTULO_POR_CATEGORIA[alerta.categoria] ?? "Ver detalhe";
 }
 
 export function CartaoAlerta({ alerta, lida, aoMarcarLida, aoReabrir, className, compacta }: CartaoAlertaProps) {
@@ -92,8 +113,12 @@ export function CartaoAlerta({ alerta, lida, aoMarcarLida, aoReabrir, className,
             {alerta.detalhe}
           </p>
         </div>
+        {/* Uma ação por alerta (a que resolve) + no máximo uma secundária
+            ("Marcar como lida" OU "Reabrir", nunca as duas). Excluir/ignorar em
+            massa não mora aqui. */}
         <div className="flex flex-none flex-wrap items-center gap-2">
           <BotaoLink
+            data-acao="primaria"
             tamanho="sm"
             href={destinoDoAlerta(alerta)}
             iconeDireita={<Icone nome="seta-direita" className="h-3.5 w-3.5" />}
@@ -111,6 +136,7 @@ export function CartaoAlerta({ alerta, lida, aoMarcarLida, aoReabrir, className,
           {aoMarcarLida && !lida ? (
             <button
               type="button"
+              data-acao="secundaria"
               onClick={aoMarcarLida}
               className="inline-flex h-9 items-center rounded-controle px-2 text-xs font-medium text-tinta-suave transition-colors duration-120 hover:bg-fundo-afundado hover:text-tinta"
             >
@@ -120,6 +146,7 @@ export function CartaoAlerta({ alerta, lida, aoMarcarLida, aoReabrir, className,
           {aoReabrir && lida ? (
             <button
               type="button"
+              data-acao="secundaria"
               onClick={aoReabrir}
               className="inline-flex h-9 items-center rounded-controle px-2 text-xs font-medium text-tinta-suave transition-colors duration-120 hover:bg-fundo-afundado hover:text-tinta"
             >

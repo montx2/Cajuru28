@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { api, type FiltrosDocumentos } from "@/lib/api";
+import { ROTULO_ACAO_LOTE } from "@/lib/acoes-documento";
 import { bytesParaTexto, chaveEmGrupos, dataCurta, formatarCnpjCpf, mesAno, numero, plural } from "@/lib/format";
 import { estadoDoDocumento } from "@/lib/estados";
 import { mensagemDoErro } from "@/lib/erros";
@@ -345,13 +346,13 @@ export function Documentos() {
       const resultado = await api.completarXmls(empresa, 20);
       avisar({
         tom: resultado.disparado ? "ok" : "espera",
-        titulo: resultado.disparado ? "Busca de XMLs completos disparada" : "Nada a completar agora",
+        titulo: resultado.disparado ? "Busca de XMLs completos disparada" : "Nada a buscar agora",
         descricao: resultado.aviso,
       });
       documentos.atualizar();
       resumo.atualizar();
     } catch (falha) {
-      avisar({ tom: "erro", titulo: "Não foi possível completar os XMLs", descricao: mensagemDoErro(falha, "completar XMLs") });
+      avisar({ tom: "erro", titulo: "Não foi possível buscar os XMLs", descricao: mensagemDoErro(falha, "buscar os XMLs") });
     } finally {
       setCompletandoXml(false);
     }
@@ -598,24 +599,45 @@ export function Documentos() {
           totalNoFiltro: total ?? undefined,
         }}
         barraDeSelecao={({ quantidade }) => (
+          // Com seleção ativa, a ação principal da tela passa a ser o lote:
+          // uma primária só. A exclusão sai do lado do botão principal e vai
+          // para o "⋯" — destrutiva, rara, e hoje vizinha de clique por engano.
           <div className="flex flex-wrap items-center gap-2">
-            <Botao variante="secundaria" tamanho="sm" onClick={() => baixarSelecao("xml")} carregando={baixando} iconeEsquerda={<Icone nome="documento" className="h-3.5 w-3.5" />}>
-              Baixar {numero(quantidade)} XMLs
-            </Botao>
-            {somenteLeitura ? (
-              <span className="text-xs text-tinta-suave" title={MOTIVO_SOMENTE_LEITURA}>
-                Exclusão indisponível para o seu papel
-              </span>
-            ) : (
+            <div data-acao="primaria">
               <Botao
-                variante="perigo-sutil"
+                variante="primaria"
                 tamanho="sm"
-                onClick={() => setExcluirLote(idsSelecionados)}
-                iconeEsquerda={<Icone nome="excluir" className="h-3.5 w-3.5" />}
+                onClick={() => baixarSelecao("xml")}
+                carregando={baixando}
+                iconeEsquerda={<Icone nome="baixar" className="h-3.5 w-3.5" />}
               >
-                Excluir {numero(quantidade)}…
+                Baixar {numero(quantidade)} XMLs
               </Botao>
-            )}
+            </div>
+            <MenuSuspenso
+              rotulo="Mais ações da seleção"
+              icone="mais"
+              tamanho="sm"
+              dica="Mais ações da seleção"
+              itens={[
+                {
+                  id: "csv",
+                  rotulo: `Relação (CSV) das ${numero(quantidade)}`,
+                  icone: "baixar",
+                  aoClicar: () => baixarSelecao("csv"),
+                },
+                {
+                  id: "excluir",
+                  rotulo: `Excluir ${numero(quantidade)} documentos…`,
+                  icone: "excluir",
+                  tom: "perigo" as const,
+                  separarAcima: true,
+                  desabilitado: somenteLeitura,
+                  motivo: somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined,
+                  aoClicar: () => setExcluirLote(idsSelecionados),
+                },
+              ]}
+            />
           </div>
         )}
         estados={{
@@ -759,7 +781,10 @@ export function Documentos() {
                 },
                 {
                   id: "completar",
-                  rotulo: completandoXml ? "Completando XMLs…" : "Completar XMLs",
+                  // Mesmo verbo da ficha: no singular é a ação do documento, no
+                  // lote é esta. Ter um terceiro verbo aqui para a mesma ação
+                  // era metade do problema de hierarquia que o dono reclamou.
+                  rotulo: completandoXml ? "Buscando XMLs…" : ROTULO_ACAO_LOTE.buscarXml,
                   icone: "sincronizar",
                   desabilitado: somenteLeitura || completandoXml,
                   motivo: somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined,

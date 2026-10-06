@@ -48,7 +48,11 @@ describe("hierarquia operacional reconstruída", () => {
     expect(documentos).toContain('rotulo="Exportar"');
     expect(documentos).toContain('rotulo="Mais ações da tabela"');
     expect(documentos).toContain("Baixar {numero(quantidade)} XMLs");
-    expect(documentos).toContain("Excluir {numero(quantidade)}…");
+    // A exclusão em lote saiu do lado do botão principal e foi para o "⋯":
+    // destrutiva, rara e vizinha de clique por engano na barra de seleção.
+    expect(documentos).toContain('rotulo="Mais ações da seleção"');
+    expect(documentos).toContain("Excluir ${numero(quantidade)} documentos…");
+    expect(documentos).not.toContain(">Excluir {numero(quantidade)}…<");
 
     expect(empresas).toContain('rotulo="Buscar empresa"');
     expect(empresas).toContain("Nova empresa");

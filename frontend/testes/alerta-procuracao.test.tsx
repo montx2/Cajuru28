@@ -24,7 +24,9 @@ function alerta(parcial: Partial<AlertaItem>): AlertaItem {
 describe("alerta de procuração", () => {
   it("sem ação específica, a categoria leva à tela de Procurações", () => {
     expect(destinoDoAlerta(alerta({}))).toBe("/dashboard/procuracoes");
-    expect(rotuloDaAcao(alerta({}))).toBe("Resolver");
+    // Não é mais o genérico "Resolver": cada categoria tem o rótulo definitivo
+    // da ação que o clique realmente executa.
+    expect(rotuloDaAcao(alerta({}))).toBe("Ver procuração");
   });
 
   it("alerta de processo leva ao painel do próprio job", () => {
