@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { ROTULO_ACAO_LOTE } from "@/lib/acoes-documento";
 import { dataCurta, dataHora, formatarCnpjCpf, numero, plural, tempoDecorrido } from "@/lib/format";
 import { estadoDaExecucao, estadoDaSincronizacao, estadoDoCertificado } from "@/lib/estados";
 import { mensagemDoErro } from "@/lib/erros";
@@ -108,10 +109,10 @@ export function Empresa() {
     setCompletandoXml(true);
     try {
       const resultado = await api.completarXmls(id, 20);
-      avisar({ tom: resultado.disparado ? "ok" : "espera", titulo: resultado.disparado ? "Busca de XMLs disparada" : "Nada a completar", descricao: resultado.aviso });
+      avisar({ tom: resultado.disparado ? "ok" : "espera", titulo: resultado.disparado ? "Busca de XMLs disparada" : "Nada a buscar agora", descricao: resultado.aviso });
       documentos.atualizar();
     } catch (falha) {
-      avisar({ tom: "erro", titulo: "Não foi possível completar os XMLs", descricao: mensagemDoErro(falha, "completar XMLs") });
+      avisar({ tom: "erro", titulo: "Não foi possível buscar os XMLs", descricao: mensagemDoErro(falha, "buscar os XMLs") });
     } finally {
       setCompletandoXml(false);
     }
@@ -224,8 +225,10 @@ export function Empresa() {
                 carregando={completandoXml}
                 disabled={somenteLeitura}
                 title={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined}
+                iconeEsquerda={<Icone nome="sincronizar" className="h-4 w-4" />}
               >
-                Completar XMLs
+                {/* Mesmo verbo da ficha e do acervo — um rótulo só por ação. */}
+                {ROTULO_ACAO_LOTE.buscarXml}
               </Botao>
             ) : null}
             <MenuSuspenso

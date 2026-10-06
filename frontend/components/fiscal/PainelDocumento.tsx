@@ -3,6 +3,8 @@
 import { useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import { acoesDoDocumento, situacaoDoDocumento, type SituacaoDocumento } from "@/lib/acoes-documento";
+import { cn } from "@/lib/cn";
 import { bytesParaTexto, chaveEmGrupos, dataCurta, dataHora, mesAno, numero, nsuFormatado, tempoRelativo } from "@/lib/format";
 import { estadoDoDocumento } from "@/lib/estados";
 import { useRecurso } from "@/lib/useRecurso";
@@ -14,6 +16,7 @@ import { EstadoErro } from "@/components/ui/EstadoErro";
 import { ChaveAcesso, Cnpj, ValorMoeda } from "@/components/ui/Formatadores";
 import { Icone } from "@/components/ui/Icone";
 import { IndicadorEstado } from "@/components/ui/IndicadorEstado";
+import { MenuSuspenso } from "@/components/ui/MenuSuspenso";
 import { Painel } from "@/components/ui/Painel";
 import { useToast } from "@/components/ui/Toast";
 import { ManifestacaoConclusiva } from "@/components/fiscal/ManifestacaoConclusiva";
@@ -81,17 +84,14 @@ function ConteudoDocumento({ id, aoExcluir, somenteLeitura }: { id: number; aoEx
 
   const documento = recurso.dados;
   const estado = estadoDoDocumento(documento);
-  // A Ciência da Operação só é aceita até 10 dias da autorização da NF-e.
-  // Depois disso a SEFAZ devolve 596 e a nota só destrava com um evento
-  // conclusivo — que é decisão do operador. A folga de 2 dias evita oferecer a
-  // conclusiva para uma nota que ainda está dentro do prazo (a data de emissão
-  // é um piso: a autorização nunca vem antes dela).
-  const cienciaProvavelmenteVencida = Boolean(
-    documento.leiaute === "resumo" &&
-      !documento.manifestado_em &&
-      documento.data_emissao &&
-      Date.now() - new Date(documento.data_emissao).getTime() > 12 * 24 * 60 * 60 * 1000
-  );
+  // Hierarquia e situação vêm de uma regra só (`lib/acoes-documento`), a mesma
+  // que a lista e os alertas usam. Decidir aqui dentro é o que fazia a ficha
+  // ter dois rótulos para a mesma ação.
+  const acoes = acoesDoDocumento(documento, {
+    somenteLeitura,
+    podeExcluir: Boolean(aoExcluir) && !somenteLeitura,
+  });
+  const situacao = situacaoDoDocumento(documento);
   const tipo = ROTULO_TIPO[(documento.tipo as TipoDocumentoFiscal) ?? "nfe"] ?? documento.tipo;
 
   async function verXml() {
@@ -161,74 +161,11 @@ function ConteudoDocumento({ id, aoExcluir, somenteLeitura }: { id: number; aoEx
           <span className="mx-2 text-traco-forte">·</span>
           competência {documento.competencia ? mesAno(documento.competencia) : "—"}
         </p>
-        {documento.status === "cancelada" && documento.motivo_cancelamento ? (
-          <p className="mt-2 rounded-controle border border-erro/40 bg-erro-tenue px-3 py-2 text-sm leading-6 text-erro">
-            <span className="font-medium">Motivo do cancelamento: </span>
-            {documento.motivo_cancelamento}
-            {documento.cancelado_em ? <span className="nums ml-1 text-xs">· {dataHora(documento.cancelado_em)}</span> : null}
-          </p>
-        ) : null}
-        {/* Por que esta nota ainda está só em resumo. Sem isto o operador via
-            "só resumo" e não tinha como saber se falta manifestar, se a SEFAZ
-            recusou, ou qual foi o motivo — só abrindo o banco. */}
-        {documento.manifestacao_erro && documento.manifestacao_cstat === "596" ? (
-          // 596 = a Ciência da Operação chegou tarde (o prazo é de 10 dias).
-          // Repetir a tentativa nunca vai funcionar; a saída é o evento
-          // conclusivo — e quem escolhe qual é o operador, não o robô.
-          <div className="mt-2 space-y-2 rounded-controle border border-espera/40 bg-espera-tenue px-3 py-2 text-sm leading-6 text-espera">
-            <p>
-              <span className="font-medium">
-                A Ciência da Operação não é mais aceita para esta nota.
-              </span>{" "}
-              Ela passou dos 10 dias contados da autorização e a SEFAZ recusou o evento
-              (cStat 596). O XML completo só é liberado com uma manifestação conclusiva —
-              Confirmação da Operação, se a mercadoria foi recebida.
-            </p>
-            {!somenteLeitura ? (
-              <ManifestacaoConclusiva documento={documento} aoConcluir={recurso.atualizar} />
-            ) : null}
-          </div>
-        ) : documento.manifestacao_erro ? (
-          <div className="mt-2 space-y-2 rounded-controle border border-erro/40 bg-erro-tenue px-3 py-2 text-sm leading-6 text-erro">
-            <p>
-              <span className="font-medium">Ciência da Operação recusada: </span>
-              {documento.manifestacao_erro}
-            </p>
-            {!somenteLeitura ? (
-              <Botao tamanho="sm" variante="secundaria" onClick={completarXmlAgora} carregando={completando} iconeEsquerda={<Icone nome="sincronizar" className="h-3.5 w-3.5" />}>
-                Tentar buscar XML completo na SEFAZ
-              </Botao>
-            ) : null}
-          </div>
-        ) : documento.leiaute === "resumo" ? (
-          <div className="mt-2 space-y-2 rounded-controle border border-espera/40 bg-espera-tenue px-3 py-2 text-sm leading-6 text-espera">
-            <p>
-              {documento.manifestado_em
-                ? `Ciência da Operação registrada em ${dataHora(documento.manifestado_em)}. O XML completo (procNFe) está sendo liberado pela SEFAZ.`
-                : "Esta nota chegou inicialmente em resumo (resNFe). O sistema registra a Ciência da Operação e busca o XML completo (procNFe) pela chave na SEFAZ usando o certificado A1 da empresa."}
-            </p>
-            {cienciaProvavelmenteVencida ? (
-              <p>
-                A nota tem mais de 10 dias: se a Ciência da Operação for recusada com 596,
-                o XML completo só sai com uma manifestação conclusiva.
-              </p>
-            ) : null}
-            {!somenteLeitura ? (
-              <div className="flex flex-wrap items-center gap-2">
-                <Botao tamanho="sm" variante="secundaria" onClick={completarXmlAgora} carregando={completando} iconeEsquerda={<Icone nome="sincronizar" className="h-3.5 w-3.5" />}>
-                  Buscar XML completo na SEFAZ agora
-                </Botao>
-                {cienciaProvavelmenteVencida ? (
-                  <ManifestacaoConclusiva documento={documento} aoConcluir={recurso.atualizar} />
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        ) : documento.manifestado_em ? (
-          <p className="mt-2 text-xs text-tinta-suave">
-            Ciência da Operação registrada em {dataHora(documento.manifestado_em)}.
-          </p>
-        ) : null}
+        {/* Por que esta nota ainda não está pronta. Um bloco só, com um
+            parágrafo por fato: antes eram até três cartões irmãos (596, erro
+            genérico e resumo), cada um com o próprio botão, e a mesma ação
+            aparecia duas vezes com dois nomes diferentes. */}
+        {situacao ? <BlocoSituacao situacao={situacao} /> : null}
       </section>
 
       <section aria-labelledby="chave-do-documento">
@@ -298,27 +235,79 @@ function ConteudoDocumento({ id, aoExcluir, somenteLeitura }: { id: number; aoEx
         {xml !== null ? <VisualizadorXml texto={xml} /> : null}
       </section>
 
+      {/* Uma linha de ação: 1 primária (a que resolve o estado do documento) +
+          até 2 secundárias + o menu "⋯". Excluir mora no menu de propósito:
+          destrutiva e rara, nunca vizinha do botão que o operador vai clicar. */}
       <div className="flex flex-wrap items-center gap-2 border-t border-traco pt-4">
-        <Botao variante="primaria" tamanho="sm" onClick={baixarXml} carregando={baixando} iconeEsquerda={<Icone nome="baixar" className="h-4 w-4" />}>
-          Baixar XML
-        </Botao>
-        <Link
-          href={`/dashboard/empresa?id=${documento.empresa_id}`}
-          className="inline-flex h-8 items-center gap-1.5 rounded-controle px-2.5 text-sm font-medium text-acento underline-offset-4 hover:underline"
-        >
-          <Icone nome="empresa" className="h-4 w-4" />
-          Ver empresa
-        </Link>
-        {aoExcluir && !somenteLeitura ? (
-          <Botao
-            variante="perigo-sutil"
+        {acoes.primaria ? (
+          <div data-acao="primaria">
+            {acoes.primaria.id === "manifestar-operacao" ? (
+              <ManifestacaoConclusiva
+                documento={documento}
+                aoConcluir={recurso.atualizar}
+                variante="primaria"
+                tamanho="sm"
+                desabilitado={acoes.primaria.desabilitado}
+                motivo={acoes.primaria.motivo}
+              />
+            ) : acoes.primaria.id === "buscar-xml-completo" ? (
+              <Botao
+                variante="primaria"
+                tamanho="sm"
+                onClick={completarXmlAgora}
+                carregando={completando}
+                disabled={acoes.primaria.desabilitado}
+                title={acoes.primaria.motivo}
+                iconeEsquerda={<Icone nome={acoes.primaria.icone} className="h-4 w-4" />}
+              >
+                {acoes.primaria.rotulo}
+              </Botao>
+            ) : (
+              <Botao
+                variante="primaria"
+                tamanho="sm"
+                onClick={baixarXml}
+                carregando={baixando}
+                disabled={acoes.primaria.desabilitado}
+                title={acoes.primaria.motivo}
+                iconeEsquerda={<Icone nome={acoes.primaria.icone} className="h-4 w-4" />}
+              >
+                {acoes.primaria.rotulo}
+              </Botao>
+            )}
+          </div>
+        ) : null}
+
+        {acoes.secundarias.map((secundaria) =>
+          secundaria.id === "ver-empresa" ? (
+            <Link
+              key={secundaria.id}
+              data-acao="secundaria"
+              href={`/dashboard/empresa?id=${documento.empresa_id}`}
+              className="inline-flex h-8 items-center gap-1.5 rounded-controle px-2.5 text-sm font-medium text-acento underline-offset-4 hover:underline"
+            >
+              <Icone nome={secundaria.icone} className="h-4 w-4" />
+              {secundaria.rotulo}
+            </Link>
+          ) : null
+        )}
+
+        {acoes.menu.length > 0 ? (
+          <MenuSuspenso
+            rotulo="Mais ações do documento"
+            icone="mais"
             tamanho="sm"
             className="ml-auto"
-            onClick={() => aoExcluir(documento)}
-            iconeEsquerda={<Icone nome="excluir" className="h-4 w-4" />}
-          >
-            Excluir documento
-          </Botao>
+            itens={acoes.menu.map((item) => ({
+              id: item.id,
+              rotulo: item.rotulo,
+              icone: item.icone,
+              tom: item.id === "excluir-documento" ? ("perigo" as const) : undefined,
+              desabilitado: item.desabilitado,
+              motivo: item.motivo,
+              aoClicar: item.id === "excluir-documento" ? () => aoExcluir?.(documento) : baixarXml,
+            }))}
+          />
         ) : null}
       </div>
     </div>
@@ -327,6 +316,53 @@ function ConteudoDocumento({ id, aoExcluir, somenteLeitura }: { id: number; aoEx
 
 function somenteDigitosChave(chave: string): number {
   return chave.replace(/\D/g, "").length;
+}
+
+/* ── Situação ─────────────────────────────────────────────────────────────── */
+
+const TOM_BLOCO: Record<string, string> = {
+  erro: "border-erro/40 bg-erro-tenue text-erro",
+  espera: "border-espera/40 bg-espera-tenue text-espera",
+  info: "border-info/40 bg-info-tenue text-info",
+};
+
+/**
+ * O bloco único de situação da ficha.
+ *
+ * Substitui os três cartões que se empilhavam (596, recusa genérica e resumo),
+ * cada um com o seu próprio botão — inclusive a mesma ação escrita de dois
+ * jeitos e aparecendo duas vezes na nota com erro e mais de 12 dias.
+ *
+ * Aqui não há botão: **a ação mora em um lugar só** (a linha do rodapé), e este
+ * bloco diz qual é ela. Um bloco por documento, um parágrafo por fato.
+ */
+function BlocoSituacao({ situacao }: { situacao: SituacaoDocumento }) {
+  // Estado saudável não é aviso: vira uma linha discreta, não um cartão.
+  if (situacao.tom === "neutro") {
+    return <p className="mt-2 text-xs text-tinta-suave">{situacao.titulo}</p>;
+  }
+  return (
+    <div
+      data-situacao="documento"
+      className={cn(
+        "mt-2 rounded-controle border px-3 py-2 text-sm leading-6",
+        TOM_BLOCO[situacao.tom] ?? TOM_BLOCO.espera
+      )}
+    >
+      <p className="font-medium">{situacao.titulo}</p>
+      {situacao.paragrafos.map((paragrafo) => (
+        <p key={paragrafo} className="mt-1">
+          {paragrafo}
+        </p>
+      ))}
+      {situacao.acao ? (
+        <p className="mt-2 text-xs">
+          Para resolver: <span className="font-medium">{situacao.acao}</span>, no rodapé desta
+          ficha.
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 

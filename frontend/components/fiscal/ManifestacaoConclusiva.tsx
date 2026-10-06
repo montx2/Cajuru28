@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import { api } from "@/lib/api";
+import { ROTULO_ACAO } from "@/lib/acoes-documento";
 import { chaveEmGrupos } from "@/lib/format";
 import type { DocumentoDetalhe, TipoManifestacaoConclusiva } from "@/lib/types";
 import { Area, Botao, DialogoConfirmacao, GrupoRadio, Icone } from "@/components/ui";
+import type { TamanhoBotao, VarianteBotao } from "@/components/ui/Botao";
 import { useToast } from "@/components/ui/Toast";
 
 const TIPOS: { valor: TipoManifestacaoConclusiva; rotulo: string; ajuda: string }[] = [
@@ -41,9 +43,23 @@ const TIPOS: { valor: TipoManifestacaoConclusiva; rotulo: string; ajuda: string 
 export function ManifestacaoConclusiva({
   documento,
   aoConcluir,
+  variante = "secundaria",
+  tamanho = "sm",
+  desabilitado = false,
+  motivo,
 }: {
   documento: DocumentoDetalhe;
   aoConcluir: () => void;
+  /**
+   * A ficha usa `primaria`: quando a nota está presa em 596, manifestar É a
+   * ação principal do documento — escondê-la como secundária deixaria o botão
+   * que resolve em segundo plano atrás de "Baixar XML", que não resolve.
+   */
+  variante?: VarianteBotao;
+  tamanho?: TamanhoBotao;
+  desabilitado?: boolean;
+  /** Desabilitado sem explicação parece defeito — o motivo vai no `title`. */
+  motivo?: string;
 }) {
   const { avisar } = useToast();
   const [aberto, setAberto] = useState(false);
@@ -94,12 +110,14 @@ export function ManifestacaoConclusiva({
   return (
     <>
       <Botao
-        tamanho="sm"
-        variante="secundaria"
+        tamanho={tamanho}
+        variante={variante}
         onClick={() => setAberto(true)}
+        disabled={desabilitado}
+        title={desabilitado ? motivo : undefined}
         iconeEsquerda={<Icone nome="documento" className="h-3.5 w-3.5" />}
       >
-        Manifestar operação
+        {ROTULO_ACAO["manifestar-operacao"]}
       </Botao>
 
       <DialogoConfirmacao

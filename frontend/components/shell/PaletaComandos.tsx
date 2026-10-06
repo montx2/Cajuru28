@@ -153,7 +153,7 @@ export function PaletaComandos({ aberto, aoFechar, aoAbrirAtalhos }: PaletaComan
       {
         id: "acao-documentos-resumo",
         rotulo: "Buscar documentos só com resumo",
-        descricao: "Completar XML pela chave de acesso",
+        descricao: "Buscar XML completo pela chave de acesso",
         icone: "documento",
         grupo: "Ações",
         destino: "/dashboard/documentos?leiaute=resumo",
