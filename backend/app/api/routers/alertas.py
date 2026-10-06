@@ -27,6 +27,7 @@ from app.models import (
     Empresa,
     ExecucaoImportacao,
     StatusExecucao,
+    TipoDocumentoFiscal,
     Usuario,
 )
 from app.schemas import AlertaItem, AlertasResposta, TesteWebhookResposta
@@ -477,6 +478,39 @@ def computar_alertas(db: Session, escritorio_id: int) -> list[AlertaItem]:
                 "ou adiante pela tela de Documentos.",
                 acao_rotulo="Ver documentos",
                 acao_href="/dashboard/documentos",
+            )
+        )
+
+    # ---- Notas fora do prazo da Ciência da Operação (cStat 596) ------------
+    # Aqui não há espera que resolva: a Ciência da Operação só é aceita até 10
+    # dias da autorização, e depois disso o XML completo só sai com uma
+    # manifestação conclusiva. Sem este alerta a nota fica "aguardando XML"
+    # para sempre e o operador não sabe que precisa decidir.
+    fora_do_prazo = (
+        db.query(func.count(DocumentoFiscal.id))
+        .join(Empresa)
+        .filter(
+            Empresa.escritorio_id == escritorio_id,
+            DocumentoFiscal.tipo == TipoDocumentoFiscal.NFE,
+            DocumentoFiscal.leiaute == "resumo",
+            DocumentoFiscal.manifestacao_cstat == "596",
+        )
+        .scalar()
+        or 0
+    )
+    if fora_do_prazo:
+        itens.append(
+            _montar(
+                "ciencia-fora-do-prazo",
+                "atencao",
+                "xml",
+                f"{fora_do_prazo} NF-e fora do prazo da Ciência da Operação",
+                "A SEFAZ não aceita mais a Ciência nestas notas (cStat 596). "
+                "O XML completo só é liberado com uma manifestação conclusiva: "
+                "Confirmação da Operação (se a operação ocorreu) ou Operação não "
+                "Realizada. Abra a nota e use 'Manifestar operação'.",
+                acao_rotulo="Ver notas",
+                acao_href="/dashboard/documentos?leiaute=resumo",
             )
         )
 

@@ -70,7 +70,7 @@ Pontos que valem a pena saber de cor:
 | Task | Frequência | O que faz |
 | --- | --- | --- |
 | `sincronizar_tudo` | `SINCRONISMO_INTERVALO_MINUTOS` (5) | Retoma execuções `AGUARDANDO` vencidas e enfileira as empresas do modo automático, em **round-robin** por `ultima_consulta_em` (mais antigo primeiro), sem repetir empresa+tipo já em andamento. |
-| `completar_xmls_pendentes` | `COMPLETAR_XMLS_A_CADA_HORAS` (1) | Registra a **Ciência da Operação** (210210) nas empresas com `manifestar_automaticamente` e, em seguida, busca o XML completo (`consChNFe`) das notas em `resumo` — respeitando a cota de 20/h por CNPJ e parando em 656. Notas já recusadas (`manifestacao_erro`) saem da fila para não bloquear as demais. |
+| `completar_xmls_pendentes` | `COMPLETAR_XMLS_A_CADA_HORAS` (1) | Registra a **Ciência da Operação** (210210) nas empresas com `manifestar_automaticamente` e, em seguida, busca o XML completo (`consChNFe`) das notas em `resumo` — respeitando a cota de 20/h por CNPJ e parando em 656. A fila é ordenada por urgência (a Ciência só vale 10 dias) e espaça a repetição da mesma nota (`tentativas_completar`, 2^n-1 até 24 h) para a cota não ser gasta nas mesmas chaves. Notas já recusadas (`manifestacao_erro`) saem da fila — inclusive o **596**, cuja saída é a manifestação conclusiva, não uma nova tentativa. |
 
 Precisa de **exatamente uma** instância de `beat` (não escale este serviço).
 Sem o `beat`, o sistema continua correto: só volta a depender de clique.
@@ -168,7 +168,8 @@ Fluxa/LEIA-ME.txt      o que o pacote contém e o que falta
 | --- | --- | --- |
 | "Aguardando a SEFAZ · bloqueada até HH:MM" | 656 real, janela em curso | Nada. Vai retomar sozinha. Se outro sistema (ex.: Jettax360) consulta o mesmo CNPJ/certificado, é isso — veja a seção 8. |
 | `pendencia` alta que não cai | CNPJ com muito documento acumulado; o round-robin está distribuindo as horas | Espere os ciclos; ou suba `MAX_LOTES_POR_EXECUCAO`. |
-| "só resumo" em muitas NFe | **Falta a Ciência da Operação.** Enquanto o destinatário não se manifesta, o Ambiente Nacional só distribui o `resNFe` — e o `consChNFe` também volta vazio (NT 2014.002). Não é página seguinte nem cota. | Ligue "Manifestação automática" na empresa. Depois da Ciência o `procNFe` chega pelo próprio fluxo de NSU e substitui o resumo. O detalhe do documento mostra se a Ciência foi registrada ou o motivo da recusa. |
+| "só resumo" em muitas NFe | **Falta a Ciência da Operação.** Enquanto o destinatário não se manifesta, o Ambiente Nacional só distribui o `resNFe` — e o `consChNFe` também volta vazio (NT 2014.002). Não é página seguinte nem cota. | Confira "Manifestação automática" da empresa (vem ligada por padrão). Depois da Ciência o `procNFe` chega pelo próprio fluxo de NSU e substitui o resumo. O detalhe do documento mostra se a Ciência foi registrada ou o motivo da recusa. |
+| "A Ciência da Operação não é mais aceita para esta nota" (cStat 596) | A nota passou dos **10 dias** da autorização: a Ciência não é mais aceita e não existe XML completo por essa via | Use **Manifestar operação** na ficha da nota e escolha o evento conclusivo (Confirmação da Operação, se a mercadoria foi recebida). É ato de negócio: o robô não decide. Depois do evento a busca do XML completo volta sozinha. |
 | Prestadas vazio para NFe | A distribuição não entrega os documentos do próprio emitente | Normal. Emitente consulta a SEFAZ autorizadora. |
 | ZIP responde 413 | Filtro maior que o teto | Afine por empresa ou mês; o teto é configurável. |
 | Mês antigo não aparece | Documento anterior aos ~3 meses disponíveis na distribuição | Reimportar não resolve; a fonte é a empresa/contador. |
@@ -205,6 +206,47 @@ leiaute nacional são aceitos; outro formato volta como "Não reconhecido".
 **Para voltar atrás.** `SINCRONISMO_AUTOMATICO=true` + reiniciar. Nada foi
 removido: os cursores, as janelas e o histórico continuam onde estavam, e a
 primeira varredura realinha o cursor com o `ultNSU` que a SEFAZ devolver.
+
+
+## Do `resNFe` ao `procNFe` — a regra do protocolo (e onde o código a cumpre)
+
+**Por que a "nota" que chegava era só o resumo.** Para NF-e em que a empresa é
+**destinatária**, o Ambiente Nacional distribui apenas o `resNFe` — chave,
+emitente, valor e protocolo, sem item, imposto ou total — até que o
+destinatário registre a **Ciência da Operação** (evento 210210). Não é falha de
+paginação nem de cota: a **consulta pontual pela chave (`consChNFe`) obedece à
+mesma checagem** e também devolve só o resumo (NT 2014.002). O documento
+integral (`procNFe`) é liberado depois do evento, pelo fluxo de NSU e/ou pela
+consulta por chave. Emitente não recebe os próprios documentos por essa via;
+transportador/`autXML` recebem sem manifestar — nenhum dos dois é o caso do
+acervo do escritório.
+
+**O que o sistema faz sozinho.** `completar_xmls_pendentes` (Beat, 1×/h, ou o
+botão "Completar XMLs") registra a Ciência com o A1 da empresa e, na sequência,
+consulta a chave. O XML completo normalmente aparece em minutos, mas pode levar
+mais de 24 h — por isso a nota fica na fila e volta espaçada, sem gastar as 20
+consultas/h do CNPJ nas mesmas chaves.
+
+**Quando os 10 dias passaram.** A Ciência só é aceita até **10 dias** contados
+da autorização (Ajuste SINIEF 44/20 / NT 2020.001): depois disso a SEFAZ devolve
+**596** e o robô para — não é erro a ser retentado, é mudança de caminho. A
+saída são as manifestações **conclusivas**: Confirmação da Operação (210200),
+Desconhecimento (210220) e Operação não Realizada (210240). As duas últimas
+exigem justificativa de 15 a 255 caracteres; **Desconhecimento não devolve o XML
+completo** (por regra) e Confirmação impede o emitente de cancelar a nota — por
+isso quem escolhe é o operador, na ficha da nota (**Manifestar operação**). O
+prazo para o evento conclusivo é de **90 dias** (Ajuste SINIEF 14/2026; eram
+180); sem nenhum evento, a operação é tida como tacitamente confirmada.
+
+**As três camadas que impedem o acervo de mentir.** O resumo ja foi gravado no
+lugar da nota e o registro marcado como "completo" — o que tirava a nota da fila
+para sempre. Agora: (1) o importador classifica **pelo conteúdo** (não pelo nome
+do schema) e só documento integral vira/sobrescreve a nota; (2) `_sobrescrever_xml`
+recusa qualquer payload que não traga `infNFe`/`infCTe`/nota NFS-e; (3) no boot,
+`_rebaixar_xmls_incompletos()` relê os arquivos e devolve à fila o que estava
+marcado completo com resumo no disco — e `xml_integridade.rebaixar_divergentes()`
+faz o mesmo sob demanda. O relatório de exportação (`xml_completo`) também passa
+a classificar o arquivo, não o cadastro: nunca mais diz `sim` para um `resNFe`.
 
 
 ## Revisão de captura e recuperação — 02/10/2026

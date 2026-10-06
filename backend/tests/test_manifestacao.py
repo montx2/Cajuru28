@@ -33,6 +33,7 @@ from app.services.importadores.manifestacao import (
     assinar_evento,
     interpretar_resposta_evento,
     manifestar_ciencia,
+    manifestar_conclusiva,
     montar_envelope_evento,
     montar_evento,
     montar_id_evento,
@@ -286,3 +287,118 @@ def test_manifestar_envia_para_o_ambiente_nacional(par_certificado):
     assert "<tpEvento>210210</tpEvento>" in corpo
     assert "<cOrgao>91</cOrgao>" in corpo
     assert "Signature" in corpo, "o evento precisa ir assinado"
+
+
+# --------------------------------------------------------------------------
+# Manifestação conclusiva: o caminho da nota que passou dos 10 dias
+# --------------------------------------------------------------------------
+#
+# A Ciência da Operação só é aceita até 10 dias contados da autorização da
+# NF-e (Ajuste SINIEF 44/20 / NT 2020.001). Depois disso a SEFAZ devolve 596 e
+# o XML completo só sai com uma manifestação CONCLUSIVA — que é ato de negócio
+# do destinatário e, por isso, só é enviada a pedido do operador.
+
+
+@pytest.mark.parametrize(
+    ("tipo", "descricao", "justificativa"),
+    [
+        ("210200", "Confirmacao da Operacao", ""),
+        ("210220", "Desconhecimento da Operacao", "Mercadoria devolvida ao emitente em 20/09"),
+        ("210240", "Operacao nao Realizada", "Nota emitida em duplicidade pelo fornecedor"),
+    ],
+)
+def test_eventos_conclusivos_saem_com_a_descricao_exata_do_xsd(tipo, descricao, justificativa):
+    xml = montar_evento(
+        CHAVE, CNPJ, uf="SP", tipo_evento=tipo, justificativa=justificativa
+    )
+    raiz = etree.fromstring(xml)
+    inf = raiz.find(f"{{{NS_PORTAL}}}infEvento")
+    local = lambda tag: inf.find(f"{{{NS_PORTAL}}}{tag}")
+
+    assert local("tpEvento").text == tipo
+    assert local("detEvento").find(f"{{{NS_PORTAL}}}descEvento").text == descricao
+    assert inf.get("Id") == f"ID{tipo}{CHAVE}01"
+
+
+def test_evento_conclusivo_exige_justificativa_quando_o_leiaute_exige():
+    with pytest.raises(ValueError, match="justificativa"):
+        montar_evento(CHAVE, CNPJ, uf="SP", tipo_evento="210240", justificativa="curta")
+    # Confirmação não tem xJust — e não pode ser obrigada a ter.
+    assert b"descEvento" in montar_evento(CHAVE, CNPJ, uf="SP", tipo_evento="210200")
+
+
+def test_justificativa_e_escapada_para_o_xml_seguir_bem_formado():
+    xml = montar_evento(
+        CHAVE,
+        CNPJ,
+        uf="SP",
+        tipo_evento="210220",
+        justificativa="Compra & venda cancelada <fornecedor> avisou",
+    )
+    etree.fromstring(xml)  # não pode explodir: `&` e `<` vão escapados
+    assert b"&amp;" in xml and b"&lt;" in xml
+
+
+def test_evento_conclusivo_valida_no_xsd_oficial(par_certificado):
+    """O mesmo XSD que valida a Ciência vale para os conclusivos."""
+    cert_path, key_path, _ = par_certificado
+    schema = etree.XMLSchema(etree.parse(str(XSD_DIR / "envConfRecebto_v1.00.xsd")))
+    for tipo in ("210200", "210220", "210240"):
+        assinado = assinar_evento(
+            montar_evento(
+                CHAVE,
+                CNPJ,
+                uf="SP",
+                tipo_evento=tipo,
+                justificativa="Operacao conferida com o fornecedor",
+            ),
+            cert_path,
+            key_path,
+        )
+        assert schema.validate(etree.fromstring(_envelope_evento_sem_soap(assinado))), [
+            e.message for e in schema.error_log
+        ]
+
+
+def test_manifestar_conclusiva_recusa_evento_que_nao_e_conclusivo(par_certificado):
+    cert_path, key_path, _ = par_certificado
+    with pytest.raises(ValueError, match="conclusiva"):
+        manifestar_conclusiva(
+            CHAVE, CNPJ, cert_path, key_path, tipo_evento="210210", uf="SP"
+        )
+
+
+@respx.mock
+def test_manifestar_conclusiva_envia_o_evento_e_a_justificativa(par_certificado):
+    cert_path, key_path, _ = par_certificado
+    rota = respx.post(RECEPCAO_EVENTO_URL_PRODUCAO).mock(
+        return_value=httpx.Response(200, content=_resposta("135", "Evento registrado", "123"))
+    )
+
+    resultado = manifestar_conclusiva(
+        CHAVE,
+        CNPJ,
+        cert_path,
+        key_path,
+        tipo_evento="210200",
+        uf="SP",
+    )
+    assert resultado.sucesso
+    corpo = rota.calls[0].request.content.decode()
+    assert "<tpEvento>210200</tpEvento>" in corpo
+    assert "<descEvento>Confirmacao da Operacao</descEvento>" in corpo
+
+
+def test_mensagem_de_recusa_explica_o_596_como_saida_e_nao_como_erro():
+    """596 = a Ciência não é mais aceita. A mensagem tem que dizer o que fazer."""
+    from app.worker.tasks import mensagem_manifestacao_recusada
+
+    erro = ManifestacaoRecusada(
+        "Rejeicao: Evento apresentado fora do prazo: [10 dias]", cstat="596"
+    )
+    texto = mensagem_manifestacao_recusada(erro)
+    assert "10 dias" in texto
+    assert "manifestação conclusiva" in texto
+
+    outra = mensagem_manifestacao_recusada(ManifestacaoRecusada("Chave inexistente", cstat="599"))
+    assert outra == "cStat 599: Chave inexistente"

@@ -45,6 +45,8 @@ import type {
   RegistroAuditoria,
   ResetGeralResposta,
   ResultadoExclusaoDocumentos,
+  ResultadoManifestacaoConclusiva,
+  TipoManifestacaoConclusiva,
   ResultadoImportacaoSelecionada,
   ImportacaoXmlResposta,
   ResumoCertificado,
@@ -487,6 +489,21 @@ export const api = {
   completarXmlDocumento: (documentoId: number) =>
     chamar<DocumentoDetalhe>(`/documentos/${documentoId}/completar-xml`, {
       method: "POST",
+    }),
+
+  /**
+   * Manifestação conclusiva (Confirmação, Desconhecimento ou Operação não
+   * Realizada) — o caminho da nota que passou dos 10 dias da Ciência (cStat
+   * 596). É ato de negócio: só vai com a escolha explícita do operador.
+   */
+  manifestarConclusiva: (
+    ids: number[],
+    tipo: TipoManifestacaoConclusiva,
+    justificativa?: string
+  ) =>
+    chamar<ResultadoManifestacaoConclusiva[]>("/documentos/manifestar-conclusiva", {
+      method: "POST",
+      body: JSON.stringify({ ids, tipo, justificativa: justificativa || undefined }),
     }),
 
   // ---------------------------------------------------------------

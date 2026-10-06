@@ -98,3 +98,54 @@ def test_migracao_apaga_credenciais_jettax_e_e_idempotente(monkeypatch):
             )
         ]
     assert fontes == ["integra_contador"]
+
+
+def test_manifestacao_automatica_e_ligada_no_sqlite_de_quem_ja_existia(monkeypatch):
+    """Banco antigo (default FALSE) precisa sair do boot com a chave ligada.
+
+    Sem isso, quem já tinha a coluna ficava com o valor antigo — e nota tomada
+    nenhuma era manifestada, ou seja, o XML completo nunca era liberado.
+    """
+    engine = create_engine("sqlite://", poolclass=StaticPool)
+    with engine.begin() as conexao:
+        conexao.execute(
+            text(
+                "CREATE TABLE empresas ("
+                "id INTEGER PRIMARY KEY, razao_social TEXT, "
+                "manifestar_automaticamente BOOLEAN NOT NULL DEFAULT FALSE)"
+            )
+        )
+        conexao.execute(
+            text("INSERT INTO empresas (id, razao_social, manifestar_automaticamente) VALUES (1, 'A', 0)")
+        )
+        # Quem desligou depois da migração também está gravado como 0 — a
+        # migração não tem como distinguir; é por isso que ela só roda enquanto
+        # o DEFAULT da coluna ainda é o antigo.
+    monkeypatch.setattr(migracoes, "engine", engine)
+
+    migracoes._habilitar_manifestacao_automatica_padrao()
+
+    with engine.begin() as conexao:
+        assert conexao.execute(text("SELECT manifestar_automaticamente FROM empresas")).scalar() in (1, True)
+
+
+def test_manifestacao_automatica_nao_atropela_default_novo(monkeypatch):
+    """Coluna já com DEFAULT TRUE: a migração não toca em nada (é idempotente)."""
+    engine = create_engine("sqlite://", poolclass=StaticPool)
+    with engine.begin() as conexao:
+        conexao.execute(
+            text(
+                "CREATE TABLE empresas ("
+                "id INTEGER PRIMARY KEY, razao_social TEXT, "
+                "manifestar_automaticamente BOOLEAN NOT NULL DEFAULT TRUE)"
+            )
+        )
+        conexao.execute(
+            text("INSERT INTO empresas (id, razao_social, manifestar_automaticamente) VALUES (1, 'A', 0)")
+        )
+    monkeypatch.setattr(migracoes, "engine", engine)
+
+    migracoes._habilitar_manifestacao_automatica_padrao()
+
+    with engine.begin() as conexao:
+        assert conexao.execute(text("SELECT manifestar_automaticamente FROM empresas")).scalar() in (0, False)

@@ -45,12 +45,14 @@ from app.models import (
     TipoDocumentoFiscal,
     Usuario,
 )
-from app.services import auditoria
+from app.services import auditoria, xml_integridade
 from app.schemas import (
     DocumentoDetalhe,
     DocumentoFonteResposta,
     DocumentoFiscalResposta,
     DocumentosExcluirLote,
+    ManifestacaoConclusiva,
+    ResultadoManifestacaoConclusiva,
     EmpresaResumoDocumentos,
     EstimativaExportacao,
     ResumoDocumentos,
@@ -890,7 +892,16 @@ def _linha_relatorio(
     arquivo_zip: str,
     *,
     arquivo_ausente_no_disco: bool = False,
+    conteudo: bytes | None = None,
 ) -> list[str]:
+    """Uma linha da relacao.csv — e a coluna `xml_completo` não pode mentir.
+
+    A coluna é o que o contador usa para saber se aquele XML serve. Ela já
+    checava cadastro × disco; agora checa também o CONTEÚDO do arquivo: um
+    `resNFe`/`protNFe` gravado por engano (o caso do `consChNFe` devolvendo
+    resumo) aparece como `so-resumo`, e não como "sim" — é o que separa um
+    pacote fiscal de um pacote de autorizações.
+    """
     if arquivo_ausente_no_disco:
         # O banco diz "XML completo" (leiaute == completo), mas o arquivo não
         # está no disco na hora de montar o pacote — sem isto o contador via
@@ -898,12 +909,23 @@ def _linha_relatorio(
         # simplesmente falhou. Aparece separado de "so-resumo"/"metadados-sem-xml"
         # porque a causa é outra: perda/ausência do arquivo, não falta de captura.
         situacao_xml = "arquivo-ausente-no-disco"
-    elif documento.leiaute == "completo":
-        situacao_xml = "sim"
-    elif documento.leiaute == "metadados":
-        situacao_xml = "metadados-sem-xml"
     else:
-        situacao_xml = "so-resumo"
+        real = xml_integridade.classificar_bytes(conteudo) or xml_integridade.leiaute_do_arquivo(
+            documento.xml_path
+        )
+        if real is None:
+            # Sem arquivo legível não há o que conferir: vale o cadastro.
+            situacao_xml = (
+                "sim"
+                if documento.leiaute == "completo"
+                else "metadados-sem-xml"
+                if documento.leiaute == "metadados"
+                else "so-resumo"
+            )
+        elif xml_integridade.nao_e_a_nota(real):
+            situacao_xml = "so-resumo"
+        else:
+            situacao_xml = "sim"
     return [
         empresa.razao_social,
         empresa.cnpj_cpf,
@@ -1027,6 +1049,7 @@ def _montar_zip(consulta, periodo, *, incluir_relatorio: bool) -> str:
                     empresa,
                     arquivo_relatorio,
                     arquivo_ausente_no_disco=(documento.leiaute == "completo" and not conteudo),
+                    conteudo=conteudo or None,
                 )
             )
 
@@ -1087,24 +1110,32 @@ def _apagar(caminho: str) -> None:
         pass
 
 
-def _xml_e_apenas_autorizacao(caminho: str) -> bool:
-    """Evita entregar `protNFe` como se fosse a nota fiscal completa."""
-    try:
-        raiz = ET.parse(caminho).getroot()
-    except (OSError, ET.ParseError):
-        return False
-    local = lambda tag: tag.rsplit("}", 1)[-1]
-    return local(raiz.tag) == "protNFe" and raiz.find(".//{*}infNFe") is None
-
-
-def _xml_e_apenas_resumo(caminho: str) -> bool:
-    """Detecta quando o arquivo salvo em disco ainda é apenas `resNFe` / `resCTe`."""
-    try:
-        raiz = ET.parse(caminho).getroot()
-    except (OSError, ET.ParseError):
-        return False
-    local = lambda tag: tag.rsplit("}", 1)[-1]
-    return local(raiz.tag) in {"resNFe", "resCTe"} and raiz.find(".//{*}infNFe") is None
+def _mensagem_xml_incompleto(real: str | None, documento: DocumentoFiscal) -> str:
+    """Explica, em português, por que este download foi bloqueado."""
+    if documento.manifestacao_cstat == "596":
+        return (
+            "Esta nota passou dos 10 dias da Ciência da Operação (cStat 596 da SEFAZ), "
+            "que não é mais aceita para ela. O XML completo só é liberado com uma "
+            "manifestação conclusiva: use 'Manifestar operação' na ficha da nota "
+            "(Confirmação da Operação, se a operação ocorreu)."
+        )
+    if real == xml_integridade.LEIAUTE_PROTOCOLO:
+        return (
+            "O arquivo armazenado é somente o protocolo de autorização (protNFe). "
+            "A NF-e completa (procNFe) ainda precisa ser recuperada pela SEFAZ. "
+            "Use 'Completar XMLs' e baixe novamente após a conclusão."
+        )
+    if real == xml_integridade.LEIAUTE_EVENTO:
+        return (
+            "O arquivo armazenado é um EVENTO da NF-e (cancelamento, carta de correção), "
+            "não a nota fiscal. O XML completo ainda precisa ser recuperado na SEFAZ."
+        )
+    return (
+        "Esta nota ainda está apenas em resumo (resNFe): a SEFAZ libera o XML "
+        "completo depois da manifestação do destinatário. O sistema registra a "
+        "Ciência da Operação e baixa a NF-e inteira (procNFe) sozinho — aguarde "
+        "alguns instantes e baixe de novo."
+    )
 
 
 @router.get("/{documento_id}/xml")
@@ -1115,11 +1146,14 @@ def baixar_xml(
 ):
     """Entrega somente o XML fiscal completo, buscando-o na SEFAZ sob demanda quando ainda em resumo."""
     documento = _documento_do_escritorio(db, documento_id, escritorio_id)
+    # O cadastro pode estar desatualizado (versões anteriores gravavam o resumo
+    # e marcavam "completo"): o operador está olhando exatamente esta nota,
+    # então é aqui que o conserto é feito — e ela volta para a fila de captura.
+    if xml_integridade.reconciliar(db, documento):
+        db.commit()
     tem_arquivo = bool(documento.xml_path and os.path.isfile(documento.xml_path))
-    eh_resumo_ou_prot = (
-        documento.leiaute == "resumo"
-        or (tem_arquivo and (_xml_e_apenas_resumo(documento.xml_path) or _xml_e_apenas_autorizacao(documento.xml_path)))
-    )
+    real_no_disco = xml_integridade.leiaute_do_arquivo(documento.xml_path) if tem_arquivo else None
+    eh_resumo_ou_prot = documento.leiaute == "resumo" or xml_integridade.nao_e_a_nota(real_no_disco)
 
     mensagem_tentativa = ""
     if documento.tipo == TipoDocumentoFiscal.NFE and (eh_resumo_ou_prot or not tem_arquivo):
@@ -1129,25 +1163,14 @@ def baixar_xml(
         db.refresh(documento)
         tem_arquivo = bool(documento.xml_path and os.path.isfile(documento.xml_path))
 
-    if tem_arquivo and _xml_e_apenas_autorizacao(documento.xml_path):
+    real = xml_integridade.leiaute_do_arquivo(documento.xml_path) if tem_arquivo else None
+    if documento.leiaute == "resumo" or (tem_arquivo and xml_integridade.nao_e_a_nota(real)):
+        # Nunca entregar resumo/protocolo/evento com a chave da nota no nome do
+        # arquivo: é assim que um XML que não serve para escriturar entra na
+        # contabilidade do cliente sem ninguém perceber.
         raise HTTPException(
             status_code=409,
-            detail=mensagem_tentativa
-            or (
-                "O arquivo armazenado é somente o protocolo de autorização (protNFe). "
-                "A NF-e completa (procNFe) ainda precisa ser recuperada pela SEFAZ. "
-                "Use 'Completar XMLs' e baixe novamente após a conclusão."
-            ),
-        )
-
-    if documento.leiaute == "resumo" or (tem_arquivo and _xml_e_apenas_resumo(documento.xml_path)):
-        raise HTTPException(
-            status_code=409,
-            detail=mensagem_tentativa
-            or (
-                "Esta nota ainda está apenas em resumo (resNFe). "
-                "A Ciência da Operação foi solicitada à SEFAZ; aguarde alguns instantes para baixar a NF-e completa (procNFe)."
-            ),
+            detail=mensagem_tentativa or _mensagem_xml_incompleto(real, documento),
         )
 
     if not tem_arquivo:
@@ -1224,6 +1247,93 @@ def completar_xmls(
             "(respeitando o limite oficial de 20 consultas/h por CNPJ na SEFAZ)."
         ),
     }
+
+
+@router.post("/manifestar-conclusiva", response_model=list[ResultadoManifestacaoConclusiva])
+def manifestar_conclusiva_documentos(
+    payload: ManifestacaoConclusiva,
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+    usuario: Usuario = Depends(requer_escrita),
+):
+    """Registra a manifestação conclusiva das notas selecionadas e busca o XML completo.
+
+    Existe por causa de um prazo da norma, não de uma preferência: a **Ciência
+    da Operação** (a via automática) só é aceita até **10 dias** contados da
+    autorização da NF-e; depois disso a SEFAZ devolve `cStat 596` e a nota fica
+    presa em resumo — sem XML completo para escriturar. As manifestações
+    **conclusivas** (Confirmação, Desconhecimento, Operação não Realizada) são
+    aceitas por mais tempo — o Ajuste SINIEF 14/2026 fixou **90 dias** (antes
+    180) e, vencidos sem evento, a operação é tida como tacitamente confirmada —
+    e também liberam a NF-e no Ambiente Nacional, exceto o Desconhecimento.
+
+    É ato de negócio, então não roda sozinho: o operador escolhe o tipo e
+    confirma na tela, e a decisão fica registrada na auditoria.
+    """
+    from app.services.importadores.manifestacao import (
+        TIPO_EVENTO_CONFIRMACAO,
+        TIPO_EVENTO_DESCONHECIMENTO,
+        TIPO_EVENTO_NAO_REALIZADA,
+    )
+    from app.worker.tasks import manifestar_conclusiva_lote
+
+    documentos = (
+        db.query(DocumentoFiscal)
+        .join(Empresa)
+        .filter(DocumentoFiscal.id.in_(payload.ids), Empresa.escritorio_id == escritorio_id)
+        .all()
+    )
+    encontrados = {documento.id for documento in documentos}
+    faltando = [item for item in payload.ids if item not in encontrados]
+    if faltando:
+        raise HTTPException(status_code=404, detail=f"Documento(s) não encontrado(s): {faltando}")
+
+    tipos = {
+        "confirmacao": TIPO_EVENTO_CONFIRMACAO,
+        "desconhecimento": TIPO_EVENTO_DESCONHECIMENTO,
+        "nao_realizada": TIPO_EVENTO_NAO_REALIZADA,
+    }
+    tipo_evento = tipos[payload.tipo]
+    if tipo_evento in {TIPO_EVENTO_DESCONHECIMENTO, TIPO_EVENTO_NAO_REALIZADA} and len(
+        payload.justificativa
+    ) < 15:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "A SEFAZ exige justificativa de 15 a 255 caracteres para "
+                "Desconhecimento e Operação não Realizada."
+            ),
+        )
+
+    documentos = [documento for documento in documentos if documento.tipo == TipoDocumentoFiscal.NFE]
+    if not documentos:
+        # CT-e/NFS-e não têm evento de manifestação do destinatário: aceitar a
+        # seleção e devolver "nada feito" deixaria o operador achando que o
+        # evento foi enviado.
+        raise HTTPException(
+            status_code=422,
+            detail="A manifestação conclusiva existe apenas para NF-e (CT-e e NFS-e não têm o evento).",
+        )
+    resultados = manifestar_conclusiva_lote(
+        db,
+        documentos,
+        tipo_evento=tipo_evento,
+        justificativa=payload.justificativa,
+    )
+    auditoria.registrar(
+        db,
+        usuario,
+        "manifestacao_conclusiva",
+        entidade="documento_fiscal",
+        entidade_id=None,
+        detalhe=(
+            f"{payload.tipo} em {len(documentos)} nota(s): "
+            f"{sum(1 for item in resultados if item['ok'])} registrada(s), "
+            f"{sum(1 for item in resultados if not item['ok'])} recusada(s)"
+        ),
+    )
+    db.commit()
+    return resultados
 
 
 @router.delete("/{documento_id}", response_model=ResultadoExclusaoDocumentos)
@@ -1320,6 +1430,10 @@ def detalhe_documento(
 ):
     """Ficha completa de um documento para o painel de detalhes."""
     documento = _documento_do_escritorio(db, documento_id, escritorio_id)
+    # Cadastro que diz "completo" com XML de resumo no disco: corrige antes de
+    # mostrar a ficha (senão a tela afirma "XML completo" para um resNFe).
+    if xml_integridade.reconciliar(db, documento):
+        db.commit()
     if (
         documento.tipo == TipoDocumentoFiscal.NFE
         and documento.leiaute == "resumo"

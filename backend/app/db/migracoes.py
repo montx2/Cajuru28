@@ -53,6 +53,12 @@ _COLUNAS_POR_TABELA: dict[str, list[tuple[str, str]]] = {
         # Manifestação do destinatário (210210) — libera o XML completo.
         ("manifestado_em", "TIMESTAMP WITH TIME ZONE"),
         ("manifestacao_erro", "TEXT"),
+        # cStat da rejeição + controle das tentativas de completar o XML:
+        # sem isso o sistema não distingue "a SEFAZ recusou para sempre" de
+        # "ainda não liberou" e não tem como espaçar a cota de 20 consultas/h.
+        ("manifestacao_cstat", "VARCHAR(4)"),
+        ("tentativas_completar", "INTEGER NOT NULL DEFAULT 0"),
+        ("ultima_tentativa_completar_em", "TIMESTAMP WITH TIME ZONE"),
         ("origem", "VARCHAR(20)"),
     ],
     "execucoes_importacao": [
@@ -191,9 +197,64 @@ def aplicar_migracoes() -> None:
     _normalizar_valor_total_numerico()
     _criar_indices()
     _preencher_competencia_faltante()
+    _rebaixar_xmls_incompletos()
     _habilitar_manifestacao_automatica_padrao()
     _apagar_credenciais_jettax()
     _semear_sincronizacoes()
+
+
+def _rebaixar_xmls_incompletos(limite: int = 1000) -> None:
+    """Volta para `resumo` a NF-e marcada como completa que só tem a autorização.
+
+    O caso real: o `consChNFe` devolve `resNFe` (resumo) enquanto o destinatário
+    não registrou a Ciência da Operação. Versões anteriores gravavam esse XML
+    sobre o arquivo da nota e marcavam `leiaute = 'completo'`; o resultado era
+    uma nota que "está completa" no cadastro, sai da fila de complemento e é
+    exportada para a contabilidade sem item, imposto nem total — só a
+    autorização. O conserto é reclassificar o que o ARQUIVO realmente é
+    (`resNFe`/`protNFe`/evento ⇒ volta para a fila de XML completo).
+
+    Idempotente, limitado e barato: arquivos grandes (a própria nota) não são
+    abertos — `resNFe`/`protNFe` têm poucos KB, um `procNFe` nunca cabe nisso.
+    """
+    if "documentos_fiscais" not in _tabelas_existentes():
+        return
+    colunas = _colunas_existentes("documentos_fiscais")
+    if not {"leiaute", "tipo", "xml_path"}.issubset(colunas):
+        return
+
+    from app.services.xml_integridade import leiaute_do_arquivo, nao_e_a_nota
+
+    try:
+        with engine.begin() as conexao:
+            linhas = conexao.execute(
+                text(
+                    "SELECT id, xml_path FROM documentos_fiscais "
+                    "WHERE leiaute = 'completo' AND tipo = 'NFE' "
+                    "ORDER BY id DESC LIMIT :limite"
+                ),
+                {"limite": limite},
+            ).fetchall()
+            corrigidos = 0
+            for documento_id, caminho in linhas:
+                real = leiaute_do_arquivo(caminho)
+                if not nao_e_a_nota(real):
+                    continue
+                conexao.execute(
+                    text("UPDATE documentos_fiscais SET leiaute = 'resumo' WHERE id = :id"),
+                    {"id": documento_id},
+                )
+                corrigidos += 1
+    except Exception as exc:  # noqa: BLE001 — reparo é best-effort, nunca derruba o boot
+        log.warning("Migração: conferência de XMLs incompletos pulada (%s)", exc)
+        return
+
+    if corrigidos:
+        log.warning(
+            "Migração: %d NF-e marcada(s) como completa(s) tinham só o "
+            "resumo/autorização e voltaram para a fila de XML completo.",
+            corrigidos,
+        )
 
 
 def _habilitar_manifestacao_automatica_padrao() -> None:
@@ -201,41 +262,48 @@ def _habilitar_manifestacao_automatica_padrao() -> None:
     Ativa `manifestar_automaticamente` por padrão nas empresas existentes.
 
     Antes o default da coluna era FALSE, deixando todas as NF-e tomadas presas
-    em `resNFe` ("Aguardando a Ciência da Operação"). No PostgreSQL, quando o
-    default da coluna ainda consta como FALSE, trocamos para TRUE e ativamos as
-    empresas que nasceram com o valor antigo.
+    em `resNFe` ("Aguardando a Ciência da Operação"). O default só é reescrito
+    quando ele **ainda** é o antigo (FALSE/ausente) — quem desligou a chave
+    depois da migração não é atropelado por um boot.
+
+    O `ALTER COLUMN` é exclusivo do PostgreSQL; o back-fill roda em qualquer
+    banco (o SQLite de desenvolvimento tinha ficado de fora do ajuste).
     """
     if "manifestar_automaticamente" not in _colunas_existentes("empresas"):
         return
-    if engine.dialect.name == "postgresql":
-        try:
+    try:
+        from sqlalchemy import inspect as inspecionar
+
+        coluna = next(
+            (item for item in inspecionar(engine).get_columns("empresas") if item["name"] == "manifestar_automaticamente"),
+            None,
+        )
+        padrao = None if coluna is None else coluna.get("default")
+        if padrao is not None and "true" in str(padrao).lower():
+            return
+        if engine.dialect.name == "postgresql":
             with engine.begin() as conexao:
-                padrao = conexao.execute(
+                conexao.execute(
                     text(
-                        "SELECT column_default FROM information_schema.columns "
-                        "WHERE table_name = 'empresas' AND column_name = 'manifestar_automaticamente'"
+                        "ALTER TABLE empresas "
+                        "ALTER COLUMN manifestar_automaticamente SET DEFAULT TRUE"
                     )
-                ).scalar()
-                if padrao is None or "false" in str(padrao).lower():
-                    conexao.execute(
-                        text(
-                            "ALTER TABLE empresas "
-                            "ALTER COLUMN manifestar_automaticamente SET DEFAULT TRUE"
-                        )
-                    )
-                    resultado = conexao.execute(
-                        text(
-                            "UPDATE empresas SET manifestar_automaticamente = TRUE "
-                            "WHERE manifestar_automaticamente = FALSE"
-                        )
-                    )
-                    if resultado.rowcount:
-                        log.info(
-                            "Migração: manifestar_automaticamente ativado em %d empresa(s)",
-                            resultado.rowcount,
-                        )
-        except Exception as exc:  # noqa: BLE001
-            log.warning("Migração: ajuste de manifestar_automaticamente pulado (%s)", exc)
+                )
+        with engine.begin() as conexao:
+            resultado = conexao.execute(
+                text(
+                    "UPDATE empresas SET manifestar_automaticamente = TRUE "
+                    "WHERE manifestar_automaticamente = FALSE "
+                    "OR manifestar_automaticamente IS NULL"
+                )
+            )
+        if resultado.rowcount:
+            log.info(
+                "Migração: manifestar_automaticamente ativado em %d empresa(s)",
+                resultado.rowcount,
+            )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Migração: ajuste de manifestar_automaticamente pulado (%s)", exc)
 
 
 def _apagar_credenciais_jettax() -> None:

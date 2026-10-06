@@ -16,6 +16,7 @@ import { Icone } from "@/components/ui/Icone";
 import { IndicadorEstado } from "@/components/ui/IndicadorEstado";
 import { Painel } from "@/components/ui/Painel";
 import { useToast } from "@/components/ui/Toast";
+import { ManifestacaoConclusiva } from "@/components/fiscal/ManifestacaoConclusiva";
 
 export interface PainelDocumentoProps {
   documentoId: number | null;
@@ -80,6 +81,17 @@ function ConteudoDocumento({ id, aoExcluir, somenteLeitura }: { id: number; aoEx
 
   const documento = recurso.dados;
   const estado = estadoDoDocumento(documento);
+  // A Ciência da Operação só é aceita até 10 dias da autorização da NF-e.
+  // Depois disso a SEFAZ devolve 596 e a nota só destrava com um evento
+  // conclusivo — que é decisão do operador. A folga de 2 dias evita oferecer a
+  // conclusiva para uma nota que ainda está dentro do prazo (a data de emissão
+  // é um piso: a autorização nunca vem antes dela).
+  const cienciaProvavelmenteVencida = Boolean(
+    documento.leiaute === "resumo" &&
+      !documento.manifestado_em &&
+      documento.data_emissao &&
+      Date.now() - new Date(documento.data_emissao).getTime() > 12 * 24 * 60 * 60 * 1000
+  );
   const tipo = ROTULO_TIPO[(documento.tipo as TipoDocumentoFiscal) ?? "nfe"] ?? documento.tipo;
 
   async function verXml() {
@@ -159,7 +171,24 @@ function ConteudoDocumento({ id, aoExcluir, somenteLeitura }: { id: number; aoEx
         {/* Por que esta nota ainda está só em resumo. Sem isto o operador via
             "só resumo" e não tinha como saber se falta manifestar, se a SEFAZ
             recusou, ou qual foi o motivo — só abrindo o banco. */}
-        {documento.manifestacao_erro ? (
+        {documento.manifestacao_erro && documento.manifestacao_cstat === "596" ? (
+          // 596 = a Ciência da Operação chegou tarde (o prazo é de 10 dias).
+          // Repetir a tentativa nunca vai funcionar; a saída é o evento
+          // conclusivo — e quem escolhe qual é o operador, não o robô.
+          <div className="mt-2 space-y-2 rounded-controle border border-espera/40 bg-espera-tenue px-3 py-2 text-sm leading-6 text-espera">
+            <p>
+              <span className="font-medium">
+                A Ciência da Operação não é mais aceita para esta nota.
+              </span>{" "}
+              Ela passou dos 10 dias contados da autorização e a SEFAZ recusou o evento
+              (cStat 596). O XML completo só é liberado com uma manifestação conclusiva —
+              Confirmação da Operação, se a mercadoria foi recebida.
+            </p>
+            {!somenteLeitura ? (
+              <ManifestacaoConclusiva documento={documento} aoConcluir={recurso.atualizar} />
+            ) : null}
+          </div>
+        ) : documento.manifestacao_erro ? (
           <div className="mt-2 space-y-2 rounded-controle border border-erro/40 bg-erro-tenue px-3 py-2 text-sm leading-6 text-erro">
             <p>
               <span className="font-medium">Ciência da Operação recusada: </span>
@@ -178,10 +207,21 @@ function ConteudoDocumento({ id, aoExcluir, somenteLeitura }: { id: number; aoEx
                 ? `Ciência da Operação registrada em ${dataHora(documento.manifestado_em)}. O XML completo (procNFe) está sendo liberado pela SEFAZ.`
                 : "Esta nota chegou inicialmente em resumo (resNFe). O sistema registra a Ciência da Operação e busca o XML completo (procNFe) pela chave na SEFAZ usando o certificado A1 da empresa."}
             </p>
+            {cienciaProvavelmenteVencida ? (
+              <p>
+                A nota tem mais de 10 dias: se a Ciência da Operação for recusada com 596,
+                o XML completo só sai com uma manifestação conclusiva.
+              </p>
+            ) : null}
             {!somenteLeitura ? (
-              <Botao tamanho="sm" variante="secundaria" onClick={completarXmlAgora} carregando={completando} iconeEsquerda={<Icone nome="sincronizar" className="h-3.5 w-3.5" />}>
-                Buscar XML completo na SEFAZ agora
-              </Botao>
+              <div className="flex flex-wrap items-center gap-2">
+                <Botao tamanho="sm" variante="secundaria" onClick={completarXmlAgora} carregando={completando} iconeEsquerda={<Icone nome="sincronizar" className="h-3.5 w-3.5" />}>
+                  Buscar XML completo na SEFAZ agora
+                </Botao>
+                {cienciaProvavelmenteVencida ? (
+                  <ManifestacaoConclusiva documento={documento} aoConcluir={recurso.atualizar} />
+                ) : null}
+              </div>
             ) : null}
           </div>
         ) : documento.manifestado_em ? (

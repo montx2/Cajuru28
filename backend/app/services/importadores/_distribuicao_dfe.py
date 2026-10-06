@@ -236,6 +236,143 @@ class RespostaDistDFe:
         except (TypeError, ValueError):
             return False
 
+    def por_leiaute(self, leiaute: str) -> list[tuple[str, str, bytes]]:
+        """Os docZip cujo CONTEÚDO bate com o leiaute pedido (NSO, schema, bytes)."""
+        return [
+            (nsu, schema, xml_bytes)
+            for nsu, schema, xml_bytes in self.documentos
+            if classificar_documento_dfe(xml_bytes, schema) == leiaute
+        ]
+
+    @property
+    def documentos_completos(self) -> list[tuple[str, str, bytes]]:
+        """Somente as NOTAS inteiras (procNFe/procCTe) dentro do que foi recebido."""
+        return self.por_leiaute(LEIAUTE_COMPLETO)
+
+    @property
+    def somente_resumo(self) -> bool:
+        """Veio documento, mas nenhum é a nota inteira — só resumo/protocolo.
+
+        É a resposta normal do Ambiente Nacional para o destinatário que ainda
+        não registrou a Ciência da Operação: não é erro, é o sinal de que falta
+        manifestar (ou de que o XML completo ainda não foi liberado).
+        """
+        return bool(self.documentos) and not self.documentos_completos
+
+
+# ---------------------------------------------------------------------------
+# O que cada docZip É (não o que o nome do schema diz)
+# ---------------------------------------------------------------------------
+#
+# A distribuição DFe entrega três coisas MUITO diferentes dentro do mesmo
+# envelope, com a mesma cara: `resNFe` (resumo: chave, emitente, valor e o
+# protocolo), `procNFe` (a nota inteira, com itens e totais) e eventos. Para o
+# destinatário que ainda não se manifestou, o Ambiente Nacional só libera o
+# resumo — e o `consChNFe` responde igual.
+#
+# Confundir o resumo com a nota é o erro caro: o arquivo é gravado como se
+# fosse o documento (e às vezes marcado como "completo"), o contador exporta um
+# XML que é só a autorização e a nota sai da fila de complemento para sempre.
+# Por isso a decisão aqui é sempre pelo CONTEÚDO, com o schema só como
+# desempate — o ambiente já mudou a versão dos schemas mais de uma vez.
+
+LEIAUTE_COMPLETO = "completo"
+LEIAUTE_RESUMO = "resumo"
+LEIAUTE_PROTOCOLO = "protocolo"
+LEIAUTE_EVENTO = "evento"
+LEIAUTE_DESCONHECIDO = "desconhecido"
+
+_RAIZES_RESUMO = {"resNFe", "resCTe"}
+_RAIZES_PROTOCOLO = {"protNFe", "protCTe"}
+_RAIZES_EVENTO = {
+    "procEventoNFe",
+    "procEventoCTe",
+    "evento",
+    "eventoCTe",
+    "resEvento",
+    "retEvento",
+    "retEventoCTe",
+    "envEvento",
+    "envConfRecebto",
+    "retEnvEvento",
+    "retEnvConfRecebto",
+}
+_RAIZES_DOCUMENTO = {
+    "nfeProc",
+    "procNFe",
+    "NFe",
+    "enviNFe",
+    "cteProc",
+    "procCTe",
+    "CTe",
+    "cteOS",
+    "enviCTe",
+}
+
+
+def classificar_documento_dfe(xml_bytes: bytes, schema: str = "") -> str:
+    """Diz o que o XML de um `docZip` contém: completo, resumo, protocolo ou evento.
+
+    Devolve um de `LEIAUTE_COMPLETO` (tem `infNFe`/`infCTe`/`infNFSe` — é o
+    documento), `LEIAUTE_RESUMO` (`resNFe`/`resCTe`), `LEIAUTE_PROTOCOLO`
+    (`protNFe`: só a autorização, sem a nota) ou `LEIAUTE_EVENTO`.
+    `LEIAUTE_DESCONHECIDO` quando não dá para afirmar nada — nunca tratado como
+    documento completo por quem chama.
+    """
+    if not xml_bytes:
+        return LEIAUTE_DESCONHECIDO
+    try:
+        raiz = ET.fromstring(xml_bytes)
+    except ET.ParseError:
+        return LEIAUTE_DESCONHECIDO
+
+    nome = raiz.tag.split("}")[-1]
+    if nome in _RAIZES_RESUMO:
+        return LEIAUTE_RESUMO
+    if nome in _RAIZES_PROTOCOLO:
+        return LEIAUTE_PROTOCOLO
+    if nome in _RAIZES_EVENTO:
+        return LEIAUTE_EVENTO
+    if buscar(raiz, "infNFe") is not None:
+        return LEIAUTE_COMPLETO
+    if buscar(raiz, "infCTe") is not None or buscar(raiz, "infCte") is not None:
+        return LEIAUTE_COMPLETO
+    if buscar(raiz, "infNFSe") is not None:
+        return LEIAUTE_COMPLETO
+    if nome in _RAIZES_DOCUMENTO:
+        # Envelope do documento sem o grupo identificador: ilegível como nota.
+        return LEIAUTE_DESCONHECIDO
+
+    # Sem conteúdo reconhecível, o schema (quando veio) ainda é um sinal.
+    nome_schema = (schema or "").strip().lower()
+    if nome_schema.startswith("res"):
+        return LEIAUTE_RESUMO
+    if "evento" in nome_schema or "evento" in nome.lower():
+        return LEIAUTE_EVENTO
+    return LEIAUTE_DESCONHECIDO
+
+
+def eh_documento_integral(xml_bytes: bytes, schema: str = "") -> bool:
+    """O XML é a NOTA (procNFe/procCTe), não um resumo/protocolo/evento dela."""
+    return classificar_documento_dfe(xml_bytes, schema) == LEIAUTE_COMPLETO
+
+
+def leiaute_do_conteudo(xml_bytes: bytes, schema: str = "") -> str:
+    """Valor para `DocumentoFiscal.leiaute`: "completo" ou "resumo".
+
+    Usa o conteúdo como fonte da verdade. Protocolo de autorização e evento
+    **nunca** viram "completo": são justamente os XML que, gravados no lugar da
+    nota, tiram-na da fila de complemento. Quando o XML é irreconhecível, o
+    nome do schema ainda decide (comportamento anterior preservado) — aí o dado
+    é ambíguo e mudar a regra não ajudaria.
+    """
+    classificado = classificar_documento_dfe(xml_bytes, schema)
+    if classificado == LEIAUTE_COMPLETO:
+        return LEIAUTE_COMPLETO
+    if classificado in {LEIAUTE_RESUMO, LEIAUTE_PROTOCOLO, LEIAUTE_EVENTO}:
+        return LEIAUTE_RESUMO
+    return LEIAUTE_RESUMO if (schema or "").lower().startswith("res") else LEIAUTE_COMPLETO
+
 
 def interpretar_resposta(resposta_bytes: bytes, *, ambiente: str = "SEFAZ") -> RespostaDistDFe:
     """

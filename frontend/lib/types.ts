@@ -86,6 +86,22 @@ export interface DocumentoFiscal {
   manifestado_em?: string | null;
   /** Motivo da recusa da SEFAZ (cStat + xMotivo) quando a Ciência falhou. */
   manifestacao_erro?: string | null;
+  /**
+   * Código da recusa. `596` é o que muda a saída: a Ciência da Operação só é
+   * aceita até 10 dias da autorização e, depois disso, a nota presa em
+   * `resNFe` só destrava com uma manifestação CONCLUSIVA (210200/210220/210240).
+   */
+  manifestacao_cstat?: string | null;
+}
+
+/** Manifestações conclusivas: encerram a nota e liberam o XML completo. */
+export type TipoManifestacaoConclusiva = "confirmacao" | "desconhecimento" | "nao_realizada";
+
+export interface ResultadoManifestacaoConclusiva {
+  documento_id: number;
+  chave_acesso: string | null;
+  ok: boolean;
+  mensagem: string;
 }
 
 export interface ResultadoExclusaoDocumentos {
