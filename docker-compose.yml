@@ -41,6 +41,7 @@ services:
     environment:
       TZ: America/Sao_Paulo
       BACKUP_DIR: /backups
+      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000,http://localhost:${FRONTEND_PORT:-3000},http://127.0.0.1:${FRONTEND_PORT:-3000}
     depends_on:
       db:
         condition: service_healthy

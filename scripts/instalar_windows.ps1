@@ -394,7 +394,7 @@ if (Test-Path "backend\.env") {
         $dados = @{
             SECRET_KEY            = Nova-Chave 48   # 64 chars, igual token_urlsafe(48)
             VAULT_MASTER_KEY      = Nova-Chave 32   # 44 chars COM "=" (formato Fernet)
-            BACKUP_ENCRYPTION_KEY = Nova-Chave 32   # chave distinta: abre backups históricos
+            BACKUP_ENCRYPTION_KEY = Nova-Chave 32   # chave distinta: abre backups historicos
             BOOTSTRAP_SENHA       = (Nova-Chave 16).TrimEnd("=")  # 22 chars, igual token_urlsafe(16)
         }
         New-Item -ItemType Directory -Force -Path "backend" | Out-Null
@@ -407,7 +407,7 @@ SECRET_KEY=$($dados.SECRET_KEY)
 VAULT_MASTER_KEY=$($dados.VAULT_MASTER_KEY)
 BACKUP_ENCRYPTION_KEY=$($dados.BACKUP_ENCRYPTION_KEY)
 BACKUP_PREVIOUS_ENCRYPTION_KEYS=
-# Use apenas durante uma rotação temporária; separe chaves antigas por vírgula.
+# Use apenas durante uma rotacao temporaria; separe chaves antigas por virgula.
 VAULT_PREVIOUS_MASTER_KEYS=
 DADOS_DIR=/data
 BACKUP_DIR=/backups

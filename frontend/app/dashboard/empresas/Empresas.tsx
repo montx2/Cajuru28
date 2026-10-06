@@ -80,7 +80,7 @@ export function Empresas() {
 
   const situacao = ler("situacao") as SituacaoFiltro;
   const ordem = ler("ordem") || "razao";
-  const sentido = ler("sentido") === "asc" ? "asc" : "desc";
+  const sentido = ler("sentido") === "desc" ? "desc" : "asc";
 
   const [densidade, setDensidade] = usePreferencia<DensidadeTabela>("empresas-densidade", "confortavel");
   const [colunasVisiveis, setColunasVisiveis] = usePreferencia<string[] | null>("empresas-colunas", null);
@@ -489,18 +489,22 @@ function ModalNovaEmpresa({ aberto, aoFechar, aoCriar }: { aberto: boolean; aoFe
   }
 
   async function consultarCnpj() {
-    const digitos = somenteDigitos(cnpj);
-    if (digitos.length !== 14 && digitos.length !== 11) {
-      setErrosCampo((atual) => ({ ...atual, cnpj: "Informe um CNPJ (14 dígitos) ou CPF (11 dígitos) para consultar." }));
+    const documentoLimpo = cnpj.replace(/[^0-9A-Za-z]/g, "").toUpperCase();
+    if (documentoLimpo.length !== 14 && documentoLimpo.length !== 11) {
+      setErrosCampo((atual) => ({ ...atual, cnpj: "Informe um CNPJ (14 caracteres) ou CPF (11 dígitos) para consultar." }));
       return;
     }
     setConsultando(true);
+    setErro(null);
     setNota(null);
     try {
-      const consulta = await api.consultarCnpj(digitos);
+      const consulta = await api.consultarCnpj(documentoLimpo);
       if (consulta.encontrado) {
-        setRazao(consulta.razao_social || razao);
-        setUf(consulta.uf || uf);
+        const razaoEncontrada = consulta.razao_social || consulta.nome_fantasia || razao;
+        const ufEncontrada = consulta.uf || uf;
+        setRazao(razaoEncontrada);
+        setUf(ufEncontrada);
+        setErrosCampo({});
         setNota(`Encontrado via ${consulta.fonte}${consulta.municipio ? ` · ${consulta.municipio}` : ""}.`);
       } else {
         setNota(consulta.mensagem || "CNPJ não encontrado na fonte consultada — preencha a razão social manualmente.");
@@ -513,22 +517,34 @@ function ModalNovaEmpresa({ aberto, aoFechar, aoCriar }: { aberto: boolean; aoFe
   }
 
   async function enviar() {
-    const digitos = somenteDigitos(cnpj);
+    const documentoLimpo = cnpj.replace(/[^0-9A-Za-z]/g, "").toUpperCase();
+    const ehCnpjNumerico = /^\d{14}$/.test(documentoLimpo);
     const proximosErros: typeof errosCampo = {};
-    if (!razao.trim()) proximosErros.razao = "Informe a razão social como consta no certificado.";
-    if (digitos.length !== 14 && digitos.length !== 11) proximosErros.cnpj = "CNPJ tem 14 dígitos; CPF, 11.";
+    if (documentoLimpo.length !== 14 && documentoLimpo.length !== 11) {
+      proximosErros.cnpj = "CNPJ tem 14 caracteres; CPF, 11 dígitos.";
+    }
+    if (!razao.trim() && !ehCnpjNumerico) {
+      proximosErros.razao = "Informe a razão social como consta no certificado.";
+    }
     setErrosCampo(proximosErros);
     if (Object.keys(proximosErros).length > 0) return;
 
     setEnviando(true);
     setErro(null);
     try {
-      const criada = await api.criarEmpresa(razao.trim(), digitos, uf || undefined);
+      const criada = await api.criarEmpresa(razao.trim(), documentoLimpo, uf || undefined);
       avisar({ tom: "ok", titulo: "Empresa cadastrada", descricao: `${criada.razao_social} · ${formatarCnpjCpf(criada.cnpj_cpf)}` });
       aoCriar();
       fechar();
     } catch (falha) {
-      setErro(mensagemDoErro(falha, "cadastrar a empresa"));
+      const msg = mensagemDoErro(falha, "cadastrar a empresa");
+      setErro(msg);
+      if (/raz[aã]o social/i.test(msg) && !razao.trim()) {
+        setErrosCampo((atual) => ({ ...atual, razao: "Informe a razão social manualmente." }));
+      }
+      if (/\bUF\b/i.test(msg) && !uf) {
+        setErrosCampo((atual) => ({ ...atual, uf: "Selecione a UF da empresa." }));
+      }
     } finally {
       setEnviando(false);
     }
@@ -557,7 +573,11 @@ function ModalNovaEmpresa({ aberto, aoFechar, aoCriar }: { aberto: boolean; aoFe
           rotulo="CNPJ ou CPF"
           obrigatorio
           value={cnpj}
-          onChange={(evento) => setCnpj(evento.target.value)}
+          onChange={(evento) => {
+            setCnpj(evento.target.value);
+            setErro(null);
+            if (errosCampo.cnpj) setErrosCampo((atual) => ({ ...atual, cnpj: undefined }));
+          }}
           placeholder="00.000.000/0000-00"
           mono
           erro={errosCampo.cnpj ?? null}
@@ -579,14 +599,23 @@ function ModalNovaEmpresa({ aberto, aoFechar, aoCriar }: { aberto: boolean; aoFe
           rotulo="Razão social"
           obrigatorio
           value={razao}
-          onChange={(evento) => setRazao(evento.target.value)}
+          onChange={(evento) => {
+            setRazao(evento.target.value);
+            setErro(null);
+            if (errosCampo.razao) setErrosCampo((atual) => ({ ...atual, razao: undefined }));
+          }}
           erro={errosCampo.razao ?? null}
           descricao="Como consta no certificado A1 — é o nome que aparece nas listas."
         />
         <Selecao
           rotulo="UF"
           value={uf}
-          onChange={(evento) => setUf(evento.target.value)}
+          erro={errosCampo.uf ?? null}
+          onChange={(evento) => {
+            setUf(evento.target.value);
+            setErro(null);
+            if (errosCampo.uf) setErrosCampo((atual) => ({ ...atual, uf: undefined }));
+          }}
           descricao="Opcional: ajuda a localizar a empresa e valida o município do emitente."
           opcoes={[{ valor: "", rotulo: "Não informar" }, ...UFS.map((item) => ({ valor: item.sigla, rotulo: `${item.sigla} · ${item.nome}` }))]}
         />

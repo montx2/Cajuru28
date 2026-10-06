@@ -14,6 +14,13 @@ const ROTULO_DO_CAMPO: Record<string, string> = {
   texto: "Lista colada",
   situacao_padrao: "Situação da aba",
   nome: "Nome",
+  razao_social: "Razão social",
+  cnpj: "CNPJ",
+  cnpj_cpf: "CNPJ/CPF",
+  documento: "Documento",
+  uf: "UF",
+  codigo_ibge: "Código IBGE",
+  inscricao_municipal: "Inscrição municipal",
   outorgado_documento: "CNPJ/CPF da contabilidade",
   alerta_dias: "Janelas de alerta",
   arquivo: "Arquivo",
@@ -68,6 +75,14 @@ export function descreverErro(erro: unknown, contexto = "carregar estes dados"):
           tom: "erro",
           detalhe: erro.message,
         };
+      case 400:
+        return {
+          titulo: "Solicitação recusada",
+          causa: erro.message,
+          proximoPasso: "Revise os dados enviados e tente novamente.",
+          tom: "espera",
+          detalhe: erro.message,
+        };
       case 401:
         return {
           titulo: "Sessão expirada",
@@ -89,6 +104,14 @@ export function descreverErro(erro: unknown, contexto = "carregar estes dados"):
           causa: `O recurso pedido para ${contexto} não existe mais — pode ter sido removido em outra aba.`,
           proximoPasso: "Atualize a lista e repita a consulta.",
           tom: "erro",
+          detalhe: erro.message,
+        };
+      case 409:
+        return {
+          titulo: "Operação em conflito",
+          causa: erro.message,
+          proximoPasso: "Confira os dados informados e tente novamente.",
+          tom: "espera",
           detalhe: erro.message,
         };
       case 413:
@@ -187,7 +210,9 @@ export function descreverErro(erro: unknown, contexto = "carregar estes dados"):
  */
 export function mensagemDoErro(erro: unknown, contexto?: string): string {
   const descrito = descreverErro(erro, contexto);
-  const ehValidacao = erro instanceof ApiError && erro.status === 422 && erro.problemas.length > 0;
-  const partes = ehValidacao ? [descrito.causa, descrito.proximoPasso] : [descrito.proximoPasso];
+  const incluiCausa =
+    erro instanceof ApiError &&
+    (erro.status === 400 || erro.status === 409 || erro.status === 422);
+  const partes = incluiCausa ? [descrito.causa, descrito.proximoPasso] : [descrito.proximoPasso];
   return [`${descrito.titulo}.`, ...partes.filter(Boolean)].join(" ");
 }

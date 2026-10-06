@@ -330,7 +330,7 @@ export function Documentos() {
   async function completarXmls() {
     setCompletandoXml(true);
     try {
-      const resultado = await api.completarXmls(empresa, 50);
+      const resultado = await api.completarXmls(empresa, 20);
       avisar({
         tom: resultado.disparado ? "ok" : "espera",
         titulo: resultado.disparado ? "Busca de XMLs completos disparada" : "Nada a completar agora",

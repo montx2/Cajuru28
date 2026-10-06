@@ -107,7 +107,7 @@ export function Empresa() {
     if (!id) return;
     setCompletandoXml(true);
     try {
-      const resultado = await api.completarXmls(id, 50);
+      const resultado = await api.completarXmls(id, 20);
       avisar({ tom: resultado.disparado ? "ok" : "espera", titulo: resultado.disparado ? "Busca de XMLs disparada" : "Nada a completar", descricao: resultado.aviso });
       documentos.atualizar();
     } catch (falha) {
@@ -623,7 +623,7 @@ function ModalEditarEmpresa({
   const [uf, setUf] = useState(empresa.uf ?? "");
   const [ativa, setAtiva] = useState(empresa.ativa);
   const [automatica, setAutomatica] = useState(Boolean(empresa.sincronizar_automaticamente));
-  const [manifestar, setManifestar] = useState(Boolean(empresa.manifestar_automaticamente));
+  const [manifestar, setManifestar] = useState(empresa.manifestar_automaticamente ?? true);
   const [tipos, setTipos] = useState<Set<TipoDocumentoFiscal>>(
     () =>
       new Set(
@@ -645,7 +645,7 @@ function ModalEditarEmpresa({
     setUf(empresa.uf ?? "");
     setAtiva(empresa.ativa);
     setAutomatica(Boolean(empresa.sincronizar_automaticamente));
-    setManifestar(Boolean(empresa.manifestar_automaticamente));
+    setManifestar(empresa.manifestar_automaticamente ?? true);
     setIbge(empresa.codigo_ibge ?? "");
     setMunicipal(empresa.inscricao_municipal ?? "");
     setErro(null);
@@ -720,7 +720,7 @@ function ModalEditarEmpresa({
           />
           <Alternador
             rotulo="Manifestar ciência automaticamente (NF-e)"
-            descricao="Sem isto, a NF-e que só veio como resumo nunca libera o XML completo. A Ciência da Operação é um ato irreversível perante a SEFAZ e obriga manifestação conclusiva depois — por isso vem desligada."
+            descricao="Registra a Ciência da Operação (210210) na SEFAZ automaticamente para liberar o download do XML completo (procNFe) das notas que chegaram inicialmente em resumo (resNFe)."
             ligado={manifestar}
             aoMudar={setManifestar}
           />

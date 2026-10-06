@@ -77,4 +77,19 @@ describe("outros status continuam curtos", () => {
     const frase = mensagemDoErro(new ApiError(401, "Sessão expirada"));
     expect(frase).toBe("Sessão expirada. Entre novamente com as credenciais do escritório.");
   });
+
+  it("preserva a explicação real do servidor em erros 400, 409 e 422 textuais", () => {
+    expect(mensagemDoErro(new ApiError(409, "Já existe uma empresa com esse CNPJ/CPF"))).toContain(
+      "Já existe uma empresa com esse CNPJ/CPF"
+    );
+    expect(
+      mensagemDoErro(
+        new ApiError(422, "Não foi possível identificar a UF automaticamente. Informe a UF manualmente.")
+      )
+    ).toContain("Informe a UF manualmente");
+    expect(mensagemDoErro(new ApiError(400, "Planilha empresas.csv ilegível"))).toContain(
+      "Planilha empresas.csv ilegível"
+    );
+  });
 });
+
