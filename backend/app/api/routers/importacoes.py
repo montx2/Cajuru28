@@ -76,12 +76,19 @@ from app.services.referencia import data_referencia_sql
 
 router = APIRouter(prefix="/importacoes", tags=["importações"])
 
-# leiaute do XML -> tipo do documento
+# leiaute do XML -> tipo do documento. Resumo entra como o documento do seu
+# tipo: a nota é a mesma, o que falta é o XML integral — que a captura busca.
 _TIPO_DO_LEIAUTE = {
     "nfe": TipoDocumentoFiscal.NFE,
+    "nfe_resumo": TipoDocumentoFiscal.NFE,
     "cte": TipoDocumentoFiscal.CTE,
+    "cte_resumo": TipoDocumentoFiscal.CTE,
     "nfse": TipoDocumentoFiscal.NFSE,
 }
+
+# Tipos cujo XML é só o resumo (`resNFe`/`resCTe`): entram no acervo como
+# pendentes de XML completo, nunca como nota completa.
+_TIPOS_RESUMO = {"nfe_resumo", "cte_resumo"}
 
 # Mantido por compatibilidade: a janela agora é calculada pelo estado de
 # sincronização (uma linha por empresa+tipo), não por varredura do histórico.
@@ -448,6 +455,25 @@ def _importar_um_xml(
             chave=doc.chave_acesso,
             status="erro",
             mensagem="Data de emissão ilegível no XML.",
+        )
+    if tipo in _TIPOS_RESUMO and resultado == "importado":
+        # O arquivo é o resumo (resNFe/resCTe), não a nota. Ele informa a chave,
+        # o emitente e o valor — o suficiente para o acervo saber que a nota
+        # existe — e entra na fila de complemento, que registra a Ciência da
+        # Operação e busca o XML integral no Ambiente Nacional.
+        return ItemImportacaoXml(
+            origem=nome,
+            tipo=tipo,
+            chave=doc.chave_acesso,
+            razao_social=empresa.razao_social,
+            cnpj_cpf=empresa.cnpj_cpf,
+            status="importado",
+            mensagem=(
+                "Resumo (resNFe/resCTe) importado: a nota já aparece no acervo e "
+                "o sistema busca o XML completo sozinho na SEFAZ. Enquanto isso, "
+                "o download individual fica bloqueado para não entregar um XML "
+                "que não é a nota."
+            ),
         )
     return ItemImportacaoXml(
         origem=nome,

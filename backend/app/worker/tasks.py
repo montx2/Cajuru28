@@ -50,6 +50,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from cryptography.hazmat.primitives.serialization import pkcs12
 from dateutil import parser as date_parser
+from sqlalchemy import case
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
@@ -70,9 +71,21 @@ from app.models import (
     StatusExecucao,
     TipoDocumentoFiscal,
 )
-from app.services import batimento, fila, lotes_recebidos, sincronizacao
+from app.services import batimento, fila, lotes_recebidos, sincronizacao, xml_integridade
 from app.services.proveniencia import registrar_proveniencia
-from app.services.importadores.manifestacao import ManifestacaoRecusada, manifestar_ciencia
+from app.services.importadores._distribuicao_dfe import (
+    classificar_documento_dfe,
+    eh_documento_integral,
+)
+from app.services.importadores.manifestacao import (
+    CSTAT_EVENTO_FORA_DO_PRAZO,
+    EVENTOS_CONCLUSIVOS,
+    PRAZO_CIENCIA_DIAS,
+    TIPO_EVENTO_DESCONHECIMENTO,
+    ManifestacaoRecusada,
+    manifestar_ciencia,
+    manifestar_conclusiva,
+)
 from app.services.certificados import ler_pfx_protegido
 from app.services.importadores.base import (
     AmbienteIndisponivel,
@@ -688,7 +701,10 @@ def _promover_resumo(db, empresa_id: int, tipo: TipoDocumentoFiscal, doc) -> boo
     )
     if existente is None:
         return False
-    _sobrescrever_xml(existente, doc)
+    if not _sobrescrever_xml(existente, doc):
+        # O docZip veio rotulado como completo, mas não é a nota: a promoção não
+        # acontece e a nota continua na fila (é o `consChNFe` devolvendo resumo).
+        return False
     # O arquivo em disco agora é o docZip deste NSU; manter o NSU do resumo
     # quebraria a reconciliação "qual NSU gerou este XML" numa auditoria.
     if getattr(doc, "nsu", None):
@@ -1038,14 +1054,49 @@ def sincronizar_tudo(self) -> dict:
         db.close()
 
 
+def _consciente(valor: datetime | None) -> datetime | None:
+    """Datetime com fuso. O SQLite devolve naive mesmo em coluna timezone=True."""
+    if valor is None:
+        return None
+    return valor.replace(tzinfo=timezone.utc) if valor.tzinfo is None else valor
+
+
+def _hora_de_tentar_completar(documento: DocumentoFiscal, *, agora: datetime | None = None) -> bool:
+    """
+    Já passou o intervalo desta nota? (espaça a cota de 20 consultas/h)
+
+    A consulta pontual por chave é limitada por CNPJ, não por nota. Sem espaçar,
+    as mesmas notas tentadas na rodada anterior consomem a cota inteira e as
+    notas novas — as que ainda estão dentro do prazo de 10 dias da Ciência —
+    nunca chegam a ser manifestadas. O intervalo dobra a cada tentativa, até 24h.
+    """
+    tentativas = int(documento.tentativas_completar or 0)
+    ultima = _consciente(documento.ultima_tentativa_completar_em)
+    if tentativas <= 0 or ultima is None:
+        return True
+    agora = agora or _agora()
+    horas = min(2 ** (tentativas - 1), 24)
+    return agora - ultima >= timedelta(hours=horas)
+
+
 def _pendentes_de_completar(db, empresa: Empresa, limite: int) -> list[DocumentoFiscal]:
     """
     NF-e que ainda estão em `resumo` e podem avançar nesta rodada.
 
-    Rejeição definitiva (`manifestacao_erro`) e, em empresa sem manifestação
-    automática, nota ainda não manifestada ficariam ocupando as `limite` vagas a
-    cada rodada e barrariam todas as outras (head-of-line blocking).
+    Regras que este filtro garante:
+
+    - rejeição definitiva (`manifestacao_erro`) sai da fila — senão uma nota
+      recusada ocupa vaga a cada rodada e barra todas as outras;
+    - empresa sem manifestação automática só recebe a busca de XML já
+      manifestado (a Ciência é ato jurídico e é opt-in);
+    - **urgência primeiro:** a Ciência da Operação só é aceita até 10 dias da
+      autorização. Nota ainda dentro da janela vem antes (mais antiga primeiro,
+      porque é a que está prestes a perdê-la); fora da janela, só a manifestação
+      conclusiva resolve e a nota não pode furar a fila;
+    - tentativa repetida respeita um intervalo crescente (`_hora_de_tentar_completar`).
     """
+    agora = _agora()
+    limite_ciencia = agora - timedelta(days=PRAZO_CIENCIA_DIAS)
     consulta = db.query(DocumentoFiscal).filter(
         DocumentoFiscal.empresa_id == empresa.id,
         DocumentoFiscal.leiaute == "resumo",
@@ -1054,7 +1105,17 @@ def _pendentes_de_completar(db, empresa: Empresa, limite: int) -> list[Documento
     )
     if not empresa.manifestar_automaticamente:
         consulta = consulta.filter(DocumentoFiscal.manifestado_em.isnot(None))
-    return consulta.order_by(DocumentoFiscal.id.desc()).limit(limite).all()
+    dentro_do_prazo = case((DocumentoFiscal.data_emissao >= limite_ciencia, 0), else_=1)
+    candidatas = (
+        consulta.order_by(
+            dentro_do_prazo,
+            DocumentoFiscal.data_emissao.asc(),
+            DocumentoFiscal.id.asc(),
+        )
+        .limit(max(limite, limite * 4))
+        .all()
+    )
+    return [doc for doc in candidatas if _hora_de_tentar_completar(doc, agora=agora)][:limite]
 
 
 @celery_app.task(name="completar_xmls_pendentes", bind=True, max_retries=0)
@@ -1154,8 +1215,11 @@ def completar_xmls_pendentes(self, empresa_id: int | None = None, limite: int | 
                                 )
                             except ManifestacaoRecusada as exc:
                                 # Rejeição definitiva: repetir não muda nada.
-                                # Guarda o motivo e segue para o próximo.
-                                documento.manifestacao_erro = str(exc)[:500]
+                                # Guarda o motivo E o código — a tela precisa
+                                # saber que no 596 (fora do prazo) a saída não é
+                                # "tentar de novo", é a manifestação conclusiva.
+                                documento.manifestacao_erro = mensagem_manifestacao_recusada(exc)
+                                documento.manifestacao_cstat = (exc.cstat or "")[:4] or None
                                 resultado["manifestacao_recusada"] += 1
                                 db.commit()
                                 continue
@@ -1163,6 +1227,7 @@ def completar_xmls_pendentes(self, empresa_id: int | None = None, limite: int | 
                                 break
                             documento.manifestado_em = _agora()
                             documento.manifestacao_erro = None
+                            documento.manifestacao_cstat = None
                             acabou_de_manifestar = True
                             if not manifesto.ja_estava_manifestada:
                                 resultado["manifestados"] += 1
@@ -1217,12 +1282,22 @@ def completar_xmls_pendentes(self, empresa_id: int | None = None, limite: int | 
                             break
 
                         sincronizacao.consumir_cota_pontual(db, estado)
+                        # Tentativa contada ANTES de olhar o resultado: o que
+                        # controla o intervalo é o gasto da cota, não o sucesso.
+                        documento.tentativas_completar = (documento.tentativas_completar or 0) + 1
+                        documento.ultima_tentativa_completar_em = _agora()
                         if completo is None or not completo.xml:
+                            # Ainda não há XML completo liberado (o normal nas
+                            # primeiras horas depois da Ciência). A nota fica
+                            # como está e volta na próxima rodada espaçada.
                             resultado["indisponiveis"] += 1
                             db.commit()
                             continue
 
-                        _sobrescrever_xml(documento, completo)
+                        if not _sobrescrever_xml(documento, completo):
+                            resultado["indisponiveis"] += 1
+                            db.commit()
+                            continue
                         sincronizacao.marcar_consulta_ok(db, estado)
                         resultado["completos"] += 1
                         db.commit()
@@ -1240,16 +1315,52 @@ def completar_xmls_pendentes(self, empresa_id: int | None = None, limite: int | 
         db.close()
 
 
-def _sobrescrever_xml(documento: DocumentoFiscal, completo: DocumentoBaixado) -> None:
+def mensagem_manifestacao_recusada(erro: ManifestacaoRecusada) -> str:
+    """Mensagem para o operador a partir do cStat que a SEFAZ devolveu.
+
+    O texto do motivo muda de redação entre as SEFAZ (e entre versões do
+    serviço); o código não. O 596 é o que decide a próxima ação: a Ciência só é
+    aceita até 10 dias da autorização e, depois disso, o XML completo só é
+    liberado por uma manifestação CONCLUSIVA. Mostrar isso é o que impede o
+    operador de ficar clicando "tentar de novo" para sempre.
+    """
+    motivo = (erro.motivo or "").strip() or "Evento recusado pela SEFAZ"
+    if erro.cstat == CSTAT_EVENTO_FORA_DO_PRAZO:
+        return (
+            f"Ciência da Operação fora do prazo de {PRAZO_CIENCIA_DIAS} dias da "
+            f"autorização da NF-e (cStat {erro.cstat}: {motivo}). Esta nota não "
+            "aceita mais a Ciência; para liberar o XML completo é preciso registrar "
+            "uma manifestação conclusiva (Confirmação da Operação, Operação não "
+            "Realizada ou Desconhecimento)."
+        )
+    return f"cStat {erro.cstat}: {motivo}" if erro.cstat else motivo
+
+
+def _sobrescrever_xml(documento: DocumentoFiscal, completo: DocumentoBaixado) -> bool:
     """
     Substitui o resumo pelo XML completo, mantendo o mesmo caminho de arquivo.
 
     O arquivo é substituído atomicamente antes do commit: uma falha de disco
     não trunca a evidência anterior. Se o banco falhar, o lote recebido permite
     reaplicar a promoção e reconciliar metadados/arquivo na próxima execução.
+
+    **Recusa qualquer payload que não seja a nota inteira.** É a última linha de
+    defesa do acervo: o `consChNFe` devolve `resNFe` (só a autorização) para o
+    destinatário que ainda não tem manifestação registrada, e gravar esse XML
+    como "completo" fazia a nota sair da fila com um arquivo que a contabilidade
+    não pode usar. Devolve True somente quando promoveu de verdade.
     """
+    xml = getattr(completo, "xml", b"") or b""
+    if (getattr(completo, "leiaute", "") or "") != "completo" or not eh_documento_integral(xml):
+        log.warning(
+            "Documento %s: recebi %s no lugar da NF-e completa — nada foi sobrescrito.",
+            documento.chave_acesso,
+            classificar_documento_dfe(xml),
+        )
+        return False
+
     caminho = documento.xml_path
-    gravar_bytes_atomicamente(caminho, completo.xml)
+    gravar_bytes_atomicamente(caminho, xml)
 
     documento.leiaute = "completo"
     # O XML integral chegou: qualquer rejeição/pendência anterior de
@@ -1257,6 +1368,9 @@ def _sobrescrever_xml(documento: DocumentoFiscal, completo: DocumentoBaixado) ->
     # manteria a nota fora de `_pendentes_de_completar` para sempre e exibiria
     # um erro velho numa nota que já está completa no acervo.
     documento.manifestacao_erro = None
+    documento.manifestacao_cstat = None
+    documento.tentativas_completar = 0
+    documento.ultima_tentativa_completar_em = None
     documento.valor_total = valor_monetario(completo.valor_total if completo.valor_total is not None else documento.valor_total)
     if completo.data_emissao:
         documento.data_emissao = _parse_data_emissao(completo.data_emissao)
@@ -1276,6 +1390,7 @@ def _sobrescrever_xml(documento: DocumentoFiscal, completo: DocumentoBaixado) ->
     situacao = getattr(completo, "status_autorizacao", "")
     if situacao:
         documento.situacao = situacao[:255]
+    return True
 
 
 def completar_xml_documento_imediato(db, documento: DocumentoFiscal) -> tuple[bool, str]:
@@ -1326,14 +1441,18 @@ def completar_xml_documento_imediato(db, documento: DocumentoFiscal) -> tuple[bo
                         uf=empresa.uf,
                     )
                 except ManifestacaoRecusada as exc:
-                    documento.manifestacao_erro = str(exc)[:500]
+                    documento.manifestacao_erro = mensagem_manifestacao_recusada(exc)
+                    documento.manifestacao_cstat = (exc.cstat or "")[:4] or None
                     db.commit()
+                    if exc.cstat == CSTAT_EVENTO_FORA_DO_PRAZO:
+                        return False, documento.manifestacao_erro
                     return False, f"A SEFAZ recusou a Ciência da Operação desta nota: {exc}"
                 except AmbienteIndisponivel as exc:
                     return False, f"Ambiente Nacional da SEFAZ indisponível no momento para registrar a Ciência: {exc}"
 
                 documento.manifestado_em = _agora()
                 documento.manifestacao_erro = None
+                documento.manifestacao_cstat = None
                 acabou_de_manifestar = True
                 if estado is not None:
                     bloqueado_ate = sincronizacao._aware(estado.bloqueado_ate)
@@ -1476,3 +1595,181 @@ def backup_agendado(self) -> dict:
         }
     finally:
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# Manifestação conclusiva: o caminho para a nota que passou dos 10 dias
+# ---------------------------------------------------------------------------
+
+
+def manifestar_conclusiva_lote(
+    db,
+    documentos: list[DocumentoFiscal],
+    *,
+    tipo_evento: str,
+    justificativa: str = "",
+) -> list[dict]:
+    """Registra a manifestação conclusiva de cada nota e busca o XML liberado.
+
+    Existe pelo prazo da norma (Ajuste SINIEF 44/20 / NT 2020.001): a Ciência da
+    Operação só é aceita até **10 dias** da autorização da NF-e. Passado isso, a
+    SEFAZ recusa com cStat 596 e a nota fica presa em resumo — sem XML completo
+    para escriturar, e sem nenhum caminho automático. As manifestações
+    conclusivas (Confirmação 210200, Desconhecimento 210220, Operação não
+    Realizada 210240) são aceitas por até 180 dias e também liberam a NF-e no
+    Ambiente Nacional — **exceto o Desconhecimento**, que por regra do manual
+    não devolve o XML (não há operação a registrar).
+
+    Como é ato de negócio, quem dispara é o operador na tela; esta função faz o
+    trabalho pesado (assinar, enviar, marcar a nota, buscar o XML) e devolve um
+    resultado por documento para a interface mostrar o que aconteceu.
+
+    Retorna uma lista de dicionários: `{documento_id, chave, ok, mensagem}`.
+    """
+    from app.services.importadores.manifestacao import manifestar_conclusiva
+
+    if tipo_evento not in EVENTOS_CONCLUSIVOS:
+        raise ValueError(f"Evento {tipo_evento} não é manifestação conclusiva.")
+
+    resultados: list[dict] = []
+    # Uma sessão mTLS e um certificado por empresa: o evento vai para o
+    # Ambiente Nacional com o A1 da própria empresa da nota.
+    por_empresa: dict[int, list[DocumentoFiscal]] = {}
+    for documento in documentos:
+        por_empresa.setdefault(documento.empresa_id, []).append(documento)
+
+    for empresa_id, desta_empresa in por_empresa.items():
+
+        def resultado(documento: DocumentoFiscal, ok: bool, mensagem: str) -> None:
+            resultados.append(
+                {
+                    "documento_id": documento.id,
+                    "chave_acesso": documento.chave_acesso,
+                    "ok": ok,
+                    "mensagem": mensagem,
+                }
+            )
+
+        empresa = db.get(Empresa, empresa_id)
+        if empresa is None:
+            for documento in desta_empresa:
+                resultado(documento, False, "Empresa não encontrada.")
+            continue
+        certificado = (
+            db.query(Certificado)
+            .filter(Certificado.empresa_id == empresa_id, Certificado.ativo.is_(True))
+            .first()
+        )
+        if certificado is None:
+            for documento in desta_empresa:
+                resultado(documento, False, "Empresa sem certificado A1 ativo.")
+            continue
+        estado = sincronizacao.obter_estado(db, empresa_id, TipoDocumentoFiscal.NFE)
+        try:
+            senha = decifrar_segredo(certificado.senha_cifrada)
+            pfx_bytes = ler_pfx_protegido(certificado.arquivo_path)
+        except Exception as exc:  # noqa: BLE001
+            for documento in desta_empresa:
+                resultado(documento, False, f"Não foi possível abrir o certificado A1: {exc}")
+            continue
+
+        precisa_buscar = False
+        with sessao_mtls(pfx_bytes, senha) as (cert_path, key_path):
+            for documento in desta_empresa:
+                try:
+                    evento = manifestar_conclusiva(
+                        chave=documento.chave_acesso,
+                        cnpj=empresa.cnpj_cpf,
+                        cert_path=cert_path,
+                        key_path=key_path,
+                        tipo_evento=tipo_evento,
+                        justificativa=justificativa,
+                        uf=empresa.uf,
+                    )
+                except ManifestacaoRecusada as exc:
+                    documento.manifestacao_erro = mensagem_manifestacao_recusada(exc)
+                    documento.manifestacao_cstat = (exc.cstat or "")[:4] or None
+                    db.commit()
+                    resultado(documento, False, documento.manifestacao_erro)
+                    continue
+                except AmbienteIndisponivel as exc:
+                    db.commit()
+                    resultado(
+                        documento,
+                        False,
+                        f"Ambiente Nacional indisponível no momento ({exc}). Nada foi registrado; tente de novo.",
+                    )
+                    continue
+
+                documento.manifestado_em = _agora()
+                documento.manifestacao_erro = None
+                documento.manifestacao_cstat = None
+                db.commit()
+
+                if tipo_evento == TIPO_EVENTO_DESCONHECIMENTO:
+                    resultado(
+                        documento,
+                        True,
+                        "Desconhecimento registrado. Por regra do ambiente, o XML completo "
+                        "não é liberado para nota desconhecida.",
+                    )
+                    continue
+
+                # A manifestação faz o Ambiente Nacional gerar o NSU com a NF-e
+                # completa; buscamos pela chave para não depender do próximo
+                # ciclo de distribuição.
+                completa = False
+                if estado is not None and sincronizacao.cota_pontual_disponivel(db, estado) > 0:
+                    try:
+                        importador = obter_importador(TipoDocumentoFiscal.NFE)
+                        baixado = importador.buscar_por_chave(
+                            cnpj=empresa.cnpj_cpf,
+                            cert_path=cert_path,
+                            key_path=key_path,
+                            chave_acesso=documento.chave_acesso,
+                            uf=empresa.uf,
+                        )
+                        sincronizacao.consumir_cota_pontual(db, estado)
+                        if baixado is not None and _sobrescrever_xml(documento, baixado):
+                            sincronizacao.marcar_consulta_ok(db, estado)
+                            db.commit()
+                            completa = True
+                    except ConsumoIndevido as exc:
+                        # A consulta pontual foi bloqueada: o importante (a
+                        # manifestação) já está registrada. Realinha o cursor e
+                        # registra o bloqueio para o robô voltar na hora certa.
+                        sincronizacao.consumir_cota_pontual(db, estado)
+                        if exc.ultimo_nsu:
+                            sincronizacao.realinhar_cursor(
+                                db, estado, ultimo_nsu=exc.ultimo_nsu, max_nsu=exc.max_nsu
+                            )
+                        sincronizacao.marcar_consumo_indevido(
+                            db,
+                            estado,
+                            motivo=f"consChNFe: {exc.motivo}",
+                            bloqueio=getattr(exc, "bloqueio", None),
+                        )
+                    except AmbienteIndisponivel:
+                        # Rede oscilou na busca: a manifestação continua válida
+                        # e o XML completo chega pelo fluxo de NSU.
+                        pass
+                db.commit()
+
+                if completa:
+                    resultado(documento, True, "Manifestação registrada e XML completo obtido da SEFAZ.")
+                else:
+                    precisa_buscar = True
+                    resultado(
+                        documento,
+                        True,
+                        "Manifestação registrada. O Ambiente Nacional ainda está liberando o "
+                        "XML completo — o sistema busca sozinho nas próximas rodadas.",
+                    )
+
+        if precisa_buscar:
+            try:
+                completar_xmls_pendentes.delay(empresa_id=empresa_id)
+            except Exception:  # noqa: BLE001
+                pass
+
+    return resultados

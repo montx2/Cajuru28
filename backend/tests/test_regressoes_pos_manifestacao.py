@@ -95,7 +95,7 @@ def test_promocao_registra_proveniencia_com_o_nsu_do_completo(db):
     assert _gravar_documento(sessao, empresa.id, NFE, _doc(nsu="1"))
     sessao.commit()
 
-    completo = _doc(nsu="777", xml=b"<nfeProc>X</nfeProc>", leiaute="completo")
+    completo = _doc(nsu="777", xml=_proc_nfe(CHAVE), leiaute="completo")
     assert _promover_resumo(sessao, empresa.id, NFE, completo)
     sessao.commit()
 
@@ -121,7 +121,7 @@ def test_promocao_atualiza_o_nsu_do_documento(db):
     assert sessao.query(DocumentoFiscal).one().nsu == "10"
 
     assert _promover_resumo(
-        sessao, empresa.id, NFE, _doc(nsu="4321", xml=b"<nfeProc/>", leiaute="completo")
+        sessao, empresa.id, NFE, _doc(nsu="4321", xml=_proc_nfe(CHAVE), leiaute="completo")
     )
     sessao.commit()
     assert sessao.query(DocumentoFiscal).one().nsu == "4321"
@@ -142,7 +142,7 @@ def test_promocao_limpa_a_pendencia_de_manifestacao(db):
     sessao.commit()
 
     assert _promover_resumo(
-        sessao, empresa.id, NFE, _doc(xml=b"<nfeProc/>", leiaute="completo")
+        sessao, empresa.id, NFE, _doc(xml=_proc_nfe(CHAVE), leiaute="completo")
     )
     sessao.commit()
 
@@ -165,7 +165,7 @@ def test_promocao_nao_apaga_dados_quando_o_completo_vem_sem_metadados(db):
     sessao.commit()
 
     magro = SimpleNamespace(
-        chave_acesso=CHAVE, nsu="99", xml=b"<nfeProc/>", leiaute="completo",
+        chave_acesso=CHAVE, nsu="99", xml=_proc_nfe(CHAVE), leiaute="completo",
         valor_total=None, data_emissao="", direcao="tomada", competencia="",
         numero="", serie="", emitente_nome="",
     )
@@ -227,7 +227,7 @@ def test_rodada_que_so_promove_resumos_nao_ganha_cooldown_de_uma_hora(
     sessao.commit()
 
     # a SEFAZ devolve o procNFe da MESMA chave, e ainda há fila (ultNSU < maxNSU)
-    completo = _doc(nsu="11", xml=b"<nfeProc>COMPLETO</nfeProc>", leiaute="completo")
+    completo = _doc(nsu="11", xml=_proc_nfe(CHAVE), leiaute="completo")
 
     class ImportadorFake:
         def buscar_lote(self, **kwargs):

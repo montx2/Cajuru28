@@ -319,3 +319,59 @@ def test_centro_de_certificados_ordenado_por_risco(cliente):
     assert vencida_item["vencido"] is True
     assert vencida_item["dias_para_vencer"] < 0
     assert vencida_item["cnpj_cpf"]
+
+
+def test_alerta_de_nota_fora_do_prazo_da_ciencia_diz_o_que_fazer(cliente):
+    """cStat 596: não é espera, é decisão do operador — o alerta precisa dizer isso."""
+    client, db, escritorio_id = cliente
+    empresa = _empresa(db, escritorio_id, "Empresa 596")
+    agora = datetime.now(timezone.utc)
+    for indice, cstat in enumerate(["596", "596", None], start=1):
+        db.add(
+            DocumentoFiscal(
+                empresa_id=empresa.id,
+                tipo=TipoDocumentoFiscal.NFE,
+                direcao=DirecaoDocumento.TOMADA,
+                chave_acesso=f"{indice:044d}",
+                nsu=str(indice),
+                data_emissao=agora - timedelta(days=30),
+                valor_total=100.0,
+                xml_path=f"/tmp/{indice}.xml",
+                leiaute="resumo",
+                manifestacao_cstat=cstat,
+            )
+        )
+    db.commit()
+
+    resposta = client.get("/alertas")
+    assert resposta.status_code == 200
+    alerta = next(
+        item for item in resposta.json()["itens"] if item["id"] == "ciencia-fora-do-prazo"
+    )
+    assert alerta["nivel"] == "atencao"
+    assert "2 NF-e" in alerta["titulo"]
+    assert "Manifestar operação" in alerta["detalhe"]
+    assert alerta["acao_href"].endswith("leiaute=resumo")
+    assert alerta["categoria"] == "xml"
+
+
+def test_sem_nota_596_o_alerta_nao_aparece(cliente):
+    client, db, escritorio_id = cliente
+    empresa = _empresa(db, escritorio_id, "Empresa em dia")
+    db.add(
+        DocumentoFiscal(
+            empresa_id=empresa.id,
+            tipo=TipoDocumentoFiscal.NFE,
+            direcao=DirecaoDocumento.TOMADA,
+            chave_acesso="1" * 44,
+            nsu="1",
+            data_emissao=datetime.now(timezone.utc),
+            valor_total=100.0,
+            xml_path="/tmp/1.xml",
+            leiaute="completo",
+        )
+    )
+    db.commit()
+
+    itens = client.get("/alertas").json()["itens"]
+    assert not [item for item in itens if item["id"] == "ciencia-fora-do-prazo"]

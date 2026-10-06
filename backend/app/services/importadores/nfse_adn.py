@@ -41,7 +41,7 @@ from typing import Any
 import httpx
 
 from app.core.documentos import normalizar_documento
-from app.services.importadores._distribuicao_dfe import competencia_de_texto
+from app.services.importadores._distribuicao_dfe import competencia_de_texto, leiaute_do_conteudo
 from app.services.importadores.base import (
     AmbienteIndisponivel,
     DocumentoBaixado,
@@ -477,7 +477,10 @@ class ImportadorNFSeADN(ImportadorFiscal):
         # NFS-e do leiaute nacional sempre chega com o documento inteiro (o
         # ADN não distribui "resumo" como o Ambiente Nacional da NFe), mas o
         # tipo declarado no lote pode dizer o contrário — respeita se vier.
-        leiaute = "resumo" if "res" in (schema or "").lower() else "completo"
+        # Mesma regra do lado NF-e/CT-e: o que decide é o CONTEÚDO do XML. O
+        # nome do schema já veio trocado mais de uma vez, e um resumo gravado
+        # como documento inteiro sai da fila de complemento para sempre.
+        leiaute = leiaute_do_conteudo(xml_bytes, schema)
 
         return DocumentoBaixado(
             chave_acesso=chave,

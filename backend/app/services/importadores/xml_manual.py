@@ -41,12 +41,20 @@ def _local(tag: str) -> str:
 
 
 def classificar_xml(conteudo: bytes) -> str:
-    """'nfe' | 'nfe_autorizacao' | 'cte' | 'nfse' | '' — pelo leiaute.
+    """'nfe' | 'nfe_resumo' | 'nfe_autorizacao' | 'cte' | 'cte_resumo' | 'nfse' | ''.
 
     `infNFe`/`infCTe`/`infNFSe` são os elementos que carregam a chave (Id) em
     todos os leiautes; o nome da raiz varia com o envelope (proc, res, lote).
     NFS-e é checado por último e por igualdade exata: `infNFSe` NÃO começa
     com `infNFe`.
+
+    **Resumo não é nota.** Portais e outros sistemas exportam `resNFe` (e o
+    `protNFe`) com o nome da chave; são documentos legítimos, mas não contêm a
+    nota (itens, totais). Antes, os dois entravam como "nfe" e a nota ficava
+    marcada como completa guardando só a autorização — o contador exportava um
+    XML que não serve para escriturar. Agora cada um tem seu tipo: o resumo
+    entra como nota EM RESUMO (a captura completa sozinha) e o protocolo é
+    recusado com instrução.
     """
     try:
         raiz = ET.fromstring(conteudo)
@@ -61,15 +69,17 @@ def classificar_xml(conteudo: bytes) -> str:
         if nome == "infNFSe":
             return "nfse"
     nome_raiz = _local(raiz.tag)
-    # Alguns portais exportam apenas o protocolo de autorização (`protNFe`).
-    # Ele confirma que a NF-e foi autorizada, mas não contém a nota (itens,
-    # emitente, destinatário e totais). Não deve ser enviado à contabilidade
-    # como se fosse um XML fiscal completo.
-    if nome_raiz == "protNFe":
+    # Protocolo de autorização isolado: confirma que a NF-e existe, mas não é a
+    # nota. Não deve ir para a contabilidade como XML fiscal completo.
+    if nome_raiz in {"protNFe", "protCTe"}:
         return "nfe_autorizacao"
-    if nome_raiz in {"procNFe", "resNFe", "NFe"}:
+    if nome_raiz == "resNFe":
+        return "nfe_resumo"
+    if nome_raiz == "resCTe":
+        return "cte_resumo"
+    if nome_raiz in {"procNFe", "NFe", "enviNFe"}:
         return "nfe"
-    if nome_raiz in {"procCTe", "resCTe", "CTe"}:
+    if nome_raiz in {"procCTe", "CTe", "enviCTe"}:
         return "cte"
     if "nfse" in nome_raiz.lower():
         return "nfse"
@@ -82,10 +92,15 @@ def converter_xml(conteudo: bytes, tipo: str) -> DocumentoBaixado | None:
     O CNPJ consultado entra vazio: aqui a empresa só é conhecida DEPOIS, pelo
     destinatário/emitente do próprio documento.
     """
-    if tipo == "nfe":
-        return ImportadorNFeSEFAZ()._converter("0", "procNFe", conteudo, "")  # noqa: SLF001
-    if tipo == "cte":
-        return ImportadorCTeSEFAZ()._converter("0", "procCTe", conteudo, "")  # noqa: SLF001
+    if tipo in {"nfe", "nfe_resumo"}:
+        # O schema é só um palpite: quem decide o leiaute é o conteúdo (um
+        # resNFe importado manualmente nasce como "resumo" e entra na fila de
+        # complemento em vez de fingir ser a nota).
+        schema = "resNFe" if tipo == "nfe_resumo" else "procNFe"
+        return ImportadorNFeSEFAZ()._converter("0", schema, conteudo, "")  # noqa: SLF001
+    if tipo in {"cte", "cte_resumo"}:
+        schema = "resCTe" if tipo == "cte_resumo" else "procCTe"
+        return ImportadorCTeSEFAZ()._converter("0", schema, conteudo, "")  # noqa: SLF001
     if tipo == "nfse":
         return ImportadorNFSeADN()._converter_documento({}, "", xml_bytes=conteudo)  # noqa: SLF001
     return None
@@ -165,9 +180,12 @@ def gravar_documento(
     if existente is not None:
         registrar_proveniencia(db, existente.id, "xml", nome_arquivo)
         if existente.tipo == tipo and existente.leiaute == "resumo" and doc.leiaute == "completo":
-            _sobrescrever_xml(existente, doc)
-            _aplicar_eventos_pendentes(db, empresa.id, tipo, chave)
-            return "completada"
+            # `_sobrescrever_xml` recusa payload que não seja a nota inteira
+            # (ex.: um resNFe rotulado como completo): nesse caso a nota segue
+            # em resumo, na fila, em vez de virar um "completo" que não é.
+            if _sobrescrever_xml(existente, doc):
+                _aplicar_eventos_pendentes(db, empresa.id, tipo, chave)
+                return "completada"
         return "duplicada"
 
     data_emissao = _para_datetime(doc.data_emissao)
@@ -189,9 +207,9 @@ def gravar_documento(
         DocumentoFiscal.empresa_id == empresa.id, DocumentoFiscal.chave_acesso == chave,
     ).with_for_update().first()
     if existente and existente.tipo == tipo and existente.leiaute == "resumo" and doc.leiaute == "completo":
-        _sobrescrever_xml(existente, doc)
-        _aplicar_eventos_pendentes(db, empresa.id, tipo, chave)
-        return "completada"
+        if _sobrescrever_xml(existente, doc):
+            _aplicar_eventos_pendentes(db, empresa.id, tipo, chave)
+            return "completada"
     return "duplicada"
 
 

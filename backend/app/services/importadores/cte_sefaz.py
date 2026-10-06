@@ -40,6 +40,7 @@ from app.services.importadores._distribuicao_dfe import (
     competencia_de_texto,
     extrair_metadados,
     interpretar_resposta,
+    leiaute_do_conteudo,
     metadados_da_chave,
     montar_envelope,
     montar_envelope_cte,
@@ -257,7 +258,7 @@ class ImportadorCTeSEFAZ(ImportadorFiscal):
             direcao=direcao,
             competencia=competencia_de_texto(metadados.get("competencia", ""), data_emissao)
             or da_chave.get("competencia", ""),
-            leiaute="resumo" if schema.lower().startswith("res") else "completo",
+            leiaute=leiaute_do_conteudo(xml_bytes, schema),
             numero=metadados.get("numero") or da_chave.get("numero", ""),
             serie=metadados.get("serie") or da_chave.get("serie", ""),
             emitente_documento=metadados.get("emit_doc", ""),

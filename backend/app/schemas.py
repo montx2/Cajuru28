@@ -310,6 +310,56 @@ class DocumentoFiscalResposta(BaseModel):
     # o banco para descobrir.
     manifestado_em: datetime | None = None
     manifestacao_erro: str | None = None
+    # Código da recusa (ex.: "596" = evento fora do prazo). É o que diz à tela
+    # que a saída não é tentar de novo, e sim registrar a manifestação
+    # conclusiva — o texto do motivo muda entre as SEFAZ, o código não.
+    manifestacao_cstat: str | None = None
+
+
+class ManifestacaoConclusiva(BaseModel):
+    """Manifestação conclusiva escolhida pelo operador para um lote de notas.
+
+    Não é rotina automática: o destinatário está declarando à SEFAZ o que
+    aconteceu com a operação. A Confirmação também impede o emitente de
+    cancelar a nota — por isso a tela exige confirmação explícita.
+    """
+
+    ids: list[int]
+    tipo: Literal["confirmacao", "desconhecimento", "nao_realizada"] = "confirmacao"
+    justificativa: str = ""
+
+    @field_validator("ids")
+    @classmethod
+    def ids_validos(cls, v: list[int]) -> list[int]:
+        vistos: list[int] = []
+        for item in v or []:
+            if item <= 0:
+                raise ValueError("IDs de documentos devem ser positivos")
+            if item not in vistos:
+                vistos.append(item)
+        if not vistos:
+            raise ValueError("Selecione ao menos uma nota para manifestar.")
+        if len(vistos) > 100:
+            raise ValueError("Manifeste no máximo 100 notas por vez.")
+        return vistos
+
+    @field_validator("justificativa")
+    @classmethod
+    def justificativa_valida(cls, v: str) -> str:
+        # 15 a 255 caracteres é o que o XSD exige para os eventos que pedem
+        # justificativa (Desconhecimento e Operação não Realizada). Validar aqui
+        # dá erro na tela, antes de gastar qualquer chamada à SEFAZ.
+        texto = (v or "").strip()
+        if texto and not 15 <= len(texto) <= 255:
+            raise ValueError("A justificativa deve ter de 15 a 255 caracteres.")
+        return texto
+
+
+class ResultadoManifestacaoConclusiva(BaseModel):
+    documento_id: int
+    chave_acesso: str
+    ok: bool
+    mensagem: str
 
 
 class DocumentosExcluirLote(BaseModel):

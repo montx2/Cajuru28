@@ -32,21 +32,35 @@ download. Depois dele, `consChNFe` passa a devolver o `procNFe` inteiro.
 3. **Idempotência:** `cStat=573` ("Duplicidade de Evento") **é sucesso** — o
    evento já estava registrado. Tratar como erro faria o worker repetir para
    sempre uma nota que já está manifestada.
-4. **Ato jurídico:** a Ciência é irreversível e dispara o prazo legal de
-   manifestação conclusiva. Por isso o disparo automático é **opt-in por
-   empresa** (`Empresa.manifestar_automaticamente`), desligado por padrão.
+4. **Ato jurídico:** a Ciência é irreversível e faz o destinatário dever a
+   manifestação conclusiva (que, sem evento, é presumida pelo Ajuste
+   SINIEF 14/2026). Como é ela que destrava o XML completo — e sem ela a nota
+   fica presa em `resNFe` para sempre —, o disparo automático vem **ligado por
+   padrão** e é uma chave por empresa (`Empresa.manifestar_automaticamente`),
+   que o operador pode desligar na tela da empresa.
 
-## O que este módulo deliberadamente NÃO faz
+## As manifestações conclusivas (e por que só a pedido do operador)
 
-Não registra as manifestações **conclusivas** (210200 Confirmação, 210220
-Desconhecimento, 210240 Operação não Realizada). Essas exigem decisão de
-negócio sobre a operação em si e nunca devem ser automatizadas por um robô.
+A Ciência da Operação só é aceita **até 10 dias** contados da autorização da
+NF-e (Ajuste SINIEF 44/20, tabela da NT 2020.001). Depois disso a SEFAZ devolve
+`cStat 596` e a nota fica presa em resumo — sem XML completo para escriturar.
+A saída prevista na norma é a manifestação **conclusiva**: Confirmação da
+Operação (210200), Desconhecimento (210220) ou Operação não Realizada (210240),
+aceitas por 90 dias (Ajuste SINIEF 14/2026; eram 180). Elas também fazem o Ambiente Nacional liberar a
+NF-e — exceto o Desconhecimento, que por regra não devolve o XML.
+
+Esses três eventos dizem à SEFAZ o que aconteceu com a operação (e a
+Confirmação impede o emitente de cancelar a nota). Por isso o robô **não os
+dispara sozinho**: `manifestar_conclusiva` existe para o operador decidir na
+tela, com a justificativa obrigatória (15 a 255 caracteres) quando o evento
+exige.
 """
 
 from __future__ import annotations
 
 import re
 import xml.etree.ElementTree as ET
+from xml.sax.saxutils import escape as escapar_xml
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -78,10 +92,40 @@ NS_DSIG = "http://www.w3.org/2000/09/xmldsig#"
 # Único algoritmo de canonicalização aceito pelo XSD da NF-e (C14N 1.0 inclusiva).
 ALG_C14N = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315"
 
-# Evento de Ciência da Operação.
+# Eventos de manifestação do destinatário (leiaute ConfRecebto).
 TIPO_EVENTO_CIENCIA = "210210"
+TIPO_EVENTO_CONFIRMACAO = "210200"
+TIPO_EVENTO_DESCONHECIMENTO = "210220"
+TIPO_EVENTO_NAO_REALIZADA = "210240"
 DESCRICAO_CIENCIA = "Ciencia da Operacao"
 VERSAO_EVENTO = "1.00"
+
+# Descrição exata de cada evento — o XSD valida por enumeração, não por
+# semelhança. "Confirmacao da Operacao" e "Ciencia da Operacao" convivem aqui
+# porque agora o sistema sabe registrar as duas.
+DESCRICOES = {
+    TIPO_EVENTO_CONFIRMACAO: "Confirmacao da Operacao",
+    TIPO_EVENTO_CIENCIA: DESCRICAO_CIENCIA,
+    TIPO_EVENTO_DESCONHECIMENTO: "Desconhecimento da Operacao",
+    TIPO_EVENTO_NAO_REALIZADA: "Operacao nao Realizada",
+}
+
+# Manifestações conclusivas: encerram a análise da nota e liberam o XML
+# completo no Ambiente Nacional — TODAS, exceto o Desconhecimento, que por
+# regra do manual não devolve a NF-e (a operação está sendo negada; não há
+# documento a escriturar).
+EVENTOS_CONCLUSIVOS = {
+    TIPO_EVENTO_CONFIRMACAO,
+    TIPO_EVENTO_DESCONHECIMENTO,
+    TIPO_EVENTO_NAO_REALIZADA,
+}
+# Eventos que exigem justificativa (xJust, 15 a 255 caracteres).
+EVENTOS_COM_JUSTIFICATIVA = {TIPO_EVENTO_DESCONHECIMENTO, TIPO_EVENTO_NAO_REALIZADA}
+
+# Prazo legal da Ciência da Operação: 10 dias contados da AUTORIZAÇÃO da NF-e
+# (Ajuste SINIEF 44/20, tabela da NT 2020.001). Depois disso a SEFAZ devolve
+# `cStat 596` e a única saída para liberar o XML é uma manifestação conclusiva.
+PRAZO_CIENCIA_DIAS = 10
 
 # cStat de sucesso: 135 (registrado), 136 (vinculado) e 573 (duplicidade).
 # 573 significa "já manifestado" — para o nosso objetivo (liberar o XML) o
@@ -89,6 +133,10 @@ VERSAO_EVENTO = "1.00"
 CSTAT_EVENTO_REGISTRADO = {"135", "136"}
 CSTAT_EVENTO_DUPLICADO = {"573"}
 CSTAT_LOTE_PROCESSADO = {"128"}
+# "Evento apresentado fora do prazo" — no caso da Ciência, chegou depois dos
+# 10 dias contados da autorização da NF-e. Não adianta repetir: o caminho passa
+# a ser uma manifestação conclusiva.
+CSTAT_EVENTO_FORA_DO_PRAZO = "596"
 
 
 class ManifestacaoRecusada(Exception):
@@ -138,16 +186,33 @@ def montar_evento(
     tp_amb: str = "1",
     sequencia: int = 1,
     tipo_evento: str = TIPO_EVENTO_CIENCIA,
-    descricao: str = DESCRICAO_CIENCIA,
+    descricao: str | None = None,
+    justificativa: str = "",
 ) -> bytes:
     """Monta o `<evento>` **sem assinatura** (a assinatura é aplicada depois).
 
     `cOrgao` é 91 (Ambiente Nacional) para a manifestação do destinatário —
     o evento não pertence à UF do emitente nem à do destinatário.
+
+    Serve para os quatro eventos da manifestação: Ciência (210210), Confirmação
+    (210200), Desconhecimento (210220) e Operação não Realizada (210240). Os
+    dois últimos exigem `xJust` de 15 a 255 caracteres (o XSD valida o
+    tamanho; a SEFAZ recusa sem ela).
     """
     digitos = "".join(c for c in chave if c.isdigit())
     if len(digitos) != 44:
         raise ValueError(f"Chave de acesso deve ter 44 dígitos, veio {len(digitos)}.")
+
+    descricao = descricao or DESCRICOES.get(tipo_evento, DESCRICAO_CIENCIA)
+    justificativa = (justificativa or "").strip()
+    if tipo_evento in EVENTOS_COM_JUSTIFICATIVA:
+        if len(justificativa) < 15:
+            raise ValueError(
+                "A justificativa é obrigatória e deve ter de 15 a 255 caracteres "
+                f"para o evento {tipo_evento}."
+            )
+    if len(justificativa) > 255:
+        justificativa = justificativa[:255]
 
     documento = normalizar_documento(cnpj)
     tag_pessoa = (
@@ -156,6 +221,10 @@ def montar_evento(
     id_evento = montar_id_evento(digitos, tipo_evento, sequencia)
 
     # cOrgao 91 = Ambiente Nacional (obrigatório na manifestação).
+    # `&`, `<` e `>` são permitidos pelo padrão do XSD, mas precisam sair
+    # escapados para o XML continuar bem-formado (o digest da assinatura é
+    # calculado sobre estes bytes).
+    bloco_justificativa = f"<xJust>{escapar_xml(justificativa)}</xJust>" if justificativa else ""
     xml = (
         f'<evento xmlns="{NS_PORTAL}" versao="{VERSAO_EVENTO}">'
         f'<infEvento Id="{id_evento}">'
@@ -169,6 +238,7 @@ def montar_evento(
         f"<verEvento>{VERSAO_EVENTO}</verEvento>"
         f"<detEvento versao=\"{VERSAO_EVENTO}\">"
         f"<descEvento>{descricao}</descEvento>"
+        f"{bloco_justificativa}"
         f"</detEvento>"
         f"</infEvento>"
         f"</evento>"
@@ -338,6 +408,49 @@ def interpretar_resposta_evento(resposta_bytes: bytes) -> ResultadoManifestacao:
     raise ManifestacaoRecusada(motivo, cstat=cstat)
 
 
+def enviar_evento(
+    chave: str,
+    cnpj: str,
+    cert_path: str,
+    key_path: str,
+    *,
+    tipo_evento: str,
+    justificativa: str = "",
+    uf: str | None = None,
+    ambiente: str = "producao",
+    sequencia: int = 1,
+) -> ResultadoManifestacao:
+    """Assina e envia QUALQUER evento da manifestação do destinatário.
+
+    Retorna o desfecho; levanta `ManifestacaoRecusada` quando a SEFAZ rejeita
+    de forma definitiva (o `cstat` vai junto — 596, por exemplo, é "fora do
+    prazo" e indica que aquele tipo de evento não é mais aceito para a chave) e
+    `AmbienteIndisponivel` em falha de transporte, que não consome nada e pode
+    ser retentada.
+    """
+    tp_amb = "1" if ambiente == "producao" else "2"
+    url = (
+        RECEPCAO_EVENTO_URL_PRODUCAO
+        if ambiente == "producao"
+        else RECEPCAO_EVENTO_URL_HOMOLOGACAO
+    )
+    evento = montar_evento(
+        chave,
+        cnpj,
+        uf=uf,
+        tp_amb=tp_amb,
+        sequencia=sequencia,
+        tipo_evento=tipo_evento,
+        justificativa=justificativa,
+    )
+    assinado = assinar_evento(evento, cert_path, key_path)
+    envelope = montar_envelope_evento(assinado, tp_amb)
+    resposta = chamar_com_retentativa(
+        envelope, url, cert_path, key_path, soap_action=RECEPCAO_EVENTO_SOAP_ACTION
+    )
+    return interpretar_resposta_evento(resposta)
+
+
 def manifestar_ciencia(
     chave: str,
     cnpj: str,
@@ -350,20 +463,59 @@ def manifestar_ciencia(
 ) -> ResultadoManifestacao:
     """Registra a Ciência da Operação (210210) para uma chave de NF-e.
 
-    Retorna o desfecho; levanta `ManifestacaoRecusada` quando a SEFAZ rejeita
-    de forma definitiva e `AmbienteIndisponivel` em falha de transporte (que
-    pode ser retentada sem consumir nada).
+    É o evento que libera o XML completo (`procNFe`) para o destinatário — mas
+    só dentro de 10 dias contados da autorização (Ajuste SINIEF 44/20). Fora
+    disso a SEFAZ responde 596 e a saída passa a ser `manifestar_conclusiva`.
     """
-    tp_amb = "1" if ambiente == "producao" else "2"
-    url = (
-        RECEPCAO_EVENTO_URL_PRODUCAO
-        if ambiente == "producao"
-        else RECEPCAO_EVENTO_URL_HOMOLOGACAO
+    return enviar_evento(
+        chave,
+        cnpj,
+        cert_path,
+        key_path,
+        tipo_evento=TIPO_EVENTO_CIENCIA,
+        uf=uf,
+        ambiente=ambiente,
+        sequencia=sequencia,
     )
-    evento = montar_evento(chave, cnpj, uf=uf, tp_amb=tp_amb, sequencia=sequencia)
-    assinado = assinar_evento(evento, cert_path, key_path)
-    envelope = montar_envelope_evento(assinado, tp_amb)
-    resposta = chamar_com_retentativa(
-        envelope, url, cert_path, key_path, soap_action=RECEPCAO_EVENTO_SOAP_ACTION
+
+
+def manifestar_conclusiva(
+    chave: str,
+    cnpj: str,
+    cert_path: str,
+    key_path: str,
+    *,
+    tipo_evento: str,
+    justificativa: str = "",
+    uf: str | None = None,
+    ambiente: str = "producao",
+    sequencia: int = 1,
+) -> ResultadoManifestacao:
+    """Registra a manifestação CONCLUSIVA (Confirmação/Desconhecimento/Não realizada).
+
+    É o caminho para a nota cujo prazo de Ciência (10 dias) já passou: a
+    manifestação conclusiva também faz o Ambiente Nacional gerar o NSU com a
+    NF-e completa — exceto o **Desconhecimento**, que por regra do manual não
+    devolve o XML (não há operação a escriturar).
+
+    É ato de negócio, não rotina técnica: o destinatário está declarando à
+    SEFAZ o que aconteceu com a operação, e a Confirmação impede o emitente de
+    cancelar a nota. Por isso nunca é disparada "sozinha" pelo robô: quem
+    chama é o operador, com a justificativa quando o evento exige.
+    """
+    if tipo_evento not in EVENTOS_CONCLUSIVOS:
+        raise ValueError(
+            f"Evento {tipo_evento} não é uma manifestação conclusiva. "
+            f"Use um de {sorted(EVENTOS_CONCLUSIVOS)}."
+        )
+    return enviar_evento(
+        chave,
+        cnpj,
+        cert_path,
+        key_path,
+        tipo_evento=tipo_evento,
+        justificativa=justificativa,
+        uf=uf,
+        ambiente=ambiente,
+        sequencia=sequencia,
     )
-    return interpretar_resposta_evento(resposta)

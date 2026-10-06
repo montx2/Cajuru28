@@ -215,6 +215,18 @@ class DocumentoFiscal(Base):
     # definitiva para o operador ver, em vez de tentar em silêncio para sempre.
     manifestado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     manifestacao_erro: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # cStat da rejeição de manifestação (ex.: 596 = evento fora do prazo). O
+    # texto do motivo muda de redação entre as SEFAZ; o código não. É o que
+    # permite à tela oferecer a saída certa: fora do prazo da Ciência (10 dias
+    # da autorização), só uma manifestação CONCLUSIVA libera o XML.
+    manifestacao_cstat: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    # Quantas vezes já se tentou buscar este XML completo pela chave e quando.
+    # Serve para espaçar as tentativas (a cota oficial é de 20 consultas/h por
+    # CNPJ) em vez de gastar a cota inteira nas mesmas notas a cada rodada.
+    tentativas_completar: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    ultima_tentativa_completar_em: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     importado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     empresa: Mapped["Empresa"] = relationship(back_populates="documentos")

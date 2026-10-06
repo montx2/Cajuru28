@@ -46,9 +46,13 @@ Distribuição DFe da SEFAZ para NF-e/CT-e), com mTLS pelo certificado da própr
 empresa. Não há intermediário de terceiros no caminho do documento fiscal.
 
 Para NF-e que chega apenas como **resumo** (`resNFe`), o XML completo só é
-liberado após a Ciência da Operação (evento 210210). Isso é feito pelo worker,
-mas apenas para empresas que ativaram a opção — a Ciência é irreversível e faz
-correr o prazo da manifestação conclusiva.
+liberado após a Ciência da Operação (evento 210210) — a consulta por chave
+obedece à mesma regra, então não há atalho sem o evento. O worker registra a
+Ciência e busca o `procNFe` sozinho; a chave `manifestar_automaticamente` da
+empresa (ligada por padrão) permite desligar isso, porque a Ciência é
+irreversível e faz correr o prazo da manifestação conclusiva. Nota que passou
+dos 10 dias não aceita mais a Ciência (cStat 596): aí a saída é a manifestação
+conclusiva, escolhida pelo operador na ficha da nota.
 
 ## Operação
 

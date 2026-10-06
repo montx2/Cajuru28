@@ -37,6 +37,7 @@ from app.core.documentos import normalizar_documento
 from app.services.importadores._distribuicao_dfe import (
     CODIGO_IBGE_POR_UF,
     CSTAT_DOCUMENTOS_LOCALIZADOS,
+    LEIAUTE_COMPLETO,
     NFE_DISTRIBUICAO_URL_HOMOLOGACAO,
     NFE_DISTRIBUICAO_URL_PRODUCAO,
     NFE_SOAP_ACTION,
@@ -45,6 +46,7 @@ from app.services.importadores._distribuicao_dfe import (
     competencia_de_texto,
     extrair_metadados,
     interpretar_resposta,
+    leiaute_do_conteudo,
     metadados_da_chave,
     montar_envelope,
     montar_envelope_nfe,
@@ -96,7 +98,21 @@ class ImportadorNFeSEFAZ(ImportadorFiscal):
     def buscar_por_chave(
         self, cnpj: str, cert_path: str, key_path: str, chave_acesso: str, uf: str | None = None
     ) -> DocumentoBaixado | None:
-        """`consChNFe`: recupera a NFe completa pela chave (20 consultas/h)."""
+        """`consChNFe`: recupera a NFe completa pela chave (20 consultas/h).
+
+        **Só devolve a nota inteira.** A resposta oficial do Ambiente Nacional
+        para a consulta por chave é: destinatário que ainda não registrou
+        Ciência/Confirmação da Operação recebe APENAS o `resNFe` (e o mesmo vale
+        para o emitente, que não recebe nada pela distribuição). Devolver esse
+        resumo como se fosse o documento era o bug que "baixava a autorização":
+        o arquivo do resumo sobrescrevia o da nota e o registro saía da fila de
+        complemento marcado como `completo`.
+
+        Agora, quando só há resumo disponível, a resposta é `None` — "ainda não
+        há XML completo para buscar" — e o worker volta depois, sem corromper
+        nada. Quem chama já sabe lidar com `None`: mantém a nota em `resumo` e
+        reagenda.
+        """
         digitos = "".join(c for c in str(chave_acesso).strip().upper() if c.isascii() and c.isalnum())
         if len(digitos) != 44:
             raise ValueError(f"Chave de acesso de NFe deve ter 44 caracteres, veio {len(digitos)}.")
@@ -114,16 +130,17 @@ class ImportadorNFeSEFAZ(ImportadorFiscal):
         resposta = interpretar_resposta(resposta_bytes, ambiente=self.ambiente_nome)
         if resposta.inexistente or not resposta.documentos:
             return None
-        for nsu, schema, xml_bytes in resposta.documentos:
-            documento = self._converter(nsu, schema, xml_bytes, cnpj)
-            if documento is not None:
-                return documento
-        return None
+        return self._documento_integral(resposta, cnpj)
 
     def buscar_por_nsu(
         self, cnpj: str, cert_path: str, key_path: str, nsu: str, uf: str | None = None
     ) -> DocumentoBaixado | None:
-        """`consNSU`: fecha uma lacuna pontual na sequência de NSU."""
+        """`consNSU`: fecha uma lacuna pontual na sequência de NSU.
+
+        Mesma regra do `consChNFe`: se o NSU consultado for um resumo ou um
+        evento, não é a nota — devolve `None` em vez de gravar o que não é o
+        documento.
+        """
         digitos = "".join(c for c in str(nsu) if c.isdigit()) or "0"
         cuf_autor = self._cuf_autor(uf, "NFe")
         envelope = montar_envelope(
@@ -139,13 +156,23 @@ class ImportadorNFeSEFAZ(ImportadorFiscal):
         resposta = interpretar_resposta(resposta_bytes, ambiente=self.ambiente_nome)
         if resposta.inexistente or not resposta.documentos:
             return None
-        for nsu_item, schema, xml_bytes in resposta.documentos:
-            documento = self._converter(nsu_item, schema, xml_bytes, cnpj)
-            if documento is not None:
-                return documento
-        return None
+        return self._documento_integral(resposta, cnpj)
 
     # -- internals -----------------------------------------------------------
+
+    def _documento_integral(self, resposta, cnpj: str) -> DocumentoBaixado | None:
+        """A NOTA dentro da resposta pontual — nunca o resumo nem evento.
+
+        Se a resposta trouxe mais de um item (o ambiente pode devolver o
+        `resNFe` e o `procNFe` da mesma chave), o documento inteiro tem
+        prioridade: é ele que completa a nota no acervo.
+        """
+        candidatos = resposta.documentos_completos
+        for nsu, schema, xml_bytes in candidatos:
+            documento = self._converter(nsu, schema, xml_bytes, cnpj)
+            if documento is not None and documento.leiaute == LEIAUTE_COMPLETO:
+                return documento
+        return None
 
     @staticmethod
     def _cuf_autor(uf: str | None, rotulo: str) -> str:
@@ -281,6 +308,11 @@ class ImportadorNFeSEFAZ(ImportadorFiscal):
         # adivinhação.
         da_chave = metadados_da_chave(chave)
 
+        # O leiaute vem do CONTEÚDO do XML, não do nome do schema: o ambiente
+        # já publicou schemas com nomes diferentes e um resumo marcado como
+        # "completo" nunca mais era buscado.
+        leiaute = leiaute_do_conteudo(xml_bytes, schema)
+
         return DocumentoBaixado(
             chave_acesso=chave,
             nsu=_nsu_inteiro(nsu, "0"),
@@ -290,7 +322,7 @@ class ImportadorNFeSEFAZ(ImportadorFiscal):
             direcao=direcao,
             competencia=competencia_de_texto(metadados.get("competencia", ""), data_emissao)
             or da_chave.get("competencia", ""),
-            leiaute="resumo" if schema.lower().startswith("res") else "completo",
+            leiaute=leiaute,
             numero=metadados.get("numero") or da_chave.get("numero", ""),
             serie=metadados.get("serie") or da_chave.get("serie", ""),
             emitente_documento=metadados.get("emit_doc", ""),
