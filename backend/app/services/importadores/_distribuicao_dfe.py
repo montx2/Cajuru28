@@ -472,10 +472,45 @@ def competencia_de_texto(valor: str, data_emissao: str) -> str:
     Prioridade: o que o próprio documento declara (dComp/dCompet/PeriodoRef),
     depois a data de emissão. O recorte em `YYYY-MM` é o que permite ao
     contador dizer "quero 08/2026" sem depender de fuso horário.
+    Suporta formatos ISO (AAAA-MM-DD, AAAA-MM), brasileiro (DD/MM/AAAA, MM/AAAA),
+    barras invertidas (AAAA/MM/DD, AAAA/MM) e numérico puro (AAAAMMDD, AAAAMM).
     """
-    candidato = (valor or "").strip() or (data_emissao or "").strip()
-    if len(candidato) >= 10 and candidato[4] == "-" and candidato[7] == "-":
-        return candidato[:10]
-    if len(candidato) == 7 and candidato[4] == "-":
-        return f"{candidato}-01"
-    return ""
+    def _parse(texto: str) -> str:
+        s = (texto or "").strip()
+        if not s:
+            return ""
+        # ISO AAAA-MM-DD...
+        if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+            return s[:10]
+        # AAAA-MM
+        if len(s) == 7 and s[4] == "-":
+            return f"{s}-01"
+        # AAAA/MM/DD
+        if len(s) >= 10 and s[4] == "/" and s[7] == "/":
+            return f"{s[:4]}-{s[5:7]}-{s[8:10]}"
+        # AAAA/MM
+        if len(s) == 7 and s[4] == "/":
+            return f"{s[:4]}-{s[5:7]}-01"
+        # DD/MM/AAAA...
+        if len(s) >= 10 and s[2] == "/" and s[5] == "/":
+            return f"{s[6:10]}-{s[3:5]}-{s[:2]}"
+        # MM/AAAA
+        if len(s) == 7 and s[2] == "/":
+            return f"{s[3:7]}-{s[:2]}-01"
+        # AAAAMM (6 dígitos)
+        if len(s) == 6 and s.isdigit():
+            return f"{s[:4]}-{s[4:6]}-01"
+        # AAAAMMDD (8 dígitos)
+        if len(s) == 8 and s.isdigit():
+            return f"{s[:4]}-{s[4:6]}-{s[6:8]}"
+        try:
+            from dateutil import parser as dt_parser
+            dt = dt_parser.parse(s)
+            return dt.strftime("%Y-%m-%d")
+        except Exception:
+            return ""
+
+    resultado = _parse(valor)
+    if resultado:
+        return resultado
+    return _parse(data_emissao)

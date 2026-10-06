@@ -120,7 +120,7 @@ export function SeletorPeriodo({
         </p>
       ) : (
         <p className="mt-2 text-xs leading-5 text-tinta-suave">
-          Competência e período não são a mesma coisa: o período filtra a data de emissão; a competência é o mês-calendário do documento.
+          A competência é o mês fiscal do documento; o período personalizado permite recortar por datas específicas.
         </p>
       )}
     </fieldset>

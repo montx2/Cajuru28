@@ -149,7 +149,7 @@ export function Relatorios() {
       />
 
       <div className="nao-imprimir flex flex-wrap items-end justify-between gap-3 rounded-cartao border border-traco bg-superficie p-3">
-        <SeletorCompetencia mes={mes} aoMudar={aoMudar} descricao="Mês de emissão dos documentos" />
+        <SeletorCompetencia mes={mes} aoMudar={aoMudar} descricao="Mês de competência dos documentos" />
         <div className="flex flex-wrap items-center gap-2">
           <Botao
             variante="secundaria"
@@ -211,7 +211,7 @@ export function Relatorios() {
           instrucao={
             pronto
               ? "Sem documento capturado não há o que fechar. Confira certificados e sincronismo, depois dispare a captura do mês."
-              : "O fechamento é sempre por competência (mês de emissão)."
+              : "O fechamento é sempre por competência."
           }
           acao={
             pronto ? (

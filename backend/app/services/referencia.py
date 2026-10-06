@@ -1,14 +1,16 @@
 """A data que decide se um documento está *dentro do período pedido*.
 
-A regra é única e explícita: vale a data de emissão do documento, interpretada
-no fuso operacional brasileiro. Isso evita que um documento emitido depois das
-21h seja deslocado para o dia seguinte apenas porque PostgreSQL roda em UTC.
+A regra contábil e fiscal é a competência do documento (o mês/período fiscal a que
+se refere o serviço ou operação). Se a competência não estiver preenchida (por exemplo,
+em documentos legados sem metadados específicos), utiliza-se como fallback a data
+de emissão interpretada no fuso operacional brasileiro.
 """
 
 from __future__ import annotations
 
 from datetime import date, datetime
 
+from sqlalchemy import func
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.sql.functions import GenericFunction
 from sqlalchemy.types import Date
@@ -46,11 +48,17 @@ def _compilar_data_fiscal_generico(element, compiler, **kwargs) -> str:
 
 
 def data_referencia_sql():
-    """Expressão SQL portável da data fiscal de emissão."""
-    return _DataFiscalSql(DocumentoFiscal.data_emissao)
+    """Expressão SQL portável da data de referência fiscal (competência com fallback para emissão)."""
+    return func.coalesce(DocumentoFiscal.competencia, _DataFiscalSql(DocumentoFiscal.data_emissao))
 
 
 def data_referencia(documento: DocumentoFiscal) -> date | None:
     """Versão Python da mesma regra — usada quando o objeto já está em mãos."""
+    comp = getattr(documento, "competencia", None)
+    if comp is not None:
+        if isinstance(comp, datetime):
+            return comp.date()
+        if isinstance(comp, date):
+            return comp
     valor = getattr(documento, "data_emissao", None)
     return data_operacional(valor)
