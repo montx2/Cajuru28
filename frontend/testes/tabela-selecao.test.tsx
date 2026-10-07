@@ -7,11 +7,12 @@ import { Tabela, type ColunaTabela } from "@/components/ui/Tabela";
 interface Linha {
   id: number;
   nome: string;
+  cancelada?: boolean;
 }
 
 const LINHAS: Linha[] = [
-  { id: 1, nome: "Documento um" },
-  { id: 2, nome: "Documento dois" },
+  { id: 1, nome: "Documento normal" },
+  { id: 2, nome: "Documento cancelado", cancelada: true },
 ];
 
 const COLUNAS: Array<ColunaTabela<Linha>> = [
@@ -53,7 +54,10 @@ function TabelaComSelecaoDoFiltro() {
           setTodasDoFiltro(false);
           setSelecionadas(proximas);
         },
-        totalNoFiltro: 3,
+        podeSelecionarLinha: (linha) => !linha.cancelada,
+        motivoNaoSelecionavel: (linha) =>
+          linha.cancelada ? "Notas canceladas não entram no download de XMLs." : undefined,
+        totalNoFiltro: 2,
         aoSelecionarTudoDoFiltro: () => {
           setSelecionadas(new Set());
           setTodasDoFiltro(true);
@@ -89,17 +93,18 @@ describe("barra contextual da tabela", () => {
     expect(screen.queryByRole("button", { name: /Baixar 1 XML/i })).not.toBeInTheDocument();
   });
 
-  it("oferece todas as linhas do filtro, mesmo além das linhas carregadas", async () => {
+  it("oferece todas as linhas elegíveis sem selecionar a cancelada", async () => {
     const usuario = userEvent.setup();
     render(<TabelaComSelecaoDoFiltro />);
 
     await usuario.click(screen.getByRole("checkbox", { name: "Selecionar linha 1" }));
-    await usuario.click(screen.getByRole("button", { name: "Selecionar todas as 3 do filtro" }));
+    await usuario.click(screen.getByRole("button", { name: "Selecionar todas as 2 elegíveis do filtro" }));
 
-    expect(screen.getByText("Todas as 3 do filtro")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Baixar 3 XML" })).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "Selecionar todas as linhas desta página" })).toBeChecked();
+    expect(screen.getByText("Todas as 2 elegíveis do filtro")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Baixar 2 XML" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Selecionar todas as linhas elegíveis nesta página" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Selecionar linha 1" })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "Selecionar linha 2" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Selecionar linha 2" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "Selecionar linha 2" })).not.toBeChecked();
   });
 });

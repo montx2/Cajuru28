@@ -410,29 +410,23 @@ def test_incluir_incompletos_manda_para_pasta_a_parte(acervo):
     assert not [n for n in padrao.namelist() if n.startswith("Fluxa/_sem-xml-completo/")]
 
 
-def test_selecao_de_cancelada_leva_evento_para_pasta_separada(acervo):
-    """Selecionar uma cancelada não pode fazê-la sumir do ZIP por ser evento."""
+def test_selecao_de_cancelada_nao_leva_evento_para_o_pacote(acervo):
+    """O evento de uma cancelada fica fora até da pasta de incompletos."""
     db = acervo["db"]
     cancelada = db.query(DocumentoFiscal).filter(DocumentoFiscal.chave_acesso == CHAVE_EVENTO).one()
     cancelada.status = StatusDocumentoFiscal.CANCELADA
     db.commit()
 
-    pacote = _baixar(
-        acervo["client"],
-        documento_ids=str(cancelada.id),
-        incluir_canceladas=True,
-        incluir_incompletos=True,
+    resposta = acervo["client"].get(
+        "/documentos/exportar",
+        params={
+            "documento_ids": str(cancelada.id),
+            "incluir_canceladas": False,
+            "incluir_incompletos": True,
+        },
     )
-    nomes = pacote.namelist()
-    caminho = next(nome for nome in nomes if CHAVE_EVENTO in nome and nome.endswith(".xml"))
 
-    assert caminho.startswith("Fluxa/_sem-xml-completo/")
-    assert b"procEventoNFe" in pacote.read(caminho)
-    assert not any(
-        CHAVE_EVENTO in nome and nome.startswith(PASTA_EMPRESA)
-        for nome in nomes
-    )
-    assert CHAVE_EVENTO in pacote.read("Fluxa/pendencias.csv").decode("utf-8-sig")
+    assert resposta.status_code == 404
 
 
 # ---------------------------------------------------------------------------

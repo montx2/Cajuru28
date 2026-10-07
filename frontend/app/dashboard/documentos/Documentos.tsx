@@ -180,16 +180,9 @@ export function Documentos() {
     () => Array.from(selecao).map((chave) => Number(chave)).filter((id) => Number.isFinite(id)),
     [selecao]
   );
-  const haCanceladaSelecionada = useMemo(
-    () =>
-      todasDoFiltro
-        ? (resumo.dados?.canceladas ?? 0) > 0
-        : linhas.some((documento) => documento.status === "cancelada" && selecao.has(String(documento.id))),
-    [linhas, resumo.dados?.canceladas, selecao, todasDoFiltro]
-  );
-
   const total = resumo.dados?.total ?? null;
-  const quantidadeSelecionada = todasDoFiltro ? total ?? 0 : idsSelecionados.length;
+  const totalSelecionavel = resumo.dados?.normais ?? null;
+  const quantidadeSelecionada = todasDoFiltro ? totalSelecionavel ?? 0 : idsSelecionados.length;
   const filtroAtivo = Boolean(tipo || direcao || status || leiaute || valorMin || valorMax || empresa || busca.valor.trim());
   // Tipo e operação são controles visíveis; o contador representa apenas os filtros do popover.
   const quantidadeFiltros = [status, leiaute, valorMin, valorMax].filter(Boolean).length;
@@ -297,10 +290,8 @@ export function Documentos() {
     if (quantidadeSelecionada === 0) return;
     setBaixando(true);
     try {
-      // Quem marcou a linha — ou escolheu todas as N do filtro — pediu aquele
-      // documento, inclusive quando ele foi cancelado. O ZIP mantém
-      // eventos/resumos numa pasta separada, para não contaminar a pasta que a
-      // contabilidade importa como nota fiscal.
+      // O lote exclui canceladas tanto na interface quanto na API: uma nota que
+      // mudou de situação entre a marcação e o download não entra no pacote.
       const filtroSelecao = todasDoFiltro
         ? filtrosParaBaixarTudoDoFiltro(filtros)
         : filtrosParaBaixarSelecao(filtros, idsSelecionados);
@@ -309,11 +300,7 @@ export function Documentos() {
         avisar({
           tom: "ok",
           titulo: "XMLs da seleção baixados",
-          descricao:
-            `${escopoEmpresa} · ${numero(quantidadeSelecionada)} ${plural(quantidadeSelecionada, "documento", "documentos")}` +
-            (haCanceladaSelecionada
-              ? " · notas canceladas incluídas; eventos ficam em Fluxa/_sem-xml-completo/"
-              : ""),
+          descricao: `${escopoEmpresa} · ${numero(quantidadeSelecionada)} ${plural(quantidadeSelecionada, "documento", "documentos")} · canceladas fora do pacote`,
         });
       } else {
         await api.baixarCsvDocumentos(filtroSelecao, `Fluxa_selecao_${sufixoArquivo(periodo)}.csv`);
@@ -639,7 +626,12 @@ export function Documentos() {
             setTodasDoFiltro(false);
             setSelecao(proximas);
           },
-          totalNoFiltro: total ?? undefined,
+          podeSelecionarLinha: (documento) => documento.status !== "cancelada",
+          motivoNaoSelecionavel: (documento) =>
+            documento.status === "cancelada"
+              ? "Notas canceladas não entram no download de XMLs."
+              : undefined,
+          totalNoFiltro: totalSelecionavel ?? undefined,
           aoSelecionarTudoDoFiltro: () => {
             setSelecao(new Set());
             setTodasDoFiltro(true);
@@ -852,7 +844,7 @@ export function Documentos() {
               linhas.length > 0 ? (
                 <span className="text-xs text-tinta-fraca">
                   Período {rotuloPeriodo(periodo)} · {todasDoFiltro
-                    ? `todas as ${numero(total ?? 0)} do filtro selecionadas`
+                    ? `todas as ${numero(totalSelecionavel ?? 0)} do filtro selecionadas`
                     : selecao.size > 0
                       ? `${numero(selecao.size)} selecionados`
                       : "clique numa linha para ver o documento"}

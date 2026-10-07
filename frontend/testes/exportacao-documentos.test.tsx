@@ -5,7 +5,7 @@ import {
 } from "@/lib/exportacao-documentos";
 
 describe("download da seleção de documentos", () => {
-  it("preserva notas canceladas e os XMLs incompletos escolhidos", () => {
+  it("exclui notas canceladas do pedido por IDs", () => {
     const filtros = filtrosParaBaixarSelecao(
       {
         empresa_id: 42,
@@ -20,12 +20,11 @@ describe("download da seleção de documentos", () => {
       data_inicio: "2026-09-01",
       data_fim: "2026-09-30",
       documento_ids: "17,23",
-      incluir_canceladas: true,
-      incluir_incompletos: true,
+      incluir_canceladas: false,
     });
   });
 
-  it("usa o filtro inteiro sem excluir canceladas ao selecionar todas as linhas", () => {
+  it("usa o filtro inteiro sem incluir canceladas ao selecionar todas as linhas", () => {
     expect(
       filtrosParaBaixarTudoDoFiltro({
         data_inicio: "2026-09-01",
@@ -34,8 +33,7 @@ describe("download da seleção de documentos", () => {
     ).toEqual({
       data_inicio: "2026-09-01",
       data_fim: "2026-09-30",
-      incluir_canceladas: true,
-      incluir_incompletos: true,
+      incluir_canceladas: false,
     });
   });
 });

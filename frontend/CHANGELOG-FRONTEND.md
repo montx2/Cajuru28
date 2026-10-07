@@ -4,7 +4,7 @@
 
 - Filtros de tipo e operação agora ficam sempre visíveis e podem ser combinados: NF-e, NFS-e/serviço, CT-e, entrada/tomada e saída/prestada. A seleção continua na URL e vale para resumo, lista e exportação.
 - Filtros de situação, leiaute e valor permanecem no painel avançado; limpar esse painel não apaga a busca nem os filtros principais.
-- A seleção agora oferece todas as N linhas do filtro, inclusive além da página carregada, e o download preserva também as notas canceladas. Quando o arquivo selecionado for apenas um evento/resumo, ele segue em `Fluxa/_sem-xml-completo/`, separado dos XMLs prontos para importação contábil.
+- A seleção agora oferece todas as N linhas elegíveis do filtro, inclusive além da página carregada. Notas canceladas ficam desmarcadas e fora do ZIP de XMLs.
 - Removido o espaçamento duplicado entre o título e a primeira seção das telas; a página de documentos usa uma distância mais compacta entre seus blocos.
 - Validação: TypeScript e build de produção passaram; 25 suítes / 145 testes frontend passaram.
 

@@ -605,23 +605,39 @@ def test_download_so_da_selecao_da_tela(cliente):
     assert vazio.status_code == 404
 
 
-def test_download_da_selecao_inclui_nota_cancelada(cliente):
-    """IDs escolhidos na tela prevalecem sobre um filtro legado de canceladas."""
+def test_download_da_selecao_nao_inclui_nota_cancelada(cliente):
+    """Uma cancelada marcada por engano fica fora de ZIP, CSV e estimativa."""
     client = cliente["client"]
+    db = cliente["db"]
+    normal = (
+        db.query(DocumentoFiscal)
+        .filter(
+            DocumentoFiscal.empresa_id == cliente["empresa_id"],
+            DocumentoFiscal.status != StatusDocumentoFiscal.CANCELADA,
+        )
+        .first()
+    )
     cancelada = (
-        cliente["db"]
-        .query(DocumentoFiscal)
+        db.query(DocumentoFiscal)
         .filter(DocumentoFiscal.status == StatusDocumentoFiscal.CANCELADA)
         .one()
     )
-    params = {"documento_ids": str(cancelada.id), "incluir_canceladas": "false"}
+    assert normal is not None
+    params = {
+        "documento_ids": f"{normal.id},{cancelada.id}",
+        "incluir_canceladas": "false",
+    }
 
     resposta = client.get("/documentos/exportar", params=params)
     assert resposta.status_code == 200, resposta.text
-    nomes = zipfile.ZipFile(io.BytesIO(resposta.content)).namelist()
-    xmls = [nome for nome in nomes if nome.endswith(".xml")]
+    xmls = [
+        nome
+        for nome in zipfile.ZipFile(io.BytesIO(resposta.content)).namelist()
+        if nome.endswith(".xml")
+    ]
     assert len(xmls) == 1
-    assert cancelada.chave_acesso in xmls[0]
+    assert normal.chave_acesso in xmls[0]
+    assert all(cancelada.chave_acesso not in nome for nome in xmls)
 
     estimativa = client.get("/documentos/exportar/estimativa", params=params)
     assert estimativa.status_code == 200, estimativa.text
@@ -629,7 +645,9 @@ def test_download_da_selecao_inclui_nota_cancelada(cliente):
 
     relacao = client.get("/documentos/exportar/csv", params=params)
     assert relacao.status_code == 200, relacao.text
-    assert cancelada.chave_acesso in relacao.content.decode("utf-8-sig")
+    conteudo = relacao.content.decode("utf-8-sig")
+    assert normal.chave_acesso in conteudo
+    assert cancelada.chave_acesso not in conteudo
 
 
 def test_zip_obedece_a_mesma_busca_da_tela(cliente):
