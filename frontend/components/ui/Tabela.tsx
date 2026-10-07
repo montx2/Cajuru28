@@ -44,10 +44,13 @@ export interface CelulaContexto {
   ativa: boolean;
 }
 
-export interface SelecaoTabela {
+export interface SelecaoTabela<L = unknown> {
   chaves: Set<string>;
   aoMudar: (chaves: Set<string>) => void;
-  /** Total do filtro — quando maior que as linhas carregadas, oferece "todas as N". */
+  /** Linhas inelegíveis continuam visíveis, mas não entram no lote. */
+  podeSelecionarLinha?: (linha: L) => boolean;
+  motivoNaoSelecionavel?: (linha: L) => string | undefined;
+  /** Total elegível do filtro — quando maior que as linhas carregadas, oferece "todas as N". */
   totalNoFiltro?: number;
   /** Marca o filtro inteiro sem materializar ids (exportar/excluir pelo critério). */
   aoSelecionarTudoDoFiltro?: () => void;
@@ -75,7 +78,7 @@ export interface TabelaProps<L> {
   /** `<caption>` para leitor de tela: o que esta tabela é. */
   legenda: string;
   estados: EstadosTabela;
-  selecao?: SelecaoTabela;
+  selecao?: SelecaoTabela<L>;
   ordenacao?: OrdenacaoTabela | null;
   aoOrdenar?: (ordenacao: OrdenacaoTabela | null) => void;
   aoAbrirLinha?: (linha: L) => void;
@@ -148,7 +151,22 @@ export function Tabela<L>({
 
   const chaves = useMemo(() => linhas.map((linha) => String(chaveDaLinha(linha))), [chaveDaLinha, linhas]);
   const selecionadas = selecao?.chaves ?? new Set<string>();
-  const selecionadasNaPagina = useMemo(() => chaves.filter((chave) => selecionadas.has(chave)), [chaves, selecionadas]);
+  const todasDoFiltro = Boolean(selecao?.todasDoFiltro);
+  const linhasSelecionaveis = useMemo(
+    () => linhas.map((linha) => selecao?.podeSelecionarLinha?.(linha) ?? true),
+    [linhas, selecao?.podeSelecionarLinha]
+  );
+  const chavesSelecionaveis = useMemo(
+    () => chaves.filter((_, indice) => linhasSelecionaveis[indice]),
+    [chaves, linhasSelecionaveis]
+  );
+  const selecionadasNaPagina = useMemo(
+    () =>
+      todasDoFiltro
+        ? chavesSelecionaveis
+        : chavesSelecionaveis.filter((chave) => selecionadas.has(chave)),
+    [chavesSelecionaveis, selecionadas, todasDoFiltro]
+  );
 
   const usaVirtualizacao = (virtualizar ?? linhas.length > LIMITE_VIRTUALIZACAO) && linhas.length > 0;
   const configuracaoLinha = `${densidade}:${visiveis.map((coluna) => coluna.id).join(",")}`;
@@ -196,14 +214,22 @@ export function Tabela<L>({
   }, [indiceAtivo, linhas.length]);
 
   function alternarSelecao(chave: string, indice: number, intervaloAte?: number | null) {
-    if (!selecao) return;
+    if (!selecao || !linhasSelecionaveis[indice]) return;
+    // O contrato de seleção global não carrega exclusões por linha. Em vez de
+    // fingir que tirou uma única linha de todas as N, qualquer mudança pontual
+    // volta para uma seleção explícita e segura.
+    if (todasDoFiltro) {
+      selecao.aoCancelarTudoDoFiltro?.();
+      selecao.aoMudar(new Set<string>());
+      return;
+    }
     const proximas = new Set(selecionadas);
     if (intervaloAte !== null && intervaloAte !== undefined && intervaloAte !== indice) {
       const [de, ate] = intervaloAte < indice ? [intervaloAte, indice] : [indice, intervaloAte];
       const marcar = !proximas.has(chave);
       for (let i = de; i <= ate; i += 1) {
         const chaveDoIntervalo = chaves[i];
-        if (!chaveDoIntervalo) continue;
+        if (!chaveDoIntervalo || !linhasSelecionaveis[i]) continue;
         if (marcar) proximas.add(chaveDoIntervalo);
         else proximas.delete(chaveDoIntervalo);
       }
@@ -218,9 +244,17 @@ export function Tabela<L>({
 
   function selecionarPagina() {
     if (!selecao) return;
+    if (todasDoFiltro) {
+      selecao.aoCancelarTudoDoFiltro?.();
+      selecao.aoMudar(new Set<string>());
+      return;
+    }
     const proximas = new Set(selecionadas);
-    if (selecionadasNaPagina.length === chaves.length) chaves.forEach((chave) => proximas.delete(chave));
-    else chaves.forEach((chave) => proximas.add(chave));
+    if (selecionadasNaPagina.length === chavesSelecionaveis.length) {
+      chavesSelecionaveis.forEach((chave) => proximas.delete(chave));
+    } else {
+      chavesSelecionaveis.forEach((chave) => proximas.add(chave));
+    }
     selecao.aoMudar(proximas);
   }
 
@@ -313,6 +347,13 @@ export function Tabela<L>({
 
   const temConteudo = !estados.carregando && !estados.erro && linhas.length > 0;
   const mostrarBarra = Boolean(selecao && (selecionadas.size > 0 || selecao.todasDoFiltro));
+  const selecionaApenasElegiveis = Boolean(selecao?.podeSelecionarLinha);
+  const rotuloSelecaoPagina = selecionaApenasElegiveis
+    ? "Selecionar todas as linhas elegíveis nesta página"
+    : "Selecionar todas as linhas desta página";
+  const rotuloTodasDoFiltro = selecionaApenasElegiveis
+    ? `Todas as ${numero(selecao?.totalNoFiltro ?? 0)} elegíveis do filtro`
+    : `Todas as ${numero(selecao?.totalNoFiltro ?? 0)} do filtro`;
 
   return (
     <div className={cn("cartao-produto relative min-w-0 rounded-cartao", className)}>
@@ -321,7 +362,7 @@ export function Tabela<L>({
           <div className="flex flex-wrap items-center gap-3">
             <p className="nums flex-none text-sm font-medium text-tinta-forte" role="status" aria-live="polite">
               {selecao?.todasDoFiltro
-                ? `Todas as ${numero(selecao?.totalNoFiltro ?? 0)} do filtro`
+                ? rotuloTodasDoFiltro
                 : `${numero(selecionadas.size)} ${selecionadas.size === 1 ? "selecionada" : "selecionadas"}`}
             </p>
             {selecao?.todasDoFiltro && selecao.aoCancelarTudoDoFiltro ? (
@@ -331,7 +372,7 @@ export function Tabela<L>({
             ) : null}
             {!selecao?.todasDoFiltro && selecao?.aoSelecionarTudoDoFiltro && (selecao.totalNoFiltro ?? 0) > selecionadas.size ? (
               <button type="button" onClick={selecao.aoSelecionarTudoDoFiltro} className="flex-none rounded-badge text-xs font-medium text-acento underline-offset-4 hover:underline">
-                Selecionar todas as {numero(selecao.totalNoFiltro)} do filtro
+                Selecionar todas as {numero(selecao.totalNoFiltro)}{selecionaApenasElegiveis ? " elegíveis" : ""} do filtro
               </button>
             ) : null}
             <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
@@ -432,14 +473,21 @@ export function Tabela<L>({
             <tr className="border-b border-traco">
               {selecao ? (
                 <th scope="col" className="sticky top-0 z-10 w-10 bg-fundo-afundado px-2 py-1.5 align-middle">
-                  <span className="sr-only">Selecionar todas as linhas desta página</span>
+                  <span className="sr-only">{rotuloSelecaoPagina}</span>
                   <Caixa
                     compacta
                     rotulo=""
-                    aria-label="Selecionar todas as linhas desta página"
-                    checked={chaves.length > 0 && selecionadasNaPagina.length === chaves.length}
-                    indeterminado={selecionadasNaPagina.length > 0 && selecionadasNaPagina.length < chaves.length}
-                    disabled={chaves.length === 0}
+                    aria-label={rotuloSelecaoPagina}
+                    checked={
+                      chavesSelecionaveis.length > 0 &&
+                      (todasDoFiltro || selecionadasNaPagina.length === chavesSelecionaveis.length)
+                    }
+                    indeterminado={
+                      !todasDoFiltro &&
+                      selecionadasNaPagina.length > 0 &&
+                      selecionadasNaPagina.length < chavesSelecionaveis.length
+                    }
+                    disabled={chavesSelecionaveis.length === 0}
                     onChange={selecionarPagina}
                     className="-my-1.5 px-0 hover:bg-transparent"
                   />
@@ -518,7 +566,8 @@ export function Tabela<L>({
               {linhas.slice(intervalo.inicio, intervalo.fim).map((linha, posicao) => {
                 const indice = intervalo.inicio + posicao;
                 const chave = chaves[indice];
-                const selecionada = selecionadas.has(chave);
+                const selecionavel = linhasSelecionaveis[indice];
+                const selecionada = selecionavel && (todasDoFiltro || selecionadas.has(chave));
                 const ativa = indice === indiceAtivo;
                 return (
                   <tr
@@ -554,7 +603,11 @@ export function Tabela<L>({
                     {selecao ? (
                       <td className="w-10 px-2 align-middle" onClick={(evento) => evento.stopPropagation()}>
                         <span className="sr-only">
-                          {selecionada ? "Linha selecionada" : "Linha não selecionada"}
+                          {!selecionavel
+                            ? selecao.motivoNaoSelecionavel?.(linha) ?? "Linha não elegível para seleção"
+                            : selecionada
+                              ? "Linha selecionada"
+                              : "Linha não selecionada"}
                           {` — ${legenda}, linha ${indice + 1}`}
                         </span>
                         <Caixa
@@ -562,6 +615,8 @@ export function Tabela<L>({
                           rotulo=""
                           aria-label={`Selecionar linha ${indice + 1}`}
                           checked={selecionada}
+                          disabled={!selecionavel}
+                          title={!selecionavel ? selecao.motivoNaoSelecionavel?.(linha) : undefined}
                           className="-my-1.5 px-0 hover:bg-transparent"
                           onChange={() => alternarSelecao(chave, indice)}
                           onClick={(evento) => {

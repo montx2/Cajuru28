@@ -44,6 +44,7 @@ from app.models import (
     Empresa,
     Escritorio,
     RegistroAuditoria,
+    StatusDocumentoFiscal,
     TipoDocumentoFiscal,
     Usuario,
 )
@@ -407,6 +408,25 @@ def test_incluir_incompletos_manda_para_pasta_a_parte(acervo):
     # por padrão (sem o checkbox) a pasta à parte não existe
     padrao = _baixar(acervo["client"])
     assert not [n for n in padrao.namelist() if n.startswith("Fluxa/_sem-xml-completo/")]
+
+
+def test_selecao_de_cancelada_nao_leva_evento_para_o_pacote(acervo):
+    """O evento de uma cancelada fica fora até da pasta de incompletos."""
+    db = acervo["db"]
+    cancelada = db.query(DocumentoFiscal).filter(DocumentoFiscal.chave_acesso == CHAVE_EVENTO).one()
+    cancelada.status = StatusDocumentoFiscal.CANCELADA
+    db.commit()
+
+    resposta = acervo["client"].get(
+        "/documentos/exportar",
+        params={
+            "documento_ids": str(cancelada.id),
+            "incluir_canceladas": False,
+            "incluir_incompletos": True,
+        },
+    )
+
+    assert resposta.status_code == 404
 
 
 # ---------------------------------------------------------------------------
