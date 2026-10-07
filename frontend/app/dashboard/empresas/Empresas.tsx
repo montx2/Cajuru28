@@ -724,7 +724,7 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
       }
     >
       {resultado ? (
-        <ResultadoLote resultado={resultado} />
+        <ResultadoLote resultado={resultado} planilhasAnexadas={planilhas.length} />
       ) : (
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-3 rounded-controle border border-borda-controle p-3">
@@ -782,7 +782,7 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
             multiplo
             arquivos={planilhas}
             aoMudar={setPlanilhas}
-            descricao="Anexe apenas se tiver uma planilha já usada pelo escritório. Ela pode informar CNPJ e senha para abrir certificados que não forem identificados automaticamente; a UF só é usada como apoio se a consulta pública não a encontrar."
+            descricao="Anexe a planilha que o escritório já tem: valem cnpj;senha, razao_social;cnpj_cpf;uf;senha e o inventário de A1 arquivo;cnpj;emissor;senha;validade — com ou sem linha de título. Cada certificado é amarrado à sua linha pelo CNPJ que está no nome do arquivo. A UF só é usada como apoio se a consulta pública não a encontrar."
           />
           {erro ? (
             <p role="alert" className="rounded-controle border border-erro/40 bg-erro-tenue px-3 py-2 text-sm leading-6 text-erro">
@@ -795,7 +795,15 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
   );
 }
 
-function ResultadoLote({ resultado }: { resultado: LoteEmpresasResposta }) {
+function ResultadoLote({
+  resultado,
+  planilhasAnexadas = 0,
+}: {
+  resultado: LoteEmpresasResposta;
+  planilhasAnexadas?: number;
+}) {
+  const linhasDaPlanilha = resultado.linhas_da_planilha ?? 0;
+  const senhasDaPlanilha = resultado.senhas_da_planilha ?? 0;
   return (
     <div className="space-y-4">
       <Cartao densidade="compacta" className="border-0 bg-fundo-afundado">
@@ -806,6 +814,20 @@ function ResultadoLote({ resultado }: { resultado: LoteEmpresasResposta }) {
           <Dado destaque rotulo="Já existiam" valor={numero(resultado.ja_existiam)} />
           <Dado destaque rotulo="Com erro" valor={numero(resultado.erros)} tom={resultado.erros > 0 ? "erro" : undefined} />
         </dl>
+        {planilhasAnexadas > 0 ? (
+          linhasDaPlanilha === 0 ? (
+            <p role="alert" className="mt-3 border-t border-traco pt-2 text-xs leading-5 text-erro">
+              A planilha anexada não rendeu nenhuma linha. Ela precisa do CNPJ (ou do nome do .pfx) e da
+              senha de cada certificado — confira as colunas e importe de novo.
+            </p>
+          ) : (
+            <p className="mt-3 border-t border-traco pt-2 text-2xs leading-5 text-tinta-suave">
+              Planilha de apoio: {numero(linhasDaPlanilha)}{" "}
+              {plural(linhasDaPlanilha, "linha lida", "linhas lidas")} · {numero(senhasDaPlanilha)}{" "}
+              {plural(senhasDaPlanilha, "com senha", "com senha")}.
+            </p>
+          )
+        ) : null}
       </Cartao>
 
       <div className="rolagem-fina max-h-80 overflow-y-auto rounded-cartao border border-traco">

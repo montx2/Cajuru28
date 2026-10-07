@@ -191,3 +191,85 @@ describe("lote com planilha de senhas", () => {
     expect(botao).toHaveAttribute("title", "Escolha a pasta (ou os arquivos) dos certificados");
   });
 });
+
+describe("retorno da planilha de apoio no resultado do lote", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  async function importarComPlanilha(usuario: ReturnType<typeof userEvent.setup>) {
+    const campoCertificados = await screen.findByLabelText(/ou arquivos individuais/i);
+    await usuario.upload(campoCertificados, PFX("21260898000107.pfx"));
+    const planilha = screen.getByLabelText(/planilha de apoio/i);
+    await usuario.upload(
+      planilha,
+      new File(["21260898000107.pfx;21.260.898/0001-07;ICP-Brasil;7cs19Pfi;09/03/2027"], "certificados_e_senhas.csv", {
+        type: "text/csv",
+      })
+    );
+    await usuario.click(screen.getByRole("button", { name: /importar lote/i }));
+    await waitFor(() => expect(importarEmpresasEmMassa).toHaveBeenCalledTimes(1));
+  }
+
+  it("diz quantas linhas e senhas a planilha rendeu", async () => {
+    importarEmpresasEmMassa.mockResolvedValue({
+      total: 1,
+      criadas: 1,
+      certificados: 0,
+      ja_existiam: 0,
+      erros: 0,
+      itens: [],
+      linhas_da_planilha: 52,
+      senhas_da_planilha: 50,
+    });
+    const usuario = userEvent.setup();
+    montar();
+
+    await importarComPlanilha(usuario);
+
+    expect(await screen.findByText(/52 linhas lidas/i)).toBeInTheDocument();
+    expect(screen.getByText(/50 com senha/i)).toBeInTheDocument();
+  });
+
+  it("avisa quando a planilha anexada não rendeu nenhuma linha", async () => {
+    importarEmpresasEmMassa.mockResolvedValue({
+      total: 1,
+      criadas: 0,
+      certificados: 0,
+      ja_existiam: 0,
+      erros: 1,
+      itens: [],
+      linhas_da_planilha: 0,
+      senhas_da_planilha: 0,
+    });
+    const usuario = userEvent.setup();
+    montar();
+
+    await importarComPlanilha(usuario);
+
+    expect(await screen.findByText(/planilha anexada não rendeu nenhuma linha/i)).toBeInTheDocument();
+  });
+
+  it("sem planilha anexada, não fala de planilha", async () => {
+    importarEmpresasEmMassa.mockResolvedValue({
+      total: 1,
+      criadas: 1,
+      certificados: 0,
+      ja_existiam: 0,
+      erros: 0,
+      itens: [],
+      linhas_da_planilha: 0,
+      senhas_da_planilha: 0,
+    });
+    const usuario = userEvent.setup();
+    montar();
+
+    const campoCertificados = await screen.findByLabelText(/ou arquivos individuais/i);
+    await usuario.upload(campoCertificados, PFX("21260898000107.pfx"));
+    await usuario.click(screen.getByRole("button", { name: /importar lote/i }));
+    await waitFor(() => expect(importarEmpresasEmMassa).toHaveBeenCalledTimes(1));
+
+    expect(await screen.findByText("Processados")).toBeInTheDocument();
+    expect(screen.queryByText(/linhas lidas/i)).not.toBeInTheDocument();
+  });
+});

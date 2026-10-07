@@ -217,6 +217,10 @@ class LoteEmpresasResposta(BaseModel):
     ja_existiam: int
     erros: int
     itens: list[ItemLoteEmpresas]
+    # O que a planilha de apoio rendeu. Sem isto, uma planilha lida no formato
+    # errado parecia "importação sem erro" e só falhava certificado a certificado.
+    linhas_da_planilha: int = 0
+    senhas_da_planilha: int = 0
 
 
 class PendenciaEmpresaEntrada(BaseModel):

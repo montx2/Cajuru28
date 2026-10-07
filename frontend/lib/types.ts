@@ -355,6 +355,9 @@ export interface LoteEmpresasResposta {
   ja_existiam: number;
   erros: number;
   itens: ItemLoteEmpresas[];
+  /** O que a planilha de apoio rendeu: linhas lidas e quantas traziam senha. */
+  linhas_da_planilha?: number;
+  senhas_da_planilha?: number;
 }
 
 export const ROTULO_TIPO: Record<TipoDocumentoFiscal, string> = {

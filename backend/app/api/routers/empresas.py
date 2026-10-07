@@ -59,8 +59,10 @@ from app.services.certificados import (
 )
 from app.services.senhas import (
     buscar_senhas_por_nome,
+    chave_de_arquivo,
     construir_candidatas_pfx,
     fundir_planilhas_dados,
+    indexar_por_arquivo,
 )
 
 router = APIRouter(prefix="/empresas", tags=["empresas"])
@@ -92,6 +94,34 @@ def _validar_uf_ou_vazio(valor: str | None) -> str:
     if uf and uf not in _UFS_VALIDAS:
         raise HTTPException(status_code=422, detail=f"UF inválida: {uf!r}")
     return uf
+
+
+def _cnpj_do_arquivo(nome: str, por_arquivo: dict[str, dict]) -> str:
+    """CNPJ do .pfx: o que está no nome do arquivo ou o que a planilha declara.
+
+    A planilha do escritório costuma trazer a coluna `arquivo` com o nome exato
+    do certificado. Quando o .pfx não tem CNPJ no nome (`certificado-novo.pfx`),
+    é ela que diz a que empresa o arquivo pertence.
+    """
+    cnpj = cnpj_de_nome_arquivo(nome)
+    if cnpj:
+        return cnpj
+    linha = por_arquivo.get(chave_de_arquivo(nome)) or {}
+    return (linha.get("cnpj") or "").strip()
+
+
+def _linha_do_certificado(
+    nome: str,
+    cnpj: str,
+    linhas_csv: dict[str, dict],
+    por_arquivo: dict[str, dict],
+) -> dict:
+    """Linha da planilha que fala deste certificado: pelo CNPJ ou pelo nome."""
+    if cnpj:
+        linha = linhas_csv.get(cnpj)
+        if linha:
+            return linha
+    return por_arquivo.get(chave_de_arquivo(nome)) or {}
 
 
 def _consulta_publica(cnpj_cpf: str):
@@ -379,7 +409,11 @@ async def importar_empresas_em_massa(
       a senha global informada), extrai CNPJ/razão social do certificado, cria a empresa
       e grava o certificado cifrado.
     - `csv_arquivos`: opcional, uma ou mais planilhas (.xlsx, .xlsm, .csv, .txt)
-      de senhas com colunas `razao_social;cnpj_cpf;uf` e opcionalmente `senha`.
+      com a senha de cada certificado. As colunas são descobertas pelo conteúdo:
+      valem `cnpj;senha`, `razao_social;cnpj_cpf;uf;senha` e o inventário de A1
+      `arquivo;cnpj;emissor;senha;validade`, com ou sem linha de título. O `.pfx`
+      é amarrado à linha pelo CNPJ do nome do arquivo ou pelo nome que a própria
+      planilha cita.
     - `uf_padrao`: compatibilidade com clientes antigos; o front-end consulta a
       UF pelo CNPJ e não escolhe uma UF arbitrária para o lote.
     """
@@ -399,6 +433,10 @@ async def importar_empresas_em_massa(
 
     # Linhas do CSV/Excel por CNPJ (senha/UF/razão por empresa, se informadas)
     linhas_csv, todas_senhas, lista_planilhas = await _fundir_planilhas(csv_arquivos)
+    # A mesma planilha também é lida pelo nome do arquivo que ela cita: é assim
+    # que `21260898000107.pfx` acha a senha mesmo quando a coluna CNPJ veio com
+    # um dígito a menos.
+    por_arquivo = indexar_por_arquivo(lista_planilhas)
     resultados: list[ItemLoteEmpresas] = []
     vistos: set[str] = set()
 
@@ -409,6 +447,7 @@ async def importar_empresas_em_massa(
         arquivos,
         senha=senha,
         linhas_csv=linhas_csv,
+        por_arquivo=por_arquivo,
         todas_senhas=todas_senhas,
         lista_planilhas=lista_planilhas,
         db=db,
@@ -425,6 +464,7 @@ async def importar_empresas_em_massa(
                 senha=senha,
                 uf_padrao=uf_padrao,
                 linhas_csv=linhas_csv,
+                por_arquivo=por_arquivo,
                 todas_senhas=todas_senhas,
                 lista_planilhas=lista_planilhas,
                 db=db,
@@ -463,6 +503,10 @@ async def importar_empresas_em_massa(
         ja_existiam=ja_existiam,
         erros=erros,
         itens=resultados,
+        linhas_da_planilha=len(lista_planilhas),
+        senhas_da_planilha=sum(
+            1 for linha in lista_planilhas if (linha.get("senha") or "").strip()
+        ),
     )
 
 
@@ -533,6 +577,7 @@ async def _escolher_versoes(
     *,
     senha: str,
     linhas_csv: dict[str, dict],
+    por_arquivo: dict[str, dict] | None = None,
     todas_senhas: list[str] | None = None,
     lista_planilhas: list[dict] | None = None,
     db: Session | None = None,
@@ -545,13 +590,14 @@ async def _escolher_versoes(
     sobrevive a de maior validade e as demais entram no resultado como
     "substituido".
     """
+    por_arquivo = por_arquivo or {}
     plano: list[UploadFile | ItemLoteEmpresas] = list(arquivos)
     grupos: dict[str, list[int]] = {}
     for indice, arquivo in enumerate(arquivos):
         nome = (arquivo.filename or "").lower()
         if not nome.endswith((".pfx", ".p12")):
             continue
-        cnpj = cnpj_de_nome_arquivo(arquivo.filename or "")
+        cnpj = _cnpj_do_arquivo(arquivo.filename or "", por_arquivo)
         if cnpj:
             grupos.setdefault(cnpj, []).append(indice)
 
@@ -559,7 +605,9 @@ async def _escolher_versoes(
         if len(indices) < 2:
             continue
 
-        linha_csv = linhas_csv.get(cnpj, {})
+        linha_csv = _linha_do_certificado(
+            arquivos[indices[0]].filename or "", cnpj, linhas_csv, por_arquivo
+        )
         razao = linha_csv.get("razao_social") or ""
         if not razao and db is not None:
             emp = db.query(Empresa).filter(Empresa.escritorio_id == escritorio_id, Empresa.cnpj_cpf == cnpj).first()
@@ -619,6 +667,7 @@ async def _processar_pfx(
     senha: str,
     uf_padrao: str,
     linhas_csv: dict[str, dict],
+    por_arquivo: dict[str, dict] | None = None,
     todas_senhas: list[str] | None = None,
     lista_planilhas: list[dict] | None = None,
     db: Session,
@@ -641,8 +690,8 @@ async def _processar_pfx(
     if not conteudo:
         return ItemLoteEmpresas(origem=nome, status="erro", mensagem="Arquivo vazio.")
 
-    cnpj_nome = cnpj_de_nome_arquivo(nome)
-    linha_csv = linhas_csv.get(cnpj_nome, {})
+    cnpj_nome = _cnpj_do_arquivo(nome, por_arquivo or {})
+    linha_csv = _linha_do_certificado(nome, cnpj_nome, linhas_csv, por_arquivo or {})
     razao_conhecida = linha_csv.get("razao_social") or ""
     uf_da_empresa = ""
     if cnpj_nome:
