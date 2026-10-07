@@ -605,6 +605,33 @@ def test_download_so_da_selecao_da_tela(cliente):
     assert vazio.status_code == 404
 
 
+def test_download_da_selecao_inclui_nota_cancelada(cliente):
+    """IDs escolhidos na tela prevalecem sobre um filtro legado de canceladas."""
+    client = cliente["client"]
+    cancelada = (
+        cliente["db"]
+        .query(DocumentoFiscal)
+        .filter(DocumentoFiscal.status == StatusDocumentoFiscal.CANCELADA)
+        .one()
+    )
+    params = {"documento_ids": str(cancelada.id), "incluir_canceladas": "false"}
+
+    resposta = client.get("/documentos/exportar", params=params)
+    assert resposta.status_code == 200, resposta.text
+    nomes = zipfile.ZipFile(io.BytesIO(resposta.content)).namelist()
+    xmls = [nome for nome in nomes if nome.endswith(".xml")]
+    assert len(xmls) == 1
+    assert cancelada.chave_acesso in xmls[0]
+
+    estimativa = client.get("/documentos/exportar/estimativa", params=params)
+    assert estimativa.status_code == 200, estimativa.text
+    assert estimativa.json()["documentos"] == 1
+
+    relacao = client.get("/documentos/exportar/csv", params=params)
+    assert relacao.status_code == 200, relacao.text
+    assert cancelada.chave_acesso in relacao.content.decode("utf-8-sig")
+
+
 def test_zip_obedece_a_mesma_busca_da_tela(cliente):
     """
     O princípio do filtro único: o número na tela tem de bater com o número de

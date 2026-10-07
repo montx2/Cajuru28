@@ -800,7 +800,9 @@ def _params_export(
     Período obrigatório, com **uma** exceção: quando o pedido traz
     `documento_ids`, o operador já escolheu nota a nota na tela — exigir data
     ali seria pedir duas vezes a mesma informação (e o "baixar seleção"
-    deixaria de funcionar).
+    deixaria de funcionar). A seleção explícita também prevalece sobre
+    `incluir_canceladas=false`: uma nota cancelada que foi marcada precisa
+    entrar no pacote.
     """
     # A checagem de escritório vem primeiro de propósito: pedir XML de outro
     # cliente é 403 mesmo que o período também esteja faltando. Trocar a ordem
@@ -819,7 +821,12 @@ def _params_export(
         periodo = _periodo_obrigatorio(
             competencia, data_inicio, data_fim, onde="do download"
         )
-    return ids, periodo, (not incluir_canceladas), selecao
+    # `documento_ids` representa uma seleção explícita da tabela. Ela é mais
+    # específica que o filtro genérico de canceladas: se o operador marcou uma
+    # nota cancelada, o download precisa levá-la. Isso também protege clientes
+    # antigos que ainda mandem `incluir_canceladas=false` junto da seleção.
+    apenas_nao_canceladas = (not incluir_canceladas) and not bool(selecao)
+    return ids, periodo, apenas_nao_canceladas, selecao
 
 
 def _consulta_export(

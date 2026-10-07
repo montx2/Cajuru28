@@ -4,6 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { api, type FiltrosDocumentos } from "@/lib/api";
 import { ROTULO_ACAO_LOTE } from "@/lib/acoes-documento";
+import {
+  filtrosParaBaixarSelecao,
+  filtrosParaBaixarTudoDoFiltro,
+} from "@/lib/exportacao-documentos";
 import { bytesParaTexto, chaveEmGrupos, dataCurta, formatarCnpjCpf, mesAno, numero, plural } from "@/lib/format";
 import { estadoDoDocumento } from "@/lib/estados";
 import { mensagemDoErro } from "@/lib/erros";
@@ -92,6 +96,7 @@ export function Documentos() {
   const [extras, setExtras] = useState<DocumentoFiscal[]>([]);
   const [carregandoMais, setCarregandoMais] = useState(false);
   const [selecao, setSelecao] = useState<Set<string>>(new Set());
+  const [todasDoFiltro, setTodasDoFiltro] = useState(false);
 
   const [exportacao, setExportacao] = useState<"xml" | "csv" | null>(null);
   const [estimativa, setEstimativa] = useState<EstimativaExportacao | null>(null);
@@ -153,6 +158,7 @@ export function Documentos() {
   useEffect(() => {
     setExtras([]);
     setSelecao(new Set());
+    setTodasDoFiltro(false);
   }, [chaveFiltros]);
 
   const razaoPorId = useMemo(() => {
@@ -174,8 +180,16 @@ export function Documentos() {
     () => Array.from(selecao).map((chave) => Number(chave)).filter((id) => Number.isFinite(id)),
     [selecao]
   );
+  const haCanceladaSelecionada = useMemo(
+    () =>
+      todasDoFiltro
+        ? (resumo.dados?.canceladas ?? 0) > 0
+        : linhas.some((documento) => documento.status === "cancelada" && selecao.has(String(documento.id))),
+    [linhas, resumo.dados?.canceladas, selecao, todasDoFiltro]
+  );
 
   const total = resumo.dados?.total ?? null;
+  const quantidadeSelecionada = todasDoFiltro ? total ?? 0 : idsSelecionados.length;
   const filtroAtivo = Boolean(tipo || direcao || status || leiaute || valorMin || valorMax || empresa || busca.valor.trim());
   // Tipo e operação são controles visíveis; o contador representa apenas os filtros do popover.
   const quantidadeFiltros = [status, leiaute, valorMin, valorMax].filter(Boolean).length;
@@ -280,23 +294,33 @@ export function Documentos() {
   }
 
   async function baixarSelecao(qual: "xml" | "csv") {
-    if (idsSelecionados.length === 0) return;
+    if (quantidadeSelecionada === 0) return;
     setBaixando(true);
     try {
-      const filtroSelecao = { ...filtros, documento_ids: idsSelecionados.join(",") };
+      // Quem marcou a linha — ou escolheu todas as N do filtro — pediu aquele
+      // documento, inclusive quando ele foi cancelado. O ZIP mantém
+      // eventos/resumos numa pasta separada, para não contaminar a pasta que a
+      // contabilidade importa como nota fiscal.
+      const filtroSelecao = todasDoFiltro
+        ? filtrosParaBaixarTudoDoFiltro(filtros)
+        : filtrosParaBaixarSelecao(filtros, idsSelecionados);
       if (qual === "xml") {
         await api.baixarZip(filtroSelecao, `Fluxa_selecao_${sufixoArquivo(periodo)}.zip`);
         avisar({
           tom: "ok",
           titulo: "XMLs da seleção baixados",
-          descricao: `${escopoEmpresa} · ${numero(idsSelecionados.length)} ${plural(idsSelecionados.length, "documento", "documentos")}`,
+          descricao:
+            `${escopoEmpresa} · ${numero(quantidadeSelecionada)} ${plural(quantidadeSelecionada, "documento", "documentos")}` +
+            (haCanceladaSelecionada
+              ? " · notas canceladas incluídas; eventos ficam em Fluxa/_sem-xml-completo/"
+              : ""),
         });
       } else {
         await api.baixarCsvDocumentos(filtroSelecao, `Fluxa_selecao_${sufixoArquivo(periodo)}.csv`);
         avisar({
           tom: "ok",
           titulo: "CSV da seleção gerado",
-          descricao: `${escopoEmpresa} · ${numero(idsSelecionados.length)} ${plural(idsSelecionados.length, "documento", "documentos")}`,
+          descricao: `${escopoEmpresa} · ${numero(quantidadeSelecionada)} ${plural(quantidadeSelecionada, "documento", "documentos")}`,
         });
       }
     } catch (falha) {
@@ -319,6 +343,7 @@ export function Documentos() {
       setExcluirLote(null);
       setExcluirUm(null);
       setSelecao(new Set());
+      setTodasDoFiltro(false);
       if (origem === "unico") definir({ doc: null });
       documentos.atualizar();
       resumo.atualizar();
@@ -610,8 +635,20 @@ export function Documentos() {
         altura="h-[max(320px,calc(100dvh-28rem))]"
         selecao={{
           chaves: selecao,
-          aoMudar: setSelecao,
+          aoMudar: (proximas) => {
+            setTodasDoFiltro(false);
+            setSelecao(proximas);
+          },
           totalNoFiltro: total ?? undefined,
+          aoSelecionarTudoDoFiltro: () => {
+            setSelecao(new Set());
+            setTodasDoFiltro(true);
+          },
+          todasDoFiltro,
+          aoCancelarTudoDoFiltro: () => {
+            setTodasDoFiltro(false);
+            setSelecao(new Set());
+          },
         }}
         barraDeSelecao={({ quantidade }) => (
           // Com seleção ativa, a ação principal da tela passa a ser o lote:
@@ -647,8 +684,12 @@ export function Documentos() {
                   icone: "excluir",
                   tom: "perigo" as const,
                   separarAcima: true,
-                  desabilitado: somenteLeitura,
-                  motivo: somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined,
+                  desabilitado: somenteLeitura || todasDoFiltro,
+                  motivo: somenteLeitura
+                    ? MOTIVO_SOMENTE_LEITURA
+                    : todasDoFiltro
+                      ? "Para excluir, selecione os documentos individualmente."
+                      : undefined,
                   aoClicar: () => setExcluirLote(idsSelecionados),
                 },
               ]}
@@ -810,7 +851,11 @@ export function Documentos() {
             complemento={
               linhas.length > 0 ? (
                 <span className="text-xs text-tinta-fraca">
-                  Período {rotuloPeriodo(periodo)} · {selecao.size > 0 ? `${numero(selecao.size)} selecionados` : "clique numa linha para ver o documento"}
+                  Período {rotuloPeriodo(periodo)} · {todasDoFiltro
+                    ? `todas as ${numero(total ?? 0)} do filtro selecionadas`
+                    : selecao.size > 0
+                      ? `${numero(selecao.size)} selecionados`
+                      : "clique numa linha para ver o documento"}
                 </span>
               ) : undefined
             }

@@ -263,6 +263,7 @@ export interface FiltrosDocumentos {
 }
 
 export interface FiltrosExportacao extends Omit<FiltrosDocumentos, "limit" | "offset"> {
+  /** Inclui canceladas no pacote; seleções do acervo sempre usam `true`. */
   incluir_canceladas?: boolean;
   incluir_relatorio?: boolean;
   /** seleção da tela ("baixar só estes"): ids separados por vírgula */

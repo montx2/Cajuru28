@@ -148,7 +148,11 @@ export function Tabela<L>({
 
   const chaves = useMemo(() => linhas.map((linha) => String(chaveDaLinha(linha))), [chaveDaLinha, linhas]);
   const selecionadas = selecao?.chaves ?? new Set<string>();
-  const selecionadasNaPagina = useMemo(() => chaves.filter((chave) => selecionadas.has(chave)), [chaves, selecionadas]);
+  const todasDoFiltro = Boolean(selecao?.todasDoFiltro);
+  const selecionadasNaPagina = useMemo(
+    () => (todasDoFiltro ? chaves : chaves.filter((chave) => selecionadas.has(chave))),
+    [chaves, selecionadas, todasDoFiltro]
+  );
 
   const usaVirtualizacao = (virtualizar ?? linhas.length > LIMITE_VIRTUALIZACAO) && linhas.length > 0;
   const configuracaoLinha = `${densidade}:${visiveis.map((coluna) => coluna.id).join(",")}`;
@@ -197,6 +201,14 @@ export function Tabela<L>({
 
   function alternarSelecao(chave: string, indice: number, intervaloAte?: number | null) {
     if (!selecao) return;
+    // O contrato de seleção global não carrega exclusões por linha. Em vez de
+    // fingir que tirou uma única linha de todas as N, qualquer mudança pontual
+    // volta para uma seleção explícita e segura.
+    if (todasDoFiltro) {
+      selecao.aoCancelarTudoDoFiltro?.();
+      selecao.aoMudar(new Set<string>());
+      return;
+    }
     const proximas = new Set(selecionadas);
     if (intervaloAte !== null && intervaloAte !== undefined && intervaloAte !== indice) {
       const [de, ate] = intervaloAte < indice ? [intervaloAte, indice] : [indice, intervaloAte];
@@ -218,6 +230,11 @@ export function Tabela<L>({
 
   function selecionarPagina() {
     if (!selecao) return;
+    if (todasDoFiltro) {
+      selecao.aoCancelarTudoDoFiltro?.();
+      selecao.aoMudar(new Set<string>());
+      return;
+    }
     const proximas = new Set(selecionadas);
     if (selecionadasNaPagina.length === chaves.length) chaves.forEach((chave) => proximas.delete(chave));
     else chaves.forEach((chave) => proximas.add(chave));
@@ -437,8 +454,8 @@ export function Tabela<L>({
                     compacta
                     rotulo=""
                     aria-label="Selecionar todas as linhas desta página"
-                    checked={chaves.length > 0 && selecionadasNaPagina.length === chaves.length}
-                    indeterminado={selecionadasNaPagina.length > 0 && selecionadasNaPagina.length < chaves.length}
+                    checked={todasDoFiltro || (chaves.length > 0 && selecionadasNaPagina.length === chaves.length)}
+                    indeterminado={!todasDoFiltro && selecionadasNaPagina.length > 0 && selecionadasNaPagina.length < chaves.length}
                     disabled={chaves.length === 0}
                     onChange={selecionarPagina}
                     className="-my-1.5 px-0 hover:bg-transparent"
@@ -518,7 +535,7 @@ export function Tabela<L>({
               {linhas.slice(intervalo.inicio, intervalo.fim).map((linha, posicao) => {
                 const indice = intervalo.inicio + posicao;
                 const chave = chaves[indice];
-                const selecionada = selecionadas.has(chave);
+                const selecionada = todasDoFiltro || selecionadas.has(chave);
                 const ativa = indice === indiceAtivo;
                 return (
                   <tr
