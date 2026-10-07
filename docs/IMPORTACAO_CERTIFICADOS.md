@@ -23,16 +23,50 @@ empresas.
    - Se houver certificado antigo e atualizado do mesmo CNPJ, a versão com
      maior validade real (X.509) é a escolhida; a outra aparece no resultado
      como *Versão antiga*.
-2. **Planilha de apoio (opcional)** — anexe-a apenas quando o escritório já
-   possui uma relação de certificados. Ela pode conter `cnpj;senha` para abrir
-   arquivos cuja senha não foi identificada automaticamente. A coluna `uf` é
-   aceita como apoio pontual, sem obrigar uma UF padrão para todo o lote.
+2. **Planilha de apoio (opcional)** — anexe a relação de certificados que o
+   escritório já tem. Cada linha entrega a senha do certificado daquele CNPJ;
+   a coluna `uf` é aceita como apoio pontual, sem obrigar uma UF padrão para
+   todo o lote.
    - São aceitos `.xlsx`, `.xlsm`, `.xls`, `.csv` e `.txt`, com `;`, `,` ou
      tabulação.
-   - Exemplos: `cnpj_cpf;senha` ou `cnpj_cpf;senha;uf`. Razão social é
-     opcional.
+   - **As colunas são descobertas pelo conteúdo**, com ou sem linha de título.
+     Estes layouts funcionam:
+     - `cnpj;senha`
+     - `razao_social;cnpj_cpf;uf;senha`
+     - **inventário de A1** — o que a maioria dos controles de certificado
+       exporta, com o nome do arquivo na frente:
+
+       ```
+       arquivo;cnpj;emissor;senha;validade
+       21260898000107.pfx;21.260.898/0001-07;ICP-Brasil;7cs19Pfi;09/03/2027
+       22912077000170.pfx;22.912.077/0001-70;ICP-Brasil;F R F25;29/10/2026
+       ```
+
+       A linha de título é opcional; `ICP-Brasil` (a autoridade certificadora)
+       é reconhecida e ignorada.
+   - **Como o certificado acha a linha dele:** pelo CNPJ que está no nome do
+     `.pfx` (`21260898000107.pfx`) e, se o nome não tiver CNPJ, pelo nome de
+     arquivo que a própria planilha cita (`certificado-novo.pfx`).
+   - **CNPJ digitado errado na planilha não perde a linha:** se a coluna CNPJ
+     veio com um dígito a menos (`34.304.74/0001-33`) mas o arquivo é
+     `34304074000133.pfx`, a senha ainda é usada.
+   - **Senha com `;` dentro** (`ou;tra`) não quebra a linha: o pedaço é
+     reagrupado.
+   - Linhas em branco entre registros são ignoradas.
+   - **Lotes grandes:** inclua a coluna `uf` na planilha. Sem ela, cada
+     certificado depende de uma consulta pública de CNPJ para descobrir o
+     estado — com centenas de empresas o lote fica mais lento e sujeito ao
+     limite dessas fontes.
 3. **Importar lote** — um clique. O CNPJ e a razão social vêm do certificado;
    a UF é consultada automaticamente pelo CNPJ.
+
+## O resultado confirma a planilha
+
+O resumo do lote mostra quantas linhas a planilha rendeu e quantas traziam
+senha. Se você anexou a planilha e o resultado diz **0 linhas lidas**, o
+arquivo não foi entendido — confira se ele tem o CNPJ (ou o nome do `.pfx`) e a
+senha de cada certificado e importe de novo. Sem esse aviso, uma planilha lida
+no formato errado só apareceria como certificado que não abriu.
 
 ## Senhas e UF sem suposições
 

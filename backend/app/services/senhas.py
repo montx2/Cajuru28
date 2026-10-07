@@ -324,6 +324,55 @@ _UFS_VALIDAS = {
     "RS", "RO", "RR", "SC", "SP", "SE", "TO",
 }
 
+# Nomes de coluna aceitos no cabeçalho, em ordem de prioridade. A planilha que
+# os escritórios realmente usam para certificados A1 não segue um único modelo:
+# já foi vista como `cnpj;senha`, `razao_social;cnpj_cpf;uf;senha` e também
+# `arquivo;cnpj;emissor;senha;validade` (exportação do inventário de A1).
+_NOMES_COLUNAS: dict[str, tuple[str, ...]] = {
+    "cnpj": (
+        "cnpj_cpf", "cnpj_cpf_cliente", "cnpj_cliente", "cnpj_empresa",
+        "cnpj", "cpf", "documento", "doc",
+    ),
+    "senha": (
+        "senha_certificado", "senha_do_certificado", "senha_a1", "senha_pfx",
+        "senha", "password", "pass", "senhas",
+    ),
+    "razao": (
+        "razao_social", "razaosocial", "nome_empresarial", "nome_empresa",
+        "razao", "nome", "empresa", "cliente",
+    ),
+    "uf": ("uf", "estado", "sigla_uf"),
+    "validade": (
+        "data_validade", "validade_certificado", "data_expiracao", "validade",
+        "vencimento", "expiracao", "venc",
+    ),
+    "arquivo": (
+        "nome_arquivo", "nome_do_arquivo", "arquivo_certificado",
+        "nome_do_certificado", "arquivo", "certificado", "filename", "file",
+    ),
+    "emissor": (
+        "autoridade_certificadora", "emissor_certificado", "ac_emissora",
+        "emissor", "padrao", "icp", "ac",
+    ),
+}
+
+# Autoridades certificadoras que aparecem na coluna "emissor"/"padrão" das
+# exportações de inventário A1. Servem só para descartar a coluna: nunca são
+# senha.
+_EMISSORES_CONHECIDOS = {
+    "ICPBRASIL", "SERPRO", "CERTISIGN", "SOLUTI", "SAFEWEB", "VALID",
+    "VALIDCERTIFICADORA", "BOAVISTA", "BOAVISTASCD", "IMPRENSAOFICIAL",
+    "FENACON", "SESCON", "SESCONSP", "CDL", "OAB", "SINCOR", "ACNOTARIAL",
+    "CERTIFICA", "CERTIFICAMINAS", "RECEITAFEDERAL", "CASADASMOEDAS",
+    "SERASA", "AMPRSP", "ACJUS", "DIGITALSIGN", "DIGITALSIGNID", "NOTARIAL",
+    "FENACOR", "SESCONMG", "SESCONRJ", "SESCONSC", "SESCONRS", "PRESIDENCIA",
+}
+
+_RE_ARQUIVO_CERTIFICADO = re.compile(r"\.(pfx|p12|cer|crt|pem|p7b|spc|key)$", re.IGNORECASE)
+_RE_DATA_DIA_MES_ANO = re.compile(r"^\d{1,2}/\d{1,2}/\d{2,4}$")
+_RE_DATA_ISO = re.compile(r"^\d{4}-\d{1,2}-\d{1,2}")
+_RE_DATA_COMPACTA = re.compile(r"^\d{8}$")
+
 
 def _normalizar_cabecalho(celula: Any) -> str:
     texto = remover_acentos(str(celula or "")).lower().strip()
@@ -334,15 +383,483 @@ def _indice_coluna(cabecalho: list[str], nomes: tuple[str, ...]) -> int | None:
     for nome in nomes:
         if nome in cabecalho:
             return cabecalho.index(nome)
-    # Correspondência parcial para cabeçalhos compostos
     for idx, col in enumerate(cabecalho):
+        pedacos = [p for p in col.split("_") if p]
         for nome in nomes:
-            if nome in col:
+            # Nomes curtos ("uf", "ac", "doc") só casam como palavra inteira:
+            # casar "ac" dentro de qualquer texto entregaria coluna errada.
+            if nome in pedacos:
+                return idx
+            if len(nome) >= 4 and nome in col:
                 return idx
     return None
 
 
-def ler_planilha_excel(conteudo: bytes, nome_arquivo: str = "") -> dict[str, dict]:
+def _texto_celula(valor: Any) -> str:
+    """Texto estável para qualquer célula (CSV, Excel, número, data)."""
+    if valor is None:
+        return ""
+    if isinstance(valor, bool):
+        return str(valor)
+    if isinstance(valor, (int, float)):
+        numero = float(valor)
+        if numero.is_integer():
+            return str(int(numero))
+        return str(valor)
+    if isinstance(valor, datetime.datetime):
+        # Data de validade vinda do Excel como datetime: 00:00 não interessa.
+        if (valor.hour, valor.minute, valor.second) == (0, 0, 0):
+            return valor.strftime("%d/%m/%Y")
+        return valor.strftime("%d/%m/%Y %H:%M:%S")
+    if isinstance(valor, datetime.date):
+        return valor.strftime("%d/%m/%Y")
+    return str(valor).strip()
+
+
+def _eh_arquivo_certificado(texto: str) -> bool:
+    return bool(_RE_ARQUIVO_CERTIFICADO.search((texto or "").strip()))
+
+
+def _eh_data(texto: str) -> bool:
+    valor = (texto or "").strip()
+    if not valor:
+        return False
+    return bool(
+        _RE_DATA_DIA_MES_ANO.match(valor)
+        or _RE_DATA_ISO.match(valor)
+        or _RE_DATA_COMPACTA.match(valor)
+    )
+
+
+def _eh_uf(texto: str) -> bool:
+    return (texto or "").strip().upper() in _UFS_VALIDAS
+
+
+def _eh_emissor(texto: str) -> bool:
+    """Coluna 'ICP-Brasil' / 'AC Soluti' / 'Certisign' — nunca é senha."""
+    bruto = (texto or "").strip()
+    if not bruto:
+        return False
+    normalizado = re.sub(r"[^A-Z0-9]+", " ", remover_acentos(bruto).upper()).strip()
+    pedacos = normalizado.split()
+    if not pedacos:
+        return False
+    if pedacos[0] in {"AC", "ICP"}:
+        return True
+    return normalizado.replace(" ", "") in _EMISSORES_CONHECIDOS
+
+
+def _celula_documento(texto: str) -> str:
+    """CNPJ/CPF válido da célula, ou "" — nome de arquivo nunca é documento."""
+    valor = (texto or "").strip()
+    if not valor or _eh_arquivo_certificado(valor):
+        return ""
+    try:
+        documento = normalizar_documento(valor)
+    except ValueError:
+        return ""
+    return documento if validar_documento(documento) else ""
+
+
+def _documento_de_nome_arquivo(nome: str) -> str:
+    """CNPJ/CPF embutido no nome do arquivo (`00585041000197.pfx`)."""
+    base = _RE_ARQUIVO_CERTIFICADO.sub("", (nome or "").strip())
+    base = re.sub(r"[^A-Za-z0-9]+", " ", base)
+    for trecho in base.split():
+        documento = _celula_documento(trecho)
+        if documento:
+            return documento
+    return ""
+
+
+def _parece_senha(texto: str) -> float:
+    """Pontua o quanto uma célula parece senha (e não razão social/UF/data)."""
+    valor = (texto or "").strip()
+    if not valor:
+        return -10.0
+    pontos = 0.0
+    tem_digito = any(c.isdigit() for c in valor)
+    tem_letra = any(c.isalpha() for c in valor)
+    if tem_digito and tem_letra:
+        pontos += 2.0
+    if any(not c.isalnum() and c != " " for c in valor):
+        pontos += 1.5
+    if len(valor) <= 24:
+        pontos += 0.5
+    if len(valor) > 40:
+        pontos -= 2.0
+    palavras = valor.split()
+    if len(palavras) >= 2:
+        pontos -= 1.0
+    if len(palavras) >= 2 and all(p.isalpha() for p in palavras):
+        # "CAJURU CONTABILIDADE LTDA" é razão social, não senha.
+        pontos -= 2.0
+    return pontos
+
+
+def _parece_razao_social(texto: str) -> bool:
+    valor = (texto or "").strip()
+    palavras = [p for p in re.split(r"\s+", remover_acentos(valor)) if p]
+    if len(palavras) < 2 or len(valor) < 5:
+        return False
+    return all(p.isalpha() or p in {"&", "E"} for p in palavras)
+
+
+def _largura(linhas: list[list[str]]) -> int:
+    return max((len(linha) for linha in linhas), default=0)
+
+
+def _detectar_cabecalho(linhas: list[list[str]]) -> tuple[int | None, dict[str, int | None]]:
+    """Procura, nas primeiras linhas, um título que nomeie as colunas.
+
+    Duas proteções para não comer a primeira linha de dados:
+
+    - linha com documento válido é dado (`12345678000195;SenhaForte2026;BA` —
+      a senha começa com "senha" e casava como título);
+    - linha que cita um arquivo de certificado é dado
+      (`certificado-novo.pfx;MinhaSenha@2026` — "certificado" e "senha"
+      casavam como título e a planilha voltava vazia).
+    """
+    for idx, linha in enumerate(linhas[:20]):
+        if idx >= len(linhas) - 1:
+            # Título sem nenhuma linha de dados abaixo não é título: é dado.
+            continue
+        cabecalho = [_normalizar_cabecalho(celula) for celula in linha]
+        achados = {chave: _indice_coluna(cabecalho, nomes) for chave, nomes in _NOMES_COLUNAS.items()}
+        nomeados = [chave for chave, indice in achados.items() if indice is not None]
+        if not nomeados:
+            continue
+        if any(_celula_documento(celula) or _eh_arquivo_certificado(celula) for celula in linha):
+            continue
+        if achados["cnpj"] is not None or len(nomeados) >= 2:
+            return idx, achados
+    return None, {chave: None for chave in _NOMES_COLUNAS}
+
+
+def _inferir_colunas(
+    linhas: list[list[str]],
+    reservadas: frozenset[int] = frozenset(),
+) -> dict[str, int | None]:
+    """Descobre as colunas pelo conteúdo quando a planilha não tem cabeçalho.
+
+    É o caso mais comum em escritório: o inventário de A1 é exportado como
+    `21260898000107.pfx;21.260.898/0001-07;ICP-Brasil;7cs19Pfi;09/03/2027`,
+    sem título nenhum. Ler "coluna A = CNPJ, coluna B = senha" nessa planilha
+    devolve zero linhas — o CNPJ está na segunda coluna.
+
+    `reservadas` são colunas que o cabeçalho já nomeou: não podem virar senha
+    nem razão social por inferência.
+    """
+    colunas: dict[str, int | None] = {chave: None for chave in _NOMES_COLUNAS}
+    largura = _largura(linhas)
+    if not largura or not linhas:
+        return colunas
+
+    votos = [
+        {"doc": 0, "arquivo": 0, "data": 0, "uf": 0, "emissor": 0, "cheio": 0, "senha": 0.0}
+        for _ in range(largura)
+    ]
+    for linha in linhas:
+        for indice in range(largura):
+            texto = linha[indice].strip() if indice < len(linha) else ""
+            if not texto:
+                continue
+            voto = votos[indice]
+            voto["cheio"] += 1
+            if _celula_documento(texto):
+                voto["doc"] += 1
+            elif _eh_arquivo_certificado(texto):
+                voto["arquivo"] += 1
+            elif _eh_data(texto):
+                voto["data"] += 1
+            elif _eh_uf(texto):
+                voto["uf"] += 1
+            elif _eh_emissor(texto):
+                voto["emissor"] += 1
+            else:
+                voto["senha"] += _parece_senha(texto)
+
+    def melhor(chave: str) -> int | None:
+        candidato, pontos = None, 0
+        for indice, voto in enumerate(votos):
+            if voto[chave] > pontos:
+                candidato, pontos = indice, voto[chave]
+        return candidato
+
+    def coluna_uniforme(chave: str) -> int | None:
+        for indice, voto in enumerate(votos):
+            if voto["cheio"] and voto[chave] == voto["cheio"]:
+                return indice
+        return None
+
+    def coluna_uf() -> int | None:
+        """Coluna em que toda célula é uma UF — com prova suficiente.
+
+        Uma única célula "SE" ou "AM" pode ser um pedaço de senha partida pelo
+        separador, não uma UF. Só vale com duas ou mais linhas concordando, ou
+        numa planilha de uma linha em que a UF é a última coluna.
+        """
+        candidatas = [
+            indice for indice, voto in enumerate(votos)
+            if voto["cheio"] and voto["uf"] == voto["cheio"]
+        ]
+        if not candidatas:
+            return None
+        repetidas = [i for i in candidatas if votos[i]["uf"] >= 2]
+        if repetidas:
+            return max(repetidas, key=lambda i: votos[i]["uf"])
+        unica = candidatas[0]
+        if len(linhas) == 1 and unica == largura - 1:
+            return unica
+        return None
+
+    colunas["cnpj"] = melhor("doc")
+    colunas["arquivo"] = melhor("arquivo")
+    colunas["validade"] = melhor("data")
+    colunas["uf"] = coluna_uf()
+    colunas["emissor"] = coluna_uniforme("emissor")
+    if colunas["emissor"] == colunas["uf"]:
+        colunas["emissor"] = None
+
+    ocupadas = {i for i in colunas.values() if i is not None} | set(reservadas)
+    candidatas = [
+        indice for indice, voto in enumerate(votos)
+        if indice not in ocupadas and voto["cheio"]
+    ]
+    if not candidatas:
+        return colunas
+
+    validade = colunas["validade"]
+    if validade is not None and (validade - 1) in candidatas:
+        # `...;senha;validade` — a senha é a célula imediatamente anterior à data.
+        colunas["senha"] = validade - 1
+    elif len(candidatas) == 1:
+        colunas["senha"] = candidatas[0]
+    else:
+        colunas["senha"] = max(
+            candidatas,
+            key=lambda i: votos[i]["senha"] / votos[i]["cheio"],
+        )
+
+    sobrando = [i for i in candidatas if i != colunas["senha"]]
+    for indice in sobrando:
+        celulas = [
+            linha[indice].strip() for linha in linhas
+            if indice < len(linha) and linha[indice].strip()
+        ]
+        if celulas and sum(_parece_razao_social(c) for c in celulas) >= len(celulas) / 2:
+            colunas["razao"] = indice
+            break
+
+    return colunas
+
+
+def _resolver_colunas(
+    dados: list[list[str]],
+    do_cabecalho: dict[str, int | None],
+) -> dict[str, int | None]:
+    """Cabeçalho manda; o conteúdo corrige o que o cabeçalho não resolver.
+
+    Também salva o caso inverso: cabeçalho com coluna trocada (o título diz
+    CNPJ, mas a coluna não tem um documento válido enquanto outra tem 500).
+    """
+    colunas = dict(do_cabecalho)
+    if not dados:
+        return colunas
+
+    do_titulo = {chave for chave, indice in do_cabecalho.items() if indice is not None}
+    reservadas = frozenset(do_cabecalho[chave] for chave in do_titulo)
+    inferidas = _inferir_colunas(dados, reservadas)
+
+    indice_cnpj = colunas.get("cnpj")
+    tem_documento_no_titulo = indice_cnpj is not None and any(
+        indice_cnpj < len(linha) and _celula_documento(linha[indice_cnpj]) for linha in dados
+    )
+    if not tem_documento_no_titulo and inferidas.get("cnpj") is not None:
+        colunas["cnpj"] = inferidas["cnpj"]
+
+    for chave in ("senha", "razao", "uf", "validade", "arquivo", "emissor"):
+        if colunas.get(chave) is None:
+            colunas[chave] = inferidas.get(chave)
+
+    # Duas chaves nunca apontam para a mesma coluna. O documento vence sempre
+    # (sem ele nada é importado); depois vale o que o título nomeou; por último
+    # a ordem de especificidade.
+    prioridade = ["cnpj", "senha", "razao", "uf", "validade", "arquivo", "emissor"]
+    for indice in {i for i in colunas.values() if i is not None}:
+        concorrentes = [chave for chave in prioridade if colunas.get(chave) == indice]
+        if len(concorrentes) <= 1:
+            continue
+        concorrentes.sort(
+            key=lambda chave: (
+                0 if chave == "cnpj" else 1,
+                0 if chave in do_titulo else 1,
+                prioridade.index(chave),
+            )
+        )
+        for perdedora in concorrentes[1:]:
+            colunas[perdedora] = None
+
+    return colunas
+
+
+def _span_senha(
+    linha: list[str],
+    colunas: dict[str, int | None],
+    esperado: int,
+) -> tuple[int, int]:
+    """Intervalo de células que forma a senha desta linha.
+
+    Duas situações saem do trivial e precisam ser cobertas:
+
+    1. **Senha com o separador dentro** (`a;b@123`): a linha vem com mais
+       células do que a planilha tem colunas. Sem juntar de volta, a senha
+       chegava pela metade e o certificado não abria.
+    2. **Pedaço órfão ao lado da senha**: quando a senha foi partida, um dos
+       pedaços fica numa coluna que nenhum papel explicou. Ele pertence à
+       senha — desde que não pareça razão social.
+    """
+    indice = colunas.get("senha")
+    if indice is None:
+        return 0, 0
+    explicadas = {i for i in colunas.values() if i is not None}
+    extras = max(0, len(linha) - esperado) if esperado > 0 else 0
+
+    ancora = min([i for i in explicadas if i > indice], default=len(linha))
+    fim = min(max(ancora, indice + 1) + extras, len(linha))
+
+    inicio = min(indice, len(linha))
+    while (
+        inicio - 1 >= 0
+        and (inicio - 1) not in explicadas
+        and linha[inicio - 1].strip()
+        and not _parece_razao_social(linha[inicio - 1])
+    ):
+        inicio -= 1
+
+    return inicio, max(fim, min(indice + 1, len(linha)))
+
+
+def _valor_senha(linha: list[str], colunas: dict[str, int | None], esperado: int, separador: str) -> str:
+    inicio, fim = _span_senha(linha, colunas, esperado)
+    if fim <= inicio:
+        return ""
+    return separador.join(linha[inicio:min(fim, len(linha))]).strip()
+
+
+def _extrair_registros(
+    linhas: list[list[Any]],
+    *,
+    nome_arquivo: str = "",
+    origem_padrao: str = "",
+    separador: str = ";",
+    sem_documento: list[dict] | None = None,
+) -> dict[str, dict]:
+    """Converte linhas (CSV ou Excel) no dicionário por CNPJ usado no lote.
+
+    A mesma leitura vale para as duas origens: o que muda é só como as células
+    chegam aqui. Uma linha só entra no dicionário quando existe um documento
+    válido — na coluna de CNPJ ou no nome do arquivo citado na linha. Linhas
+    com senha e nome de arquivo, mas sem documento nenhum, vão para
+    `sem_documento`: ainda servem para abrir o .pfx cujo nome bate.
+    """
+    texto_linhas = [[_texto_celula(celula) for celula in linha] for linha in linhas]
+    numeradas = [
+        (numero, linha)
+        for numero, linha in enumerate(texto_linhas, start=1)
+        if any(celula.strip() for celula in linha)
+    ]
+    if not numeradas:
+        return {}
+
+    indice_cabecalho, do_cabecalho = _detectar_cabecalho([linha for _, linha in numeradas])
+    if indice_cabecalho is not None:
+        numeradas = numeradas[indice_cabecalho + 1:]
+
+    dados = [linha for _, linha in numeradas]
+    colunas = _resolver_colunas(dados, do_cabecalho)
+
+    if colunas.get("cnpj") is None and colunas.get("arquivo") is None:
+        # Nem documento nem nome de arquivo: não há o que importar daqui, e
+        # inventar coluna transformaria razão social em CNPJ.
+        return {}
+
+    # Largura esperada do layout: o comprimento mais comum entre as linhas de
+    # dados, nunca menor que a última coluna identificada. Uma linha mais larga
+    # que isso tem o separador dentro da senha.
+    comprimentos = [len(linha) for linha in dados if linha]
+    modal = max(set(comprimentos), key=comprimentos.count) if comprimentos else 0
+    maior_indice = max([i for i in colunas.values() if i is not None], default=-1)
+    esperado = max(modal, maior_indice + 1)
+
+    def celula(linha: list[str], chave: str) -> str:
+        indice = colunas.get(chave)
+        if indice is None:
+            return ""
+        # Linha mais larga que o layout: o separador estava dentro da senha, então
+        # tudo que vem depois dela está deslocado para a direita nesta linha.
+        indice_senha = colunas.get("senha")
+        if (
+            indice_senha is not None
+            and indice > indice_senha
+            and esperado > 0
+            and len(linha) > esperado
+        ):
+            indice += len(linha) - esperado
+        if indice >= len(linha):
+            return ""
+        return linha[indice].strip()
+
+    resultado: dict[str, dict] = {}
+    for numero, linha in numeradas:
+        arquivo = celula(linha, "arquivo")
+        documento = _celula_documento(celula(linha, "cnpj"))
+        documento_do_arquivo = _documento_de_nome_arquivo(arquivo) if arquivo else ""
+
+        uf = celula(linha, "uf").upper()
+        if uf not in _UFS_VALIDAS:
+            uf = ""
+
+        registro = {
+            "cnpj": documento or documento_do_arquivo,
+            "razao_social": celula(linha, "razao"),
+            "uf": uf,
+            "senha": _valor_senha(linha, colunas, esperado, separador),
+            "validade": celula(linha, "validade"),
+            "arquivo": arquivo,
+            "origem": nome_arquivo or origem_padrao,
+            "linha": numero,
+        }
+
+        if not documento and not documento_do_arquivo:
+            # Sem documento a linha não cria empresa nenhuma, mas a senha ainda
+            # abre o .pfx cujo nome foi escrito na planilha.
+            if (
+                sem_documento is not None
+                and registro["senha"]
+                and (arquivo or registro["razao_social"])
+            ):
+                sem_documento.append(registro)
+            continue
+
+        # A linha vale para os dois documentos quando eles existem: o CNPJ da
+        # coluna e o CNPJ do nome do arquivo. Digitação errada na coluna
+        # (`34.304.74/0001-33`) deixava o certificado sem senha — o nome do
+        # arquivo (`34304074000133.pfx`) ainda identifica a empresa.
+        chaves = [documento] if documento else []
+        if documento_do_arquivo and documento_do_arquivo not in chaves:
+            chaves.append(documento_do_arquivo)
+        for chave in chaves:
+            resultado.setdefault(chave, registro)
+
+    return resultado
+
+
+def ler_planilha_excel(
+    conteudo: bytes,
+    nome_arquivo: str = "",
+    sem_documento: list[dict] | None = None,
+) -> dict[str, dict]:
     """Lê arquivo Excel (.xlsx / .xlsm) usando openpyxl."""
     import openpyxl
 
@@ -357,86 +874,14 @@ def ler_planilha_excel(conteudo: bytes, nome_arquivo: str = "") -> dict[str, dic
             linhas = list(sheet.iter_rows(values_only=True))
             if not linhas:
                 continue
-
-            # Localiza linha de cabeçalho nas primeiras 100 linhas
-            header_row_idx = None
-            indices = {}
-            for row_idx, row in enumerate(linhas[:100]):
-                cab = [_normalizar_cabecalho(c) for c in row if c is not None]
-                idx_cnpj = _indice_coluna(cab, ("cnpj_cpf", "cnpj", "cpf", "documento", "doc", "cnpj_cpf_cliente"))
-                idx_senha = _indice_coluna(cab, ("senha", "password", "senha_certificado", "senha_a1", "senha_do_certificado", "senhas"))
-                if idx_cnpj is not None or idx_senha is not None:
-                    header_row_idx = row_idx
-                    indices = {
-                        "cnpj": idx_cnpj,
-                        "senha": idx_senha,
-                        "razao": _indice_coluna(cab, ("razao_social", "razaosocial", "nome", "empresa", "cliente", "razao", "nome_empresarial")),
-                        "uf": _indice_coluna(cab, ("uf", "estado")),
-                        "validade": _indice_coluna(cab, ("validade", "data_validade", "vencimento")),
-                    }
-                    break
-
-            if header_row_idx is not None and indices.get("cnpj") is not None:
-                for row_num, row in enumerate(linhas[header_row_idx + 1 :], start=header_row_idx + 2):
-                    if not row or all(c is None or str(c).strip() == "" for c in row):
-                        continue
-
-                    def celula(k: str) -> str:
-                        pos = indices.get(k)
-                        if pos is not None and pos < len(row):
-                            val = row[pos]
-                            if val is None:
-                                return ""
-                            if isinstance(val, (int, float)) and not isinstance(val, bool):
-                                return str(int(val)) if float(val).is_integer() else str(val)
-                            return str(val).strip()
-                        return ""
-
-                    doc_raw = celula("cnpj")
-                    try:
-                        cnpj = normalizar_documento(doc_raw)
-                    except ValueError:
-                        continue
-                    if not validar_documento(cnpj) or cnpj in resultado:
-                        continue
-
-                    uf = celula("uf").upper()
-                    if uf and uf not in _UFS_VALIDAS:
-                        uf = ""
-
-                    resultado[cnpj] = {
-                        "cnpj": cnpj,
-                        "razao_social": celula("razao"),
-                        "uf": uf,
-                        "senha": celula("senha"),
-                        "validade": celula("validade"),
-                        "origem": nome_arquivo or sheet.title,
-                        "linha": row_num,
-                    }
-            else:
-                # Tentativa de leitura sem cabeçalho (ex: Coluna A = CNPJ, Coluna B = Senha)
-                for row_num, row in enumerate(linhas, start=1):
-                    if not row or len(row) < 2:
-                        continue
-                    doc_raw = str(row[0] or "").strip()
-                    try:
-                        cnpj = normalizar_documento(doc_raw)
-                    except ValueError:
-                        continue
-                    if not validar_documento(cnpj) or cnpj in resultado:
-                        continue
-                    senha_val = str(row[1] or "").strip() if len(row) >= 2 else ""
-                    uf_val = str(row[2] or "").strip().upper() if len(row) >= 3 else ""
-                    if uf_val not in _UFS_VALIDAS:
-                        uf_val = ""
-                    resultado[cnpj] = {
-                        "cnpj": cnpj,
-                        "razao_social": "",
-                        "uf": uf_val,
-                        "senha": senha_val,
-                        "origem": nome_arquivo or sheet.title,
-                        "linha": row_num,
-                    }
+            lidos = _extrair_registros(
+                [list(linha) for linha in linhas],
+                nome_arquivo=nome_arquivo,
+                origem_padrao=sheet.title,
+                sem_documento=sem_documento,
+            )
+            for cnpj, registro in lidos.items():
+                resultado.setdefault(cnpj, registro)
     finally:
         workbook.close()
 
@@ -453,7 +898,11 @@ def _separador_csv(texto: str) -> str:
     return max(contagens, key=lambda separador: contagens[separador])
 
 
-def ler_planilha_csv(conteudo: bytes, nome_arquivo: str = "") -> dict[str, dict]:
+def ler_planilha_csv(
+    conteudo: bytes,
+    nome_arquivo: str = "",
+    sem_documento: list[dict] | None = None,
+) -> dict[str, dict]:
     """Lê arquivo CSV ou TXT."""
     try:
         texto = conteudo.decode("utf-8-sig")
@@ -477,75 +926,60 @@ def ler_planilha_csv(conteudo: bytes, nome_arquivo: str = "") -> dict[str, dict]
     if not linhas:
         return {}
 
-    cabecalho = [_normalizar_cabecalho(celula) for celula in linhas[0]]
-    indice = {
-        "cnpj": _indice_coluna(cabecalho, ("cnpj_cpf", "cnpj", "cpf", "documento", "doc", "cnpj_cpf_cliente")),
-        "senha": _indice_coluna(cabecalho, ("senha", "password", "senha_certificado", "senha_a1", "senhas")),
-        "razao": _indice_coluna(cabecalho, ("razao_social", "razaosocial", "nome", "empresa", "cliente", "razao", "nome_empresarial")),
-        "uf": _indice_coluna(cabecalho, ("uf", "estado")),
-        "validade": _indice_coluna(cabecalho, ("validade", "data_validade", "vencimento")),
-    }
-
-    resultado: dict[str, dict] = {}
-    if indice["cnpj"] is not None:
-        for numero, linha in enumerate(linhas[1:], start=2):
-            def valor(chave: str) -> str:
-                i = indice[chave]
-                return linha[i].strip() if i is not None and i < len(linha) else ""
-
-            try:
-                cnpj = normalizar_documento(valor("cnpj"))
-            except ValueError:
-                continue
-            if not validar_documento(cnpj) or cnpj in resultado:
-                continue
-            uf = valor("uf").upper()
-            if uf and uf not in _UFS_VALIDAS:
-                uf = ""
-            resultado[cnpj] = {
-                "cnpj": cnpj,
-                "razao_social": valor("razao"),
-                "uf": uf,
-                "senha": valor("senha"),
-                "validade": valor("validade"),
-                "origem": nome_arquivo,
-                "linha": numero,
-            }
-    else:
-        # Sem cabeçalho: formato documento;senha (ou documento;senha;uf)
-        for numero, linha in enumerate(linhas, start=1):
-            if len(linha) < 2:
-                continue
-            try:
-                cnpj = normalizar_documento(linha[0])
-            except ValueError:
-                continue
-            if not validar_documento(cnpj) or cnpj in resultado:
-                continue
-            uf = linha[2].strip().upper() if len(linha) >= 3 else ""
-            if uf not in _UFS_VALIDAS:
-                uf = ""
-            resultado[cnpj] = {
-                "cnpj": cnpj,
-                "razao_social": "",
-                "uf": uf,
-                "senha": linha[1].strip(),
-                "origem": nome_arquivo,
-                "linha": numero,
-            }
-
-    return resultado
+    return _extrair_registros(
+        linhas,
+        nome_arquivo=nome_arquivo,
+        separador=sep,
+        sem_documento=sem_documento,
+    )
 
 
 def ler_planilha(conteudo: bytes, nome_arquivo: str = "") -> dict[str, dict]:
     """Detecta automaticamente formato Excel ou CSV e devolve dicionário por CNPJ."""
+    por_cnpj, _ = ler_planilha_linhas(conteudo, nome_arquivo)
+    return por_cnpj
+
+
+def ler_planilha_linhas(
+    conteudo: bytes,
+    nome_arquivo: str = "",
+) -> tuple[dict[str, dict], list[dict]]:
+    """Como `ler_planilha`, mais as linhas que têm senha mas nenhum documento.
+
+    Essas linhas não criam empresa — só servem para abrir o .pfx cujo nome foi
+    escrito na planilha (`certificado-novo.pfx;MinhaSenha@2026`).
+    """
+    sem_documento: list[dict] = []
     nome = (nome_arquivo or "").lower()
     # Assinatura mágica do ZIP (PK\x03\x04) para arquivos .xlsx / .xlsm
     if nome.endswith((".xlsx", ".xlsm", ".xls")) or conteudo.startswith(b"PK\x03\x04"):
-        resultado = ler_planilha_excel(conteudo, nome_arquivo)
-        if resultado:
-            return resultado
-    return ler_planilha_csv(conteudo, nome_arquivo)
+        resultado = ler_planilha_excel(conteudo, nome_arquivo, sem_documento)
+        if resultado or sem_documento:
+            return resultado, sem_documento
+    return ler_planilha_csv(conteudo, nome_arquivo, sem_documento), sem_documento
+
+
+def chave_de_arquivo(nome: str) -> str:
+    """Chave de comparação entre o .pfx enviado e o nome citado na planilha."""
+    base = re.sub(r"^.*[\\/]", "", (nome or "").strip()).lower()
+    return _RE_ARQUIVO_CERTIFICADO.sub("", base)
+
+
+def indexar_por_arquivo(lista_linhas: list[dict] | None) -> dict[str, dict]:
+    """Índice das linhas da planilha pelo nome do arquivo de certificado.
+
+    Serve para achar a senha quando o .pfx não tem CNPJ no nome
+    (`certificado-novo.pfx`) ou quando o CNPJ da coluna foi digitado errado.
+    """
+    indice: dict[str, dict] = {}
+    for linha in lista_linhas or []:
+        arquivo = (linha.get("arquivo") or "").strip()
+        if not arquivo:
+            continue
+        chave = chave_de_arquivo(arquivo)
+        if chave:
+            indice.setdefault(chave, linha)
+    return indice
 
 
 def fundir_planilhas_dados(
@@ -557,9 +991,15 @@ def fundir_planilhas_dados(
     lista_completa: list[dict] = []
 
     for nome_arquivo, conteudo in planilhas_bytes:
-        lidos = ler_planilha(conteudo, nome_arquivo)
+        lidos, orfas = ler_planilha_linhas(conteudo, nome_arquivo)
+        vistos_na_planilha: set[int] = set()
         for cnpj, linha in lidos.items():
-            lista_completa.append(linha)
+            # A mesma linha pode aparecer duas vezes em `lidos` quando o CNPJ da
+            # coluna e o CNPJ do nome do arquivo diferem; ela é uma linha só.
+            if id(linha) not in vistos_na_planilha:
+                vistos_na_planilha.add(id(linha))
+                lista_completa.append(linha)
+
             senha = (linha.get("senha") or "").strip()
             if senha and senha not in todas_senhas:
                 todas_senhas.append(senha)
@@ -570,14 +1010,27 @@ def fundir_planilhas_dados(
                     "razao_social": (linha.get("razao_social") or "").strip(),
                     "uf": (linha.get("uf") or "").strip().upper(),
                     "senhas": [],
+                    "arquivos": [],
+                    "validade": (linha.get("validade") or "").strip(),
                     "linha_csv": linha.get("linha"),
                 }
             atual = fundido[cnpj]
-            for chave in ("razao_social", "uf"):
+            for chave in ("razao_social", "uf", "validade"):
                 if not atual.get(chave) and linha.get(chave):
-                    atual[chave] = linha[chave]
+                    atual[chave] = linha[chave].strip() if isinstance(linha[chave], str) else linha[chave]
             if senha and senha not in atual["senhas"]:
                 atual["senhas"].append(senha)
+            arquivo = (linha.get("arquivo") or "").strip()
+            if arquivo and arquivo not in atual["arquivos"]:
+                atual["arquivos"].append(arquivo)
+
+        # Linhas sem documento: entram só no índice por nome de arquivo e na
+        # lista de senhas conhecidas — nunca criam empresa sozinhas.
+        for linha in orfas:
+            lista_completa.append(linha)
+            senha = (linha.get("senha") or "").strip()
+            if senha and senha not in todas_senhas:
+                todas_senhas.append(senha)
 
     return fundido, todas_senhas, lista_completa
 
