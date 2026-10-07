@@ -1,5 +1,12 @@
 # Changelog do front-end
 
+## Acervo fiscal — 07/10/2026
+
+- Filtros de tipo e operação agora ficam sempre visíveis e podem ser combinados: NF-e, NFS-e/serviço, CT-e, entrada/tomada e saída/prestada. A seleção continua na URL e vale para resumo, lista e exportação.
+- Filtros de situação, leiaute e valor permanecem no painel avançado; limpar esse painel não apaga a busca nem os filtros principais.
+- Removido o espaçamento duplicado entre o título e a primeira seção das telas; a página de documentos usa uma distância mais compacta entre seus blocos.
+- Validação: TypeScript e build de produção passaram; 24 suítes / 142 testes frontend passaram.
+
 ## Revisão da captura fiscal — 02/10/2026
 
 - Sincronização passa a diferenciar cursor atualizado de leitura íntegra: lotes com falha aparecem como **Importação parcial** em vez de “Em dia”.

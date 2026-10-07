@@ -172,7 +172,6 @@
     background: var(--superficie);
     box-shadow: var(--sombra-cartao);
   }
-  .cabecalho-pagina { margin-bottom: 24px; }
   .acoes-pagina { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 8px; }
   .acoes-pagina > div { max-width: 100%; }
   .ferramentas-tabela { min-width: 0; flex: 1; }
