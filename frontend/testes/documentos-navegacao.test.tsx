@@ -10,7 +10,7 @@ describe("filtros do acervo de documentos", () => {
   it("mantém competência, empresa e busca ao abrir um recorte de notas", () => {
     const href = hrefComEstado(
       "/dashboard/documentos",
-      "data_inicio=2026-08-01&data_fim=2026-08-31&empresa=42&busca=fornecedor&doc=17&pagina=2",
+      "data_inicio=2026-08-01&data_fim=2026-08-31&direcao=tomada&empresa=42&busca=fornecedor&doc=17&pagina=2",
       { tipo: "nfse", mes: null, competencia: null },
       ["doc", "pagina"]
     );
@@ -18,9 +18,10 @@ describe("filtros do acervo de documentos", () => {
 
     expect(parametros.get("data_inicio")).toBe("2026-08-01");
     expect(parametros.get("data_fim")).toBe("2026-08-31");
+    expect(parametros.get("tipo")).toBe("nfse");
+    expect(parametros.get("direcao")).toBe("tomada");
     expect(parametros.get("empresa")).toBe("42");
     expect(parametros.get("busca")).toBe("fornecedor");
-    expect(parametros.get("tipo")).toBe("nfse");
     expect(parametros.has("doc")).toBe(false);
     expect(parametros.has("pagina")).toBe(false);
     expect(parametros.has("mes")).toBe(false);

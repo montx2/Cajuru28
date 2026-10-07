@@ -18,6 +18,7 @@ import { useUrlEstado } from "@/lib/urlEstado";
 import { useSinalizarAtualizacao } from "@/components/shell/BarraAtualizacao";
 import { useSessao } from "@/components/shell/ProvedorSessao";
 import { PainelDocumento } from "@/components/fiscal/PainelDocumento";
+import { FiltrosAcervoDocumentos } from "@/components/fiscal/FiltrosAcervoDocumentos";
 import { SeletorCompetencia } from "@/components/fiscal/SeletorCompetencia";
 import { SeletorPeriodo } from "@/components/fiscal/SeletorPeriodo";
 import { ModalImportarXmls } from "@/app/dashboard/importacoes/ImportarXmls";
@@ -77,6 +78,8 @@ export function Documentos() {
 
   const tipo = ler("tipo");
   const direcao = ler("direcao");
+  const tipoDocumento = TIPOS.includes(tipo as TipoDocumentoFiscal) ? (tipo as TipoDocumentoFiscal) : null;
+  const direcaoDocumento = DIRECOES.includes(direcao as DirecaoDocumento) ? (direcao as DirecaoDocumento) : null;
   const status = ler("status");
   const leiaute = ler("leiaute");
   const valorMin = ler("valor_min");
@@ -110,8 +113,8 @@ export function Documentos() {
 
   const filtros = useMemo<FiltrosDocumentos>(() => {
     const base: FiltrosDocumentos = { ...paraFiltro(periodo) };
-    if (TIPOS.includes(tipo as TipoDocumentoFiscal)) base.tipo = tipo as TipoDocumentoFiscal;
-    if (DIRECOES.includes(direcao as DirecaoDocumento)) base.direcao = direcao as DirecaoDocumento;
+    if (tipoDocumento) base.tipo = tipoDocumento;
+    if (direcaoDocumento) base.direcao = direcaoDocumento;
     if (STATUS.includes(status as StatusDocumentoFiscal)) base.status = status as StatusDocumentoFiscal;
     if (LEIAUTES.includes(leiaute as LeiauteDocumento)) base.leiaute = leiaute as LeiauteDocumento;
     if (valorMin !== "" && Number.isFinite(Number(valorMin))) base.valor_min = valorMin;
@@ -119,7 +122,7 @@ export function Documentos() {
     if (empresa) base.empresa_id = empresa;
     if (busca.valor.trim()) base.busca = busca.valor.trim();
     return base;
-  }, [busca.valor, direcao, empresa, leiaute, periodo, status, tipo, valorMax, valorMin]);
+  }, [busca.valor, direcaoDocumento, empresa, leiaute, periodo, status, tipoDocumento, valorMax, valorMin]);
 
   const chaveFiltros = useMemo(() => JSON.stringify(filtros), [filtros]);
 
@@ -174,8 +177,8 @@ export function Documentos() {
 
   const total = resumo.dados?.total ?? null;
   const filtroAtivo = Boolean(tipo || direcao || status || leiaute || valorMin || valorMax || empresa || busca.valor.trim());
-  // Empresa fica visível na barra da tabela; o contador aqui representa apenas o popover.
-  const quantidadeFiltros = [tipo, direcao, status, leiaute, valorMin, valorMax].filter(Boolean).length;
+  // Tipo e operação são controles visíveis; o contador representa apenas os filtros do popover.
+  const quantidadeFiltros = [status, leiaute, valorMin, valorMax].filter(Boolean).length;
 
   function hrefDoAcervo(mudancas: Record<string, string | null> = {}, remover: string[] = []) {
     const temPeriodo = periodoValido(periodo);
@@ -208,6 +211,10 @@ export function Documentos() {
   function limparFiltros() {
     definir({ tipo: null, direcao: null, status: null, leiaute: null, valor_min: null, valor_max: null, empresa: null, busca: null, ordem: null, sentido: null });
     busca.aoMudar("");
+  }
+
+  function limparFiltrosAvancados() {
+    definir({ status: null, leiaute: null, valor_min: null, valor_max: null });
   }
 
   const carregarMais = useCallback(async () => {
@@ -522,7 +529,7 @@ export function Documentos() {
     : [];
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <CabecalhoPagina
         kicker="Fiscal · Acervo"
         titulo="Documentos"
@@ -568,6 +575,14 @@ export function Documentos() {
             </Botao>
           </div>
         )}
+        <FiltrosAcervoDocumentos
+          tipo={tipoDocumento}
+          direcao={direcaoDocumento}
+          aoMudarTipo={(proximo) => definir({ tipo: proximo, doc: null, pagina: null })}
+          aoMudarDirecao={(proxima) => definir({ direcao: proxima, doc: null, pagina: null })}
+          filtroAtivo={filtroAtivo}
+          aoLimpar={limparFiltros}
+        />
         {leiaute === "metadados" ? (
           <p className="mt-3 rounded-controle border border-espera/40 bg-espera-tenue px-3 py-2 text-sm text-espera">
             Estas NFS-e foram registradas sem XML original. A exportação inclui um JSON normalizado e a relação CSV.
@@ -691,30 +706,14 @@ export function Documentos() {
                   <PopoverCabecalho
                     titulo="Filtros"
                     acao={
-                      filtroAtivo ? (
-                        <button type="button" onClick={limparFiltros} className="text-xs font-medium text-acento underline-offset-4 hover:underline">
+                      quantidadeFiltros > 0 ? (
+                        <button type="button" onClick={limparFiltrosAvancados} className="text-xs font-medium text-acento underline-offset-4 hover:underline">
                           Limpar
                         </button>
                       ) : undefined
                     }
                   />
                   <div className="grid gap-3 p-3 sm:grid-cols-2">
-                    <Selecao
-                      rotulo="Tipo"
-                      value={tipo}
-                      onChange={(evento) => definir({ tipo: evento.target.value || null })}
-                      opcoes={[{ valor: "", rotulo: "Todos os tipos" }, ...TIPOS.map((item) => ({ valor: item, rotulo: ROTULO_TIPO[item] }))]}
-                    />
-                    <Selecao
-                      rotulo="Direção"
-                      value={direcao}
-                      onChange={(evento) => definir({ direcao: evento.target.value || null })}
-                      opcoes={[
-                        { valor: "", rotulo: "Tomadas e prestadas" },
-                        { valor: "tomada", rotulo: "Tomadas (recebidas)" },
-                        { valor: "prestada", rotulo: "Prestadas (emitidas)" },
-                      ]}
-                    />
                     <Selecao
                       rotulo="Situação"
                       value={status}
