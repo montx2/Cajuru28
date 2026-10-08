@@ -353,7 +353,7 @@ function AbaAlertas({ admin, sistema }: { admin: boolean; sistema: RecursoSistem
             </dl>
             <p className="text-sm text-tinta-suave">
               A URL e o segredo do webhook são definidos por variável de ambiente no servidor — não por esta tela. Alterar o nível mínimo muda quais
-              alertas saem do Fluxa: abaixo dele, o item continua visível em <Link href="/dashboard/atencao" className="font-medium text-acento underline-offset-4 hover:underline">Precisa da sua atenção</Link>.
+              alertas saem do Fluxa: abaixo dele, o item continua visível em <Link href="/dashboard/atencao" className="link-prosa font-medium text-acento">Precisa da sua atenção</Link>.
             </p>
             <Botao variante="secundaria" onClick={testarWebhook} carregando={testando} disabled={!admin} title={admin ? "Envia um alerta de teste para o destino configurado" : "Somente administrador testa o webhook"}>
               Enviar alerta de teste

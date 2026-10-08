@@ -744,9 +744,9 @@ export function Documentos() {
                     titulo="Filtros"
                     acao={
                       quantidadeFiltros > 0 ? (
-                        <button type="button" onClick={limparFiltrosAvancados} className="text-xs font-medium text-acento underline-offset-4 hover:underline">
+                        <Botao variante="link" tamanho="sm" onClick={limparFiltrosAvancados}>
                           Limpar
-                        </button>
+                        </Botao>
                       ) : undefined
                     }
                   />

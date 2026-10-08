@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import type { Tom } from "@/lib/estados";
+import { Botao } from "./Botao";
 import { Icone, type NomeIcone } from "./Icone";
 
 /** Aviso flutuante (toast). O nome difere do `Aviso` em linha de propósito. */
@@ -118,16 +119,16 @@ export function ProvedorToast({ children }: { children: ReactNode }) {
                 <p className="text-sm font-medium text-tinta-forte">{aviso.titulo}</p>
                 {aviso.descricao ? <div className="mt-0.5 text-sm leading-6 text-tinta-suave">{aviso.descricao}</div> : null}
                 {aviso.acao ? (
-                  <button
-                    type="button"
+                  <Botao
+                    variante="link"
+                    className="mt-2"
                     onClick={() => {
                       aviso.acao?.aoClicar();
                       fechar(aviso.id);
                     }}
-                    className="mt-2 rounded-badge text-sm font-medium text-acento underline-offset-4 hover:underline"
                   >
                     {aviso.acao.rotulo}
-                  </button>
+                  </Botao>
                 ) : null}
               </div>
               <button

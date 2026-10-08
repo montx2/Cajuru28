@@ -407,9 +407,9 @@ export function Importacoes() {
         titulo="Captura automática"
         descricao="Onde a captura está e o que ainda aguarda a SEFAZ"
         acoes={
-          <Link href="/dashboard/execucoes?aba=fila" className="text-xs font-medium text-acento underline-offset-4 hover:underline">
+          <BotaoLink href="/dashboard/execucoes?aba=fila" variante="link" tamanho="sm">
             Próximas janelas
-          </Link>
+          </BotaoLink>
         }
       >
           {resumoSync.carregando ? (
@@ -446,7 +446,7 @@ export function Importacoes() {
                 <p className="mt-4 border-t border-traco pt-3 text-sm text-espera">
                   {numero(certificados.dados.filter((certificado) => !certificado.tem_certificado).length)} empresas sem certificado e{" "}
                   {numero(certificados.dados.filter((certificado) => certificado.vencido).length)} com certificado vencido não podem ser capturadas.{" "}
-                  <Link href="/dashboard/certificados" className="font-medium underline-offset-4 hover:underline">
+                  <Link href="/dashboard/certificados" className="link-prosa font-medium">
                     Resolver em Certificados
                   </Link>
                   .
@@ -501,13 +501,13 @@ export function Importacoes() {
         descricao="Marque quem deve ser capturado. Sem certificado A1 válido a empresa fica bloqueada."
         acoes={
           selecionadas.size > 0 ? (
-            <button
-              type="button"
+            <Botao
+              variante="link-sutil"
+              tamanho="sm"
               onClick={() => definir({ empresa_ids: null, empresa_id: null })}
-              className="text-xs font-medium text-tinta-suave underline-offset-4 hover:text-tinta hover:underline"
             >
               Limpar seleção
-            </button>
+            </Botao>
           ) : undefined
         }
       >
@@ -537,9 +537,9 @@ export function Importacoes() {
               : "Situação de cada empresa e tipo neste disparo."
           }
           acoes={
-            <button type="button" onClick={() => setResultado(null)} className="text-xs font-medium text-tinta-suave underline-offset-4 hover:text-tinta hover:underline">
+            <Botao variante="link-sutil" tamanho="sm" onClick={() => setResultado(null)}>
               Fechar
-            </button>
+            </Botao>
           }
         >
           <ResumoImportacao resultado={resultado.dados} modo={resultado.modo} />

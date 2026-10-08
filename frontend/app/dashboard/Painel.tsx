@@ -232,9 +232,9 @@ export function Painel() {
           className="xl:col-span-2"
           acoes={
             pendencias > 5 ? (
-              <Link href="/dashboard/atencao" className="text-xs font-medium text-acento underline-offset-4 hover:underline">
+              <BotaoLink href="/dashboard/atencao" variante="link" tamanho="sm">
                 Ver todos
-              </Link>
+              </BotaoLink>
             ) : undefined
           }
         >
@@ -267,9 +267,9 @@ export function Painel() {
               : "Nenhuma execução em andamento"
           }
           acoes={
-            <Link href="/dashboard/execucoes" className="text-xs font-medium text-acento underline-offset-4 hover:underline">
+            <BotaoLink href="/dashboard/execucoes" variante="link" tamanho="sm">
               Ver central
-            </Link>
+            </BotaoLink>
           }
         >
           {central.carregando ? (
@@ -382,9 +382,9 @@ export function Painel() {
         <span className="nums">
           backup {ultimoBackup ? tempoRelativo(ultimoBackup, agora) : backups.carregando ? "em consulta" : "sem registro"}
         </span>
-        <Link href="/dashboard/saude" className="font-medium text-acento underline-offset-4 hover:underline">
+        <BotaoLink href="/dashboard/saude" variante="link">
           Ver saúde
-        </Link>
+        </BotaoLink>
       </footer>
     </div>
   );

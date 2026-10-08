@@ -187,7 +187,7 @@ export function Relatorios() {
           titulo={estadoConferencia.rotulo}
           acao={
             conferencia.dados.ok ? undefined : (
-              <Link href="/dashboard/importacoes" className="text-sm font-medium underline-offset-4 hover:underline">
+              <Link href="/dashboard/importacoes" className="link-prosa text-sm font-medium">
                 Disparar captura
               </Link>
             )

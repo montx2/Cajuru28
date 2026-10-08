@@ -454,9 +454,9 @@ export function Execucoes() {
         contexto={detalhe ? `${detalhe.empresa_razao_social ?? ""} · ${ROTULO_TIPO[detalhe.tipo as TipoDocumentoFiscal] ?? detalhe.tipo}` : undefined}
         acoes={
           detalhe ? (
-            <Link href={`/dashboard/empresa?id=${detalhe.empresa_id}&aba=sincronismo`} className="text-xs font-medium text-acento underline-offset-4 hover:underline">
+            <BotaoLink href={`/dashboard/empresa?id=${detalhe.empresa_id}&aba=sincronismo`} variante="link" tamanho="sm">
               Ver empresa
-            </Link>
+            </BotaoLink>
           ) : undefined
         }
         rodape={
@@ -594,9 +594,9 @@ function DetalheExecucao({ execucao, agora }: { execucao: ExecucaoImportacao; ag
       </dl>
 
       <div className="border-t border-traco pt-4 text-xs">
-        <Link href={`/dashboard/documentos?empresa=${execucao.empresa_id}`} className="font-medium text-acento underline-offset-4 hover:underline">
+        <BotaoLink href={`/dashboard/documentos?empresa=${execucao.empresa_id}`} variante="link">
           Ver documentos desta empresa
-        </Link>
+        </BotaoLink>
       </div>
     </div>
   );

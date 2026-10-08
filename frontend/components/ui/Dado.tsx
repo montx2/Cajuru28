@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import Link from "next/link";
+import { BotaoLink } from "./Botao";
 import type { Tom } from "@/lib/estados";
 import { cn } from "@/lib/cn";
 
@@ -62,9 +62,9 @@ export function Dado({ rotulo, valor, mono, destaque, tom, contexto, quebrar, la
         title={dica ?? (typeof valor === "string" ? valor : undefined)}
       >
         {href ? (
-          <Link href={href} className="text-acento underline-offset-4 hover:underline">
+          <BotaoLink href={href} variante="link">
             {valor}
-          </Link>
+          </BotaoLink>
         ) : (
           valor
         )}
