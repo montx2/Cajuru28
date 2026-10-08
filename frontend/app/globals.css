@@ -176,6 +176,13 @@
      bloco de impacto). O raio fica no uso — nem toda caixa é um cartão. */
   .superficie-plana { border: 1px solid var(--traco); background: var(--superficie); }
 
+  /* Superfície de risco: contém controles destrutivos (não é mensagem — a
+     mensagem é do `Aviso`). O tom vem do token, não de `border-erro/40` à mão. */
+  .superficie-perigo {
+    border: 1px solid rgb(var(--erro-rgb) / 0.4);
+    background: var(--erro-tenue);
+  }
+
   /* Caixa de tabela: rola por dentro e mantém o cabeçalho à vista. O respiro
      horizontal é da caixa; o ritmo vertical e as linhas são da skin. */
   .caixa-tabela { @apply superficie-plana rolagem-fina overflow-y-auto rounded-cartao; }

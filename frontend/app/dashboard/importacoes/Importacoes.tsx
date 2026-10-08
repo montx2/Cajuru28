@@ -385,10 +385,9 @@ export function Importacoes() {
       />
 
       {!podeDisparar ? (
-        <p id={idMotivoIndisponivel} className="text-sm text-tinta-suave" role="status">
-          <Icone nome="alerta" className="mr-1.5 inline h-4 w-4 align-[-3px] text-espera" />
+        <Aviso id={idMotivoIndisponivel} tom="espera">
           {motivoIndisponivel}. A captura continua automática para as empresas já habilitadas.
-        </p>
+        </Aviso>
       ) : null}
 
       {somenteLeitura ? (

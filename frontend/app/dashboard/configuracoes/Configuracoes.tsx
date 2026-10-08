@@ -451,7 +451,7 @@ function AbaDados({ admin }: { admin: boolean }) {
             sincronizações — e remove os arquivos XML do disco. Não há como desfazer.
           </p>
 
-          <div className="space-y-3 rounded-controle border border-erro/40 bg-erro-tenue p-3">
+          <div className="superficie-perigo space-y-3 rounded-controle p-3">
             <Alternador
               rotulo="Remover também as credenciais de integração"
               descricao="As integrações voltam a “não configuradas”."
@@ -467,9 +467,9 @@ function AbaDados({ admin }: { admin: boolean }) {
           </div>
 
           {erro ? (
-            <p role="alert" className="text-sm text-erro">
+            <Aviso tom="erro" compacto urgente>
               {erro}
-            </p>
+            </Aviso>
           ) : null}
 
           <div className="flex flex-wrap items-center gap-2">

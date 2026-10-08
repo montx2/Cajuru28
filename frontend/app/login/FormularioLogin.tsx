@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
+import { Aviso } from "@/components/ui/Aviso";
 import { Botao } from "@/components/ui/Botao";
 import { Entrada } from "@/components/ui/Campo";
 import { CampoSenha } from "@/components/ui/CampoSenha";
@@ -137,18 +138,12 @@ export function FormularioLogin() {
             <p className="mt-2 text-sm text-tinta-suave">Entre para acompanhar sua operação fiscal.</p>
 
             {sessaoExpirada ? (
-              <p
-                role="status"
-                className="mt-6 flex items-start gap-2 rounded-controle border border-espera/40 bg-espera-tenue px-3 py-3 text-sm leading-6 text-espera"
-              >
-                <Icone nome="ampulheta" className="mt-1 h-4 w-4 flex-none" />
-                <span>
-                  Sua sessão expirou por inatividade.
-                  {destino.startsWith("/dashboard")
-                    ? " Entre de novo — você volta para a tela em que estava."
-                    : " Entre de novo para continuar."}
-                </span>
-              </p>
+              <Aviso tom="espera" icone="ampulheta" className="mt-6">
+                Sua sessão expirou por inatividade.
+                {destino.startsWith("/dashboard")
+                  ? " Entre de novo — você volta para a tela em que estava."
+                  : " Entre de novo para continuar."}
+              </Aviso>
             ) : null}
 
             <form className="mt-8 space-y-5" onSubmit={entrar} noValidate aria-busy={enviando}>
@@ -179,9 +174,9 @@ export function FormularioLogin() {
                 erro={tocado && senha.length === 0 ? "Informe a senha." : null}
               />
               {erro ? (
-                <p role="alert" className="flex items-start gap-2 rounded-controle border border-erro/40 bg-erro-tenue px-3 py-3 text-sm leading-6 text-erro">
-                  <Icone nome="alerta" className="mt-1 h-4 w-4 flex-none" /><span>{erro}</span>
-                </p>
+                <Aviso tom="erro" urgente>
+                  {erro}
+                </Aviso>
               ) : null}
               <Botao type="submit" variante="primaria" tamanho="lg" className="w-full" carregando={enviando} iconeDireita={<Icone nome="seta-direita" className="h-4 w-4" />}>
                 {enviando ? "Verificando acesso…" : "Entrar"}

@@ -13,6 +13,7 @@ import { mensagemDoErro } from "@/lib/erros";
 import { ROTULO_TIPO, type ImportacaoXmlResposta } from "@/lib/types";
 import { useSessao } from "@/components/shell/ProvedorSessao";
 import { useToast } from "@/components/ui/Toast";
+import { Aviso } from "@/components/ui/Aviso";
 import { Cartao } from "@/components/ui/Cartao";
 import { CampoArquivo } from "@/components/ui/CampoArquivo";
 import { Botao } from "@/components/ui/Botao";
@@ -84,7 +85,11 @@ function ImportadorXml({ aoConcluir }: ImportadorXmlProps) {
 
   return (
     <div className="space-y-4">
-      {erro ? <p role="alert" className="rounded-controle border border-erro/40 bg-erro-tenue px-3 py-2 text-sm text-erro">{erro}</p> : null}
+      {erro ? (
+        <Aviso tom="erro" compacto urgente>
+          {erro}
+        </Aviso>
+      ) : null}
 
       {resultado ? (
         <ResultadoImportacao resultado={resultado} />

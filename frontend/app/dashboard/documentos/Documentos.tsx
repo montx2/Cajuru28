@@ -27,6 +27,7 @@ import { SeletorCompetencia } from "@/components/fiscal/SeletorCompetencia";
 import { SeletorPeriodo } from "@/components/fiscal/SeletorPeriodo";
 import { ModalImportarXmls } from "@/app/dashboard/importacoes/ImportarXmls";
 import { Botao, BotaoLink } from "@/components/ui/Botao";
+import { Aviso } from "@/components/ui/Aviso";
 import { CabecalhoPagina, Cartao } from "@/components/ui/Cartao";
 import { Busca, Caixa, Entrada, Selecao } from "@/components/ui/Campo";
 import { Combobox, type OpcaoCombobox } from "@/components/ui/Combobox";
@@ -942,9 +943,9 @@ export function Documentos() {
             Calculando o que será baixado…
           </p>
         ) : erroExportacao ? (
-          <p role="alert" className="text-sm text-erro">
+          <Aviso tom="erro" compacto urgente>
             {erroExportacao}
-          </p>
+          </Aviso>
         ) : estimativa ? (
           <div className="space-y-3">
             <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">

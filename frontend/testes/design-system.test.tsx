@@ -19,6 +19,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { Aviso } from "@/components/ui/Aviso";
 import { Botao, BotaoLink } from "@/components/ui/Botao";
 
 const RAIZ = resolve(__dirname, "..");
@@ -136,6 +137,67 @@ describe("toda tabela tem pele declarada", () => {
     }
     // `:where()` mantém a regra em 0-1-0: `text-right`/`py-4` da tela vencem.
     expect(css).toMatch(/\.tabela-dados :where\(/);
+  });
+});
+
+/**
+ * Mensagem: 14 lugares reescreviam a mesma caixa vermelha à mão — cinco com
+ * ícone, dois como texto solto (o mesmo erro sem caixa, em outra tela), e cada
+ * um com a própria combinação de padding. Duas peças passam a ser donas disso:
+ * `Aviso` (resultado da ação) e `ErroDoCampo` (o que houve no controle).
+ */
+describe("mensagem de erro tem dono", () => {
+  /** Primitivos e shell: são eles que emitem a região viva para o resto. */
+  const DONOS = ["components/ui/", "components/shell/"];
+
+  it("caixa vermelha à mão não volta", () => {
+    const infratores: string[] = [];
+    for (const arquivo of arquivosTsx(["app", "components"])) {
+      const relativo = arquivo.slice(RAIZ.length + 1).replace(/\\/g, "/");
+      if (DONOS.some((prefixo) => relativo.startsWith(prefixo))) continue;
+      const conteudo = readFileSync(arquivo, "utf8");
+      if (conteudo.includes("border-erro/40")) infratores.push(relativo);
+    }
+    expect(infratores, 'Use <Aviso tom="erro" …> ou <ErroDoCampo>.').toEqual([]);
+  });
+
+  it("região viva (role=alert/status) só sai de components/ui e components/shell", () => {
+    const infratores: string[] = [];
+    for (const arquivo of arquivosTsx(["app", "components"])) {
+      const relativo = arquivo.slice(RAIZ.length + 1).replace(/\\/g, "/");
+      if (DONOS.some((prefixo) => relativo.startsWith(prefixo))) continue;
+      const conteudo = readFileSync(arquivo, "utf8");
+      if (/role="(alert|status)"/.test(conteudo)) infratores.push(relativo);
+    }
+    expect(infratores, "A região viva é do primitivo (`Aviso`, `ErroDoCampo`, `Toast`).").toEqual([]);
+  });
+
+  it("ErroDoCampo é o mesmo nos dois lugares que o usam", () => {
+    const campo = readFileSync(resolve(RAIZ, "components/ui/Campo.tsx"), "utf8");
+    expect(campo).toContain("export function ErroDoCampo");
+    // quem aponta o erro de um controle composto usa o primitivo, não um clone
+    for (const caminho of ["components/fiscal/SeletorPeriodo.tsx", "app/dashboard/empresas/Empresas.tsx"]) {
+      expect(readFileSync(resolve(RAIZ, caminho), "utf8"), caminho).toContain("<ErroDoCampo");
+    }
+  });
+
+  it("o aviso anuncia conforme a urgência — sem repetir isso em cada tela", () => {
+    const { unmount } = render(
+      <Aviso tom="erro" urgente>
+        Falhou
+      </Aviso>,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("Falhou");
+    unmount();
+    render(
+      <Aviso tom="espera" data-situacao="documento">
+        Aguardando
+      </Aviso>,
+    );
+    // Sem `urgente` é `role="status"`: expirar ou aguardar não interrompe a leitura.
+    expect(screen.getByRole("status")).toHaveTextContent("Aguardando");
+    // `data-*` de quem usa o aviso (a ficha marca o bloco de situação assim).
+    expect(screen.getByRole("status")).toHaveAttribute("data-situacao", "documento");
   });
 });
 

@@ -53,6 +53,26 @@ export interface CampoProps extends CampoBase {
   children: (id: string, descritoPor: string | undefined) => ReactNode;
 }
 
+export interface ErroDoCampoProps {
+  children: ReactNode;
+  id?: string;
+  className?: string;
+}
+
+/**
+ * A mensagem que explica o que houve **no controle** — e não o resultado da
+ * ação, que é do `Aviso`. Vive aqui para o seletor de período, o de empresas e
+ * qualquer controle composto dizerem a mesma coisa com a mesma voz.
+ */
+export function ErroDoCampo({ children, id, className }: ErroDoCampoProps) {
+  return (
+    <p id={id} role="alert" className={cn("flex items-start gap-1.5 text-xs leading-5 text-erro", className)}>
+      <Icone nome="alerta" className="mt-0.5 h-3.5 w-3.5 flex-none" />
+      <span>{children}</span>
+    </p>
+  );
+}
+
 /** Casca de campo: rótulo real, apoio, erro e a fiação ARIA entre eles. */
 export function Campo({ rotulo, descricao, erro, nota, obrigatorio, acaoRotulo, className, id, children }: CampoProps) {
   const gerado = useId();
@@ -85,10 +105,9 @@ export function Campo({ rotulo, descricao, erro, nota, obrigatorio, acaoRotulo, 
         </p>
       ) : null}
       {erro ? (
-        <p id={`${campoId}-erro`} role="alert" className="mt-1 flex items-start gap-1.5 text-xs leading-5 text-erro">
-          <Icone nome="alerta" className="mt-0.5 h-3.5 w-3.5 flex-none" />
-          <span>{erro}</span>
-        </p>
+        <ErroDoCampo id={`${campoId}-erro`} className="mt-1">
+          {erro}
+        </ErroDoCampo>
       ) : null}
     </div>
   );

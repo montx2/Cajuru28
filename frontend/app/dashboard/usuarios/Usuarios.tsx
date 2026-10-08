@@ -364,10 +364,9 @@ function ModalUsuario({
           />
         ) : null}
         {erro ? (
-          <p role="alert" className="flex items-start gap-2 rounded-controle border border-erro/40 bg-erro-tenue px-3 py-2 text-sm leading-6 text-erro">
-            <Icone nome="alerta" className="mt-1 h-4 w-4 flex-none" />
-            <span>{erro}</span>
-          </p>
+          <Aviso tom="erro" compacto urgente>
+            {erro}
+          </Aviso>
         ) : null}
       </div>
     </Modal>

@@ -10,6 +10,7 @@ import { Cnpj } from "@/components/ui/Formatadores";
 import { Icone } from "@/components/ui/Icone";
 import { IndicadorEstado } from "@/components/ui/IndicadorEstado";
 import { useAgora } from "@/components/shell/ProvedorAgora";
+import { Aviso } from "@/components/ui/Aviso";
 
 export interface CartaoCertificadoProps {
   certificado: ResumoCertificado & Partial<CertificadoPainel>;
@@ -65,10 +66,9 @@ export function CartaoCertificado({ certificado, aoSubstituir, carregando, somen
       </dl>
 
       {certificado.vencido ? (
-        <p className="mt-3 flex items-start gap-2 rounded-controle border border-erro/40 bg-erro-tenue px-3 py-2 text-sm leading-6 text-erro">
-          <Icone nome="risco" className="mt-0.5 h-4 w-4 flex-none" />
-          <span>Toda importação desta empresa vai falhar até a substituição do A1.</span>
-        </p>
+        <Aviso tom="erro" icone="risco" compacto className="mt-3">
+          Toda importação desta empresa vai falhar até a substituição do A1.
+        </Aviso>
       ) : null}
 
       {aoSubstituir ? (

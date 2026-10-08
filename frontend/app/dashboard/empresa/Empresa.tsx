@@ -766,9 +766,9 @@ function ModalEditarEmpresa({
         </div>
 
         {erro ? (
-          <p role="alert" className="rounded-controle border border-erro/40 bg-erro-tenue px-3 py-2 text-sm leading-6 text-erro">
+          <Aviso tom="erro" compacto urgente>
             {erro}
-          </p>
+          </Aviso>
         ) : null}
       </div>
     </Modal>

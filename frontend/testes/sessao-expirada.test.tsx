@@ -33,8 +33,12 @@ describe("quem cai no login sabe por quê", () => {
   });
 
   it("o aviso é anunciado e oferece o caminho de volta", () => {
-    const trecho = login.slice(login.indexOf("sessaoExpirada ?"));
-    expect(trecho).toContain('role="status"');
+    // recorte até o formulário: o erro de credenciais (que é urgente) fica depois
+    const trecho = login.slice(login.indexOf("sessaoExpirada ?"), login.indexOf('<form className="mt-8'));
+    // O anúncio vem do primitivo: `Aviso` sem `urgente` sai como `role="status"`
+    // (interromper o leitor de tela fica para o que é falha), e o tom é de espera.
+    expect(trecho).toContain('<Aviso tom="espera"');
+    expect(trecho).not.toContain("urgente");
     expect(trecho).toContain("você volta para a tela em que estava");
   });
 

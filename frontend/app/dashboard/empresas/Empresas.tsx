@@ -24,7 +24,9 @@ import { useSinalizarAtualizacao } from "@/components/shell/BarraAtualizacao";
 import { useSessao } from "@/components/shell/ProvedorSessao";
 import { ModalImportarXmls } from "@/app/dashboard/importacoes/ImportarXmls";
 import { Botao } from "@/components/ui/Botao";
+import { Aviso } from "@/components/ui/Aviso";
 import { CabecalhoPagina, Cartao } from "@/components/ui/Cartao";
+import { ErroDoCampo } from "@/components/ui/Campo";
 import { Busca, Caixa, Entrada, Selecao } from "@/components/ui/Campo";
 import { CampoArquivo } from "@/components/ui/CampoArquivo";
 import { Dado } from "@/components/ui/Dado";
@@ -630,9 +632,9 @@ function ModalNovaEmpresa({ aberto, aoFechar, aoCriar }: { aberto: boolean; aoFe
           opcoes={[{ valor: "", rotulo: "Não informar" }, ...UFS.map((item) => ({ valor: item.sigla, rotulo: `${item.sigla} · ${item.nome}` }))]}
         />
         {erro ? (
-          <p role="alert" className="rounded-controle border border-erro/40 bg-erro-tenue px-3 py-2 text-sm leading-6 text-erro">
+          <Aviso tom="erro" compacto urgente>
             {erro}
-          </p>
+          </Aviso>
         ) : null}
       </div>
     </Modal>
@@ -756,9 +758,7 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
                 </p>
               ) : null}
               {acimaDoLote ? (
-                <p role="alert" className="mt-1 text-xs text-erro">
-                  {motivoBloqueio}
-                </p>
+                <ErroDoCampo className="mt-1">{motivoBloqueio}</ErroDoCampo>
               ) : null}
             </div>
             <input
@@ -795,9 +795,9 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
             descricao="Anexe a planilha que o escritório já tem: valem cnpj;senha, razao_social;cnpj_cpf;uf;senha e o inventário de A1 arquivo;cnpj;emissor;senha;validade — com ou sem linha de título. Cada certificado é amarrado à sua linha pelo CNPJ que está no nome do arquivo. A UF só é usada como apoio se a consulta pública não a encontrar."
           />
           {erro ? (
-            <p role="alert" className="rounded-controle border border-erro/40 bg-erro-tenue px-3 py-2 text-sm leading-6 text-erro">
+            <Aviso tom="erro" compacto urgente>
               {erro}
-            </p>
+            </Aviso>
           ) : null}
         </div>
       )}
@@ -826,10 +826,10 @@ function ResultadoLote({
         </dl>
         {planilhasAnexadas > 0 ? (
           linhasDaPlanilha === 0 ? (
-            <p role="alert" className="mt-3 border-t border-traco pt-2 text-xs leading-5 text-erro">
-              A planilha anexada não rendeu nenhuma linha. Ela precisa do CNPJ (ou do nome do .pfx) e da
-              senha de cada certificado — confira as colunas e importe de novo.
-            </p>
+            <Aviso tom="erro" compacto urgente className="mt-3">
+              A planilha anexada não rendeu nenhuma linha. Ela precisa do CNPJ (ou do nome do .pfx) e da senha de
+              cada certificado — confira as colunas e importe de novo.
+            </Aviso>
           ) : (
             <p className="mt-3 border-t border-traco pt-2 text-2xs leading-5 text-tinta-suave">
               Planilha de apoio: {numero(linhasDaPlanilha)}{" "}
