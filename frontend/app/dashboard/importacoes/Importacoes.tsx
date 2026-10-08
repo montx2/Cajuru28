@@ -5,6 +5,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { contagem, contagemRegressiva, numero } from "@/lib/format";
 import { estadoDaSincronizacao, type EstadoVisual } from "@/lib/estados";
+import { avisoDoDisparo } from "@/lib/importacao";
 import { mensagemDoErro } from "@/lib/erros";
 import { MOTIVO_SOMENTE_LEITURA } from "@/lib/papel";
 import { paraFiltro, rotuloPeriodo } from "@/lib/periodo";
@@ -320,16 +321,7 @@ export function Importacoes() {
       const dados = await api.importarSelecionadas(dadosDoDisparo);
       setResultado({ modo: "resultado", dados });
       setConfirmando(false);
-      avisar({
-        tom: dados.enfileiradas > 0 ? "ok" : dados.aguardando > 0 ? "espera" : "info",
-        titulo:
-          dados.enfileiradas > 0
-            ? `${contagem(dados.enfileiradas, "captura enfileirada", "capturas enfileiradas")}`
-            : dados.aguardando > 0
-              ? "Nada enfileirado: há janelas em espera"
-              : "Nada a fazer neste recorte",
-        descricao: `${numero(dados.aguardando)} aguardando · ${numero(dados.ignoradas)} ignoradas · ${rotuloPeriodo(periodo)}`,
-      });
+      avisar(avisoDoDisparo(dados, rotuloPeriodo(periodo)));
       estados.atualizar();
       resumoSync.atualizar();
       atualizarAlertas();

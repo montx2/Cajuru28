@@ -171,6 +171,10 @@ def solicitar_importacao(
 
     if resultado.status in ("sem_certificado", "sem_uf"):
         raise HTTPException(status_code=409, detail=resultado.mensagem)
+    if resultado.status == "fila_indisponivel":
+        # 503: o pedido não foi aceito por indisponibilidade do próprio Fluxa.
+        # Nenhuma execução é criada e nenhuma cota da SEFAZ é gasta.
+        raise HTTPException(status_code=503, detail=resultado.mensagem)
     if resultado.status == "em_cooldown":
         raise HTTPException(
             status_code=429,

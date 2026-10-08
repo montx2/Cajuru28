@@ -5,7 +5,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { contagem, contagemRegressiva, dataCurta, numero, tempoRelativo } from "@/lib/format";
-import { estadoDaExecucao, duracaoDaExecucao, execucaoEmAberto, SEM_FIM_REGISTRADO } from "@/lib/estados";
+import { estadoDaExecucao, duracaoDaExecucao, execucaoEmAberto, orientacaoDaExecucao, SEM_FIM_REGISTRADO } from "@/lib/estados";
 import { MOTIVO_SOMENTE_LEITURA } from "@/lib/papel";
 import { ultimosMeses } from "@/lib/periodo";
 import { usePreferencia } from "@/lib/usePreferencia";
@@ -543,7 +543,7 @@ function DetalheExecucao({ execucao, agora }: { execucao: ExecucaoImportacao; ag
         <Aviso tom="erro" titulo="Por que falhou">
           <p className="text-sm leading-6">{execucao.mensagem_erro}</p>
           <p className="mt-2 text-sm leading-6">
-            Próximo passo: confira se o certificado A1 da empresa está válido e se a SEFAZ não está em janela de espera. Depois, reprocesse o período.
+            Próximo passo: {orientacaoDaExecucao(execucao.falha)}
           </p>
         </Aviso>
       ) : null}

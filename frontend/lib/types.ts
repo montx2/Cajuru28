@@ -157,6 +157,8 @@ export interface ExecucaoImportacao {
   iniciado_em: string;
   finalizado_em: string | null;
   mensagem_erro?: string | null;
+  /** Natureza da falha — decide o "próximo passo" que a tela mostra. */
+  falha?: string | null;
   aviso?: string | null;
   ultimo_nsu?: string | null;
   empresa_razao_social: string | null;

@@ -352,6 +352,56 @@ def test_checkpoint_fica_dentro_do_volume_persistente_de_xml(cenario):
         lotes_recebidos.ler(arquivo, empresa.id, NFSE, escritorio_id=empresa.escritorio_id + 1)
 
 
+def test_fila_fora_do_ar_nao_cria_execucao_nem_faz_nada_esperar(cenario, monkeypatch):
+    """Broker fora: nem linha de execução, nem 20 s de espera.
+
+    Antes, o clique criava a execução e só descobria a fila caída depois dos
+    retries do Celery (~20 s). A checagem curta responde em milissegundos e
+    deixa claro que nada foi consultado na SEFAZ (a cota do dia segue inteira).
+    """
+    db, empresa, disparos = cenario
+    monkeypatch.setattr(fila, "fila_respondendo", lambda: False)
+    antes = db.query(ExecucaoImportacao).count()
+    resposta = fila.enfileirar(db, empresa, NFSE)
+    assert resposta.status == "fila_indisponivel"
+    assert resposta.execucao_id is None
+    assert db.query(ExecucaoImportacao).count() == antes
+    assert "nada foi consultado" in resposta.mensagem
+    assert disparos == []
+
+
+def test_cada_erro_guarda_a_natureza_da_falha(cenario, monkeypatch):
+    """`falha` é o que permite à tela dar o próximo passo certo.
+
+    Filas e cadastros falham por motivos diferentes; com um código só, o
+    detalhe da execução mandava conferir o certificado A1 até quando o
+    problema era local.
+    """
+    db, empresa, disparos = cenario
+    monkeypatch.setattr(fila, "fila_respondendo", lambda: True)
+
+    def explodir(*args, **kwargs):
+        raise RuntimeError("Retry limit exceeded while trying to reconnect to the Celery result store backend.")
+
+    monkeypatch.setattr(fila, "_disparar", explodir)
+    resposta = fila.enfileirar(db, empresa, NFSE)
+    execucao = db.get(ExecucaoImportacao, resposta.execucao_id)
+    db.refresh(execucao)
+    assert execucao.status == StatusExecucao.ERRO
+    assert execucao.falha == "fila_indisponivel"
+
+    # Cadastro: empresa desativada entre o disparo e a varredura.
+    empresa.ativa = False
+    db.commit()
+    parada = _nova_execucao(db, empresa)
+    tasks.importar_documentos(empresa.id, "nfse", parada)
+    db.expire_all()
+    parada = db.get(ExecucaoImportacao, parada)
+    assert parada.status == StatusExecucao.ERRO
+    assert parada.falha == "cadastro"
+    assert parada.finalizado_em is not None
+
+
 def test_fila_fora_do_ar_encerra_a_execucao_com_o_fim_gravado(cenario, monkeypatch):
     """Redis/Celery fora do ar: a execução nasce e morre na mesma chamada.
 

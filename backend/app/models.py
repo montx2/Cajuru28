@@ -301,6 +301,11 @@ class ExecucaoImportacao(Base):
     # para a tela conseguir explicar um 656 logo em seguida ("você forçou").
     forcar: Mapped[bool] = mapped_column(Boolean, default=False)
     mensagem_erro: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Natureza da falha (fila_indisponivel | cadastro | ambiente_fiscal |
+    # importacao_parcial | sistema | captura). Sem isso, o "próximo passo"
+    # exibido era o mesmo para todo erro — e mandava conferir o certificado A1
+    # até quando a falha era local, na fila, sem nenhuma consulta à SEFAZ.
+    falha: Mapped[str | None] = mapped_column(String(24), nullable=True)
     aviso: Mapped[str | None] = mapped_column(Text, nullable=True)
     iniciado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     finalizado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

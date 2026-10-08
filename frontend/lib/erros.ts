@@ -168,6 +168,17 @@ export function descreverErro(erro: unknown, contexto = "carregar estes dados"):
           detalhe: erro.message,
         };
       }
+      case 503:
+        // Fila/cache fora do ar (a captura devolve 503 justamente quando o
+        // broker não respondeu). A mensagem da API diz o que aconteceu com o
+        // pedido — inclusive que nada foi consultado na SEFAZ.
+        return {
+          titulo: "Serviço indisponível agora",
+          causa: erro.message || "Um serviço interno do Fluxa (fila ou cache) não respondeu.",
+          proximoPasso: "Confira os contêineres de fila e worker (`docker compose ps`) e tente de novo.",
+          tom: "erro",
+          detalhe: erro.message,
+        };
       case 429:
         return {
           titulo: "Consulta na janela oficial da SEFAZ",
@@ -216,7 +227,7 @@ export function mensagemDoErro(erro: unknown, contexto?: string): string {
   const descrito = descreverErro(erro, contexto);
   const incluiCausa =
     erro instanceof ApiError &&
-    (erro.status === 400 || erro.status === 409 || erro.status === 422);
+    (erro.status === 400 || erro.status === 409 || erro.status === 422 || erro.status === 503);
   const partes = incluiCausa ? [descrito.causa, descrito.proximoPasso] : [descrito.proximoPasso];
   return [`${descrito.titulo}.`, ...partes.filter(Boolean)].join(" ");
 }

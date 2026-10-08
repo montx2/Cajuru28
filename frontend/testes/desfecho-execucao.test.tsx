@@ -14,7 +14,11 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { SEM_FIM_REGISTRADO, duracaoDaExecucao, execucaoEmAberto } from "@/lib/estados";
+import { SEM_FIM_REGISTRADO, duracaoDaExecucao, execucaoEmAberto, orientacaoDaExecucao } from "@/lib/estados";
+import { avisoDoDisparo } from "@/lib/importacao";
+import { ApiError } from "@/lib/api";
+import { descreverErro, mensagemDoErro } from "@/lib/erros";
+import type { ItemImportacaoSelecionada, ResultadoImportacaoSelecionada } from "@/lib/types";
 
 function fonte(caminho: string): string {
   return readFileSync(resolve(__dirname, "..", caminho), "utf-8");
@@ -72,5 +76,108 @@ describe("telas de execução usam a regra, não o campo cru", () => {
     const fila = fonte("../backend/app/services/fila.py").replace(/\s+/g, " ");
     const trecho = fila.slice(fila.indexOf("fila fora do ar não pode deixar execução zumbi"));
     expect(trecho).toContain("execucao.finalizado_em = datetime.now(timezone.utc)");
+  });
+});
+
+describe("o próximo passo depende da natureza da falha", () => {
+  it("fila fora do ar não manda conferir certificado nem promete consulta", () => {
+    const texto = orientacaoDaExecucao("fila_indisponivel");
+    expect(texto).toContain("Nada foi consultado na SEFAZ");
+    expect(texto).not.toMatch(/certificado/i);
+  });
+
+  it("cadastro, ambiente fiscal, leitura parcial e sistema têm conselho próprio", () => {
+    const textos = ["cadastro", "ambiente_fiscal", "importacao_parcial", "sistema"].map(orientacaoDaExecucao);
+    expect(new Set(textos).size).toBe(textos.length);
+    expect(orientacaoDaExecucao("cadastro")).not.toBe(orientacaoDaExecucao("captura"));
+  });
+
+  it("erro de captura e falha sem código (dado antigo) recebem o conselho fiscal", () => {
+    const fiscal = orientacaoDaExecucao("captura");
+    expect(orientacaoDaExecucao(null)).toBe(fiscal);
+    expect(orientacaoDaExecucao(undefined)).toBe(fiscal);
+    expect(orientacaoDaExecucao("codigo-que-nao-existe")).toBe(fiscal);
+    expect(fiscal).toContain("certificado A1");
+  });
+
+  it("o detalhe da execução usa a orientação, não um texto fixo", () => {
+    const detalhe = fonte("app/dashboard/execucoes/Execucoes.tsx").replace(/\s+/g, " ");
+    expect(detalhe).toContain("orientacaoDaExecucao(execucao.falha)");
+    expect(detalhe).not.toContain("Próximo passo: confira se o certificado A1 da empresa está válido");
+  });
+});
+
+describe("o aviso do disparo diz o motivo real", () => {
+  function item(status: string): ItemImportacaoSelecionada {
+    return {
+      empresa_id: 1, razao_social: "Empresa teste", tipo: "nfse", status,
+      execucao_id: null, disponivel_em: null, mensagem: "", enfileirada: status === "enfileirada",
+    };
+  }
+  function resultado(status: string, total = 1): ResultadoImportacaoSelecionada {
+    const itens = Array.from({ length: total }, () => item(status));
+    return {
+      total: itens.length,
+      enfileiradas: itens.filter((i) => i.enfileirada).length,
+      aguardando: itens.filter((i) => i.status === "em_cooldown").length,
+      ignoradas: itens.filter((i) => !i.enfileirada && i.status !== "em_cooldown").length,
+      itens,
+    };
+  }
+
+  it("fila indisponível não vira 'Nada a fazer neste recorte'", () => {
+    const aviso = avisoDoDisparo(resultado("fila_indisponivel"), "10/2026");
+    expect(aviso.tom).toBe("erro");
+    expect(aviso.titulo).toBe("A fila de processamento não respondeu");
+    expect(aviso.descricao).toContain("nada foi consultado na SEFAZ");
+  });
+
+  it("disparo misto: a falha da fila manda no aviso, sem esconder o que foi enfileirado", () => {
+    const aviso = avisoDoDisparo(
+      {
+        total: 3,
+        enfileiradas: 1,
+        aguardando: 1,
+        ignoradas: 1,
+        itens: [item("enfileirada"), item("em_cooldown"), item("fila_indisponivel")],
+      },
+      "10/2026",
+    );
+    expect(aviso.tom).toBe("erro");
+    expect(aviso.titulo).toBe("A fila de processamento não respondeu");
+    expect(aviso.descricao).toContain("1 enfileiradas");
+    expect(aviso.descricao).toContain("nada foi consultado na SEFAZ");
+  });
+
+  it("falta de cadastro também é explicada, em vez de recorte vazio", () => {
+    const aviso = avisoDoDisparo(resultado("sem_certificado", 3), "10/2026");
+    expect(aviso.tom).toBe("erro");
+    expect(aviso.titulo).toContain("falta cadastro");
+    expect(aviso.descricao).toContain("3 empresas");
+  });
+
+  it("enfileirada, janela em espera e recorte vazio seguem com o tom certo", () => {
+    expect(avisoDoDisparo(resultado("enfileirada", 2), "10/2026").tom).toBe("ok");
+    expect(avisoDoDisparo(resultado("em_cooldown", 2), "10/2026").titulo).toContain("janelas em espera");
+    const vazio = avisoDoDisparo(resultado("ja_em_andamento"), "10/2026");
+    expect(vazio.tom).toBe("info");
+    expect(vazio.titulo).toBe("Nada a fazer neste recorte");
+  });
+
+  it("a tela de Importações usa o aviso do disparo, não a contagem crua", () => {
+    const tela = fonte("app/dashboard/importacoes/Importacoes.tsx").replace(/\s+/g, " ");
+    expect(tela).toContain("avisoDoDisparo(dados, rotuloPeriodo(periodo))");
+    expect(tela).not.toContain('"Nada a fazer neste recorte"');
+  });
+});
+
+describe("o erro de fila chega ao operador com o texto da API", () => {
+  it("503 não vira 'falha interna' genérica sem o motivo", () => {
+    const erro = new ApiError(503, "A fila de processamento não respondeu, então nada foi consultado na SEFAZ.");
+    const descrito = descreverErro(erro, "disparar a importação");
+    expect(descrito.tom).toBe("erro");
+    expect(descrito.causa).toContain("A fila de processamento não respondeu");
+    expect(descrito.proximoPasso).toContain("fila");
+    expect(mensagemDoErro(erro, "disparar a importação")).toContain("A fila de processamento não respondeu");
   });
 });

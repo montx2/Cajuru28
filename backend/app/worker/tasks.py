@@ -174,12 +174,12 @@ def importar_documentos(
         if execucao.empresa_id != empresa_id or execucao.tipo != tipo_doc:
             raise ValueError("Execução não corresponde à empresa/tipo da tarefa.")
         if not empresa.ativa:
-            _marcar_erro(db, execucao, "Empresa inativa: captura não realizada.")
+            _marcar_erro(db, execucao, "Empresa inativa: captura não realizada.", falha="cadastro")
             return
 
         estado = sincronizacao.obter_estado(db, empresa_id, tipo_doc)
         if estado is None:
-            _marcar_erro(db, execucao, "Estado de sincronização indisponível (banco?)")
+            _marcar_erro(db, execucao, "Estado de sincronização indisponível (banco?)", falha="sistema")
             return
         travado = sincronizacao.travar(db, estado)
         db.commit()
@@ -308,7 +308,7 @@ def importar_documentos(
         if execucao.origem == "reprocessamento" or local_completo_recente:
             pendentes = lotes_recebidos.quantidade_pendente(empresa_id, tipo_doc)
             if pendentes:
-                _marcar_erro(db, execucao, f"Importação parcial: {pendentes} lote(s) recebido(s) ainda exigem correção. Respostas preservadas no volume; nenhuma consulta fiscal foi repetida.")
+                _marcar_erro(db, execucao, f"Importação parcial: {pendentes} lote(s) recebido(s) ainda exigem correção. Respostas preservadas no volume; nenhuma consulta fiscal foi repetida.", falha="importacao_parcial")
             else:
                 execucao.status = StatusExecucao.CONCLUIDA
                 execucao.aviso = _resumir_avisos(execucao.aviso, ["Lotes recebidos reprocessados localmente, sem nova consulta à SEFAZ/ADN."])
@@ -324,7 +324,7 @@ def importar_documentos(
                 return
         status_preflight, mensagem_preflight = fila.verificar_empresa(db, empresa, tipo_doc)
         if status_preflight != "ok":
-            _marcar_erro(db, execucao, mensagem_preflight)
+            _marcar_erro(db, execucao, mensagem_preflight, falha="cadastro")
             return
         certificado = (
             db.query(Certificado)
@@ -439,7 +439,7 @@ def importar_documentos(
 
         pendentes = lotes_recebidos.quantidade_pendente(empresa_id, tipo_doc)
         if pendentes:
-            _marcar_erro(db, execucao, f"Importação parcial: {pendentes} lote(s) com falha de leitura preservado(s) para reprocessamento. Notas válidas foram gravadas; a execução não é confirmação de acervo completo.")
+            _marcar_erro(db, execucao, f"Importação parcial: {pendentes} lote(s) com falha de leitura preservado(s) para reprocessamento. Notas válidas foram gravadas; a execução não é confirmação de acervo completo.", falha="importacao_parcial")
             return
         execucao.status = StatusExecucao.CONCLUIDA
         execucao.bloqueado_ate = None
@@ -528,6 +528,7 @@ def tratar_ambiente_indisponivel(
             db,
             execucao,
             f"Ambiente fiscal indisponível após {tentativa + 1} tentativas: {erro}",
+            falha="ambiente_fiscal",
         )
         return
     quando = _agora() + erro.tentativa_recomendada * (2**tentativa)
@@ -923,10 +924,21 @@ def _resumir_avisos(aviso_atual: str | None, novos: list[str], limite: int = 20)
     return "\n".join(itens)
 
 
-def _marcar_erro(db, execucao: ExecucaoImportacao | None, mensagem: str) -> None:
+def _marcar_erro(
+    db, execucao: ExecucaoImportacao | None, mensagem: str, falha: str = "captura"
+) -> None:
+    """
+    Fecha a execução em erro.
+
+    `falha` é a natureza do problema (fila, cadastro, ambiente fiscal, leitura
+    parcial, sistema); é o que permite à tela dar o próximo passo CERTO. Sem
+    ela, toda falha recebia o mesmo conselho — inclusive "confira o certificado
+    A1" para uma fila fora do ar, que não tem nada a ver com certificado.
+    """
     if execucao is None:
         return
     execucao.status = StatusExecucao.ERRO
+    execucao.falha = falha
     execucao.mensagem_erro = mensagem[:4000] if mensagem else "Erro desconhecido"
     execucao.finalizado_em = _agora()
     db.commit()
@@ -996,7 +1008,7 @@ def sincronizar_tudo(self) -> dict:
             if empresa is None:
                 continue
             if not empresa.ativa:
-                _marcar_erro(db, execucao, "Empresa inativa: retomada cancelada.")
+                _marcar_erro(db, execucao, "Empresa inativa: retomada cancelada.", falha="cadastro")
                 continue
             libertacao = sincronizacao.liberacao_para(db, empresa.id, execucao.tipo)
             if not libertacao.pode:

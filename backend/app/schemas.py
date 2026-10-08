@@ -556,6 +556,7 @@ class ExecucaoImportacaoResposta(BaseModel):
     iniciado_em: datetime
     finalizado_em: datetime | None
     mensagem_erro: str | None = None
+    falha: str | None = None
     aviso: str | None = None
     ultimo_nsu: str | None = None
     empresa_razao_social: str | None = None

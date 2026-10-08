@@ -66,6 +66,32 @@ export function duracaoDaExecucao(
   return execucaoEmAberto(execucao) ? "em curso" : SEM_FIM_REGISTRADO;
 }
 
+/**
+ * "Próximo passo" de uma execução que falhou, por natureza da falha.
+ *
+ * Um conselho só servia para todo erro: "confira o certificado A1 e a janela da
+ * SEFAZ". Quando a fila do próprio Fluxa está fora do ar, isso manda o contador
+ * mexer no lugar errado — e o certificado dele está bom.
+ */
+const ORIENTACAO_POR_FALHA: Record<string, string> = {
+  fila_indisponivel:
+    "Nada foi consultado na SEFAZ e a cota do dia segue inteira. Confira se os serviços de fila e worker estão no ar e dispare de novo.",
+  cadastro:
+    "É cadastro, não SEFAZ: resolva o cadastro desta empresa (certificado A1, UF ou situação da empresa) e reprocesse o período.",
+  ambiente_fiscal:
+    "O ambiente fiscal não respondeu dentro das tentativas — nada foi perdido. O agendador volta sozinho na próxima varredura; se persistir, veja a tela Saúde.",
+  importacao_parcial:
+    "As notas que chegaram foram gravadas e os lotes com problema ficaram preservados. Reprocesse para ler os lotes de novo, sem repetir a consulta fiscal.",
+  sistema:
+    "Falha interna do Fluxa, não da SEFAZ: nada foi consultado. Veja a tela Saúde e reprocesse depois.",
+  captura:
+    "Confira se o certificado A1 da empresa está válido e se a SEFAZ não está em janela de espera. Depois, reprocesse o período.",
+};
+
+export function orientacaoDaExecucao(falha: string | null | undefined): string {
+  return ORIENTACAO_POR_FALHA[falha ?? ""] ?? ORIENTACAO_POR_FALHA.captura;
+}
+
 export function estadoDaExecucao(status: StatusExecucao | string): EstadoVisual {
   switch (status) {
     case "em_andamento":
