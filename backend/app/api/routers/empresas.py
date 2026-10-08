@@ -587,7 +587,14 @@ async def _escolher_versoes(
             except ValueError:
                 continue
 
-        vencedor = max(abertos, key=abertos.get) if abertos else indices[0]
+        agora = datetime.now(timezone.utc)
+        # Nunca substitua um certificado válido por uma versão vencida. Se
+        # houver várias versões válidas, fica a de maior validade. Quando
+        # todas estiverem vencidas, deixamos uma delas seguir para que o
+        # processamento devolva um erro explícito ao operador.
+        validos = [indice for indice, validade in abertos.items() if validade > agora]
+        candidatos_vencedor = validos or list(abertos)
+        vencedor = max(candidatos_vencedor, key=abertos.get) if candidatos_vencedor else indices[0]
         nome_vencedor = arquivos[vencedor].filename or "arquivo.pfx"
         validade_vencedor = abertos.get(vencedor)
         for indice in indices:
@@ -708,6 +715,21 @@ async def _processar_pfx(
                 status="erro",
                 mensagem=msg_erro,
             )
+
+    agora = datetime.now(timezone.utc)
+    if identidade.validade_utc <= agora:
+        return ItemLoteEmpresas(
+            origem=nome,
+            cnpj_cpf=identidade.documento or cnpj_nome,
+            razao_social=identidade.razao_social,
+            status="erro",
+            validade=identidade.validade_utc,
+            mensagem=(
+                "Certificado vencido e não importado "
+                f"(validade: {identidade.validade_utc.strftime('%d/%m/%Y')}). "
+                "Envie um certificado válido."
+            ),
+        )
 
     if cnpj in vistos:
         return ItemLoteEmpresas(

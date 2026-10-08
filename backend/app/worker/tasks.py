@@ -839,17 +839,27 @@ def _processar_evento(
     if existente is not None:
         return "duplicado"
 
-    db.add(
-        EventoFiscalPendente(
-            empresa_id=empresa_id,
-            tipo=tipo,
-            chave_acesso=chave,
-            tipo_evento=evento.tipo_evento,
-            nsu=str(evento.nsu or "0"),
-            motivo=(evento.motivo or "Cancelamento")[:2000],
-            data_evento=_parse_data_evento(evento.data_evento),
-        )
+    novo = EventoFiscalPendente(
+        empresa_id=empresa_id,
+        tipo=tipo,
+        chave_acesso=chave,
+        tipo_evento=evento.tipo_evento,
+        nsu=str(evento.nsu or "0"),
+        motivo=(evento.motivo or "Cancelamento")[:2000],
+        data_evento=_parse_data_evento(evento.data_evento),
     )
+    db.add(novo)
+    # A consulta acima evita o caso comum; o savepoint trata duas workers
+    # inserindo o mesmo evento simultaneamente. NSU diferente não cria outra
+    # identidade: a restrição continua sendo por documento + tipo de evento.
+    try:
+        with db.begin_nested():
+            db.flush([novo])
+    except Exception as exc:  # noqa: BLE001
+        from sqlalchemy.exc import IntegrityError
+        if isinstance(exc, IntegrityError):
+            return "duplicado"
+        raise
     return "pendente"
 
 

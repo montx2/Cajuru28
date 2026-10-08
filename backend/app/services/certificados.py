@@ -202,19 +202,28 @@ def extrair_identidade(pfx_bytes: bytes, senha: str | None) -> IdentidadeCertifi
         for candidato in re.findall(r"(?<!\d)\d{11}(?!\d)", subject):
             adicionar_documento(candidato, "subject DN", esperado="cpf")
 
-    razao = ""
-    for oid in (NameOID.ORGANIZATION_NAME, NameOID.COMMON_NAME):
+    # A organização do emissor costuma ser literalmente "ICP-Brasil".
+    # Ela identifica a cadeia, não o titular, e não pode virar a razão social
+    # de todas as empresas importadas. Prefira CN e descarte nomes genéricos.
+    documento = cnpjs[0] if cnpjs else (cpfs[0] if cpfs else "")
+    valores_nome: list[str] = []
+    for oid in (NameOID.COMMON_NAME, NameOID.ORGANIZATION_NAME):
         try:
-            valores = [str(a.value).strip() for a in cert.subject.get_attributes_for_oid(oid)]
-            valores = [v for v in valores if v]
-            if valores:
-                razao = valores[0]
-                break
+            valores_nome.extend(
+                str(a.value).strip()
+                for a in cert.subject.get_attributes_for_oid(oid)
+                if str(a.value).strip()
+            )
         except Exception:  # noqa: BLE001
             continue
-    documento = cnpjs[0] if cnpjs else (cpfs[0] if cpfs else "")
+    genericos = {"icp-brasil", "icp brasil", "ac raiz", "autoridade certificadora"}
+    razao = next((v for v in valores_nome if v.casefold() not in genericos), "")
     if razao and documento:
         razao = re.sub(rf"\s*[:\-]\s*{re.escape(documento)}\s*$", "", razao).strip()
+    # Fallback determinístico: melhor um nome explicitamente incompleto do
+    # que o mesmo emissor ser exibido para dezenas de certificados.
+    if not razao:
+        razao = f"Empresa {documento}" if documento else "Certificado sem titular identificado"
 
     validade_utc = (
         cert.not_valid_after_utc
