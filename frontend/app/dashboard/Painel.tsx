@@ -75,7 +75,7 @@ export function Painel() {
         <EsqueletoBloco linhas={2} />
         <div className="grid grid-cols-2 gap-3 xl:grid-cols-5">
           {Array.from({ length: 5 }, (_, indice) => (
-            <div key={indice} className="rounded-cartao border border-traco bg-superficie p-3.5">
+            <div key={indice} className="superficie-plana rounded-cartao p-3.5">
               <EsqueletoBloco linhas={2} />
             </div>
           ))}
@@ -277,7 +277,7 @@ export function Painel() {
           ) : central.erro ? (
             <EstadoErro erro={central.erro} aoTentarNovamente={central.atualizar} contexto="carregar as execuções" />
           ) : central.dados && central.dados.agora.length > 0 ? (
-            <ul className="divide-y divide-traco rounded-cartao border border-traco bg-superficie">
+            <ul className="superficie-plana divide-y divide-traco rounded-cartao">
               {central.dados.agora.slice(0, 4).map((execucao) => (
                 <LinhaExecucao key={execucao.execucao_id} execucao={execucao} />
               ))}
@@ -305,7 +305,7 @@ export function Painel() {
         <GradeKpis itens={itens} colunas={3} rotulo={`Indicadores de ${rotuloCompetencia(mes)}`} />
       </section>
 
-      <details className="group overflow-hidden rounded-cartao border border-traco bg-superficie">
+      <details className="superficie-plana group overflow-hidden rounded-cartao">
         <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 text-sm font-medium text-tinta-forte marker:hidden">
           <span>
             Mês em números
@@ -416,35 +416,33 @@ function ProximasJanelas({ janelas, agora }: { janelas: JanelaProximaConsulta[];
 function ListaEmitentes({ emitentes }: { emitentes: EmitenteTop[] }) {
   const maximo = Math.max(...emitentes.map((emitente) => emitente.total), 1);
   return (
-    <table className="w-full text-sm">
+    <table className="tabela-dados">
       <caption className="sr-only">Maiores emitentes do período, por quantidade de documentos</caption>
       <thead>
-        <tr className="border-b border-traco text-left text-2xs uppercase tracking-[.04em] text-tinta-suave">
-          <th scope="col" className="py-2 font-medium">
-            Emitente
-          </th>
-          <th scope="col" className="w-40 py-2 text-right font-medium">
+        <tr>
+          <th scope="col">Emitente</th>
+          <th scope="col" className="w-40 text-right">
             Documentos
           </th>
-          <th scope="col" className="w-32 py-2 text-right font-medium">
+          <th scope="col" className="w-32 text-right">
             Valor
           </th>
         </tr>
       </thead>
       <tbody>
         {emitentes.map((emitente, indice) => (
-          <tr key={`${emitente.documento ?? indice}-${emitente.nome ?? indice}`} className="border-b border-traco last:border-0">
-            <th scope="row" className="max-w-0 py-2 pr-3 text-left font-normal">
+          <tr key={`${emitente.documento ?? indice}-${emitente.nome ?? indice}`}>
+            <th scope="row" className="max-w-0 pr-3">
               <span className="block truncate text-tinta">{emitente.nome ?? "Emitente sem nome"}</span>
               {emitente.documento ? <Cnpj valor={emitente.documento} className="text-xs text-tinta-suave" copiar={false} /> : null}
             </th>
-            <td className="py-2 text-right">
+            <td className="text-right">
               <span className="nums block text-tinta-forte">{numero(emitente.total)}</span>
               <span aria-hidden="true" className="mt-1 block h-1 overflow-hidden rounded-full bg-traco">
                 <span className="block h-full rounded-full bg-acento" style={{ width: `${Math.round((emitente.total / maximo) * 100)}%` }} />
               </span>
             </td>
-            <td className="nums py-2 text-right text-tinta">
+            <td className="nums text-right text-tinta">
               <ValorMoeda valor={emitente.valor} semSimbolo titulo={moeda(emitente.valor)} />
               <span className="sr-only">{moeda(emitente.valor)}</span>
             </td>
@@ -453,7 +451,7 @@ function ListaEmitentes({ emitentes }: { emitentes: EmitenteTop[] }) {
       </tbody>
       <tfoot>
         <tr className="text-xs text-tinta-suave">
-          <td colSpan={3} className="pt-2">
+          <td colSpan={3} className="pt-1">
             Somatório dos {plural(emitentes.length, "emitente", "emitentes")} com mais documentos · {moedaCompacta(emitentes.reduce((soma, item) => soma + item.valor, 0))} ·{" "}
             {percentual(100, 0)} da amostra exibida
           </td>

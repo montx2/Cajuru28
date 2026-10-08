@@ -31,7 +31,7 @@ export function CartaoCertificado({ certificado, aoSubstituir, carregando, somen
   const detalhe = certificado as CertificadoPainel;
 
   return (
-    <section className={cn("rounded-cartao border border-traco bg-superficie p-4", className)}>
+    <section className={cn("superficie-plana rounded-cartao p-4", className)}>
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="truncate text-base font-semibold text-tinta-forte" title={certificado.razao_social}>

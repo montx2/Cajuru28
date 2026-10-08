@@ -297,7 +297,7 @@ export function Execucoes() {
           ) : central.erro ? (
             <EstadoErro erro={central.erro} aoTentarNovamente={central.atualizar} contexto="carregar as execuções em andamento" />
           ) : emAndamento.length > 0 ? (
-            <ul className="divide-y divide-traco rounded-cartao border border-traco bg-superficie">
+            <ul className="superficie-plana divide-y divide-traco rounded-cartao">
               {emAndamento.map((execucao) => (
                 <LinhaExecucao key={execucao.execucao_id} execucao={execucao} />
               ))}

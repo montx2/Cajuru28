@@ -148,7 +148,7 @@ export function Relatorios() {
         descricao="Conferência do mês por empresa e tipo, com a folha pronta para o dossiê do cliente."
       />
 
-      <div className="nao-imprimir flex flex-wrap items-end justify-between gap-3 rounded-cartao border border-traco bg-superficie p-3">
+      <div className="superficie-plana nao-imprimir flex flex-wrap items-end justify-between gap-3 rounded-cartao p-3">
         <SeletorCompetencia mes={mes} aoMudar={aoMudar} descricao="Mês de competência dos documentos" />
         <div className="flex flex-wrap items-center gap-2">
           <Botao
@@ -299,7 +299,7 @@ export function Relatorios() {
 
           {/* Folha de impressão: tabela completa (sem virtualização), totais e assinatura. */}
           <div className="hidden print:block pagina-paisagem">
-            <table className="w-full text-xs">
+            <table className="tabela-impressao">
               <caption className="sr-only">Fechamento por empresa</caption>
               <thead>
                 <tr>

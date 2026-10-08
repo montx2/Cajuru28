@@ -86,6 +86,59 @@ describe("ação de texto tem um lugar só", () => {
   });
 });
 
+/**
+ * Tabela: duas peles declaradas no CSS (`.tabela-dados` na tela,
+ * `.tabela-impressao` no papel) e uma caixa que rola por dentro
+ * (`.caixa-tabela`). O que era skin copiada sai da tela.
+ */
+describe("toda tabela tem pele declarada", () => {
+  /** `sr-only`: gêmeo acessível de um gráfico, não é tabela de leitura. */
+  const SEM_PELE = ["components/fiscal/Graficos.tsx"];
+  /** O primitivo da tabela grande define a própria pele. */
+  const PRIMITIVO = "components/ui/Tabela.tsx";
+
+  it("nenhuma tabela crua volta a ser desenhada por conta própria", () => {
+    const infratores: string[] = [];
+    for (const arquivo of arquivosTsx(["app", "components"])) {
+      const relativo = arquivo.slice(RAIZ.length + 1).replace(/\\/g, "/");
+      if (relativo === PRIMITIVO || SEM_PELE.includes(relativo)) continue;
+      const conteudo = readFileSync(arquivo, "utf8");
+      for (const [, classes] of conteudo.matchAll(/<table className="([^"]*)"/g)) {
+        if (!classes.includes("tabela-dados") && !classes.includes("tabela-impressao")) {
+          infratores.push(`${relativo}: <table className="${classes}">`);
+        }
+      }
+      if (/<table(?![^>]*className)/.test(conteudo)) infratores.push(`${relativo}: <table> sem classe`);
+    }
+    expect(infratores).toEqual([]);
+  });
+
+  it("a caixa que rola não é remontada à mão", () => {
+    const infratores: string[] = [];
+    for (const arquivo of arquivosTsx(["app", "components"])) {
+      const conteudo = readFileSync(arquivo, "utf8");
+      // assinatura antiga: `<div>` com rolagem fina, altura máxima e traço à mão.
+      // (`<pre>` de stack trace também rola, mas não é caixa de tabela.)
+      for (const [linha, texto] of conteudo.split("\n").entries()) {
+        if (/<div className="[^"]*rolagem-fina[^"]*max-h-/.test(texto) && /border border-traco/.test(texto)) {
+          const relativo = arquivo.slice(RAIZ.length + 1).replace(/\\/g, "/");
+          infratores.push(`${relativo}:${linha + 1}`);
+        }
+      }
+    }
+    expect(infratores, 'Use <div className="caixa-tabela max-h-…">').toEqual([]);
+  });
+
+  it("a pele e a caixa existem no CSS, com a especificidade baixa que permite a tela ajustar", () => {
+    const css = readFileSync(resolve(RAIZ, "app/globals.css"), "utf8");
+    for (const classe of [".tabela-dados", ".tabela-impressao", ".caixa-tabela", ".superficie-plana"]) {
+      expect(css, classe).toContain(classe);
+    }
+    // `:where()` mantém a regra em 0-1-0: `text-right`/`py-4` da tela vencem.
+    expect(css).toMatch(/\.tabela-dados :where\(/);
+  });
+});
+
 describe("variante de link não carrega geometria de botão", () => {
   it("tamanho do link muda só o texto — sem padding de botão", () => {
     for (const tamanho of ["sm", "md", "lg"] as const) {

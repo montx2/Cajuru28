@@ -145,32 +145,32 @@ function ResultadoImportacao({ resultado }: { resultado: ImportacaoXmlResposta }
         />
       </dl>
 
-      <div className="rolagem-fina max-h-80 overflow-y-auto rounded-cartao border border-traco">
-        <table className="w-full text-sm">
+      <div className="caixa-tabela max-h-80">
+        <table className="tabela-dados">
           <caption className="sr-only">Arquivos processados</caption>
-          <thead className="sticky top-0 bg-superficie-alta">
-            <tr className="border-b border-traco text-left text-2xs uppercase tracking-[.04em] text-tinta-suave">
-              <th scope="col" className="px-3 py-2 font-medium">Arquivo</th>
-              <th scope="col" className="px-3 py-2 font-medium">Empresa</th>
-              <th scope="col" className="px-3 py-2 font-medium">Situação</th>
-              <th scope="col" className="px-3 py-2 font-medium">Mensagem</th>
+          <thead>
+            <tr>
+              <th scope="col">Arquivo</th>
+              <th scope="col">Empresa</th>
+              <th scope="col">Situação</th>
+              <th scope="col">Mensagem</th>
             </tr>
           </thead>
           <tbody>
             {resultado.itens.map((item, indice) => (
-              <tr key={`${item.chave}-${indice}`} className="border-b border-traco last:border-0">
-                <td className="px-3 py-2 text-xs text-tinta-suave">
+              <tr key={`${item.chave}-${indice}`}>
+                <td className="text-xs text-tinta-suave">
                   {item.origem}
                   {item.tipo ? <span className="ml-1 text-tinta-fraca">· {ROTULO_TIPO[item.tipo as keyof typeof ROTULO_TIPO] ?? item.tipo}</span> : null}
                 </td>
-                <th scope="row" className="px-3 py-2 text-left font-normal">
+                <th scope="row">
                   <span className="block truncate text-tinta">{item.razao_social || "—"}</span>
                   {item.cnpj_cpf ? <Cnpj valor={item.cnpj_cpf} copiar={false} className="text-xs text-tinta-suave" /> : null}
                 </th>
-                <td className="px-3 py-2">
+                <td>
                   <Etiqueta tom={TOM_DO_STATUS[item.status] ?? "neutro"}>{ROTULO_STATUS[item.status] ?? item.status}</Etiqueta>
                 </td>
-                <td className="max-w-0 px-3 py-2">
+                <td className="max-w-0">
                   <span className="block truncate text-xs text-tinta-suave" title={item.mensagem}>
                     {item.mensagem || "—"}
                   </span>

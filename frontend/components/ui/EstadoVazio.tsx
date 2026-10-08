@@ -18,7 +18,7 @@ export function EstadoVazio({ titulo, instrucao, acao, icone = "caixa", classNam
     <div
       className={cn(
         "flex flex-col items-center px-5 py-8 text-center",
-        !inline && "rounded-cartao border border-traco bg-superficie",
+        !inline && "superficie-plana rounded-cartao",
         className
       )}
     >

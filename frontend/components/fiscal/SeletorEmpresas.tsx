@@ -114,7 +114,7 @@ export function SeletorEmpresas({
   }
 
   return (
-    <div className={cn("min-w-0 rounded-cartao border border-traco bg-superficie", className)}>
+    <div className={cn("superficie-plana min-w-0 rounded-cartao", className)}>
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-traco bg-fundo-afundado px-3 py-2">
         <p className="text-xs font-medium text-tinta">
           {rotulo}

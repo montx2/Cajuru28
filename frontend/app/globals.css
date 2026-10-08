@@ -172,6 +172,42 @@
     background: var(--superficie);
     box-shadow: var(--sombra-cartao);
   }
+  /* Superfície com traço e fundo: a caixa padrão (tabela, lista, ferramenta,
+     bloco de impacto). O raio fica no uso — nem toda caixa é um cartão. */
+  .superficie-plana { border: 1px solid var(--traco); background: var(--superficie); }
+
+  /* Caixa de tabela: rola por dentro e mantém o cabeçalho à vista. O respiro
+     horizontal é da caixa; o ritmo vertical e as linhas são da skin. */
+  .caixa-tabela { @apply superficie-plana rolagem-fina overflow-y-auto rounded-cartao; }
+  .caixa-tabela :where(thead th) { position: sticky; top: 0; background: var(--superficie-alta); }
+  .caixa-tabela :where(th, td) { padding-inline: 12px; }
+
+  /*
+   * Skin de tabela de dados: estrutura no JSX da tela, pele aqui.
+   *
+   * `:where()` não é enfeite — ele zera a especificidade da parte de dentro, e
+   * a regra inteira fica valendo 0-1-0, igual a um utilitário. Como a camada de
+   * componentes sai antes da de utilitários, `text-right`/`py-4` da tela
+   * vencem. Sem isso, `thead th` (0-2-1) atropelaria o alinhamento da coluna.
+   */
+  .tabela-dados { @apply w-full text-sm; }
+  .tabela-dados :where(thead tr) { border-bottom: 1px solid var(--traco); }
+  .tabela-dados :where(thead th) {
+    @apply text-left text-2xs font-medium uppercase tracking-[.04em] text-tinta-suave;
+  }
+  .tabela-dados :where(th, td) { padding-block: 8px; }
+  .tabela-dados :where(tbody th) { text-align: left; }
+  .tabela-dados :where(tbody tr) { border-bottom: 1px solid var(--traco); }
+  .tabela-dados :where(tbody tr:last-child) { border-bottom: 0; }
+
+  /* Folha impressa: o papel não rola, então a densidade é a legibilidade. */
+  .tabela-impressao { @apply w-full text-xs; }
+  .tabela-impressao :where(th, td) { border-bottom: 1px solid var(--traco); padding: 3px 6px; }
+  .tabela-impressao :where(thead th) {
+    @apply text-left font-semibold uppercase tracking-[.04em];
+  }
+  .tabela-impressao :where(tbody tr:last-child) :where(th, td) { border-bottom: 0; }
+
   .acoes-pagina { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 8px; }
   .acoes-pagina > div { max-width: 100%; }
   /* Link DENTRO de uma frase: herda a cor do texto em volta (num aviso, ele é
