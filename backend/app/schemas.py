@@ -223,24 +223,6 @@ class LoteEmpresasResposta(BaseModel):
     senhas_da_planilha: int = 0
 
 
-class PendenciaEmpresaEntrada(BaseModel):
-    """Uma empresa que uma lista importada trouxe e a carteira ainda não tem.
-
-    `razao_social` é o nome **como a fonte escreveu** — é o que permite ao
-    operador reconhecer o cliente na pendência e decidir cadastrá-lo.
-    """
-
-    documento: str = Field(min_length=1, max_length=30)
-    razao_social: str = Field(default="", max_length=255)
-
-
-class LoteTextoEntrada(BaseModel):
-    """Corpo de `POST /empresas/lote-texto` — o botão 'Cadastrar estas empresas'
-    do resultado de uma importação de lista (procurações, relatórios)."""
-
-    empresas: list[PendenciaEmpresaEntrada] = Field(min_length=1, max_length=2000)
-
-
 # ---------- Certificado ----------
 # A senha entra em texto puro só nesta requisição (via HTTPS) e é cifrada
 # imediatamente no endpoint antes de tocar o banco — nunca é devolvida.
@@ -799,7 +781,7 @@ class EmpresaRanking(BaseModel):
 class AlertaItem(BaseModel):
     id: str
     nivel: str  # critico | atencao | info
-    categoria: str  # certificado | cadastro | sefaz | distribuicao | sincronismo | xml | execucao | sistema | procuracao
+    categoria: str  # certificado | cadastro | sefaz | distribuicao | sincronismo | xml | execucao | sistema
     titulo: str
     detalhe: str
     empresa_id: int | None = None

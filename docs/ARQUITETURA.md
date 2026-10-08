@@ -11,9 +11,6 @@ Navegador -> Frontend Next.js -> API FastAPI -> PostgreSQL
                                              Celery Beat
                                   |
                                   +-> ADN / SEFAZ (mTLS)
-                                  |
-                                  +-> Cajuru Agent (HMAC) -> estação Windows
-                                        certificados A1 + Assinador SERPRO
 ```
 
 ## Serviços
@@ -27,19 +24,16 @@ Navegador -> Frontend Next.js -> API FastAPI -> PostgreSQL
 | `db` | Persistência PostgreSQL |
 | `redis` | Broker e resultados da fila |
 
-O módulo **Procurações RFB** acrescenta um quarto participante que não roda em
-container: o **Cajuru Agent**, instalado na máquina Windows do escritório onde
-estão os certificados A1 e o Assinador Digital SERPRO. Ele não recebe chave
-privada nem senha — o servidor emite uma ordem de trabalho com identificadores,
-e a assinatura acontece no ambiente oficial da Receita, conduzida por uma
-pessoa. A razão dessa divisão está em [`PROCURACOES_CONFORMIDADE.md`](PROCURACOES_CONFORMIDADE.md);
-o desenho completo, em [`PROCURACOES_RFB.md`](PROCURACOES_RFB.md).
-
 Os certificados, XMLs e pacotes de backup ficam em volumes persistentes
 compartilhados apenas pelos processos que precisam deles. O backend nunca grava
 a senha do certificado em texto puro; ela e o PFX são protegidos pelo cofre
 Fernet. Cada pacote de backup é cifrado com uma chave Fernet **separada** e
 replicado para storage S3 configurado em produção.
+
+A inicialização não remove tabelas ou registros que não fazem parte do schema
+carregado pela versão atual. A limpeza geral também para antes de excluir
+empresas se encontrar referências em tabelas legadas; qualquer tratamento
+desses dados exige um procedimento separado.
 
 A captura é feita exclusivamente contra as fontes oficiais (ADN para NFS-e e a
 Distribuição DFe da SEFAZ para NF-e/CT-e), com mTLS pelo certificado da própria

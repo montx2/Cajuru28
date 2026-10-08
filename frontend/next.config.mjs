@@ -13,7 +13,6 @@ const ROTAS_API = [
   "usuarios",
   "auditoria",
   "integracoes",
-  "procuracoes",
 ];
 
 const nextConfig = {

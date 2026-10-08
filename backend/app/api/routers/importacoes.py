@@ -952,8 +952,11 @@ def resumo_sincronizacao(
         documentos_no_banco=documentos_no_banco,
         sincronismo_automatico=settings.sincronismo_automatico,
         intervalo_minutos=settings.sincronismo_intervalo_minutos,
-        tick_a_partir_de=datetime.now(timezone.utc) + timedelta(
-            minutes=settings.sincronismo_intervalo_minutos
+        tick_a_partir_de=(
+            datetime.now(timezone.utc)
+            + timedelta(minutes=settings.sincronismo_intervalo_minutos)
+            if settings.sincronismo_automatico
+            else None
         ),
     )
 

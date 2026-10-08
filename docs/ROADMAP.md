@@ -30,9 +30,6 @@
 - **v2.2 — Carteira em 1 clique**: o resultado da importação de lista
   cadastra as empresas marcadas (nome e CNPJ vieram com a lista; UF pela
   consulta pública) e reimporta a mesma colagem — `POST /empresas/lote-texto`.
-- **v2.2 — Procurações na fila de atenção**: processo esperando pessoa (com
-  link direto ao painel do job), autorizações expirando, prazo de aceite e
-  estação muda entram em `/alertas`, no sino e no Painel.
 - **v2.2 — Sessão deslizante**: `POST /auth/renovar` — usar o sistema não
   vira login a cada 20 min; aba escondida expira no prazo normal.
 

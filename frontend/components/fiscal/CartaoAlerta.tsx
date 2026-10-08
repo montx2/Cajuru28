@@ -21,7 +21,6 @@ const ROTA_POR_CATEGORIA: Record<string, string> = {
   xml: "/dashboard/documentos?leiaute=resumo",
   execucao: "/dashboard/execucoes",
   sistema: "/dashboard/saude",
-  procuracao: "/dashboard/procuracoes",
 };
 
 const FAIXA: Record<string, string> = {
@@ -68,7 +67,6 @@ const ROTULO_POR_CATEGORIA: Record<string, string> = {
   xml: ROTULO_ACAO_LOTE.buscarXml,
   execucao: "Ver execução",
   sistema: "Ver saúde do sistema",
-  procuracao: "Ver procuração",
 };
 
 export function rotuloDaAcao(alerta: AlertaItem): string {

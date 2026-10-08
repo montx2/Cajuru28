@@ -1217,6 +1217,35 @@ def test_reset_geral_exige_a_frase_que_a_tela_realmente_envia(cliente):
     assert client.get("/empresas").json()  # nada foi apagado com a frase errada
 
 
+def test_reset_geral_para_sem_apagar_dados_legados_vinculados(cliente):
+    """Uma tabela fora do modelo protege as referências e a empresa original."""
+    from sqlalchemy import text
+
+    client, db = cliente["client"], cliente["db"]
+    empresa_id = cliente["empresa_id"]
+    db.execute(
+        text(
+            "CREATE TABLE legado_empresa_dependente ("
+            "id INTEGER PRIMARY KEY, empresa_id INTEGER NOT NULL REFERENCES empresas(id))"
+        )
+    )
+    db.execute(
+        text("INSERT INTO legado_empresa_dependente (id, empresa_id) VALUES (1, :id)"),
+        {"id": empresa_id},
+    )
+    db.commit()
+
+    resposta = client.post(
+        "/sistema/reset-geral",
+        params={"confirmar": "APAGAR TUDO", "forcar": "true"},
+    )
+
+    assert resposta.status_code == 409
+    assert "Nenhuma alteração foi realizada" in resposta.json()["detail"]
+    assert len(client.get("/empresas").json()) == 1
+    assert db.execute(text("SELECT COUNT(*) FROM legado_empresa_dependente")).scalar_one() == 1
+
+
 def test_reset_geral_deixa_o_escritorio_sem_empresas(cliente):
     client, db = cliente["client"], cliente["db"]
     assert client.get("/empresas").json()

@@ -8,6 +8,7 @@ import { estadoDaSincronizacao, type EstadoVisual } from "@/lib/estados";
 import { mensagemDoErro } from "@/lib/erros";
 import { MOTIVO_SOMENTE_LEITURA } from "@/lib/papel";
 import { paraFiltro, rotuloPeriodo } from "@/lib/periodo";
+import { rotuloProximaVarredura } from "@/lib/sincronismo";
 import { usePeriodoUrl } from "@/lib/usePeriodoUrl";
 import { usePolling } from "@/lib/usePolling";
 import { useRecurso } from "@/lib/useRecurso";
@@ -417,7 +418,15 @@ export function Importacoes() {
                   valor={resumoSync.dados.sincronismo_automatico ? `a cada ${numero(resumoSync.dados.intervalo_minutos)} min` : "desligada"}
                   tom={resumoSync.dados.sincronismo_automatico ? undefined : "espera"}
                 />
-                <Dado destaque rotulo="Próximo tick" valor={resumoSync.dados.tick_a_partir_de ? contagemRegressiva(resumoSync.dados.tick_a_partir_de, agora) ?? "—" : "—"} />
+                <Dado
+                  destaque
+                  rotulo="Próxima varredura"
+                  valor={rotuloProximaVarredura(
+                    resumoSync.dados.sincronismo_automatico,
+                    resumoSync.dados.tick_a_partir_de,
+                    agora
+                  )}
+                />
               </dl>
               {certificados.dados && certificados.dados.some((certificado) => !certificado.tem_certificado || certificado.vencido) ? (
                 <p className="mt-4 border-t border-traco pt-3 text-sm text-espera">

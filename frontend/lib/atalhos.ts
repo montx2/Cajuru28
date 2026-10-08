@@ -44,7 +44,6 @@ export const ROTAS_DO_PREFIXO_G: Record<string, string> = {
   i: "/dashboard/importacoes",
   e: "/dashboard/empresas",
   c: "/dashboard/certificados",
-  r: "/dashboard/procuracoes",
   f: "/dashboard/relatorios",
   s: "/dashboard/saude",
   o: "/dashboard/configuracoes",

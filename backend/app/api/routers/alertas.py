@@ -72,231 +72,6 @@ def _hora(iso: datetime | None) -> str:
     return valor.astimezone().strftime("%d/%m %H:%M")
 
 
-def _alertas_procuracoes(db: Session, escritorio_id: int, agora: datetime) -> list[AlertaItem]:
-    """Decision pendentes do módulo de Procurações RFB, no vocabulário da fila.
-
-    Regras de volume: processo esperando **pessoa** é pouca coisa e ganha
-    alerta próprio com link direto (o clique da fila abre o processo); quando
-    são muitos, vira um alerta agregado para não virar parede. O que espera
-    **máquina** (estação) só alerta quando nenhuma estação está de pé — com
-    estação viva, a fila anda sozinha e alerta seria ruído.
-    """
-    from app.procuracoes.modelos import Agente, Autorizacao, JobProcuracao
-    from app.procuracoes.servicos import agentes as srv_agentes
-    from app.procuracoes.servicos import configuracao as srv_config_procuracoes
-
-    itens: list[AlertaItem] = []
-    config = srv_config_procuracoes.obter_configuracao(db, escritorio_id)
-
-    # --- estações de execução ----------------------------------------------
-    estacoes = (
-        db.query(Agente)
-        .filter(
-            Agente.escritorio_id == escritorio_id,
-            Agente.ativo.is_(True),
-            Agente.revogado_em.is_(None),
-        )
-        .all()
-    )
-    vivas = [
-        estacao
-        for estacao in estacoes
-        if srv_agentes.situacao(estacao, config.heartbeat_tolerancia_segundos)
-        in ("online", "processando")
-    ]
-    if estacoes and not vivas:
-        itens.append(
-            _montar(
-                "proc-estacoes-mudas",
-                "atencao",
-                "procuracao",
-                f"Nenhuma estação de execução de pé ({len(estacoes)} registrada(s))",
-                "Os processos de outorga precisam de uma máquina com o Cajuru "
-                "Agent. Ligue a estação ou faça a outorga direto no portal e "
-                "registre o resultado no processo.",
-                acao_rotulo="Ver estações",
-                acao_href="/dashboard/procuracoes/estacoes",
-            )
-        )
-
-    # --- processos esperando uma pessoa -------------------------------------
-    esperando_pessoa = (
-        "intervencao_manual",
-        "pronto_para_operacao",
-        "aguardando_assinatura",
-        "aguardando_validacao",
-    )
-    rotulo_do_estado = {
-        "intervencao_manual": "intervenção manual",
-        "pronto_para_operacao": "sua vez na estação",
-        "aguardando_assinatura": "assinatura",
-        "aguardando_validacao": "aceite da contabilidade",
-    }
-    jobs = (
-        db.query(JobProcuracao)
-        .filter(
-            JobProcuracao.escritorio_id == escritorio_id,
-            JobProcuracao.status.in_(esperando_pessoa),
-        )
-        .order_by(JobProcuracao.id)
-        .all()
-    )
-    if jobs:
-        empresas = {
-            empresa.id: empresa
-            for empresa in db.query(Empresa).filter(
-                Empresa.id.in_([job.empresa_id for job in jobs])
-            ).all()
-        }
-        if len(jobs) <= 5:
-            for job in jobs:
-                empresa = empresas.get(job.empresa_id)
-                itens.append(
-                    _montar(
-                        f"proc-job-{job.id}",
-                        "atencao",
-                        "procuracao",
-                        f"Outorga de {empresa.razao_social if empresa else 'empresa'} esperando você",
-                        f"Processo #{job.id} parado em "
-                        f"{rotulo_do_estado.get(job.status, job.status)}. O próximo "
-                        f"passo está no roteiro do processo — a Receita só "
-                        f"registra o ato praticado por pessoa.",
-                        empresa_id=job.empresa_id,
-                        empresa_razao_social=empresa.razao_social if empresa else None,
-                        acao_rotulo="Abrir processo",
-                        acao_href=f"/dashboard/procuracoes?job={job.id}",
-                    )
-                )
-        else:
-            itens.append(
-                _montar(
-                    "proc-jobs-agregado",
-                    "atencao",
-                    "procuracao",
-                    f"{len(jobs)} processos de outorga esperando você",
-                    "Cada um parou num ponto que depende de pessoa — intervenção, "
-                    "assinatura ou aceite. Abra a tela de Procurações e resolva "
-                    "um por um.",
-                    acao_rotulo="Ver processos",
-                    acao_href="/dashboard/procuracoes?situacao=intervencao_manual",
-                )
-            )
-
-    # --- processos esperando estação (só quando ninguém está de pé) ---------
-    if estacoes and not vivas:
-        esperando_estacao = (
-            db.query(func.count(JobProcuracao.id))
-            .filter(
-                JobProcuracao.escritorio_id == escritorio_id,
-                JobProcuracao.status.in_(("pendente", "aguardando_agente")),
-            )
-            .scalar()
-            or 0
-        )
-        if esperando_estacao:
-            itens.append(
-                _montar(
-                    "proc-jobs-sem-estacao",
-                    "atencao",
-                    "procuracao",
-                    f"{esperando_estacao} processo(s) de outorga esperando estação",
-                    "A fila está montada, mas nenhuma estação está comunicando. "
-                    "Sem estação, nada sai do lugar.",
-                    acao_rotulo="Ver estações",
-                    acao_href="/dashboard/procuracoes/estacoes",
-                )
-            )
-
-    # --- autorizações a expirar ---------------------------------------------
-    horizonte = min(config.alerta_dias_lista or [30])
-    corte_validade = (agora + timedelta(days=horizonte)).date()
-    expirando = (
-        db.query(func.count(Autorizacao.id))
-        .filter(
-            Autorizacao.escritorio_id == escritorio_id,
-            Autorizacao.situacao == "ativa",
-            Autorizacao.data_validade.isnot(None),
-            Autorizacao.data_validade <= corte_validade,
-        )
-        .scalar()
-        or 0
-    )
-    if expirando:
-        itens.append(
-            _montar(
-                "proc-autorizacoes-expirando",
-                "atencao",
-                "procuracao",
-                f"{expirando} autorização(ões) expiram em até {horizonte} dias",
-                "Autorização vencida tira o acesso da contabilidade no e-CAC. "
-                "Renove antes do vencimento — a fila de outorga já sabe quem "
-                "precisa.",
-                acao_rotulo="Ver autorizações",
-                acao_href="/dashboard/procuracoes",
-            )
-        )
-
-    # --- prazo de aceite (a Receita cancela o que não é validado) -----------
-    hoje = agora.date()
-    em_analise = (
-        db.query(Autorizacao)
-        .filter(
-            Autorizacao.escritorio_id == escritorio_id,
-            Autorizacao.situacao == "em_analise",
-            Autorizacao.prazo_aceite_ate.isnot(None),
-        )
-        .all()
-    )
-    for autorizacao in em_analise:
-        prazo = autorizacao.prazo_aceite_ate
-        dias = (prazo - hoje).days
-        if dias > 7:
-            continue
-        nome = autorizacao.outorgante_nome or autorizacao.outorgante_documento
-        if dias < 0:
-            itens.append(
-                _montar(
-                    f"proc-aceite-vencido-{autorizacao.id}",
-                    "critico",
-                    "procuracao",
-                    f"Prazo de aceite vencido — {nome}",
-                    "A Receita cancela autorizações não validadas. Faça o aceite "
-                    "no portal e registre-o no processo, ou a outorga terá que "
-                    "ser refeita.",
-                    acao_rotulo="Ver autorizações",
-                    acao_href="/dashboard/procuracoes",
-                )
-            )
-        elif dias <= 3:
-            itens.append(
-                _montar(
-                    f"proc-aceite-urgente-{autorizacao.id}",
-                    "critico",
-                    "procuracao",
-                    f"Aceite em {dias}d — {nome}",
-                    "A contabilidade precisa validar a autorização no portal "
-                    "antes do prazo, ou a Receita a cancela.",
-                    acao_rotulo="Ver autorizações",
-                    acao_href="/dashboard/procuracoes",
-                )
-            )
-        else:
-            itens.append(
-                _montar(
-                    f"proc-aceite-prazo-{autorizacao.id}",
-                    "atencao",
-                    "procuracao",
-                    f"Aceite em {dias}d — {nome}",
-                    "A contabilidade precisa validar a autorização no portal "
-                    "antes do prazo.",
-                    acao_rotulo="Ver autorizações",
-                    acao_href="/dashboard/procuracoes",
-                )
-            )
-
-    return itens
-
-
 def computar_alertas(db: Session, escritorio_id: int) -> list[AlertaItem]:
     agora = datetime.now(timezone.utc)
     itens: list[AlertaItem] = []
@@ -543,17 +318,6 @@ def computar_alertas(db: Session, escritorio_id: int) -> list[AlertaItem]:
             )
         )
 
-    # ---- Procurações RFB ----------------------------------------------------
-    # A fila "Precisa da sua atenção" é a lista mais importante do sistema —
-    # e o módulo de procurações não podia ficar fora dela: um processo de
-    # outorga esperando pessoa não é informação "da tela de procurações",
-    # é decisão pendente da operação, como certificado vencido.
-    if settings.procuracoes_ativo:
-        try:
-            itens.extend(_alertas_procuracoes(db, escritorio_id, agora))
-        except Exception:  # noqa: BLE001 — alerta de procuração nunca derruba os demais
-            pass
-
     # ---- Backup -------------------------------------------------------------
     # Um sistema que guarda anos de XMLs de dezenas de empresas sem backup
     # recente é um risco andando. O alerta aparece quando o job das 03:00
@@ -652,12 +416,16 @@ def contagem_alertas(
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
 ):
-    """Só os números — para o sino da barra superior (leve)."""
+    """Só as contagens pendentes — para o badge de Atenção da navegação."""
     itens = computar_alertas(db, escritorio_id)
+    criticos = sum(1 for alerta in itens if alerta.nivel == "critico")
+    atencao = sum(1 for alerta in itens if alerta.nivel == "atencao")
+    # O badge de Atenção representa trabalho humano pendente, como no Painel;
+    # mensagens informativas continuam na lista completa, mas não contam como pendência.
     return {
-        "total": len(itens),
-        "criticos": sum(1 for a in itens if a.nivel == "critico"),
-        "atencao": sum(1 for a in itens if a.nivel == "atencao"),
+        "total": criticos + atencao,
+        "criticos": criticos,
+        "atencao": atencao,
     }
 
 

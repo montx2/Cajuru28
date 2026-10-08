@@ -2,10 +2,8 @@
 Mascaramento e redação de dados sensíveis.
 
 Função transversal de segurança: é usada pela trilha de auditoria, pelos logs
-estruturados, pelos relatórios exportados e pelo diagnóstico. Antes ela morava
-dentro de `procuracoes/servicos/eventos.py` — lugar pouco óbvio para algo que
-todo mundo precisa, o que convida cada módulo a reimplementar a sua própria
-versão (e a esquecer uma chave).
+estruturados, pelos relatórios exportados e pelo diagnóstico. Uma função transversal como esta precisa de lugar óbvio, para evitar que
+cada módulo reimplemente a sua própria versão (e esqueça uma chave).
 
 Duas operações distintas, que não devem ser confundidas:
 

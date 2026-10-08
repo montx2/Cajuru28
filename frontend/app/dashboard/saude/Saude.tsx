@@ -234,7 +234,7 @@ export function Saude() {
           ) : sistema.dados ? (
             <div className="space-y-4">
               <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
-                <Dado rotulo="Modo" valor={sistema.dados.modo === "docker" ? "Docker" : sistema.dados.modo} />
+                <Dado rotulo="Modo" valor={sistema.dados.modo} />
                 <Dado rotulo="Banco" valor={sistema.dados.banco} mono />
                 <Dado rotulo="Pasta de dados" valor={sistema.dados.dados_dir} mono />
                 <Dado rotulo="Fila" valor={sistema.dados.fila.modo} mono />

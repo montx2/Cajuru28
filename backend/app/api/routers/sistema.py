@@ -1,12 +1,13 @@
-"""Informações operacionais da implantação Docker."""
+"""Informações operacionais do ambiente em execução."""
 
 from datetime import datetime, timezone
 from pathlib import Path
 import shutil
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from sqlalchemy import select, text
+from sqlalchemy import MetaData, Table, func, inspect, select, text
 
+from app.db.base import Base
 from app.db.session import get_db
 
 from app.api.deps import requer_escrita, requer_papel, usuario_atual
@@ -24,17 +25,6 @@ from app.models import (
     StatusExecucao,
     Usuario,
 )
-from app.procuracoes.modelos import (
-    Agente,
-    Autorizacao,
-    CertificadoInventario,
-    CredencialIntegracao,
-    IntegracaoJob,
-    JobProcuracao,
-    ModeloAutorizacao,
-    NotificacaoProcuracao,
-    ProcuracaoConfiguracao,
-)
 from app.schemas import BackupRegistroResposta, ResetGeralResposta, SaudeBackupResposta
 from app.services import auditoria, backup as svc_backup
 from app.worker.celery_app import celery_app
@@ -42,18 +32,80 @@ from app.worker.celery_app import celery_app
 router = APIRouter(prefix="/sistema", tags=["sistema"])
 
 
+def _ha_dados_legados_vinculados(db, empresa_ids: list[int]) -> bool:
+    """Evita excluir empresas referenciadas por tabelas não carregadas pelo app.
+
+    O schema pode conter tabelas de versões anteriores que o código atual não
+    conhece. Elas não entram em migrações automáticas nem são apagadas junto
+    com uma limpeza geral: nesse caso a operação para antes de alterar dados.
+    """
+    conexao = db.get_bind()
+    inspetor = inspect(conexao)
+    tabelas_mapeadas = set(Base.metadata.tables)
+    metadata = MetaData()
+
+    for nome_tabela in inspetor.get_table_names():
+        if nome_tabela in tabelas_mapeadas:
+            continue
+        for chave in inspetor.get_foreign_keys(nome_tabela):
+            if chave.get("referred_table") != "empresas":
+                continue
+            colunas = chave.get("constrained_columns") or []
+            referidas = chave.get("referred_columns") or []
+            colunas_empresa = [
+                coluna
+                for coluna, referida in zip(colunas, referidas)
+                if referida == "id"
+            ]
+            if not colunas_empresa:
+                continue
+            tabela = Table(nome_tabela, metadata, autoload_with=conexao)
+            for coluna in colunas_empresa:
+                if coluna not in tabela.c:
+                    continue
+                encontrados = db.execute(
+                    select(func.count())
+                    .select_from(tabela)
+                    .where(tabela.c[coluna].in_(empresa_ids))
+                ).scalar_one()
+                if encontrados:
+                    return True
+    return False
+
+
+_ROTULO_MODO = {
+    "development": "Desenvolvimento",
+    "test": "Teste",
+    "production": "Produção",
+}
+_ROTULO_AGENDA = {
+    "varrer-alertas-webhook": "Alertas externos",
+    "backup-diario": "Backup diário",
+    "sincronizar-tudo": "Captura fiscal automática",
+    "completar-xmls-pendentes": "XMLs pendentes",
+}
+_ROTULO_TAREFA = {
+    "varrer_alertas_webhook": "Enviar alertas configurados",
+    "backup_agendado": "Criar backup diário",
+    "sincronizar_tudo": "Consultar documentos fiscais",
+    "completar_xmls_pendentes": "Completar XMLs fiscais",
+}
+
+
 @router.get("/info")
 def informacao_do_sistema(_usuario=Depends(usuario_atual)):
-    """Expõe apenas dados úteis para diagnosticar os serviços Docker."""
-    agenda = {
-        nome: {"tarefa": item.get("task")}
-        for nome, item in celery_app.conf.beat_schedule.items()
-    }
+    """Expõe diagnóstico útil sem revelar nomes internos do agendador."""
+    agenda: dict[str, dict[str, str]] = {}
+    for indice, (nome, item) in enumerate(celery_app.conf.beat_schedule.items(), start=1):
+        rotulo = _ROTULO_AGENDA.get(nome, f"Outra rotina {indice}")
+        tarefa = _ROTULO_TAREFA.get(item.get("task"), "Rotina do sistema")
+        agenda[rotulo] = {"tarefa": tarefa}
+    usando_sqlite = settings.usando_sqlite
     return {
-        "modo": "docker",
-        "modo_desktop": False,
-        "modo_servidor": True,
-        "banco": "postgresql",
+        "modo": _ROTULO_MODO.get(settings.app_env, "Desconhecido"),
+        "modo_desktop": usando_sqlite,
+        "modo_servidor": not usando_sqlite,
+        "banco": "SQLite" if usando_sqlite else "PostgreSQL",
         "dados_dir": settings.dados_dir,
         "fila": {"modo": "celery", "agenda": agenda},
         "hora_do_servidor": datetime.now(timezone.utc).isoformat(),
@@ -132,7 +184,7 @@ def verificar_atualizacao_docker(_usuario=Depends(usuario_atual)):
 
 
 @router.post("/atualizacao/aplicar")
-def aplicar_atualizacao_docker(_usuario=Depends(usuario_atual)):
+def aplicar_atualizacao_docker(_admin: Usuario = Depends(requer_papel("admin"))):
     _somente_docker()
 
 
@@ -170,6 +222,15 @@ def reset_geral(
 
     escritorio_id = usuario.escritorio_id
     empresa_ids = [linha[0] for linha in db.query(Empresa.id).filter(Empresa.escritorio_id == escritorio_id).all()]
+    if empresa_ids and _ha_dados_legados_vinculados(db, empresa_ids):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "A limpeza foi interrompida para preservar registros legados "
+                "associados às empresas. Nenhuma alteração foi realizada; "
+                "a migração desses dados exige um procedimento separado."
+            ),
+        )
     if empresa_ids and not forcar:
         em_andamento = (
             db.query(ExecucaoImportacao.id)
@@ -197,25 +258,6 @@ def reset_geral(
     execucoes = db.query(ExecucaoImportacao).filter(ExecucaoImportacao.empresa_id.in_(empresa_ids or [-1])).count()
     sincronizacoes = db.query(SincronizacaoDFe).filter(SincronizacaoDFe.empresa_id.in_(empresa_ids or [-1])).count()
     empresas = len(empresa_ids)
-
-    # Procurações RFB apontam para as empresas (procuracao_jobs.empresa_id,
-    # procuracao_autorizacoes.empresa_id, etc.). Se não limparmos essas linhas
-    # primeiro, o DELETE das empresas quebra com foreign key violation e o
-    # "Apagar tudo" falha inteiro (era exatamente o erro em produção). A limpeza
-    # é por escritório: mesmo sem empresas pode haver configuração, modelos e
-    # agentes desse escritório que precisam sumir para começar do zero.
-    #
-    # Ordem importa: quem referencia vem antes de quem é referenciado. Filhos com
-    # ON DELETE CASCADE (eventos/evidências/sessões/permissões/serviços) somem
-    # junto do pai, então não precisam de DELETE explícito.
-    db.query(NotificacaoProcuracao).filter(NotificacaoProcuracao.escritorio_id == escritorio_id).delete(synchronize_session=False)
-    db.query(JobProcuracao).filter(JobProcuracao.escritorio_id == escritorio_id).delete(synchronize_session=False)
-    db.query(Autorizacao).filter(Autorizacao.escritorio_id == escritorio_id).delete(synchronize_session=False)
-    db.query(CertificadoInventario).filter(CertificadoInventario.escritorio_id == escritorio_id).delete(synchronize_session=False)
-    db.query(IntegracaoJob).filter(IntegracaoJob.escritorio_id == escritorio_id).delete(synchronize_session=False)
-    db.query(ModeloAutorizacao).filter(ModeloAutorizacao.escritorio_id == escritorio_id).delete(synchronize_session=False)
-    db.query(Agente).filter(Agente.escritorio_id == escritorio_id).delete(synchronize_session=False)
-    db.query(ProcuracaoConfiguracao).filter(ProcuracaoConfiguracao.escritorio_id == escritorio_id).delete(synchronize_session=False)
 
     if empresa_ids:
         ids_documentos = select(DocumentoFiscal.id).where(DocumentoFiscal.empresa_id.in_(empresa_ids))

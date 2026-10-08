@@ -132,23 +132,67 @@ def cliente(tmp_path, monkeypatch):
     db.close()
 
 
-def _enviar(client, empresa_id: int, senha: str, senha_real: str = SENHA):
+def _enviar(
+    client,
+    empresa_id: int,
+    senha: str,
+    senha_real: str = SENHA,
+    *,
+    nome_arquivo: str = "alfa.pfx",
+    conteudo: bytes | None = None,
+):
     return client.post(
         "/certificados",
         data={"empresa_id": empresa_id, "senha": senha},
-        files={"arquivo": ("alfa.pfx", _pfx(senha_real), "application/octet-stream")},
+        files={
+            "arquivo": (
+                nome_arquivo,
+                conteudo if conteudo is not None else _pfx(senha_real),
+                "application/octet-stream",
+            )
+        },
     )
 
 
-def test_senha_errada_e_recusada_na_hora(cliente):
+@pytest.mark.parametrize("nome_arquivo", ["alfa.pfx", "alfa.p12"])
+def test_senha_errada_e_recusada_na_hora(cliente, nome_arquivo):
     client, db, empresa_id = cliente
 
-    resposta = _enviar(client, empresa_id, senha="senha-errada")
+    resposta = _enviar(client, empresa_id, senha="senha-errada", nome_arquivo=nome_arquivo)
 
     assert resposta.status_code == 400, resposta.text
     assert "não abre este certificado" in resposta.json()["detail"]
     # Nada foi gravado: nem certificado, nem arquivo no volume.
     assert db.query(Certificado).count() == 0
+
+
+@pytest.mark.parametrize("nome_arquivo", ["invalido.pfx", "invalido.p12"])
+def test_arquivo_pkcs12_invalido_e_recusado_sem_gravar(cliente, nome_arquivo):
+    client, db, empresa_id = cliente
+
+    resposta = _enviar(
+        client,
+        empresa_id,
+        senha=SENHA,
+        nome_arquivo=nome_arquivo,
+        conteudo=b"isso nao e um arquivo PKCS12 valido",
+    )
+
+    assert resposta.status_code == 400, resposta.text
+    assert "não abre este certificado" in resposta.json()["detail"]
+    assert db.query(Certificado).count() == 0
+
+
+def test_p12_sintetico_valido_e_aceito_com_senha_certa(cliente):
+    client, db, empresa_id = cliente
+
+    resposta = _enviar(client, empresa_id, senha=SENHA, nome_arquivo="alfa.p12")
+
+    assert resposta.status_code == 201, resposta.text
+    certificado = db.query(Certificado).one()
+    assert decifrar_segredo(certificado.senha_cifrada) == SENHA
+    bruto = Path(certificado.arquivo_path).read_bytes()
+    assert bruto.startswith(b"NOTASFLOW-PFX-FERNET-V1\n")
 
 
 def test_senha_certa_passa_e_fica_cifrada(cliente):

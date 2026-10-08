@@ -123,6 +123,32 @@ def _execucao(
     return execucao
 
 
+def test_badge_de_atencao_conta_as_mesmas_pendencias_do_painel(cliente, monkeypatch):
+    from app.api.routers import alertas, painel
+    from app.schemas import AlertaItem
+
+    client, _, _ = cliente
+    itens = [
+        AlertaItem(id="c1", nivel="critico", categoria="certificado", titulo="Crítico", detalhe="Ação necessária"),
+        AlertaItem(id="a1", nivel="atencao", categoria="cadastro", titulo="Atenção", detalhe="Revisar"),
+        AlertaItem(id="i1", nivel="info", categoria="sistema", titulo="Informativo", detalhe="Só contexto"),
+    ]
+    computar = lambda _db, _escritorio_id: itens
+    monkeypatch.setattr(alertas, "computar_alertas", computar)
+    monkeypatch.setattr(painel, "computar_alertas", computar)
+
+    lista = client.get("/alertas").json()
+    badge = client.get("/alertas/contagem").json()
+    resumo = client.get("/painel/operacional").json()
+
+    pendencias_painel = resumo["alertas"]["criticos"] + resumo["alertas"]["atencao"]
+    assert lista["total"] == 3  # a lista completa conserva mensagens informativas
+    assert badge["total"] == 2  # o badge conta só trabalho humano pendente
+    assert badge["total"] == pendencias_painel
+    assert badge["criticos"] == resumo["alertas"]["criticos"]
+    assert badge["atencao"] == resumo["alertas"]["atencao"]
+
+
 def test_painel_operacional_retrato_completo(cliente):
     client, db, escritorio_id = cliente
 
