@@ -352,6 +352,31 @@ def test_checkpoint_fica_dentro_do_volume_persistente_de_xml(cenario):
         lotes_recebidos.ler(arquivo, empresa.id, NFSE, escritorio_id=empresa.escritorio_id + 1)
 
 
+def test_fila_fora_do_ar_encerra_a_execucao_com_o_fim_gravado(cenario, monkeypatch):
+    """Redis/Celery fora do ar: a execução nasce e morre na mesma chamada.
+
+    Ela é um estado FINAL (erro). Sem `finalizado_em`, a central de Execuções
+    desenhava a falha como "em curso", com a duração crescendo, como se a
+    varredura ainda estivesse rodando (Bloco C, C2).
+    """
+    db, empresa, _ = cenario
+
+    def explodir(*args, **kwargs):
+        raise RuntimeError(
+            "Retry limit exceeded while trying to reconnect to the Celery result store backend."
+        )
+
+    monkeypatch.setattr(fila, "_disparar", explodir)
+    resposta = fila.enfileirar(db, empresa, NFSE)
+    assert resposta.status == "fila_indisponivel"
+    db.refresh(db.get(ExecucaoImportacao, resposta.execucao_id))
+    execucao = db.get(ExecucaoImportacao, resposta.execucao_id)
+    assert execucao.status == StatusExecucao.ERRO
+    assert execucao.mensagem_erro and "Redis/Celery indisponível" in execucao.mensagem_erro
+    assert execucao.finalizado_em is not None
+    assert execucao.finalizado_em >= execucao.iniciado_em
+
+
 def test_reprocessamento_automatico_ilegivel_tem_backoff_sem_consulta(cenario):
     db, empresa, disparos = cenario
     lote = lotes_recebidos.salvar(empresa.id, NFSE, empresa.cnpj_cpf, "0", b"ilegivel", escritorio_id=empresa.escritorio_id)

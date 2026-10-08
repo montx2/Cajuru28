@@ -4,8 +4,8 @@ import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { contagem, contagemRegressiva, dataCurta, numero, tempoDecorrido, tempoRelativo } from "@/lib/format";
-import { estadoDaExecucao } from "@/lib/estados";
+import { contagem, contagemRegressiva, dataCurta, numero, tempoRelativo } from "@/lib/format";
+import { estadoDaExecucao, duracaoDaExecucao, execucaoEmAberto, SEM_FIM_REGISTRADO } from "@/lib/estados";
 import { MOTIVO_SOMENTE_LEITURA } from "@/lib/papel";
 import { ultimosMeses } from "@/lib/periodo";
 import { usePreferencia } from "@/lib/usePreferencia";
@@ -192,7 +192,7 @@ export function Execucoes() {
         cabecalho: "Duração",
         alinhamento: "direita",
         numerica: true,
-        celula: (execucao) => (execucao.finalizado_em ? tempoDecorrido(execucao.iniciado_em, execucao.finalizado_em, agora) : "em curso"),
+        celula: (execucao) => <span className={cn(!execucao.finalizado_em && !execucaoEmAberto(execucao) && "text-tinta-suave")}>{duracaoDaExecucao(execucao, agora)}</span>,
       },
       {
         id: "inicio",
@@ -528,9 +528,7 @@ function compararExecucoes(a: ExecucaoImportacao, b: ExecucaoImportacao, coluna:
 
 function DetalheExecucao({ execucao, agora }: { execucao: ExecucaoImportacao; agora: number }) {
   const estado = estadoDaExecucao(execucao.status);
-  const duracao = execucao.finalizado_em
-    ? tempoDecorrido(execucao.iniciado_em, execucao.finalizado_em, agora)
-    : tempoDecorrido(execucao.iniciado_em, null, agora);
+  const duracao = duracaoDaExecucao(execucao, agora);
 
   return (
     <div className="space-y-5">
@@ -558,7 +556,18 @@ function DetalheExecucao({ execucao, agora }: { execucao: ExecucaoImportacao; ag
 
       <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
         <Dado rotulo="Início" valor={<DataHora iso={execucao.iniciado_em} />} />
-        <Dado rotulo="Fim" valor={execucao.finalizado_em ? <DataHora iso={execucao.finalizado_em} /> : "em curso"} />
+        <Dado
+          rotulo="Fim"
+          valor={
+            execucao.finalizado_em ? (
+              <DataHora iso={execucao.finalizado_em} />
+            ) : execucaoEmAberto(execucao) ? (
+              "em curso"
+            ) : (
+              SEM_FIM_REGISTRADO
+            )
+          }
+        />
         <Dado rotulo="Duração" valor={<span className="nums">{duracao}</span>} />
         <Dado rotulo="Período varrido" valor={execucao.data_inicio && execucao.data_fim ? <span className="nums">{`${dataCurta(execucao.data_inicio)} – ${dataCurta(execucao.data_fim)}`}</span> : "—"} />
         <Dado rotulo="Documentos no período" valor={<span className="nums">{numero(execucao.documentos_no_periodo)}</span>} />

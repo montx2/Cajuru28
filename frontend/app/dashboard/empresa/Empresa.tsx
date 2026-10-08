@@ -5,8 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { ROTULO_ACAO_LOTE } from "@/lib/acoes-documento";
-import { contagem, dataCurta, dataHora, formatarCnpjCpf, numero, tempoDecorrido } from "@/lib/format";
-import { estadoDaExecucao, estadoDaSincronizacao, estadoDoCertificado } from "@/lib/estados";
+import { contagem, dataCurta, dataHora, formatarCnpjCpf, numero } from "@/lib/format";
+import { cn } from "@/lib/cn";
+import { estadoDaExecucao, duracaoDaExecucao, execucaoEmAberto, estadoDaSincronizacao, estadoDoCertificado } from "@/lib/estados";
 import { mensagemDoErro } from "@/lib/erros";
 import { MOTIVO_SOMENTE_LEITURA } from "@/lib/papel";
 import { paraFiltro, rotuloPeriodo } from "@/lib/periodo";
@@ -597,7 +598,7 @@ function colunasExecucoes(agora: number): Array<ColunaTabela<ExecucaoImportacao>
       cabecalho: "Duração",
       alinhamento: "direita",
       numerica: true,
-      celula: (execucao) => (execucao.finalizado_em ? tempoDecorrido(execucao.iniciado_em, execucao.finalizado_em, agora) : "em curso"),
+      celula: (execucao) => <span className={cn(!execucao.finalizado_em && !execucaoEmAberto(execucao) && "text-tinta-suave")}>{duracaoDaExecucao(execucao, agora)}</span>,
     },
     {
       id: "erro",

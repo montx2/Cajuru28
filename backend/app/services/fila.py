@@ -214,6 +214,11 @@ def enfileirar(
             "Não foi possível enfileirar a importação (Redis/Celery indisponível?): "
             f"{str(exc)[:300]}"
         )
+        # ERRO é estado final: sem `finalizado_em`, a central de Execuções
+        # desenha a duração de uma falha de dias atrás como "em curso", como se
+        # a varredura ainda estivesse rodando. O fim registrado é o que separa
+        # "falhou" de "não sei se terminou".
+        execucao.finalizado_em = datetime.now(timezone.utc)
         db.commit()
         return ResultadoEnfileiramento(
             status="fila_indisponivel",

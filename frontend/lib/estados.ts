@@ -1,5 +1,5 @@
 import type { NomeIcone } from "@/components/ui/Icone";
-import { contagem, contagemRegressiva, numero, tempoRelativo } from "./format";
+import { contagem, contagemRegressiva, numero, tempoDecorrido, tempoRelativo } from "./format";
 import type {
   DocumentoFiscal,
   EstadoSincronizacao,
@@ -33,6 +33,38 @@ export interface EstadoVisual {
 }
 
 /* ── Execuções ───────────────────────────────────────────────────────────── */
+
+/**
+ * Execução que ainda pode terminar. `finalizado_em` é a fonte principal, mas
+ * NÃO é a única: o estado final (falhou/concluída) manda mais que o campo.
+ * Uma falha de enfileiramento antiga pode não ter o fim gravado — e desenhar
+ * isso como "em curso" faz uma captura que morreu parecer trabalho rodando.
+ */
+export function execucaoEmAberto(execucao: {
+  status: StatusExecucao | string;
+  finalizado_em: string | null;
+}): boolean {
+  if (execucao.finalizado_em) return false;
+  return execucao.status === "em_andamento" || execucao.status === "aguardando";
+}
+
+/** O que a central de Execuções escreve quando o fim não foi gravado. */
+export const SEM_FIM_REGISTRADO = "sem fim registrado";
+
+/**
+ * Duração para exibir. Só uma execução aberta pode dizer "em curso"; encerrada
+ * sem horário de fim é dívida de dado, e a tela admite isso em vez de inventar
+ * um número que cresce sozinho a cada segundo.
+ */
+export function duracaoDaExecucao(
+  execucao: { status: StatusExecucao | string; iniciado_em: string; finalizado_em: string | null },
+  agora = Date.now(),
+): string {
+  if (execucao.finalizado_em) {
+    return tempoDecorrido(execucao.iniciado_em, execucao.finalizado_em, agora);
+  }
+  return execucaoEmAberto(execucao) ? "em curso" : SEM_FIM_REGISTRADO;
+}
 
 export function estadoDaExecucao(status: StatusExecucao | string): EstadoVisual {
   switch (status) {
