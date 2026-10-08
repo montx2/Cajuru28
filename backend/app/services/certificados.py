@@ -26,6 +26,7 @@ from app.core.documentos import (
     validar_cpf,
     validar_documento,
 )
+from app.core.nomes import nome_provisorio, nome_usavel
 from app.core.vault import cifrar_bytes, decifrar_bytes
 
 OID_CNPJ = ObjectIdentifier("2.16.76.1.3.3")
@@ -139,6 +140,11 @@ class IdentidadeCertificado:
     validade_utc: datetime
     evidencia_documento: str
 
+    @property
+    def nome_no_certificado(self) -> bool:
+        """O subject trouxe um nome de empresa de verdade (não `ICP-Brasil`)."""
+        return bool(nome_usavel(self.razao_social, documento=self.documento))
+
 
 def extrair_identidade(pfx_bytes: bytes, senha: str | None) -> IdentidadeCertificado:
     """Extrai CNPJ/CPF e razão social a partir de uma senha ou sem senha."""
@@ -202,12 +208,17 @@ def extrair_identidade(pfx_bytes: bytes, senha: str | None) -> IdentidadeCertifi
         for candidato in re.findall(r"(?<!\d)\d{11}(?!\d)", subject):
             adicionar_documento(candidato, "subject DN", esperado="cpf")
 
-    # A organização do emissor costuma ser literalmente "ICP-Brasil".
-    # Ela identifica a cadeia, não o titular, e não pode virar a razão social
-    # de todas as empresas importadas. Prefira CN e descarte nomes genéricos.
+    # A organização/Unidade do subject de um A1 costuma ser literalmente
+    # "ICP-Brasil" ou o nome da AC emissora. Isso identifica a cadeia, não o
+    # titular, e não pode virar a razão social de dezenas de empresas: `nome_usavel`
+    # descarta marca de cadeia, rótulo de coluna e o CNPJ repetido. Prefira CN.
     documento = cnpjs[0] if cnpjs else (cpfs[0] if cpfs else "")
     valores_nome: list[str] = []
-    for oid in (NameOID.COMMON_NAME, NameOID.ORGANIZATION_NAME):
+    for oid in (
+        NameOID.COMMON_NAME,
+        NameOID.ORGANIZATION_NAME,
+        NameOID.ORGANIZATIONAL_UNIT_NAME,
+    ):
         try:
             valores_nome.extend(
                 str(a.value).strip()
@@ -216,14 +227,16 @@ def extrair_identidade(pfx_bytes: bytes, senha: str | None) -> IdentidadeCertifi
             )
         except Exception:  # noqa: BLE001
             continue
-    genericos = {"icp-brasil", "icp brasil", "ac raiz", "autoridade certificadora"}
-    razao = next((v for v in valores_nome if v.casefold() not in genericos), "")
-    if razao and documento:
-        razao = re.sub(rf"\s*[:\-]\s*{re.escape(documento)}\s*$", "", razao).strip()
-    # Fallback determinístico: melhor um nome explicitamente incompleto do
-    # que o mesmo emissor ser exibido para dezenas de certificados.
+    razao = ""
+    for valor in valores_nome:
+        razao = nome_usavel(valor, documento=documento)
+        if razao:
+            break
+    # Fallback determinístico: melhor um nome explicitamente provisório (e
+    # reconhecível como tal, portanto corrigível) do que o mesmo emissor
+    # exibido para centenas de certificados.
     if not razao:
-        razao = f"Empresa {documento}" if documento else "Certificado sem titular identificado"
+        razao = nome_provisorio(documento) or "Certificado sem titular identificado"
 
     validade_utc = (
         cert.not_valid_after_utc
@@ -235,8 +248,8 @@ def extrair_identidade(pfx_bytes: bytes, senha: str | None) -> IdentidadeCertifi
             "Não foi possível identificar o CNPJ/CPF dentro do certificado. "
             "Verifique se é um certificado A1 ICP-Brasil válido."
         )
-    if not razao:
-        razao = f"Empresa {documento}"
+    if not razao:  # sem CNPJ/CPF não se chega a este ponto; defesa barata
+        razao = nome_provisorio(documento)
 
     return IdentidadeCertificado(
         documento=documento,

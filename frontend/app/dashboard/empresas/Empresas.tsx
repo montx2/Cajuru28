@@ -647,6 +647,7 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [resultado, setResultado] = useState<LoteEmpresasResposta | null>(null);
+  const [completando, setCompletando] = useState(false);
 
   const senhasNaPlanilha = planilhas.length > 0;
   const acimaDoLote = certificados.length > LIMITE_CERTIFICADOS_POR_LOTE;
@@ -702,6 +703,37 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
     }
   }
 
+  /**
+   * Uma consulta por CNPJ que ainda não tem nome: primeiro o cadastro do
+   * escritório no Acessórias, depois a Receita. Sem isso, o lote que importou
+   * o nome da cadeia ("ICP-Brasil") ficararia assim para sempre.
+   */
+  async function completarNomes() {
+    setCompletando(true);
+    try {
+      const reparo = await api.completarCadastrosEmpresas({ reconsultar: true });
+      avisar(
+        reparo.corrigidas > 0
+          ? {
+              tom: "ok",
+              titulo: `${contagem(reparo.corrigidas, "razão social corrigida", "razões sociais corrigidas")}`,
+              descricao: `${numero(reparo.uf_completada)} UF completadas · ${numero(reparo.sem_fonte)} sem cadastro em nenhuma fonte`,
+            }
+          : {
+              tom: "espera",
+              titulo: "Nenhum nome encontrado",
+              descricao:
+                "Essas empresas não estão no Acessórias e a consulta pública não respondeu. Inclua a razão social na planilha de apoio e importe de novo.",
+            }
+      );
+      if (reparo.corrigidas > 0 || reparo.uf_completada > 0) aoImportar();
+    } catch (falha) {
+      setErro(mensagemDoErro(falha, "completar os cadastros"));
+    } finally {
+      setCompletando(false);
+    }
+  }
+
   return (
     <Modal
       aberto={aberto}
@@ -732,7 +764,12 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
       }
     >
       {resultado ? (
-        <ResultadoLote resultado={resultado} planilhasAnexadas={planilhas.length} />
+        <ResultadoLote
+          resultado={resultado}
+          planilhasAnexadas={planilhas.length}
+          aoCompletar={completarNomes}
+          completando={completando}
+        />
       ) : (
         <Formulario aoEnviar={enviar} ocupado={enviando} className="space-y-4">
           <div className="flex flex-wrap items-center gap-3 rounded-controle border border-borda-controle p-3">
@@ -804,12 +841,17 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
 function ResultadoLote({
   resultado,
   planilhasAnexadas = 0,
+  aoCompletar,
+  completando = false,
 }: {
   resultado: LoteEmpresasResposta;
   planilhasAnexadas?: number;
+  aoCompletar?: () => void;
+  completando?: boolean;
 }) {
   const linhasDaPlanilha = resultado.linhas_da_planilha ?? 0;
   const senhasDaPlanilha = resultado.senhas_da_planilha ?? 0;
+  const semNome = resultado.empresas_sem_nome ?? 0;
   return (
     <div className="space-y-4">
       <Cartao densidade="compacta" className="border-0 bg-fundo-afundado">
@@ -820,6 +862,28 @@ function ResultadoLote({
           <Dado destaque rotulo="Já existiam" valor={numero(resultado.ja_existiam)} />
           <Dado destaque rotulo="Com erro" valor={numero(resultado.erros)} tom={resultado.erros > 0 ? "erro" : undefined} />
         </dl>
+        {semNome > 0 ? (
+          <Aviso tom="espera" compacto className="mt-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span>
+                {contagem(semNome, "empresa entrou sem razão social", "empresas entraram sem razão social")} — nem o
+                certificado, nem a planilha e nem o Acessórias disseram o nome dela. Elas entram listadas como
+                “Empresa &lt;CNPJ&gt;”.
+              </span>
+              {aoCompletar ? (
+                <Botao
+                  variante="secundaria"
+                  tamanho="sm"
+                  onClick={aoCompletar}
+                  carregando={completando}
+                  title="Consulta o cadastro do escritório no Acessórias e, para o que não está lá, a Receita"
+                >
+                  Completar nomes agora
+                </Botao>
+              ) : null}
+            </div>
+          </Aviso>
+        ) : null}
         {planilhasAnexadas > 0 ? (
           linhasDaPlanilha === 0 ? (
             <Aviso tom="erro" compacto urgente className="mt-3">

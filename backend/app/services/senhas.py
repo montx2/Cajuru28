@@ -25,6 +25,7 @@ from app.core.documentos import (
     normalizar_documento,
     validar_documento,
 )
+from app.core.nomes import AUTORIDADES_CERTIFICADORAS, nome_usavel
 
 if TYPE_CHECKING:
     from app.services.certificados import IdentidadeCertificado
@@ -357,16 +358,10 @@ _NOMES_COLUNAS: dict[str, tuple[str, ...]] = {
 }
 
 # Autoridades certificadoras que aparecem na coluna "emissor"/"padrão" das
-# exportações de inventário A1. Servem só para descartar a coluna: nunca são
-# senha.
-_EMISSORES_CONHECIDOS = {
-    "ICPBRASIL", "SERPRO", "CERTISIGN", "SOLUTI", "SAFEWEB", "VALID",
-    "VALIDCERTIFICADORA", "BOAVISTA", "BOAVISTASCD", "IMPRENSAOFICIAL",
-    "FENACON", "SESCON", "SESCONSP", "CDL", "OAB", "SINCOR", "ACNOTARIAL",
-    "CERTIFICA", "CERTIFICAMINAS", "RECEITAFEDERAL", "CASADASMOEDAS",
-    "SERASA", "AMPRSP", "ACJUS", "DIGITALSIGN", "DIGITALSIGNID", "NOTARIAL",
-    "FENACOR", "SESCONMG", "SESCONRJ", "SESCONSC", "SESCONRS", "PRESIDENCIA",
-}
+# exportações de inventário A1. Servem para descartar a coluna: nunca são senha
+# e nunca são razão social. O vocabulário é o mesmo do subject do certificado
+# (app.core.nomes), para planilha e .pfx obedecerem à mesma régua.
+_EMISSORES_CONHECIDOS = AUTORIDADES_CERTIFICADORAS
 
 _RE_ARQUIVO_CERTIFICADO = re.compile(r"\.(pfx|p12|cer|crt|pem|p7b|spc|key)$", re.IGNORECASE)
 _RE_DATA_DIA_MES_ANO = re.compile(r"^\d{1,2}/\d{1,2}/\d{2,4}$")
@@ -647,7 +642,14 @@ def _inferir_colunas(
             linha[indice].strip() for linha in linhas
             if indice < len(linha) and linha[indice].strip()
         ]
-        if celulas and sum(_parece_razao_social(c) for c in celulas) >= len(celulas) / 2:
+        if not celulas:
+            continue
+        if sum(_eh_emissor(c) for c in celulas) >= len(celulas) / 2:
+            # Metade das células é "ICP-Brasil"/"AC Soluti": é a coluna da
+            # autoridade certificadora, que uma planilha mal rotulada entrega
+            # como se fosse o nome da empresa.
+            continue
+        if sum(_parece_razao_social(c) for c in celulas) >= len(celulas) / 2:
             colunas["razao"] = indice
             break
 
@@ -822,7 +824,11 @@ def _extrair_registros(
 
         registro = {
             "cnpj": documento or documento_do_arquivo,
-            "razao_social": celula(linha, "razao"),
+            # Nome aproveitable só quando é nome de empresa: rótulo ("Razão
+            # social:"), marca de cadeia e o próprio CNPJ viram "".
+            "razao_social": nome_usavel(
+                celula(linha, "razao"), documento=documento or documento_do_arquivo
+            ),
             "uf": uf,
             "senha": _valor_senha(linha, colunas, esperado, separador),
             "validade": celula(linha, "validade"),

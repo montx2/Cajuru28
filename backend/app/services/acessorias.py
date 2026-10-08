@@ -1,10 +1,16 @@
 """Cliente mínimo e defensivo da API oficial do Sistema Acessórias."""
 from __future__ import annotations
 
+import re
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import httpx
+
+# O fornecedor devolve ausência como HTTP 200 + `{"Erro": "..."}`. Para
+# completar o nome de uma empresa importada, "não está no escritório" é um
+# resultado válido — não um erro para mostrar ao operador.
+_AUSENCIA = re.compile(r"n[ãa]o\s+(?:encontrad|localizad|cadastrad)|inexistente", re.IGNORECASE)
 
 
 class AcessoriasErro(RuntimeError):
@@ -25,7 +31,7 @@ class ClienteAcessorias:
         if not self.token:
             raise AcessoriasErro("Integração Acessórias não configurada.", 409)
 
-    def _get(self, rota: str, params: dict[str, Any] | None = None) -> Any:
+    def _get(self, rota: str, params: dict[str, Any] | None = None, *, ausencia_vazia: bool = False) -> Any:
         headers = {"Authorization": f"Bearer {self.token}", "Accept": "application/json"}
         try:
             if self._client:
@@ -48,8 +54,25 @@ class ClienteAcessorias:
         except ValueError as exc:
             raise AcessoriasErro("O Acessórias respondeu em formato inválido.") from exc
         if isinstance(dados, dict) and dados.get("Erro"):
+            if ausencia_vazia and _AUSENCIA.search(str(dados["Erro"])):
+                return None
             raise AcessoriasErro("O Acessórias recusou os parâmetros da consulta.", 422)
         return dados
+
+    def obter_empresa(self, identificador: str) -> dict[str, Any] | None:
+        """Ficha de uma empresa pelo CNPJ/CPF: `GET /companies/{Identificador}/`.
+
+        O contrato oficial aceita o identificador com ou sem máscara; enviamos
+        o valor canônico (sem máscara), que é o formato estável. Empresa que o
+        escritório não cadastrou devolve ``None`` — o chamador decide se tenta
+        outra fonte.
+        """
+        dados = self._get(f"/companies/{quote(identificador, safe='')}/", ausencia_vazia=True)
+        if dados is None:
+            return None
+        if isinstance(dados, list):
+            dados = dados[0] if dados and isinstance(dados[0], dict) else None
+        return dados if isinstance(dados, dict) else None
 
     def listar_empresas(self, *, somente_ativas: bool = True, max_paginas: int = 100) -> list[dict[str, Any]]:
         empresas: list[dict[str, Any]] = []

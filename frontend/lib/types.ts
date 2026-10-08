@@ -360,6 +360,26 @@ export interface LoteEmpresasResposta {
   /** O que a planilha de apoio rendeu: linhas lidas e quantas traziam senha. */
   linhas_da_planilha?: number;
   senhas_da_planilha?: number;
+  /** Entraram sem razão social (só o CNPJ). A tela oferece completar. */
+  empresas_sem_nome?: number;
+}
+
+export interface ItemCadastroCorrigido {
+  empresa_id: number;
+  cnpj_cpf: string;
+  razao_social: string;
+  uf: string;
+  fonte: string;
+  status: "corrigido" | "uf" | "sem_fonte" | string;
+}
+
+export interface CompletarCadastrosResposta {
+  analisadas: number;
+  corrigidas: number;
+  uf_completada: number;
+  sem_fonte: number;
+  acessorias_configurado: boolean;
+  itens: ItemCadastroCorrigido[];
 }
 
 export const ROTULO_TIPO: Record<TipoDocumentoFiscal, string> = {

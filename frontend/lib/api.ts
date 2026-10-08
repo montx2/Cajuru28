@@ -14,6 +14,7 @@ import type {
   EmpresaResumoDocumentos,
   EmitenteTop,
   EstimativaExportacao,
+  CompletarCadastrosResposta,
   EstadoSincronizacao,
   EvolucaoMensal,
   ExecucaoImportacao,
@@ -340,6 +341,21 @@ export const api = {
     for (const arquivo of arquivos) form.append("arquivos", arquivo);
     return chamar<ImportacaoXmlResposta>("/importacoes/xml", { method: "POST", body: form });
   },
+
+  /**
+   * Completa razão social (e UF) pelo CNPJ: Acessórias do escritório e, para o
+   * que não está lá, as fontes públicas da Receita. É o conserto de um lote que
+   * entrou com "ICP-Brasil" ou "Empresa 1234…" no nome, sem reenviar certificado.
+   */
+  completarCadastrosEmpresas: (dados?: {
+    somente_pendentes?: boolean;
+    limite?: number;
+    reconsultar?: boolean;
+  }) =>
+    chamar<CompletarCadastrosResposta>("/empresas/completar-cadastros", {
+      method: "POST",
+      body: JSON.stringify(dados ?? { somente_pendentes: true }),
+    }),
 
   importarEmpresasEmMassa: (arquivos: File[], planilhas: File[]) => {
     const form = new FormData();

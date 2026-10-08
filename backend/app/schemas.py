@@ -137,6 +137,45 @@ class ConsultaCNPJResposta(BaseModel):
     mensagem: str = ""
 
 
+class CompletarCadastrosEntrada(BaseModel):
+    """Reparo de cadastros importados sem nome (ou com o nome da cadeia)."""
+
+    # True: só as empresas cujo nome é ruído/placeholder ou está sem UF.
+    # False: repassa todas, o que também completa UF/IBGE de cadastros bons.
+    somente_pendentes: bool = True
+    limite: int = 200
+    # A consulta é cacheada por CNPJ; `reconsultar` força uma nova rodada nas
+    # fontes depois de cadastrar a empresa no Acessórias, por exemplo.
+    reconsultar: bool = False
+
+    @field_validator("limite")
+    @classmethod
+    def limite_faixa(cls, valor: int) -> int:
+        valor = int(valor or 0)
+        if valor < 1 or valor > 2000:
+            raise ValueError("Informe um limite entre 1 e 2000 empresas por rodada.")
+        return valor
+
+
+class ItemCadastroCorrigido(BaseModel):
+    empresa_id: int
+    cnpj_cpf: str
+    razao_social: str = ""
+    uf: str = ""
+    fonte: str = ""
+    # corrigido | uf | sem_fonte
+    status: str
+
+
+class CompletarCadastrosResposta(BaseModel):
+    analisadas: int
+    corrigidas: int
+    uf_completada: int
+    sem_fonte: int
+    acessorias_configurado: bool
+    itens: list[ItemCadastroCorrigido] = []
+
+
 class EmpresaResposta(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -231,6 +270,11 @@ class LoteEmpresasResposta(BaseModel):
     # errado parecia "importação sem erro" e só falhava certificado a certificado.
     linhas_da_planilha: int = 0
     senhas_da_planilha: int = 0
+    # Quantas empresas entraram sem razão social de verdade (nem o certificado,
+    # nem a planilha, nem o Acessórias/Receita disseram o nome). É o número que
+    # responde "por que metade da lista se chama Empresa 12345…?" e é o que a
+    # tela oferece corrigir em um clique.
+    empresas_sem_nome: int = 0
 
 
 # ---------- Certificado ----------
