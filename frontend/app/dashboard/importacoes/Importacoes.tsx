@@ -542,6 +542,26 @@ export function Importacoes() {
           }
         >
           <ResumoImportacao resultado={resultado.dados} modo={resultado.modo} />
+          {resultado.modo === "resultado" && resultado.dados.enfileiradas > 0 ? (
+            // Fecha o laço: disparado, o operador precisa saber onde ver o
+            // resultado — a captura roda na SEFAZ e os documentos caem na lista
+            // conforme chegam, não neste instante.
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-traco pt-3">
+              <p className="max-w-leitura text-sm leading-6 text-tinta-suave">
+                {contagem(resultado.dados.enfileiradas, "captura está rodando", "capturas estão rodando")} em
+                segundo plano. Os documentos entram na lista conforme chegam — ela avisa enquanto isso.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <BotaoLink variante="secundaria" tamanho="sm" href="/dashboard/documentos">
+                  Ver documentos
+                </BotaoLink>
+                <BotaoLink variante="link" tamanho="sm" href="/dashboard/execucoes?aba=fila">
+                  Acompanhar na central
+                </BotaoLink>
+              </div>
+            </div>
+          ) : null}
+
           {resultado.modo === "previa" && resultado.dados.enfileiradas > 0 ? (
             <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-traco pt-3">
               <p className="text-sm text-tinta-suave">

@@ -20,7 +20,7 @@ from datetime import date, datetime, time, timedelta, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import case, func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import escritorio_id_atual, requer_escrita
 from app.core.plural import contagem
@@ -1387,6 +1387,9 @@ def captura_ao_vivo(
 
     vivas = (
         db.query(ExecucaoImportacao)
+        # `razao_social` é lida em cada item: sem o joinedload, este endpoint
+        # consultado a cada 5 s faria uma consulta por empresa viva.
+        .options(joinedload(ExecucaoImportacao.empresa))
         .join(Empresa)
         .filter(
             Empresa.escritorio_id == escritorio_id,
@@ -1399,6 +1402,7 @@ def captura_ao_vivo(
 
     ultima = (
         db.query(ExecucaoImportacao)
+        .options(joinedload(ExecucaoImportacao.empresa))
         .join(Empresa)
         .filter(
             Empresa.escritorio_id == escritorio_id,

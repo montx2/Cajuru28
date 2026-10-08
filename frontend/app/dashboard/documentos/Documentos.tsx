@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { api, type FiltrosDocumentos } from "@/lib/api";
 import { ROTULO_ACAO_LOTE } from "@/lib/acoes-documento";
@@ -178,6 +178,21 @@ export function Documentos() {
     if (typeof document === "undefined") return;
     document.title = capturando ? "Capturando documentos · Fluxa" : "Documentos · Fluxa";
   }, [capturando]);
+
+  // Ao terminar a captura, uma última recarga: o laço de 5 s para no mesmo
+  // instante em que a rodada fecha, e sem isto o último lote que chegou ficaria
+  // de fora justamente quando o operador olha para conferir o resultado.
+  const estavaCapturando = useRef(false);
+  useEffect(() => {
+    if (capturando) {
+      estavaCapturando.current = true;
+      return;
+    }
+    if (!estavaCapturando.current) return;
+    estavaCapturando.current = false;
+    documentos.atualizar();
+    resumo.atualizar();
+  }, [capturando, documentos, resumo]);
 
   // Trocou o filtro, a seleção anterior não significa mais nada.
   useEffect(() => {

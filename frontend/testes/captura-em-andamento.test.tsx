@@ -229,4 +229,31 @@ describe("a tela de documentos liga o aviso do jeito certo", () => {
   it("o título da aba avisa quem está em outra aba do navegador", () => {
     expect(fonteDaTela).toContain('"Capturando documentos · Fluxa"');
   });
+
+  it("recarrega uma última vez quando a captura termina", () => {
+    // O laço de 5 s para no mesmo instante em que a rodada fecha: sem a
+    // recarga final, o último lote que chegou ficaria de fora da lista
+    // exatamente quando o operador olha para conferir.
+    expect(fonteDaTela).toContain("estavaCapturando.current");
+    expect(fonteDaTela).toContain("estavaCapturando.current = true");
+  });
+});
+
+/**
+ * O disparo termina na tela de Importações — e antes ficava por isso mesmo:
+ * "Fechar" e nada mais. Quem disparou tinha que adivinhar onde os documentos
+ * aparecem, que é justamente onde a dúvida "veio ou não veio?" nasce.
+ */
+describe("o disparo diz para onde olhar", () => {
+  const fonteDoDisparo = readFileSync(resolve(__dirname, "..", "app/dashboard/importacoes/Importacoes.tsx"), "utf8");
+
+  it("o resultado aponta Documentos e a central de execuções", () => {
+    expect(fonteDoDisparo).toContain('href="/dashboard/documentos"');
+    expect(fonteDoDisparo).toContain('href="/dashboard/execucoes?aba=fila"');
+    expect(fonteDoDisparo).toMatch(/entram na lista conforme chegam/);
+  });
+
+  it("só aparece depois de disparar de verdade (na prévia quem decide é o botão)", () => {
+    expect(fonteDoDisparo).toContain('resultado.modo === "resultado" && resultado.dados.enfileiradas > 0');
+  });
 });
