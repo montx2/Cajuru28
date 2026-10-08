@@ -1426,10 +1426,10 @@ def _mensagem_xml_incompleto(real: str | None, documento: DocumentoFiscal) -> st
             "não a nota fiscal. O XML completo ainda precisa ser recuperado na SEFAZ."
         )
     return (
-        "Esta nota ainda está apenas em resumo (resNFe): a SEFAZ libera o XML "
-        "completo depois da manifestação do destinatário. O sistema registra a "
-        "Ciência da Operação e baixa a NF-e inteira (procNFe) sozinho — aguarde "
-        "alguns instantes e baixe de novo."
+        "Esta nota ainda está apenas em resumo (resNFe): o XML completo vem da "
+        "SEFAZ, depois da manifestação do destinatário. Baixar o arquivo não "
+        "consulta mais a SEFAZ — use “Buscar XML completo” na ficha da nota "
+        "(ação explícita, que registra a Ciência da Operação e traz a procNFe)."
     )
 
 
@@ -1439,7 +1439,15 @@ def baixar_xml(
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
 ):
-    """Entrega somente o XML fiscal completo, buscando-o na SEFAZ sob demanda quando ainda em resumo."""
+    """Entrega o XML que está no disco. **Não** consulta a SEFAZ.
+
+    Antes, baixar uma nota que ainda estava em resumo registrava a Ciência e
+    buscava a procNFe dentro deste GET: 15,3 s medidos com o ambiente fiscal
+    fora, uma consulta por chave da cota da SEFAZ (20/h por CNPJ) gasta por um
+    clique de download, e uma resposta que só dizia "SEFAZ indisponível" para
+    quem pediu um arquivo. A busca continua existindo, como ação explícita:
+    `POST /{id}/completar-xml` (e o lote), onde o operador sabe o que pediu.
+    """
     documento = _documento_do_escritorio(db, documento_id, escritorio_id)
     # O cadastro pode estar desatualizado (versões anteriores gravavam o resumo
     # e marcavam "completo"): o operador está olhando exatamente esta nota,
@@ -1447,26 +1455,7 @@ def baixar_xml(
     if xml_integridade.reconciliar(db, documento):
         db.commit()
     tem_arquivo = bool(documento.xml_path and os.path.isfile(documento.xml_path))
-    real_no_disco = xml_integridade.leiaute_do_arquivo(documento.xml_path) if tem_arquivo else None
-    eh_resumo_ou_prot = documento.leiaute == "resumo" or xml_integridade.nao_e_a_nota(real_no_disco)
-
-    mensagem_tentativa = ""
-    if documento.tipo == TipoDocumentoFiscal.NFE and (eh_resumo_ou_prot or not tem_arquivo):
-        from app.worker.tasks import completar_xml_documento_imediato
-
-        _, mensagem_tentativa = completar_xml_documento_imediato(db, documento)
-        db.refresh(documento)
-        tem_arquivo = bool(documento.xml_path and os.path.isfile(documento.xml_path))
-
     real = xml_integridade.leiaute_do_arquivo(documento.xml_path) if tem_arquivo else None
-    if documento.leiaute == "resumo" or (tem_arquivo and xml_integridade.nao_e_a_nota(real)):
-        # Nunca entregar resumo/protocolo/evento com a chave da nota no nome do
-        # arquivo: é assim que um XML que não serve para escriturar entra na
-        # contabilidade do cliente sem ninguém perceber.
-        raise HTTPException(
-            status_code=409,
-            detail=mensagem_tentativa or _mensagem_xml_incompleto(real, documento),
-        )
 
     if not tem_arquivo:
         if documento.leiaute == "metadados":
@@ -1474,7 +1463,16 @@ def baixar_xml(
                 status_code=409,
                 detail="Esta NFS-e foi registrada somente com metadados: a fonte de origem não forneceu XML original. Exporte o período para baixar o JSON normalizado junto da relação CSV.",
             )
+        if documento.leiaute == "resumo":
+            raise HTTPException(status_code=409, detail=_mensagem_xml_incompleto(None, documento))
         raise HTTPException(status_code=404, detail="Arquivo XML não encontrado no disco")
+
+    if xml_integridade.nao_e_a_nota(real):
+        # Nunca entregar resumo/protocolo/evento com a chave da nota no nome do
+        # arquivo: é assim que um XML que não serve para escriturar entra na
+        # contabilidade do cliente sem ninguém perceber. Quem decide é o
+        # arquivo: cadastro marcado como "resumo" com a nota no disco baixa.
+        raise HTTPException(status_code=409, detail=_mensagem_xml_incompleto(real, documento))
 
     return FileResponse(
         documento.xml_path,
