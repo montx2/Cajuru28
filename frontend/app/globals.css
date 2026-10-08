@@ -156,7 +156,9 @@
   .botao-sm { --altura-botao: 36px; }
   .botao-lg { --altura-botao: 48px; }
   .botao-icone { width: var(--altura-botao, 40px); padding-inline: 0; }
-  .botao-link { height: auto; }
+  /* Link de texto: altura do próprio texto, mas com 24 px de alvo — abaixo
+     disso o clique deixa de ser confortável (WCAG 2.5.8) sem ganhar em nada. */
+  .botao-link { height: auto; min-height: 24px; }
   .botao-conteudo > svg { flex-shrink: 0; }
   .controle-sm { height: 36px; }
   .controle-md { height: 40px; }

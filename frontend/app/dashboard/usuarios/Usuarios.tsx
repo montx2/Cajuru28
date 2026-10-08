@@ -16,6 +16,7 @@ import { CabecalhoPagina } from "@/components/ui/Cartao";
 import { Alternador, Busca, Entrada, Selecao } from "@/components/ui/Campo";
 import { CampoSenha } from "@/components/ui/CampoSenha";
 import { EstadoVazio } from "@/components/ui/EstadoVazio";
+import { Formulario } from "@/components/ui/Formulario";
 import { Etiqueta } from "@/components/ui/Etiqueta";
 import { DataHora } from "@/components/ui/Formatadores";
 import { Icone } from "@/components/ui/Icone";
@@ -335,7 +336,7 @@ function ModalUsuario({
         </div>
       }
     >
-      <div className="space-y-4">
+      <Formulario aoEnviar={salvar} ocupado={enviando} className="space-y-4">
         <Entrada rotulo="Nome" obrigatorio value={nome} onChange={(evento) => setNome(evento.target.value)} erro={errosCampo.nome ?? null} autoComplete="off" />
         <Entrada rotulo="E-mail" obrigatorio type="email" inputMode="email" value={email} onChange={(evento) => setEmail(evento.target.value)} erro={errosCampo.email ?? null} autoComplete="off" />
         <CampoSenha
@@ -368,7 +369,7 @@ function ModalUsuario({
             {erro}
           </Aviso>
         ) : null}
-      </div>
+      </Formulario>
     </Modal>
   );
 }

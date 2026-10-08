@@ -9,6 +9,7 @@ import { Botao } from "@/components/ui/Botao";
 import { CampoArquivo } from "@/components/ui/CampoArquivo";
 import { CampoSenha } from "@/components/ui/CampoSenha";
 import { Combobox } from "@/components/ui/Combobox";
+import { Formulario } from "@/components/ui/Formulario";
 import { Etiqueta } from "@/components/ui/Etiqueta";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
@@ -120,7 +121,7 @@ export function ModalCertificado({ aberto, aoFechar, aoInstalar, empresas, empre
         </div>
       }
     >
-      <div className="space-y-4">
+      <Formulario aoEnviar={instalar} ocupado={enviando} className="space-y-4">
         {pedeEmpresa ? (
           <div>
             <p className="mb-1.5 text-xs font-medium text-tinta">
@@ -170,7 +171,7 @@ export function ModalCertificado({ aberto, aoFechar, aoInstalar, empresas, empre
             </Etiqueta>
           </p>
         ) : null}
-      </div>
+      </Formulario>
     </Modal>
   );
 }

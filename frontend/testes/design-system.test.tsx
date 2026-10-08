@@ -18,8 +18,11 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
 import { Aviso } from "@/components/ui/Aviso";
+import { Entrada } from "@/components/ui/Campo";
+import { Formulario } from "@/components/ui/Formulario";
 import { Botao, BotaoLink } from "@/components/ui/Botao";
 
 const RAIZ = resolve(__dirname, "..");
@@ -41,40 +44,33 @@ function arquivosTsx(diretorios: string[]): string[] {
 }
 
 /**
- * Ação de texto à mão que ainda existe, com o motivo — e o dono da decisão.
- * Só `components/ui` e os dois "chips" locais (sino, tabela de empresas) e a
- * ação do painel de documento: todos são fase 2 (hierarquia por tela), onde
- * podem virar botão de verdade em vez de link fantasma.
+ * Onde a pele do link ainda pode ser escrita à mão: só onde ela é *definida*.
+ * Na fase 1 eram 20 lugares (com a lista de pendências nomeada); na fase 2 a
+ * última tela saiu — se aparecer uma ocorrência fora daqui, é uma sexta forma
+ * de fazer a mesma coisa.
  */
-const PENDENTES: Record<string, number> = {
-  "components/ui/Botao.tsx": 2, // as duas variantes (link, link-sutil) — a definição
-  "components/shell/Header.tsx": 2, // chip do sino + ação local do popover
-  "components/fiscal/PainelDocumento.tsx": 1, // ação secundária do painel
-  "app/dashboard/empresas/Empresas.tsx": 1, // chip "Consultar CNPJ" (tem estado desabilitado)
-};
+const DONO_DA_PELE = "components/ui/Botao.tsx";
 
 describe("ação de texto tem um lugar só", () => {
-  it("nenhuma tela nova reescreve o visual do botão-link à mão", () => {
+  it("a pele do link é escrita em um arquivo só — o que a define", () => {
     const infratores: string[] = [];
     for (const arquivo of arquivosTsx(["app", "components"])) {
       const relativo = arquivo.slice(RAIZ.length + 1).replace(/\\/g, "/");
+      if (relativo === DONO_DA_PELE) continue;
       const ocorrencias = (readFileSync(arquivo, "utf8").match(/underline-offset-4 hover:underline/g) ?? []).length;
-      const permitido = PENDENTES[relativo] ?? 0;
-      if (ocorrencias > permitido) {
-        infratores.push(`${relativo}: ${ocorrencias} (permitido ${permitido})`);
-      }
+      if (ocorrencias > 0) infratores.push(`${relativo}: ${ocorrencias}`);
     }
     expect(
       infratores,
-      "Use `Botao variante=\"link\"` / `link-sutil` para ação isolada, ou `className=\"link-prosa\"` para link dentro de frase.",
+      "Use `Botao variante=\"link\"`/`\"link-sutil\"` para ação isolada, ou `className=\"link-prosa\"` para link dentro de frase.",
     ).toEqual([]);
   });
 
-  it("o que ficou pendente está contado — a lista não pode crescer em silêncio", () => {
-    for (const [arquivo, esperado] of Object.entries(PENDENTES)) {
-      const ocorrencias = (readFileSync(resolve(RAIZ, arquivo), "utf8").match(/underline-offset-4 hover:underline/g) ?? []).length;
-      expect(ocorrencias, `${arquivo} (fase 2)`).toBe(esperado);
-    }
+  it("a definição continua tendo as duas variantes de texto", () => {
+    const definicao = readFileSync(resolve(RAIZ, DONO_DA_PELE), "utf8");
+    expect((definicao.match(/underline-offset-4 hover:underline/g) ?? []).length).toBe(2);
+    expect(definicao).toContain('link: "border-transparent bg-transparent px-0');
+    expect(definicao).toContain('"link-sutil": "border-transparent bg-transparent px-0');
   });
 
   it("link em prosa é uma classe só, declarada no CSS", () => {
@@ -198,6 +194,57 @@ describe("mensagem de erro tem dono", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Aguardando");
     // `data-*` de quem usa o aviso (a ficha marca o bloco de situação assim).
     expect(screen.getByRole("status")).toHaveAttribute("data-situacao", "documento");
+  });
+});
+
+/**
+ * Ritmo de espaço: o produto separa blocos de página com 20 px e o que está
+ * dentro de um cartão ou modal com 16 px. Havia um terceiro degrau (24 px) em
+ * três telas — o mesmo papel com dois respiros.
+ */
+describe("o ritmo de espaço tem dois degraus", () => {
+  it("24 px de separação entre blocos não existe mais", () => {
+    const infratores = arquivosTsx(["app", "components"]).filter((arquivo) =>
+      /className="[^"]*space-y-6/.test(readFileSync(arquivo, "utf8")),
+    );
+    expect(infratores.map((arquivo) => arquivo.slice(RAIZ.length + 1))).toEqual([]);
+  });
+});
+
+describe("a ação primária do modal responde ao Enter", () => {
+  it("Enter no campo envia pelo mesmo caminho do botão", async () => {
+    const usuario = userEvent.setup();
+    const aoEnviar = vi.fn();
+    render(
+      <Formulario aoEnviar={aoEnviar}>
+        <Entrada rotulo="Razão social" />
+      </Formulario>,
+    );
+    await usuario.type(screen.getByRole("textbox", { name: "Razão social" }), "Fluxa{Enter}");
+    expect(aoEnviar).toHaveBeenCalledOnce();
+  });
+
+  it("com envio em curso o Enter não dispara de novo", async () => {
+    const usuario = userEvent.setup();
+    const aoEnviar = vi.fn();
+    render(
+      <Formulario aoEnviar={aoEnviar} ocupado>
+        <Entrada rotulo="Razão social" />
+      </Formulario>,
+    );
+    await usuario.type(screen.getByRole("textbox", { name: "Razão social" }), "Fluxa{Enter}");
+    expect(aoEnviar).not.toHaveBeenCalled();
+    expect(screen.getByRole("textbox", { name: "Razão social" }).closest("form")).toHaveAttribute("aria-busy", "true");
+  });
+
+  it("botão dentro do formulário não envia sem querer", () => {
+    // `Botao` nasce como `type="button"`: só o envio explícito submete.
+    render(
+      <Formulario aoEnviar={() => {}}>
+        <Botao>Fechar</Botao>
+      </Formulario>,
+    );
+    expect(screen.getByRole("button", { name: "Fechar" })).toHaveAttribute("type", "button");
   });
 });
 

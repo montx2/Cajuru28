@@ -206,7 +206,7 @@ export function Atencao() {
           />
         )
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-5">
           {grupos.map((grupo) => (
             <section key={grupo.nivel} aria-labelledby={`grupo-${grupo.nivel}`}>
               <div className="mb-2 flex items-baseline gap-2">

@@ -373,7 +373,7 @@ export function Relatorios() {
                 </p>
               </div>
               <div className="text-right">
-                <p className="mt-8 border-t border-black pt-1">Assinatura do responsável</p>
+                <p className="mt-8 border-t border-tinta-forte pt-1">Assinatura do responsável</p>
               </div>
             </div>
           </div>

@@ -94,12 +94,12 @@ export function FormularioLogin() {
         <div aria-hidden="true" className="login-grade pointer-events-none absolute inset-0" />
         <div className="relative flex items-center gap-3">
           <span className="marca-fluxa flex h-10 w-10 items-center justify-center rounded-lg"><LogoFluxa className="h-7 w-7" /></span>
-          <span className="text-[28px] font-semibold tracking-[-.04em]">fluxa<span className="text-[var(--lateral-acento)]">.</span></span>
+          <span className="text-xl font-semibold tracking-[-.04em]">fluxa<span className="text-[var(--lateral-acento)]">.</span></span>
         </div>
 
         <div className="relative mx-auto w-full max-w-lg py-12">
           <p className="mb-5 text-xs font-medium uppercase tracking-[.18em] text-[var(--lateral-acento)]">Sua operação, em fluxo</p>
-          <h2 className="text-[42px] font-semibold leading-[1.12] tracking-[-.045em] text-sobre-grafite xl:text-[54px]">Menos tarefas.<br />Mais controle.</h2>
+          <h2 className="text-3xl font-semibold leading-[1.12] tracking-[-.045em] text-sobre-grafite xl:text-4xl">Menos tarefas.<br />Mais controle.</h2>
           <p className="mt-6 max-w-sm text-md leading-7 text-sobre-grafite/70">Da captura ao fechamento, seus documentos fiscais organizados em um único lugar.</p>
 
           <div className="mt-10 rounded-camada border border-grafite-traco bg-grafite-alta/80 p-6">

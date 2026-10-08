@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { api } from "@/lib/api";
 import { tempoRelativo } from "@/lib/format";
@@ -9,6 +8,7 @@ import { ROTULO_PAPEL, type AlertaItem, type PapelUsuario } from "@/lib/types";
 import { migalhasDoCaminho } from "@/lib/rotas";
 import { useTeclaModificadora } from "@/lib/useTeclaModificadora";
 import { CartaoAlerta } from "@/components/fiscal/CartaoAlerta";
+import { Botao, BotaoLink } from "@/components/ui/Botao";
 import { DialogoConfirmacao } from "@/components/ui/DialogoConfirmacao";
 import { Icone } from "@/components/ui/Icone";
 import { MenuSuspenso, type ItemMenu } from "@/components/ui/MenuSuspenso";
@@ -132,16 +132,16 @@ function ConteudoSino({ aoFechar, aoAtualizarContagem }: { aoFechar: () => void;
       <PopoverCabecalho
         titulo="Precisa da sua atenção"
         acao={
-          <button
-            type="button"
+          <Botao
+            variante="link"
+            tamanho="sm"
             onClick={() => {
               aoAtualizarContagem();
               setTentativa((atual) => atual + 1);
             }}
-            className="rounded-badge px-1 py-0.5 text-xs font-medium text-acento underline-offset-4 hover:underline"
           >
             Atualizar
-          </button>
+          </Botao>
         }
       />
 
@@ -181,14 +181,15 @@ function ConteudoSino({ aoFechar, aoAtualizarContagem }: { aoFechar: () => void;
       </div>
 
       <div className="border-t border-traco bg-fundo-afundado px-3 py-2">
-        <Link
+        <BotaoLink
           href="/dashboard/atencao"
           onClick={aoFechar}
-          className="flex h-8 items-center gap-1.5 text-xs font-medium text-acento underline-offset-4 hover:underline"
+          variante="link"
+          tamanho="sm"
+          iconeDireita={<Icone nome="chevron-direita" className="h-3.5 w-3.5" />}
         >
           Ver tela de atenção
-          <Icone nome="chevron-direita" className="h-3.5 w-3.5" />
-        </Link>
+        </BotaoLink>
       </div>
     </div>
   );

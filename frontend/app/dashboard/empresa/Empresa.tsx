@@ -34,6 +34,7 @@ import { DialogoConfirmacao } from "@/components/ui/DialogoConfirmacao";
 import { EsqueletoBloco } from "@/components/ui/Esqueleto";
 import { EstadoErro } from "@/components/ui/EstadoErro";
 import { EstadoVazio } from "@/components/ui/EstadoVazio";
+import { Formulario } from "@/components/ui/Formulario";
 import { Etiqueta } from "@/components/ui/Etiqueta";
 import { Cnpj, DataHora, ValorMoeda } from "@/components/ui/Formatadores";
 import { Icone } from "@/components/ui/Icone";
@@ -714,7 +715,7 @@ function ModalEditarEmpresa({
         </div>
       }
     >
-      <div className="space-y-4">
+      <Formulario aoEnviar={salvar} ocupado={enviando} className="space-y-4">
         <Entrada rotulo="Razão social" obrigatorio value={razao} onChange={(evento) => setRazao(evento.target.value)} />
         <div className="grid gap-4 sm:grid-cols-2">
           <Selecao rotulo="UF" value={uf} onChange={(evento) => setUf(evento.target.value)} opcoes={[{ valor: "", rotulo: "Não informar" }, ...UFS.map((item) => ({ valor: item.sigla, rotulo: `${item.sigla} · ${item.nome}` }))]} />
@@ -770,7 +771,7 @@ function ModalEditarEmpresa({
             {erro}
           </Aviso>
         ) : null}
-      </div>
+      </Formulario>
     </Modal>
   );
 }

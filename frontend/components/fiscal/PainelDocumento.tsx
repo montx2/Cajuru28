@@ -9,7 +9,7 @@ import { estadoDoDocumento } from "@/lib/estados";
 import { useRecurso } from "@/lib/useRecurso";
 import { ROTULO_TIPO, type DocumentoDetalhe, type TipoDocumentoFiscal } from "@/lib/types";
 import { Aviso } from "@/components/ui/Aviso";
-import { Botao } from "@/components/ui/Botao";
+import { Botao, BotaoLink } from "@/components/ui/Botao";
 import { Dado } from "@/components/ui/Dado";
 import { EsqueletoBloco } from "@/components/ui/Esqueleto";
 import { EstadoErro } from "@/components/ui/EstadoErro";
@@ -70,7 +70,7 @@ function ConteudoDocumento({ id, aoExcluir, somenteLeitura }: { id: number; aoEx
 
   if (recurso.carregando) {
     return (
-      <div className="space-y-6" aria-busy="true">
+      <div className="space-y-5" aria-busy="true">
         <EsqueletoBloco linhas={2} />
         <EsqueletoBloco linhas={6} />
         <EsqueletoBloco linhas={4} />
@@ -143,7 +143,7 @@ function ConteudoDocumento({ id, aoExcluir, somenteLeitura }: { id: number; aoEx
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <section>
         <div className="flex flex-wrap items-center gap-2">
           <IndicadorEstado {...estado} titulo={documento.status === "cancelada" ? (documento.motivo_cancelamento ?? "Cancelada") : undefined} />
@@ -280,15 +280,16 @@ function ConteudoDocumento({ id, aoExcluir, somenteLeitura }: { id: number; aoEx
 
         {acoes.secundarias.map((secundaria) =>
           secundaria.id === "ver-empresa" ? (
-            <Link
+            <BotaoLink
               key={secundaria.id}
               data-acao="secundaria"
+              variante="link"
+              tamanho="sm"
               href={`/dashboard/empresa?id=${documento.empresa_id}`}
-              className="inline-flex h-8 items-center gap-1.5 rounded-controle px-2.5 text-sm font-medium text-acento underline-offset-4 hover:underline"
+              iconeEsquerda={<Icone nome={secundaria.icone} className="h-4 w-4" />}
             >
-              <Icone nome={secundaria.icone} className="h-4 w-4" />
               {secundaria.rotulo}
-            </Link>
+            </BotaoLink>
           ) : null
         )}
 

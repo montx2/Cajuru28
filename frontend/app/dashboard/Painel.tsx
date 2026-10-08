@@ -71,7 +71,7 @@ export function Painel() {
 
   if (painel.carregando) {
     return (
-      <div className="space-y-6" aria-busy="true">
+      <div className="space-y-5" aria-busy="true">
         <EsqueletoBloco linhas={2} />
         <div className="grid grid-cols-2 gap-3 xl:grid-cols-5">
           {Array.from({ length: 5 }, (_, indice) => (
@@ -156,7 +156,7 @@ export function Painel() {
   const ultimoBackup = backups.dados?.saude.ultimo_ok_em;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <CabecalhoPagina
         kicker="Visão geral"
         titulo="Painel operacional"

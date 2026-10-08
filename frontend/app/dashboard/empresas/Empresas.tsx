@@ -26,6 +26,7 @@ import { ModalImportarXmls } from "@/app/dashboard/importacoes/ImportarXmls";
 import { Botao } from "@/components/ui/Botao";
 import { Aviso } from "@/components/ui/Aviso";
 import { CabecalhoPagina, Cartao } from "@/components/ui/Cartao";
+import { Formulario } from "@/components/ui/Formulario";
 import { ErroDoCampo } from "@/components/ui/Campo";
 import { Busca, Caixa, Entrada, Selecao } from "@/components/ui/Campo";
 import { CampoArquivo } from "@/components/ui/CampoArquivo";
@@ -580,7 +581,7 @@ function ModalNovaEmpresa({ aberto, aoFechar, aoCriar }: { aberto: boolean; aoFe
         </div>
       }
     >
-      <div className="space-y-4">
+      <Formulario aoEnviar={enviar} ocupado={enviando} className="space-y-4">
         <Entrada
           rotulo="CNPJ ou CPF"
           obrigatorio
@@ -597,14 +598,9 @@ function ModalNovaEmpresa({ aberto, aoFechar, aoCriar }: { aberto: boolean; aoFe
           inputMode="numeric"
           autoComplete="off"
           acaoRotulo={
-            <button
-              type="button"
-              onClick={consultarCnpj}
-              disabled={consultando}
-              className="inline-flex items-center gap-1 rounded-badge px-1.5 py-0.5 text-xs font-medium text-acento underline-offset-4 hover:underline disabled:opacity-50"
-            >
+            <Botao variante="link" tamanho="sm" onClick={consultarCnpj} disabled={consultando}>
               {consultando ? "Consultando…" : "Consultar CNPJ"}
-            </button>
+            </Botao>
           }
         />
         <Entrada
@@ -636,7 +632,7 @@ function ModalNovaEmpresa({ aberto, aoFechar, aoCriar }: { aberto: boolean; aoFe
             {erro}
           </Aviso>
         ) : null}
-      </div>
+      </Formulario>
     </Modal>
   );
 }
@@ -738,7 +734,7 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
       {resultado ? (
         <ResultadoLote resultado={resultado} planilhasAnexadas={planilhas.length} />
       ) : (
-        <div className="space-y-4">
+        <Formulario aoEnviar={enviar} ocupado={enviando} className="space-y-4">
           <div className="flex flex-wrap items-center gap-3 rounded-controle border border-borda-controle p-3">
             <div className="min-w-0 flex-1">
               <p className="text-sm text-tinta">Pasta dos certificados no computador</p>
@@ -769,7 +765,7 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
               onChange={(evento) => receberPasta(evento.target.files)}
             />
             <Botao
-              variante="primaria"
+              variante="secundaria"
               tamanho="sm"
               onClick={() => pastaRef.current?.click()}
               iconeEsquerda={<Icone nome="pasta" className="h-4 w-4" />}
@@ -799,7 +795,7 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
               {erro}
             </Aviso>
           ) : null}
-        </div>
+        </Formulario>
       )}
     </Modal>
   );
