@@ -17,11 +17,13 @@ import { hrefComEstado } from "@/lib/urlEstadoLink";
 import { useBuscaUrl } from "@/lib/useBuscaUrl";
 import { usePreferencia } from "@/lib/usePreferencia";
 import { usePeriodoUrl } from "@/lib/usePeriodoUrl";
+import { usePolling } from "@/lib/usePolling";
 import { useRecurso } from "@/lib/useRecurso";
 import { useUrlEstado } from "@/lib/urlEstado";
 import { useSinalizarAtualizacao } from "@/components/shell/BarraAtualizacao";
 import { useSessao } from "@/components/shell/ProvedorSessao";
 import { PainelDocumento } from "@/components/fiscal/PainelDocumento";
+import { CapturaEmAndamento } from "@/components/fiscal/CapturaEmAndamento";
 import { FiltrosAcervoDocumentos } from "@/components/fiscal/FiltrosAcervoDocumentos";
 import { SeletorCompetencia } from "@/components/fiscal/SeletorCompetencia";
 import { SeletorPeriodo } from "@/components/fiscal/SeletorPeriodo";
@@ -135,6 +137,9 @@ export function Documentos() {
   const documentos = useRecurso(() => api.listarDocumentos({ ...filtros, limit: PASSO, offset: 0 }), [chaveFiltros], { automatico: pronto });
   const resumo = useRecurso(() => api.resumoDocumentos(filtros), [chaveFiltros], { automatico: pronto });
   const empresas = useRecurso(() => api.listarEmpresas(), []);
+  // A captura em andamento é do recorte da tela: filtrando por uma empresa, o
+  // aviso fala dela; sem filtro, fala do escritório.
+  const captura = useRecurso(() => api.capturaAoVivo(empresa ? [empresa] : undefined), [empresa]);
   const opcoesEmpresa = useMemo<OpcaoCombobox[]>(
     () => [
       { valor: "", rotulo: "Todas as empresas" },
@@ -154,6 +159,25 @@ export function Documentos() {
   const mesSelecionado = mesDoPeriodo || periodo.inicio.slice(0, 7);
 
   useSinalizarAtualizacao(documentos.atualizando || resumo.atualizando);
+
+  const capturando = (captura.dados?.em_andamento.length ?? 0) > 0;
+  const recarregarDoRecorte = useCallback(() => {
+    documentos.atualizar();
+    resumo.atualizar();
+    captura.atualizar();
+  }, [captura, documentos, resumo]);
+
+  // Enquanto a captura roda, a lista e a contagem andam sozinhas — é o que
+  // evita o operador concluir que "já pegou tudo" (ou que "não veio nada") com
+  // a tela parada. Em repouso, 20 s bastam para notar uma rodada que começou
+  // em outra tela.
+  usePolling(captura.atualizar, capturando ? 5_000 : 20_000);
+  usePolling(recarregarDoRecorte, capturando && pronto ? 5_000 : null);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    document.title = capturando ? "Capturando documentos · Fluxa" : "Documentos · Fluxa";
+  }, [capturando]);
 
   // Trocou o filtro, a seleção anterior não significa mais nada.
   useEffect(() => {
@@ -612,6 +636,14 @@ export function Documentos() {
         ) : null}
       </Cartao>
       {resumo.dados ? <GradeKpis itens={indicadores} colunas={indicadores.length <= 3 ? 3 : indicadores.length <= 4 ? 4 : indicadores.length <= 5 ? 5 : 6} rotulo="Resumo do recorte" /> : null}
+
+      {pronto ? (
+        <CapturaEmAndamento
+          captura={captura.dados}
+          escopo={empresaSelecionada?.razao_social ?? null}
+          aoAtualizar={recarregarDoRecorte}
+        />
+      ) : null}
 
       <Tabela
         linhas={linhas}

@@ -1043,6 +1043,26 @@ class ExecucaoAoVivo(BaseModel):
     mensagem_erro: str | None = None
 
 
+class CapturaAoVivo(BaseModel):
+    """O que a captura está fazendo agora — para a lista do acervo não parecer parada.
+
+    Existe porque uma importação demora, e enquanto ela roda a tela de
+    documentos mostra o que já chegou, não o que está chegando. Sem isso o
+    operador olha uma lista parada e conclui que o sistema já pegou tudo — ou
+    que não veio nada. Duas informações resolvem: a contagem viva da captura em
+    andamento e o desfecho da última que terminou.
+
+    `fora_do_recorte` conta as capturas que estão rodando em empresas que **não**
+    estão no filtro da tela: sem esse número, quem filtra por uma empresa fica
+    vendo a lista parada enquanto o escritório inteiro é capturado.
+    """
+
+    em_andamento: list[ExecucaoAoVivo] = []
+    documentos_em_andamento: int = 0
+    fora_do_recorte: int = 0
+    ultima: ExecucaoImportacaoResposta | None = None
+
+
 class JanelaProximaConsulta(BaseModel):
     """Empresa parada por janela oficial de consumo — e quando volta."""
 

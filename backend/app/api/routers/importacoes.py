@@ -39,8 +39,10 @@ from app.models import (
 )
 from app.services import auditoria
 from app.schemas import (
+    CapturaAoVivo,
     ConferenciaCompetenciaResposta,
     EstadoSincronizacaoResposta,
+    ExecucaoAoVivo,
     ExecucaoImportacaoResposta,
     ImportacaoSelecionadas,
     ImportacaoSolicitar,
@@ -1363,6 +1365,75 @@ def conferir_competencia(
         itens_pendentes=itens_pendentes,
         itens_criticos=itens_criticos,
         itens=itens,
+    )
+
+
+@router.get("/ao-vivo", response_model=CapturaAoVivo)
+def captura_ao_vivo(
+    empresa_ids: str | None = Query(default=None, description="1,2,3 — vazio = escritório inteiro"),
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+):
+    """Estado vivo da captura, para a tela do acervo dizer que a lista ainda chega.
+
+    Deliberadamente leve: a tela de documentos consulta isto em laço curto
+    enquanto há captura rodando, e `/painel/execucoes` (que monta janelas,
+    recentes e erros) seria caro demais para esse ritmo.
+
+    A "última" vem sempre — quem decide se ela é recente o bastante para virar
+    aviso na tela é o cliente, que conhece o próprio relógio.
+    """
+    recorte = _parse_ids_csv(empresa_ids, nome="empresa_ids")
+
+    vivas = (
+        db.query(ExecucaoImportacao)
+        .join(Empresa)
+        .filter(
+            Empresa.escritorio_id == escritorio_id,
+            ExecucaoImportacao.status.in_([StatusExecucao.EM_ANDAMENTO, StatusExecucao.AGUARDANDO]),
+        )
+        .order_by(ExecucaoImportacao.iniciado_em.asc())
+        .all()
+    )
+    no_recorte = [ex for ex in vivas if recorte is None or ex.empresa_id in recorte]
+
+    ultima = (
+        db.query(ExecucaoImportacao)
+        .join(Empresa)
+        .filter(
+            Empresa.escritorio_id == escritorio_id,
+            ExecucaoImportacao.finalizado_em.isnot(None),
+            ExecucaoImportacao.status.in_([StatusExecucao.CONCLUIDA, StatusExecucao.ERRO]),
+        )
+        .order_by(ExecucaoImportacao.finalizado_em.desc())
+        .first()
+    )
+    resposta_ultima = None
+    if ultima is not None:
+        resposta_ultima = ExecucaoImportacaoResposta.model_validate(ultima)
+        resposta_ultima.empresa_razao_social = ultima.empresa.razao_social
+
+    return CapturaAoVivo(
+        em_andamento=[
+            ExecucaoAoVivo(
+                execucao_id=ex.id,
+                empresa_id=ex.empresa_id,
+                razao_social=ex.empresa.razao_social,
+                tipo=ex.tipo.value,
+                status=ex.status.value,
+                documentos_importados=ex.documentos_importados or 0,
+                ultimo_nsu=ex.ultimo_nsu,
+                iniciado_em=ex.iniciado_em,
+                aguardando_ate=ex.bloqueado_ate,
+                motivo_espera=ex.aviso,
+                aviso=ex.aviso,
+                mensagem_erro=ex.mensagem_erro,
+            )
+            for ex in no_recorte
+        ],
+        documentos_em_andamento=sum(ex.documentos_importados or 0 for ex in no_recorte),
+        fora_do_recorte=len(vivas) - len(no_recorte) if recorte is not None else 0,
+        ultima=resposta_ultima,
     )
 
 

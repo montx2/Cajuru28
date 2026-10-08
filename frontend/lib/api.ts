@@ -23,6 +23,7 @@ import type {
   KpisDashboard,
   LoteEmpresasResposta,
   PainelOperacional,
+  CapturaAoVivo,
   CentralExecucoes,
   RegistroAuditoria,
   ResetGeralResposta,
@@ -644,6 +645,15 @@ export const api = {
   // ---------------------------------------------------------------
 
   painelOperacional: () => chamar<PainelOperacional>("/painel/operacional"),
+
+  // Estado vivo da captura: o que a tela de documentos consulta em laço curto
+  // enquanto há rodada em andamento (endpoint leve, só executuções vivas).
+  capturaAoVivo: (empresaIds?: number[]) =>
+    chamar<CapturaAoVivo>(
+      `/importacoes/ao-vivo${montarParams({
+        empresa_ids: empresaIds && empresaIds.length > 0 ? empresaIds.join(",") : undefined,
+      })}`
+    ),
 
   centralExecucoes: (limite = 30) =>
     chamar<CentralExecucoes>(`/painel/execucoes${montarParams({ limite })}`),

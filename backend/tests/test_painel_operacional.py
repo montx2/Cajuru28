@@ -491,3 +491,99 @@ def test_toda_acao_de_alerta_aponta_para_tela_do_produto(cliente):
         assert href, f"alerta {item['id']} sem ação"
         assert item["acao_rotulo"], f"alerta {item['id']} sem rótulo de ação"
         assert href.split("?")[0] in telas, f"alerta {item['id']} aponta para {href}"
+
+
+def test_captura_ao_vivo_conta_o_que_esta_chegando(cliente):
+    """A lista do acervo precisa saber que a captura está em andamento.
+
+    Duas rodadas vivas na mesma empresa (uma rodando, uma esperando janela): os
+    documentos já gravados aparecem somados, e a última execução concluída vem
+    junto para a tela poder fechar o desfecho ("N documentos novos" ou "nenhum").
+    """
+    client, db, escritorio_id = cliente
+    empresa = _empresa(db, escritorio_id, "Alfa Ltda")
+    outra = _empresa(db, escritorio_id, "Beta Ltda")
+
+    db.add_all(
+        [
+            ExecucaoImportacao(
+                empresa_id=empresa.id,
+                tipo=TipoDocumentoFiscal.NFE,
+                status=StatusExecucao.EM_ANDAMENTO,
+                documentos_importados=7,
+            ),
+            ExecucaoImportacao(
+                empresa_id=empresa.id,
+                tipo=TipoDocumentoFiscal.NFSE,
+                status=StatusExecucao.AGUARDANDO,
+                documentos_importados=2,
+                bloqueado_ate=datetime.now(timezone.utc) + timedelta(minutes=40),
+                aviso="Aguardando janela da SEFAZ.",
+            ),
+            ExecucaoImportacao(
+                empresa_id=outra.id,
+                tipo=TipoDocumentoFiscal.NFE,
+                status=StatusExecucao.EM_ANDAMENTO,
+                documentos_importados=5,
+            ),
+            ExecucaoImportacao(
+                empresa_id=empresa.id,
+                tipo=TipoDocumentoFiscal.CTE,
+                status=StatusExecucao.CONCLUIDA,
+                documentos_importados=4,
+                finalizado_em=datetime.now(timezone.utc) - timedelta(minutes=2),
+            ),
+        ]
+    )
+    db.commit()
+
+    corpo = client.get("/importacoes/ao-vivo").json()
+
+    assert len(corpo["em_andamento"]) == 3
+    assert corpo["documentos_em_andamento"] == 14  # 7 + 2 + 5
+    assert corpo["fora_do_recorte"] == 0
+    assert corpo["ultima"]["documentos_importados"] == 4
+    assert corpo["ultima"]["empresa_razao_social"] == "Alfa Ltda"
+    tipos = {item["tipo"] for item in corpo["em_andamento"]}
+    # O contrato do painel é minúsculo (`ex.tipo.value`), como em /painel/execucoes.
+    assert tipos == {"nfe", "nfse"}
+
+
+def test_captura_ao_vivo_separa_o_que_esta_fora_do_filtro(cliente):
+    """Filtrar por uma empresa não pode esconder que o escritório está trabalhando.
+
+    Sem o recorte, a lista filtrada fica parada e o operador não tem como saber
+    que há captura rodando em outras empresas — é exatamente a confusão de
+    "já pegou tudo?" versus "não veio nada".
+    """
+    client, db, escritorio_id = cliente
+    alfa = _empresa(db, escritorio_id, "Alfa Ltda")
+    beta = _empresa(db, escritorio_id, "Beta Ltda")
+
+    db.add_all(
+        [
+            ExecucaoImportacao(
+                empresa_id=alfa.id,
+                tipo=TipoDocumentoFiscal.NFE,
+                status=StatusExecucao.EM_ANDAMENTO,
+                documentos_importados=3,
+            ),
+            ExecucaoImportacao(
+                empresa_id=beta.id,
+                tipo=TipoDocumentoFiscal.NFE,
+                status=StatusExecucao.EM_ANDAMENTO,
+                documentos_importados=9,
+            ),
+        ]
+    )
+    db.commit()
+
+    do_alfa = client.get(f"/importacoes/ao-vivo?empresa_ids={alfa.id}").json()
+
+    assert [item["empresa_id"] for item in do_alfa["em_andamento"]] == [alfa.id]
+    assert do_alfa["documentos_em_andamento"] == 3
+    assert do_alfa["fora_do_recorte"] == 1
+
+    do_escritorio = client.get("/importacoes/ao-vivo").json()
+    assert do_escritorio["documentos_em_andamento"] == 12
+    assert do_escritorio["fora_do_recorte"] == 0

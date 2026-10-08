@@ -707,6 +707,18 @@ export interface JanelaProximaConsulta {
   pendencia: number;
 }
 
+/**
+ * O que a captura está fazendo agora — para a lista do acervo não parecer
+ * parada. `ultima` vem sempre; quem decide se ela ainda é notícia é a tela.
+ */
+export interface CapturaAoVivo {
+  em_andamento: ExecucaoAoVivo[];
+  documentos_em_andamento: number;
+  /** Capturas rodando em empresas que não estão no filtro da tela. */
+  fora_do_recorte: number;
+  ultima: ExecucaoImportacao | null;
+}
+
 export interface CentralExecucoes {
   agora: ExecucaoAoVivo[];
   proximas: JanelaProximaConsulta[];
