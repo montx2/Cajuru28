@@ -9,7 +9,7 @@ import { GRUPOS, rotaDoCaminho, rotasDoMenu } from "@/lib/rotas";
 import { useFocoPreso } from "@/lib/useFocoPreso";
 import { Dica } from "@/components/ui/Dica";
 import { Icone } from "@/components/ui/Icone";
-import { LogoFluxa } from "@/components/ui/LogoFluxa";
+import { MarcaFluxa } from "@/components/ui/MarcaFluxa";
 import { useSessao } from "./ProvedorSessao";
 import { useContagemAlertas } from "./ProvedorAlertas";
 
@@ -31,10 +31,7 @@ function ConteudoSidebar({ colapsada, aoFechar, aoAlternarColapso }: Omit<Sideba
     <div className={cn("vidro-grafite lateral-produto flex h-full flex-col text-sobre-grafite", colapsada && "lateral-colapsada")}>
       <div className={cn("flex h-[72px] flex-none items-center justify-between gap-2 px-5", colapsada && "justify-center px-0")}>
         <Link href="/dashboard" onClick={aoFechar} aria-label="Fluxa — painel operacional" className="flex min-w-0 items-center gap-3 rounded-controle">
-          <span className="marca-fluxa flex h-9 w-9 flex-none items-center justify-center rounded-lg">
-            <LogoFluxa className="h-6 w-6" />
-          </span>
-          {!colapsada ? <span className="text-lg font-semibold tracking-[-.04em]">fluxa<span className="text-[var(--lateral-acento)]">.</span></span> : null}
+          <MarcaFluxa comNome={!colapsada} className="flex-none" />
         </Link>
         {!colapsada ? (
           <button type="button" onClick={aoFechar} aria-label="Fechar menu" className="flex h-10 w-10 flex-none items-center justify-center rounded-controle text-sobre-grafite/70 hover:bg-grafite-hover lg:hidden">

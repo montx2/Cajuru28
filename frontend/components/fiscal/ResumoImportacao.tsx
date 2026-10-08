@@ -68,7 +68,7 @@ export function ResumoImportacao({ resultado, modo, className }: ResumoImportaca
                   <td className="max-w-56 truncate" title={item.razao_social}>
                     {item.razao_social}
                   </td>
-                  <td className="text-xs uppercase tracking-[.04em] text-tinta-suave">{item.tipo}</td>
+                  <td className="text-xs uppercase tracking-rotulo text-tinta-suave">{item.tipo}</td>
                   <td>
                     <IndicadorEstado {...estado} variante="texto" />
                   </td>

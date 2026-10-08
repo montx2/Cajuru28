@@ -4,11 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api, ApiError } from "@/lib/api";
 import { Aviso } from "@/components/ui/Aviso";
+import { Formulario } from "@/components/ui/Formulario";
 import { Botao } from "@/components/ui/Botao";
 import { Entrada } from "@/components/ui/Campo";
 import { CampoSenha } from "@/components/ui/CampoSenha";
 import { Icone } from "@/components/ui/Icone";
 import { LogoFluxa } from "@/components/ui/LogoFluxa";
+import { MarcaFluxa } from "@/components/ui/MarcaFluxa";
 import { SeletorTema } from "@/components/shell/SeletorTema";
 
 /**
@@ -70,8 +72,7 @@ export function FormularioLogin() {
     };
   }, [destino, router]);
 
-  async function entrar(evento: React.FormEvent<HTMLFormElement>) {
-    evento.preventDefault();
+  async function entrar() {
     setTocado(true);
     setErro(null);
     // Campo vazio é erro de formulário: resolve aqui, sem gastar uma ida à API
@@ -92,10 +93,7 @@ export function FormularioLogin() {
     <main className="grid min-h-dvh lg:grid-cols-2">
       <aside aria-label="Sobre o Fluxa" className="login-apresentacao relative hidden flex-col justify-between overflow-hidden p-10 lg:flex xl:p-14">
         <div aria-hidden="true" className="login-grade pointer-events-none absolute inset-0" />
-        <div className="relative flex items-center gap-3">
-          <span className="marca-fluxa flex h-10 w-10 items-center justify-center rounded-lg"><LogoFluxa className="h-7 w-7" /></span>
-          <span className="text-xl font-semibold tracking-[-.04em]">fluxa<span className="text-[var(--lateral-acento)]">.</span></span>
-        </div>
+        <MarcaFluxa tamanho="lg" className="relative" />
 
         <div className="relative mx-auto w-full max-w-lg py-12">
           <p className="mb-5 text-xs font-medium uppercase tracking-[.18em] text-[var(--lateral-acento)]">Sua operação, em fluxo</p>
@@ -128,12 +126,11 @@ export function FormularioLogin() {
       <section className="relative flex min-h-dvh flex-col items-center justify-center bg-fundo px-5 py-20 sm:px-8 lg:px-12">
         <div className="absolute right-5 top-5 sm:right-8 sm:top-6"><SeletorTema /></div>
         <div className="w-full max-w-[440px]">
-          <div className="mb-8 flex items-center justify-center gap-2.5 lg:hidden">
-            <span className="marca-fluxa flex h-9 w-9 items-center justify-center rounded-lg"><LogoFluxa className="h-6 w-6" /></span>
-            <span className="text-xl font-semibold tracking-tight text-tinta-forte">fluxa<span className="text-acento">.</span></span>
+          <div className="mb-8 flex items-center justify-center lg:hidden">
+            <MarcaFluxa ponto="acento" />
           </div>
           <div className="cartao-produto rounded-camada p-6 sm:p-8">
-            <p className="mb-3 text-xs font-medium uppercase tracking-[.12em] text-acento">Seu espaço de trabalho</p>
+            <p className="mb-3 text-xs font-medium uppercase tracking-kicker text-acento">Seu espaço de trabalho</p>
             <h1 className="text-xl font-semibold text-tinta-forte">Bem-vindo de volta</h1>
             <p className="mt-2 text-sm text-tinta-suave">Entre para acompanhar sua operação fiscal.</p>
 
@@ -146,7 +143,7 @@ export function FormularioLogin() {
               </Aviso>
             ) : null}
 
-            <form className="mt-8 space-y-5" onSubmit={entrar} noValidate aria-busy={enviando}>
+            <Formulario aoEnviar={entrar} ocupado={enviando} className="mt-8 space-y-5">
               <Entrada
                 ref={campoEmail}
                 rotulo="E-mail"
@@ -181,7 +178,7 @@ export function FormularioLogin() {
               <Botao type="submit" variante="primaria" tamanho="lg" className="w-full" carregando={enviando} iconeDireita={<Icone nome="seta-direita" className="h-4 w-4" />}>
                 {enviando ? "Verificando acesso…" : "Entrar"}
               </Botao>
-            </form>
+            </Formulario>
             <p className="mt-6 border-t border-traco pt-5 text-center text-xs leading-5 text-tinta-suave">Precisa de acesso? Fale com o administrador do escritório.</p>
           </div>
           <p className="mt-6 flex items-center justify-center gap-2 text-xs text-tinta-suave"><Icone nome="cadeado" className="h-3.5 w-3.5" />Acesso restrito à equipe do escritório.</p>

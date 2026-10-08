@@ -211,6 +211,28 @@ describe("o ritmo de espaço tem dois degraus", () => {
   });
 });
 
+describe("a marca e o espaço entre letras são do design system", () => {
+  it("a marca é um componente — ninguém remonta o quadrado menta com o nome", () => {
+    const infratores = arquivosTsx(["app", "components"]).filter((arquivo) => {
+      const relativo = arquivo.slice(RAIZ.length + 1).replace(/\\/g, "/");
+      if (relativo === "components/ui/MarcaFluxa.tsx") return false;
+      return readFileSync(arquivo, "utf8").includes("marca-fluxa");
+    });
+    expect(infratores.map((arquivo) => arquivo.slice(RAIZ.length + 1))).toEqual([]);
+  });
+
+  it("caixa alta não escreve o próprio tracking", () => {
+    const infratores: string[] = [];
+    for (const arquivo of arquivosTsx(["app", "components"])) {
+      const conteudo = readFileSync(arquivo, "utf8");
+      if (/tracking-\[\.04em\]|tracking-\[\.12em\]/.test(conteudo)) {
+        infratores.push(arquivo.slice(RAIZ.length + 1));
+      }
+    }
+    expect(infratores, "Use `tracking-rotulo` (.04em) ou `tracking-kicker` (.12em).").toEqual([]);
+  });
+});
+
 describe("a ação primária do modal responde ao Enter", () => {
   it("Enter no campo envia pelo mesmo caminho do botão", async () => {
     const usuario = userEvent.setup();

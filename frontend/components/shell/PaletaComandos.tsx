@@ -299,7 +299,7 @@ export function PaletaComandos({ aberto, aoFechar, aoAbrirAtalhos }: PaletaComan
           {grupos.map((grupo) => (
             <section key={grupo.rotulo} className="mb-1 last:mb-0">
               {grupo.itens.length > 0 ? (
-                <h3 className="px-4 pb-1 pt-2 text-2xs font-medium uppercase tracking-[.04em] text-tinta-fraca">{grupo.rotulo}</h3>
+                <h3 className="px-4 pb-1 pt-2 text-2xs font-medium uppercase tracking-rotulo text-tinta-fraca">{grupo.rotulo}</h3>
               ) : null}
               {grupo.itens.map((item) => {
                 indiceCorrido += 1;

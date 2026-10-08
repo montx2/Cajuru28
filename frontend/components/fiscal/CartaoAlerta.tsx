@@ -90,7 +90,7 @@ export function CartaoAlerta({ alerta, lida, aoMarcarLida, aoReabrir, className,
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <IndicadorEstado {...estado} variante="etiqueta" />
-            <span className="text-2xs uppercase tracking-[.04em] text-tinta-suave">
+            <span className="text-2xs uppercase tracking-rotulo text-tinta-suave">
               {ROTULO_CATEGORIA_ALERTA[alerta.categoria] ?? alerta.categoria}
             </span>
             {alerta.empresa_razao_social ? (

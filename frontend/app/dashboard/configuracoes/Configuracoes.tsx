@@ -157,7 +157,7 @@ function AbaAmbiente({ sistema, saude }: { sistema: RecursoSistema; saude: Recur
           </dl>
 
           <div className="mt-4 border-t border-traco pt-3">
-            <p className="mb-1.5 text-xs font-medium uppercase tracking-[.04em] text-tinta-suave">Tarefas agendadas</p>
+            <p className="mb-1.5 text-xs font-medium uppercase tracking-rotulo text-tinta-suave">Tarefas agendadas</p>
             {Object.keys(sistema.dados.fila.agenda).length === 0 ? (
               <p className="text-sm text-tinta-fraca">Nenhuma tarefa agendada — a captura automática depende delas.</p>
             ) : (

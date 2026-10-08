@@ -251,7 +251,7 @@ export function Saude() {
               </dl>
 
               <div>
-                <p className="mb-1.5 text-xs font-medium uppercase tracking-[.04em] text-tinta-suave">Agenda da fila</p>
+                <p className="mb-1.5 text-xs font-medium uppercase tracking-rotulo text-tinta-suave">Agenda da fila</p>
                 {Object.keys(sistema.dados.fila.agenda).length === 0 ? (
                   <p className="text-sm text-tinta-fraca">Nenhuma tarefa agendada.</p>
                 ) : (

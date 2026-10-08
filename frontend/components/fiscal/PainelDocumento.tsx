@@ -169,7 +169,7 @@ function ConteudoDocumento({ id, aoExcluir, somenteLeitura }: { id: number; aoEx
       </section>
 
       <section aria-labelledby="chave-do-documento">
-        <h4 id="chave-do-documento" className="text-xs font-medium uppercase tracking-[.04em] text-tinta-suave">
+        <h4 id="chave-do-documento" className="text-xs font-medium uppercase tracking-rotulo text-tinta-suave">
           Chave de acesso
         </h4>
         <div className="mt-1.5 rounded-controle border border-traco bg-fundo-afundado px-3 py-2">
@@ -179,7 +179,7 @@ function ConteudoDocumento({ id, aoExcluir, somenteLeitura }: { id: number; aoEx
       </section>
 
       <section aria-labelledby="dados-do-documento">
-        <h4 id="dados-do-documento" className="text-xs font-medium uppercase tracking-[.04em] text-tinta-suave">
+        <h4 id="dados-do-documento" className="text-xs font-medium uppercase tracking-rotulo text-tinta-suave">
           Dados
         </h4>
         <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
@@ -197,14 +197,14 @@ function ConteudoDocumento({ id, aoExcluir, somenteLeitura }: { id: number; aoEx
 
       <section aria-labelledby="partes-do-documento" className="grid gap-4 sm:grid-cols-2">
         <div>
-          <h4 id="partes-do-documento" className="text-xs font-medium uppercase tracking-[.04em] text-tinta-suave">
+          <h4 id="partes-do-documento" className="text-xs font-medium uppercase tracking-rotulo text-tinta-suave">
             Emitente
           </h4>
           <p className="mt-1 text-sm text-tinta">{documento.emitente_nome || "—"}</p>
           <Cnpj valor={documento.emitente_documento} className="mt-0.5" />
         </div>
         <div>
-          <h4 className="text-xs font-medium uppercase tracking-[.04em] text-tinta-suave">Destinatário</h4>
+          <h4 className="text-xs font-medium uppercase tracking-rotulo text-tinta-suave">Destinatário</h4>
           <p className="mt-1 text-sm text-tinta">{documento.destinatario_nome || "—"}</p>
           <Cnpj valor={documento.destinatario_documento} className="mt-0.5" />
         </div>
@@ -212,7 +212,7 @@ function ConteudoDocumento({ id, aoExcluir, somenteLeitura }: { id: number; aoEx
 
       <section aria-labelledby="xml-do-documento">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h4 id="xml-do-documento" className="text-xs font-medium uppercase tracking-[.04em] text-tinta-suave">
+          <h4 id="xml-do-documento" className="text-xs font-medium uppercase tracking-rotulo text-tinta-suave">
             XML
           </h4>
           <div className="flex flex-wrap items-center gap-2">

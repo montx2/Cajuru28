@@ -60,7 +60,7 @@ export function CabecalhoPagina({ kicker, titulo, descricao, acoes, acima, child
       {acima ? <div className="mb-5">{acima}</div> : null}
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-5">
         <div className="min-w-0 flex-1 basis-72">
-          {kicker ? <p className="mb-2 text-xs font-medium uppercase tracking-[.12em] text-tinta-suave">{kicker}</p> : null}
+          {kicker ? <p className="mb-2 text-xs font-medium uppercase tracking-kicker text-tinta-suave">{kicker}</p> : null}
           <h1 className="text-xl font-semibold text-tinta-forte">{titulo}</h1>
           {descricao ? <p className="mt-2 max-w-leitura text-sm leading-6 text-tinta-suave">{descricao}</p> : null}
         </div>

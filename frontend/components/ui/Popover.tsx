@@ -103,7 +103,7 @@ export function Popover({
 export function PopoverCabecalho({ titulo, acao }: { titulo: string; acao?: ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-2 border-b border-traco px-3 py-2">
-      <p className="text-xs font-medium uppercase tracking-[.04em] text-tinta-suave">{titulo}</p>
+      <p className="text-xs font-medium uppercase tracking-rotulo text-tinta-suave">{titulo}</p>
       {acao}
     </div>
   );

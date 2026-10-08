@@ -87,6 +87,11 @@ const config: Config = {
         cartao: "12px",
         camada: "16px",
       },
+      letterSpacing: {
+        // Caixa alta pede respiro; o valor era escrito à mão 18 vezes.
+        rotulo: ".04em", // cabeçalho de coluna, rótulo de campo, etiqueta em caixa alta
+        kicker: ".12em", // sobretítulo de tela
+      },
       boxShadow: {
         none: "none",
         sm: "none",

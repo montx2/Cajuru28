@@ -427,7 +427,7 @@ export function Tabela<L>({
               <Popover rotulo="Colunas" icone="colunas" alinhamento="direita" largura="w-60" dica="Escolher colunas">
                 {() => (
                   <div className="max-h-80 overflow-y-auto py-1">
-                    <p className="px-3 py-1.5 text-2xs font-medium uppercase tracking-[.04em] text-tinta-fraca">Colunas visíveis</p>
+                    <p className="px-3 py-1.5 text-2xs font-medium uppercase tracking-rotulo text-tinta-fraca">Colunas visíveis</p>
                     {colunas.map((coluna) => (
                       <Caixa
                         key={coluna.id}

@@ -24,7 +24,7 @@ export function AtalhosTeclado({ aberto, aoFechar }: { aberto: boolean; aoFechar
           if (atalhos.length === 0) return null;
           return (
             <section key={grupo}>
-              <h3 className="mb-2 text-xs font-medium uppercase tracking-[.04em] text-tinta-suave">{grupo}</h3>
+              <h3 className="mb-2 text-xs font-medium uppercase tracking-rotulo text-tinta-suave">{grupo}</h3>
               <table className="tabela-dados">
                 <caption className="sr-only">Atalhos do grupo {grupo}</caption>
                 <tbody>
