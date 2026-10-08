@@ -127,7 +127,7 @@ export function FormularioLogin() {
         <div className="absolute right-5 top-5 sm:right-8 sm:top-6"><SeletorTema /></div>
         <div className="w-full max-w-[440px]">
           <div className="mb-8 flex items-center justify-center lg:hidden">
-            <MarcaFluxa ponto="acento" />
+            <MarcaFluxa tamanho="lg" ponto="acento" />
           </div>
           <div className="cartao-produto rounded-camada p-6 sm:p-8">
             <p className="mb-3 text-xs font-medium uppercase tracking-kicker text-acento">Seu espaço de trabalho</p>
