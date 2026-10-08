@@ -1729,15 +1729,12 @@ def detalhe_documento(
     # mostrar a ficha (senão a tela afirma "XML completo" para um resNFe).
     if xml_integridade.reconciliar(db, documento):
         db.commit()
-    if (
-        documento.tipo == TipoDocumentoFiscal.NFE
-        and documento.leiaute == "resumo"
-        and documento.manifestacao_erro is None
-    ):
-        from app.worker.tasks import completar_xml_documento_imediato
-
-        completar_xml_documento_imediato(db, documento)
-        db.refresh(documento)
+    # Abrir a ficha NÃO consulta a SEFAZ. Antes, abrir um resumo chamava
+    # `completar_xml_documento_imediato` aqui dentro: a leitura ficava presa no
+    # tempo da SEFAZ (15,2 s medidos com o ambiente fora) e cada abertura
+    # gastava uma consulta por chave da cota de 20/h do CNPJ — sem o operador
+    # pedir nada. A busca do XML completo continua no botão "Buscar XML
+    # completo" (POST /{id}/completar-xml) e no download, que são explícitos.
     empresa = db.get(Empresa, documento.empresa_id)
     xml_disponivel = bool(documento.xml_path and os.path.isfile(documento.xml_path))
     tamanho = None

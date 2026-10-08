@@ -17,6 +17,12 @@ Decisões que evitam "banco de teste bonito demais":
     histórico concluído hoje para as contagens diárias não zerarem;
   - CNPJ gerado com dígito verificador válido, porque a API agora recusa o
     contrário;
+  - certificado A1 AUTOASSINADO de verdade em disco (senha `SenhaCert#123`),
+    no mesmo caminho que o upload grava, para "Validar certificado" e a
+    captura exercitarem o caminho real em vez de parar no arquivo ausente;
+  - XML de verdade em disco no formato do worker (procNFe/procCTe/NFSe com
+    grupo identificador, e resNFe nos resumos) — o exportador classifica por
+    CONTEÚDO, então o ZIP precisa de arquivo real para contar nota;
   - `agora` é o instante da semeadura: para reproduzir cota da SEFAZ e janelas,
     semeie perto da hora do teste.
 
@@ -36,8 +42,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from app.core.config import settings  # noqa: E402
 from app.core.security import gerar_hash_senha  # noqa: E402
 from app.core.vault import cifrar_segredo  # noqa: E402
+from app.services.certificados import guardar_pfx_protegido  # noqa: E402
 from app.db.base import criar_tabelas  # noqa: E402
 from app.db.session import SessionLocal  # noqa: E402
 from app.models import (  # noqa: E402
@@ -104,6 +112,119 @@ def nome_empresa(i: int) -> str:
     return f"{PRESIDENTES[i % len(PRESIDENTES)]} {SEGMENTOS[(i * 5) % len(SEGMENTOS)]} {SUFIXOS[i % len(SUFIXOS)]}"
 
 
+# ---------------------------------------------------------------------------
+# Certificado A1 de verdade (autoassinado) e XML de verdade em disco
+#
+# O seed antigo gravava só a LINHA do certificado e o caminho do XML: qualquer
+# verificação que exigisse o arquivo (validar A1, exportar ZIP, abrir o XML no
+# detalhe) parava no primeiro passo, e a auditoria de captura de ponta a ponta
+# não tinha como rodar neste ambiente. Aqui o arquivo existe e é classificável
+# pelo próprio produto: o .pfx abre com a senha semeada e o XML é "completo"
+# (procNFe/procCTe/NFSe com infNFSe) ou "resumo" (resNFe), como a SEFAZ entrega.
+# ---------------------------------------------------------------------------
+
+SENHA_CERTIFICADO = "SenhaCert#123"
+
+
+def gerar_pfx_autoassinado(razao_social: str, cnpj: str, validade: datetime, inicio: datetime) -> bytes:
+    """A1 de desenvolvimento: chave RSA + X.509 autoassinado, empacotado em PKCS#12.
+
+    O CNPJ aparece no CN (depois dos dois-pontos, como nos A1 reais) porque é
+    dele que `services.certificados` extrai a identidade — o mesmo caminho que
+    valida o upload do operador.
+    """
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.hazmat.primitives.serialization import pkcs12
+    from cryptography.x509.oid import NameOID
+
+    chave = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    nome = x509.Name(
+        [
+            x509.NameAttribute(NameOID.COUNTRY_NAME, "BR"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, razao_social[:60]),
+            x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME, "Fluxa Desenvolvimento"),
+            x509.NameAttribute(NameOID.COMMON_NAME, f"{razao_social[:38]}:{cnpj}"),
+        ]
+    )
+    certificado = (
+        x509.CertificateBuilder()
+        .subject_name(nome)
+        .issuer_name(nome)
+        .public_key(chave.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(inicio)
+        .not_valid_after(validade)
+        .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+        .add_extension(
+            x509.KeyUsage(
+                digital_signature=True, content_commitment=False, key_encipherment=True,
+                data_encipherment=False, key_agreement=False, key_cert_sign=False,
+                crl_sign=False, encipher_only=False, decipher_only=False,
+            ),
+            critical=True,
+        )
+        .sign(chave, hashes.SHA256())
+    )
+    return pkcs12.serialize_key_and_certificates(
+        name=razao_social[:60].encode(),
+        key=chave,
+        cert=certificado,
+        cas=None,
+        encryption_algorithm=serialization.BestAvailableEncryption(SENHA_CERTIFICADO.encode()),
+    )
+
+
+XML_NAMESPACE_NFE = 'xmlns="http://www.portalfiscal.inf.br/nfe"'
+
+
+def xml_do_documento(tipo: str, chave: str, numero: str, emitente: str, valor: float,
+                     emissao: datetime, leiaute: str) -> bytes:
+    """XML no formato que `classificar_documento_dfe` reconhece.
+
+    `completo` → procNFe/procCTe/NFSe com o grupo identificador (é a NOTA);
+    `resumo` → resNFe (é o que a distribuição entrega antes da manifestação).
+    Nada de XML simbólico: o exportador classifica por CONTEÚDO, então o
+    arquivo precisa ser lido como nota de verdade para o ZIP contar.
+    """
+    data = emissao.strftime("%Y-%m-%dT%H:%M:%S-03:00")
+    if leiaute == "resumo":
+        return (
+            f'<?xml version="1.0" encoding="UTF-8"?>\n<resNFe versao="1.01" {XML_NAMESPACE_NFE}>'
+            f"<chNFe>{chave}</chNFe><CNPJ>{emitente}</CNPJ><xNome>Emitente {emitente}</xNome>"
+            f"<dhEmi>{data}</dhEmi><vNF>{valor:.2f}</vNF><situacao>Autorizada</situacao></resNFe>\n"
+        ).encode()
+    if tipo == "cte":
+        return (
+            f'<?xml version="1.0" encoding="UTF-8"?>\n<procCTe versao="4.00" xmlns="http://www.portalfiscal.inf.br/cte">'
+            f'<CTe><infCte versao="4.00" Id="CTe{chave}"><ide><cCT>{numero}</cCT><nCT>{numero}</nCT>'
+            f"<dhEmi>{data}</dhEmi><CNPJ>{emitente}</CNPJ></ide>"
+            f"<vPrest><vTPrest>{valor:.2f}</vTPrest></vPrest></infCte></CTe></procCTe>\n"
+        ).encode()
+    if tipo == "nfse":
+        return (
+            f'<?xml version="1.0" encoding="UTF-8"?>\n<NFSe versao="1.00" xmlns="http://www.sped.fazenda.gov.br/nfse">'
+            f'<infNFSe Id="NFSe{chave}"><nNFSe>{numero}</nNFSe><dhEmi>{data}</dhEmi>'
+            f"<emit><CNPJ>{emitente}</CNPJ></emit><valores><vLiq>{valor:.2f}</vLiq></valores></infNFSe></NFSe>\n"
+        ).encode()
+    return (
+        f'<?xml version="1.0" encoding="UTF-8"?>\n<procNFe versao="4.00" {XML_NAMESPACE_NFE}>'
+        f'<NFe><infNFe versao="4.00" Id="NFe{chave}"><ide><nNF>{numero}</nNF><dhEmi>{data}</dhEmi>'
+        f"</ide><emit><CNPJ>{emitente}</CNPJ></emit><total><ICMSTot><vNF>{valor:.2f}</vNF></ICMSTot></total>"
+        f"</infNFe></NFe></procNFe>\n"
+    ).encode()
+
+
+def gravar_xml(dados_dir: Path, empresa_id: int, tipo: str, chave: str, conteudo: bytes) -> str:
+    """Mesmo caminho absoluto que o worker grava (`<dados>/xml/<empresa>/<tipo>/<chave>.xml`)."""
+    pasta = dados_dir / "xml" / str(empresa_id) / tipo
+    pasta.mkdir(parents=True, exist_ok=True)
+    caminho = pasta / f"{chave}.xml"
+    caminho.write_bytes(conteudo)
+    return str(caminho)
+
+
 def main() -> None:
     criar_tabelas()
     db = SessionLocal()
@@ -152,11 +273,21 @@ def main() -> None:
 
         for i, empresa in enumerate(empresas[:34]):
             dias = [300, 120, 45, 30, 7, 3, -2, -40][i % 8]
+            validade = AGORA + timedelta(days=dias)
+            # O arquivo existe de verdade: sem ele qualquer verificação que
+            # abra o A1 ("Validar certificado", captura) para no primeiro passo.
+            pasta_certificado = Path(settings.dados_dir) / "certificados" / str(empresa.id)
+            pasta_certificado.mkdir(parents=True, exist_ok=True)
+            caminho_certificado = pasta_certificado / f"{empresa.cnpj_cpf}.pfx.enc"
+            pfx = gerar_pfx_autoassinado(
+                empresa.razao_social, empresa.cnpj_cpf, validade, AGORA - timedelta(days=365)
+            )
+            guardar_pfx_protegido(caminho_certificado, pfx)
             cert = Certificado(
                 empresa_id=empresa.id,
-                arquivo_path=f"certificados/{empresa.cnpj_cpf}.pfx",
-                senha_cifrada=cifrar_segredo("SenhaCert#123"),
-                validade=AGORA + timedelta(days=dias),
+                arquivo_path=str(caminho_certificado),
+                senha_cifrada=cifrar_segredo(SENHA_CERTIFICADO),
+                validade=validade,
                 ativo=True,
                 ultima_utilizacao_em=AGORA - timedelta(hours=i % 30),
                 ultima_validacao_em=AGORA - timedelta(days=i % 5),
@@ -202,17 +333,27 @@ def main() -> None:
                     emissao = AGORA - timedelta(hours=n)  # "hoje" para a primeira empresa
                 importado_em = min(emissao + timedelta(hours=random.randint(1, 36)), AGORA - timedelta(minutes=5))
                 cancelada = n % 23 == 7
+                leiaute = "resumo" if n % 9 == 4 else "completo"
+                chave = chave_acesso(tipo_uf, n + 1, emitente, tipo.value)
+                valor = round(random.uniform(80, 24000), 2)
+                # XML gravado no MESMO lugar e formato do worker. Sem isso o ZIP
+                # sai sem notas, o detalhe não abre o XML e o LEIA-ME acusa
+                # "arquivo ausente no disco" — verdade para o seed antigo, mas
+                # não para o ambiente que precisa exercitar a captura de ponta.
+                conteudo_xml = xml_do_documento(
+                    tipo.value, chave, str(n + 1), emitente, valor, emissao, leiaute
+                )
                 documento = DocumentoFiscal(
                     empresa_id=empresa.id,
                     tipo=tipo,
                     direcao=direcao,
-                    chave_acesso=chave_acesso(tipo_uf, n + 1, emitente, tipo.value),
+                    chave_acesso=chave,
                     nsu=str(1000 * (i + 1) + n),
                     data_emissao=emissao,
                     competencia=date(emissao.year, emissao.month, 1),
-                    valor_total=round(random.uniform(80, 24000), 2),
-                    xml_path=f"{empresa.cnpj_cpf}/{emissao:%Y%m}/{n:05d}.xml",
-                    leiaute="resumo" if n % 9 == 4 else "completo",
+                    valor_total=valor,
+                    xml_path=gravar_xml(Path(settings.dados_dir), empresa.id, tipo.value, chave, conteudo_xml),
+                    leiaute=leiaute,
                     numero=str(n + 1),
                     serie="1",
                     emitente_documento=emitente if direcao == DirecaoDocumento.PRESTADA else cnpj_valido((i + 30) % 42),

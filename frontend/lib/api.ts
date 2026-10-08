@@ -159,7 +159,9 @@ async function chamar<T>(caminho: string, opcoes: OpcoesChamada = {}): Promise<T
       // expirada no histórico — o "voltar" não repete o 401.
       const atual = `${window.location.pathname}${window.location.search}`;
       const destino = atual.startsWith("/dashboard") ? `?destino=${encodeURIComponent(atual)}` : "";
-      window.location.replace(`/login${destino}`);
+      // `sessao=expirada` é o que permite ao login dizer POR QUE o operador
+      // caiu aqui: sem isso a tela parecia um logout sem explicação.
+      window.location.replace(`/login${destino}${destino ? "&" : "?"}sessao=expirada`);
     }
     throw new ApiError(401, "Sessão expirada");
   }

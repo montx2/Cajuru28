@@ -1259,3 +1259,41 @@ def test_reset_geral_deixa_o_escritorio_sem_empresas(cliente):
     assert client.get("/empresas").json() == []
     assert client.get("/documentos", params=TUDO).json() == []
     assert db.query(DocumentoFiscal).filter_by(empresa_id=cliente["empresa_id"]).count() == 0
+
+
+def test_abrir_a_ficha_de_um_resumo_nao_consulta_a_sefaz(cliente, monkeypatch):
+    """A ficha do documento é LEITURA: não gasta cota nem espera a SEFAZ.
+
+    Antes, abrir um resumo chamava a busca do XML completo dentro do GET: a
+    tela ficava presa no tempo do ambiente fiscal (15,2 s medidos com o
+    ambiente fora) e cada abertura consumia uma consulta por chave da cota de
+    20/h por CNPJ, sem o operador ter pedido nada. A busca continua no botão
+    "Buscar XML completo", que é ação explícita.
+    """
+    from app.worker import tasks
+
+    client, db, empresa_id = cliente["client"], cliente["db"], cliente["empresa_id"]
+    resumo = DocumentoFiscal(
+        empresa_id=empresa_id,
+        tipo=TipoDocumentoFiscal.NFE,
+        direcao="tomada",
+        chave_acesso="35261012345678000199550010000000099999999999",
+        nsu="77",
+        data_emissao=datetime(2026, 10, 1, 9, 0, tzinfo=timezone.utc),
+        competencia=date(2026, 10, 1),
+        valor_total=100.0,
+        xml_path="/tmp/inexistente-resumo.xml",
+        leiaute="resumo",
+    )
+    db.add(resumo)
+    db.commit()
+
+    def nao_deveria_ser_chamada(*args, **kwargs):
+        raise AssertionError("abrir a ficha não pode consultar a SEFAZ")
+
+    monkeypatch.setattr(tasks, "completar_xml_documento_imediato", nao_deveria_ser_chamada)
+
+    resposta = client.get(f"/documentos/detalhe/{resumo.id}")
+
+    assert resposta.status_code == 200, resposta.text
+    assert resposta.json()["leiaute"] == "resumo"

@@ -39,6 +39,9 @@ export function FormularioLogin() {
   const router = useRouter();
   const parametros = useSearchParams();
   const destino = destinoSeguro(parametros.get("destino"));
+  // Marcado pela API quando ela redireciona por 401 (sessão expirada): o
+  // operador chega aqui sem entender o que aconteceu se a tela não contar.
+  const sessaoExpirada = parametros.get("sessao") === "expirada";
   const campoEmail = useRef<HTMLInputElement>(null);
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
@@ -132,6 +135,21 @@ export function FormularioLogin() {
             <p className="mb-3 text-xs font-medium uppercase tracking-[.12em] text-acento">Seu espaço de trabalho</p>
             <h1 className="text-xl font-semibold text-tinta-forte">Bem-vindo de volta</h1>
             <p className="mt-2 text-sm text-tinta-suave">Entre para acompanhar sua operação fiscal.</p>
+
+            {sessaoExpirada ? (
+              <p
+                role="status"
+                className="mt-6 flex items-start gap-2 rounded-controle border border-espera/40 bg-espera-tenue px-3 py-3 text-sm leading-6 text-espera"
+              >
+                <Icone nome="ampulheta" className="mt-1 h-4 w-4 flex-none" />
+                <span>
+                  Sua sessão expirou por inatividade.
+                  {destino.startsWith("/dashboard")
+                    ? " Entre de novo — você volta para a tela em que estava."
+                    : " Entre de novo para continuar."}
+                </span>
+              </p>
+            ) : null}
 
             <form className="mt-8 space-y-5" onSubmit={entrar} noValidate aria-busy={enviando}>
               <Entrada

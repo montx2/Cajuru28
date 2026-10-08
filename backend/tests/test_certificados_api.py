@@ -264,3 +264,28 @@ def test_validar_empresa_sem_certificado_ativo(cliente):
     resposta = client.post(f"/certificados/empresa/{empresa_id}/validar")
 
     assert resposta.status_code == 404
+
+
+def test_validar_certificado_ausente_no_disco_nao_culpa_a_senha(cliente, tmp_path):
+    """Arquivo ausente ≠ senha errada.
+
+    Volume de dados não montado (ou restauração sem a pasta de certificados)
+    deixava a mensagem "a senha guardada não abre este certificado" — mandava o
+    operador reenviar o A1 para consertar o que não estava quebrado, e escondia
+    a montagem faltando.
+    """
+    client, db, empresa_id = cliente
+    assert _enviar(client, empresa_id, senha=SENHA).status_code == 201
+    certificado = db.query(Certificado).one()
+    Path(certificado.arquivo_path).unlink()
+
+    resposta = client.post(f"/certificados/empresa/{empresa_id}/validar")
+
+    assert resposta.status_code == 200, resposta.text
+    corpo = resposta.json()
+    assert corpo["valido"] is False
+    assert "não está no volume de dados" in corpo["detalhe"]
+    assert "senha" not in corpo["detalhe"]
+    db.refresh(certificado)
+    assert certificado.ultimo_erro is not None
+    assert certificado.ultimo_erro.startswith("Arquivo do certificado não encontrado")
