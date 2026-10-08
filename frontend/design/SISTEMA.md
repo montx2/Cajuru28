@@ -315,8 +315,6 @@ Registro único em `lib/atalhos.ts`: o mapa (`?`), a paleta (`Ctrl/⌘K`) e o ou
 | `/dashboard/empresas` | Empresas | Fiscal | `g e` | `empresas`, `consulta-cnpj`, `importar` (massa), `resumoPorEmpresa`, `certificados/resumo` |
 | `/dashboard/empresa?id=` | Empresa | Fiscal | — | `obterEmpresa`, `atualizar`, `excluir`, `certificados` (+envio), `documentos`, `execucoes`, `sincronizacaoDaEmpresa` |
 | `/dashboard/certificados` | Certificados | Fiscal | `g c` | `painelCertificados`, `enviarCertificado`, `empresas` |
-| `/dashboard/procuracoes` | Procurações RFB | Fiscal | `g r` | `procuracoes`, `procuracoes/jobs`, configuração e importação de lista |
-| `/dashboard/procuracoes/empresa` | Procuração da empresa | Fiscal | — | `procuracoes/empresas`, histórico e jobs da empresa |
 | `/dashboard/relatorios` | Fechamento | Fiscal | `g f` | `fechamento`, `conferirCompetencia`, `fechamento/csv` |
 | `/dashboard/saude` | Saúde | Sistema | `g s` | `saudeDetalhada`, `infoSistema`, `backups`, `executarBackup`, `testarBackup`, `painelOperacional` |
 | `/dashboard/configuracoes` | Configurações | Sistema | `g o` | `infoSistema`, `saudeDetalhada`, Acessórias, `testarWebhook`, `resetGeral` |

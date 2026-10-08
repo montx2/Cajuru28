@@ -1,17 +1,12 @@
 import type {
-  AgenteProcuracao,
   AlertasResposta,
   BackupsResposta,
   BackupRegistro,
-  ConfiguracaoProcuracoes,
-  CredencialAgente,
-  CredencialIntegracao,
   Certificado,
   CertificadoPainel,
   ConferenciaCompetencia,
   ConsultaCNPJ,
   DirecaoDocumento,
-  DetalheProcuracao,
   DocumentoDetalhe,
   DocumentoFiscal,
   Empresa,
@@ -25,20 +20,7 @@ import type {
   FechamentoMensal,
   InfoSistema,
   ItemImportacaoLote,
-  JobProcuracao,
-  JobProcuracaoDetalhe,
   KpisDashboard,
-  ListaProcuracoes,
-  MetricasProcuracoes,
-  ModeloProcuracao,
-  NotificacaoProcuracao,
-  PassoRoteiro,
-  ProcessarPendenciasResultado,
-  RelatorioPrevoo,
-  RequisitosAgente,
-  ResultadoSincronizacaoProcuracoes,
-  ResumoProcuracoes,
-  SituacaoOpcaoProcuracao,
   LoteEmpresasResposta,
   PainelOperacional,
   CentralExecucoes,
@@ -676,233 +658,6 @@ export const api = {
   testarBackup: (id: number) =>
     chamar<{ ok: boolean; detalhe: string }>(`/sistema/backups/${id}/testar`, {
       method: "POST",
-    }),
-
-  /* ── Procurações RFB ───────────────────────────────────────────────────
-   *
-   * Leituras do painel, operação da fila e administração do módulo. A
-   * execução no portal não passa por aqui: ela acontece na estação, conduzida
-   * pelo Cajuru Agent, com o operador autenticando-se no ambiente oficial.
-   */
-
-  resumoProcuracoes: () => chamar<ResumoProcuracoes>("/procuracoes/resumo"),
-
-  /**
-   * Pré-voo do lote. Somente leitura no servidor: pode ser chamado à vontade
-   * sem criar job nem alterar autorização.
-   */
-  preVooProcuracoes: (empresaIds: number[] = []) =>
-    chamar<RelatorioPrevoo>(
-      `/procuracoes/pre-voo${empresaIds.length ? `?empresa_ids=${empresaIds.join(",")}` : ""}`,
-    ),
-
-  metricasProcuracoes: (dias = 30) =>
-    chamar<MetricasProcuracoes>(`/procuracoes/metricas${montarParams({ dias })}`),
-
-  /**
-   * CSV da carteira. Vai por `fetch` + blob, e não por `<a download>`: o
-   * cookie de sessão é HttpOnly e não viaja em navegação cross-origin — o
-   * link direto voltaria 401 e o operador veria um arquivo de erro.
-   */
-  baixarRelatorioProcuracoes: (opcoes: { somentePendentes?: boolean } = {}) =>
-    baixarArquivo(
-      `/procuracoes/relatorio${montarParams({
-        formato: "csv",
-        somente_pendentes: opcoes.somentePendentes ? true : undefined,
-      })}`,
-      "autorizacoes-de-acesso.csv",
-    ),
-
-  listarProcuracoes: (filtros: {
-    situacao?: string;
-    busca?: string;
-    com_job?: boolean | null;
-    pagina?: number;
-    tamanho?: number;
-  } = {}) => chamar<ListaProcuracoes>(`/procuracoes${montarParams(filtros)}`),
-
-  situacoesProcuracao: () => chamar<SituacaoOpcaoProcuracao[]>("/procuracoes/situacoes"),
-
-  detalheProcuracao: (empresaId: number) =>
-    chamar<DetalheProcuracao>(`/procuracoes/empresas/${empresaId}`),
-
-  roteiroProcuracao: (fase?: string) =>
-    chamar<{
-      passos: PassoRoteiro[];
-      fundamento: string;
-      urls_oficiais: { portal_servicos: string; ecac: string };
-    }>(`/procuracoes/roteiro${montarParams({ fase })}`),
-
-  listarJobsProcuracao: (filtros: { status?: string; empresa_id?: number; limite?: number } = {}) =>
-    chamar<JobProcuracao[]>(`/procuracoes/jobs${montarParams(filtros)}`),
-
-  jobProcuracao: (jobId: number) =>
-    chamar<JobProcuracaoDetalhe>(`/procuracoes/jobs/${jobId}`),
-
-  criarJobProcuracao: (empresa_id: number, opcoes: { forcar_nova_outorga?: boolean; modelo_id?: number | null } = {}) =>
-    chamar<JobProcuracao>("/procuracoes/jobs", {
-      method: "POST",
-      body: JSON.stringify({ empresa_id, ...opcoes }),
-    }),
-
-  processarPendencias: (opcoes: { limite?: number; empresa_ids?: number[] } = {}) =>
-    chamar<ProcessarPendenciasResultado>("/procuracoes/processar-pendencias", {
-      method: "POST",
-      body: JSON.stringify(opcoes),
-    }),
-
-  retomarJobProcuracao: (jobId: number) =>
-    chamar<JobProcuracao>(`/procuracoes/jobs/${jobId}/retomar`, { method: "POST", body: "{}" }),
-
-  cancelarJobProcuracao: (jobId: number, motivo: string) =>
-    chamar<JobProcuracao>(`/procuracoes/jobs/${jobId}/cancelar`, {
-      method: "POST",
-      body: JSON.stringify({ motivo }),
-    }),
-
-  reprocessarJobProcuracao: (jobId: number) =>
-    chamar<JobProcuracao>(`/procuracoes/jobs/${jobId}/reprocessar`, { method: "POST", body: "{}" }),
-
-  intervencaoJobProcuracao: (jobId: number, motivo: string) =>
-    chamar<JobProcuracao>(`/procuracoes/jobs/${jobId}/intervencao`, {
-      method: "POST",
-      body: JSON.stringify({ motivo }),
-    }),
-
-  // Registro manual: o operador concluiu no portal e informa o que o portal
-  // devolveu. Sem protocolo ou texto de confirmação a API recusa.
-  registrarOutorga: (jobId: number, dados: { protocolo?: string; confirmacao_portal?: string }) =>
-    chamar<JobProcuracao>(`/procuracoes/jobs/${jobId}/registrar-outorga`, {
-      method: "POST",
-      body: JSON.stringify(dados),
-    }),
-
-  registrarAceite: (jobId: number, dados: { confirmacao_portal?: string }) =>
-    chamar<JobProcuracao>(`/procuracoes/jobs/${jobId}/registrar-aceite`, {
-      method: "POST",
-      body: JSON.stringify(dados),
-    }),
-
-  configuracaoProcuracoes: () => chamar<ConfiguracaoProcuracoes>("/procuracoes/configuracao"),
-
-  salvarConfiguracaoProcuracoes: (dados: Partial<ConfiguracaoProcuracoes>) =>
-    chamar<ConfiguracaoProcuracoes>("/procuracoes/configuracao", {
-      method: "PUT",
-      body: JSON.stringify(dados),
-    }),
-
-  modelosProcuracao: () => chamar<ModeloProcuracao[]>("/procuracoes/modelos"),
-
-  salvarModeloProcuracao: (dados: Partial<ModeloProcuracao> & { nome: string }, id?: number) =>
-    chamar<ModeloProcuracao>(id ? `/procuracoes/modelos/${id}` : "/procuracoes/modelos", {
-      method: id ? "PUT" : "POST",
-      body: JSON.stringify(dados),
-    }),
-
-  excluirModeloProcuracao: (id: number) =>
-    chamar<void>(`/procuracoes/modelos/${id}`, { method: "DELETE" }),
-
-  integracoesProcuracao: () => chamar<CredencialIntegracao[]>("/procuracoes/integracoes"),
-
-  salvarIntegracaoProcuracao: (dados: {
-    /** Única integração remota do módulo (o Jettax entra por importação). */
-    fonte: "integra_contador";
-    segredo?: string;
-    identificador?: string;
-    ativo?: boolean;
-    opcoes?: Record<string, string>;
-  }) =>
-    chamar<CredencialIntegracao>("/procuracoes/integracoes", {
-      method: "PUT",
-      body: JSON.stringify(dados),
-    }),
-
-  removerIntegracaoProcuracao: (fonte: string) =>
-    chamar<void>(`/procuracoes/integracoes/${fonte}`, { method: "DELETE" }),
-
-  testarIntegracaoProcuracao: (fonte: string) =>
-    chamar<{ fonte: string; ok: boolean; mensagem: string }>(
-      `/procuracoes/integracoes/${fonte}/testar`,
-      { method: "POST", body: "{}" }
-    ),
-
-  sincronizarProcuracoes: (fonte: "integra_contador") =>
-    chamar<ResultadoSincronizacaoProcuracoes>("/procuracoes/sincronizar", {
-      method: "POST",
-      body: JSON.stringify({ fonte }),
-    }),
-
-  importarPlanilhaProcuracoes: (
-    arquivo: File,
-    opcoes: { fonte?: string; situacaoPadrao?: string } = {}
-  ) => {
-    const corpo = new FormData();
-    corpo.append("arquivo", arquivo);
-    // Quem sabe de onde o arquivo veio é o operador: o mesmo CSV vale como
-    // dado do Jettax (precedência maior) ou como planilha do escritório.
-    corpo.append("fonte_declarada", opcoes.fonte ?? "planilha");
-    corpo.append("situacao_padrao", opcoes.situacaoPadrao ?? "");
-    return chamar<ResultadoSincronizacaoProcuracoes>("/procuracoes/importar-planilha", {
-      method: "POST",
-      body: corpo,
-    });
-  },
-
-  /** Importa a lista copiada da tela do fornecedor (sem credencial nenhuma). */
-  importarListaProcuracoes: (dados: {
-    texto: string;
-    fonte?: string;
-    situacao_padrao?: string;
-  }) =>
-    chamar<ResultadoSincronizacaoProcuracoes>("/procuracoes/importar-lista", {
-      method: "POST",
-      body: JSON.stringify({
-        texto: dados.texto,
-        fonte: dados.fonte ?? "jettax360",
-        situacao_padrao: dados.situacao_padrao ?? "",
-      }),
-    }),
-
-  agentesProcuracao: () => chamar<AgenteProcuracao[]>("/procuracoes/agentes"),
-
-  /**
-   * O botão "Cadastrar estas empresas" do resultado da importação: nome e
-   * documento vieram com a lista, a UF o servidor descobre pelo CNPJ.
-   */
-  cadastrarEmpresasPendencias: (
-    empresas: Array<{ documento: string; razao_social: string }>
-  ) =>
-    chamar<LoteEmpresasResposta>("/empresas/lote-texto", {
-      method: "POST",
-      body: JSON.stringify({ empresas }),
-    }),
-
-  /**
-   * Matrícula de estação. O identificador é gerado pelo servidor e volta na
-   * resposta — só se informa aqui para **re-credenciar** uma estação que já
-   * existe (mesma máquina, segredo novo).
-   */
-  matricularAgente: (nome: string, identificador?: string) =>
-    chamar<CredencialAgente>("/procuracoes/agentes", {
-      method: "POST",
-      body: JSON.stringify({ nome, ...(identificador ? { identificador } : {}) }),
-    }),
-
-  revogarAgente: (id: number, motivo: string) =>
-    chamar<AgenteProcuracao>(`/procuracoes/agentes/${id}/revogar`, {
-      method: "POST",
-      body: JSON.stringify({ motivo }),
-    }),
-
-  requisitosAgente: () => chamar<RequisitosAgente>("/procuracoes/agentes/requisitos"),
-
-  notificacoesProcuracao: (abertas = true) =>
-    chamar<NotificacaoProcuracao[]>(`/procuracoes/notificacoes${montarParams({ abertas })}`),
-
-  reconhecerNotificacaoProcuracao: (id: number) =>
-    chamar<NotificacaoProcuracao>(`/procuracoes/notificacoes/${id}/reconhecer`, {
-      method: "POST",
-      body: "{}",
     }),
 
   saudeDetalhada: () =>

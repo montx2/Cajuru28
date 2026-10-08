@@ -47,7 +47,6 @@ from app.schemas import (
     EstadoSincronizacaoResposta,
     ItemLoteEmpresas,
     LoteEmpresasResposta,
-    LoteTextoEntrada,
 )
 from app.api.routers.importacoes import estados_do_escritorio
 from app.services.cnpj import consultar_cnpj
@@ -507,68 +506,6 @@ async def importar_empresas_em_massa(
         senhas_da_planilha=sum(
             1 for linha in lista_planilhas if (linha.get("senha") or "").strip()
         ),
-    )
-
-
-@router.post("/lote-texto", response_model=LoteEmpresasResposta)
-def cadastrar_empresas_de_pendencias(
-    dados: LoteTextoEntrada,
-    db: Session = Depends(get_db),
-    escritorio_id: int = Depends(escritorio_id_atual),
-    usuario: Usuario = Depends(requer_escrita),
-):
-    """
-    O botão "Cadastrar estas empresas" do resultado de uma importação de lista.
-    """
-    resultados: list[ItemLoteEmpresas] = []
-    vistos: set[str] = set()
-    for pendencia in dados.empresas:
-        try:
-            documento = normalizar_documento(pendencia.documento)
-        except ValueError:
-            resultados.append(
-                ItemLoteEmpresas(
-                    origem="Pendência da importação",
-                    cnpj_cpf=pendencia.documento.strip()[:30],
-                    razao_social=pendencia.razao_social.strip()[:255],
-                    status="erro",
-                    mensagem="Documento inválido: confira o valor na origem.",
-                )
-            )
-            continue
-        resultados.append(
-            _criar_empresa_de_linha(
-                documento,
-                {"razao_social": pendencia.razao_social.strip()},
-                db,
-                escritorio_id,
-                vistos,
-                uf_padrao="",
-                origem="Pendência da importação",
-            )
-        )
-
-    criadas = sum(1 for r in resultados if r.status == "criada")
-    ja_existiam = sum(1 for r in resultados if r.status == "ja_existia")
-    erros = sum(1 for r in resultados if r.status == "erro")
-    auditoria.registrar(
-        db,
-        usuario,
-        "empresas_lote_pendencias",
-        detalhe=(
-            f"{len(resultados)} pendências: {criadas} criadas, "
-            f"{ja_existiam} já existiam, {erros} sem UF/documento"
-        ),
-    )
-    db.commit()
-
-    return LoteEmpresasResposta(
-        total=len(resultados),
-        criadas=criadas,
-        certificados=0,
-        ja_existiam=ja_existiam,
-        erros=erros,
-        itens=resultados,
     )
 
 

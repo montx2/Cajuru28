@@ -18,7 +18,6 @@ from sqlalchemy.orm import sessionmaker
 from app.core import config
 from app.core.vault import cifrar_segredo
 from app.db.base import Base
-import app.procuracoes.modelos  # noqa: F401
 from app.models import (
     Certificado,
     DocumentoFiscal,

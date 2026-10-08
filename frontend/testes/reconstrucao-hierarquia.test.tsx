@@ -70,8 +70,6 @@ describe("hierarquia operacional reconstruída", () => {
       "app/dashboard/certificados/Certificados.tsx",
       "app/dashboard/configuracoes/Configuracoes.tsx",
       "app/dashboard/execucoes/Execucoes.tsx",
-      "app/dashboard/procuracoes/Procuracoes.tsx",
-      "app/dashboard/procuracoes/empresa/EmpresaProcuracao.tsx",
       "app/dashboard/saude/Saude.tsx",
       "app/dashboard/usuarios/Usuarios.tsx",
     ].map(fonte);
@@ -79,6 +77,5 @@ describe("hierarquia operacional reconstruída", () => {
     for (const codigo of telas) {
       expect(codigo).not.toMatch(/>\s*Atualizar\s*<\/Botao>/);
     }
-    expect(fonte("app/dashboard/procuracoes/ConfiguracaoProcuracoes.tsx")).not.toContain("Jettax");
   });
 });

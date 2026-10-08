@@ -27,16 +27,6 @@ log = logging.getLogger("notasflow.migracoes")
 
 # Colunas novas por tabela: (nome, tipo SQL)
 _COLUNAS_POR_TABELA: dict[str, list[tuple[str, str]]] = {
-    # Procurações RFB — tabelas novas nascem do create_all; esta coluna foi
-    # acrescentada depois da primeira versão do módulo.
-    "procuracao_agentes": [
-        ("assinador_pendencias", "VARCHAR(255) NOT NULL DEFAULT ''"),
-    ],
-    # Pendência de importação sem o nome do cliente é um CNPJ solto na tela:
-    # a coluna entrou depois para que o operador saiba de quem é o documento.
-    "procuracao_integracao_erros": [
-        ("nome", "VARCHAR(255) NOT NULL DEFAULT ''"),
-    ],
     "documentos_fiscais": [
         ("status", "VARCHAR(20) NOT NULL DEFAULT 'normal'"),
         ("motivo_cancelamento", "TEXT"),
@@ -112,20 +102,6 @@ _INDICES: list[tuple[str, str]] = [
     ("ix_documentos_emitente", "CREATE INDEX IF NOT EXISTS ix_documentos_emitente ON documentos_fiscais (emitente_documento)"),
     ("ix_execucoes_empresa_tipo_status", "CREATE INDEX IF NOT EXISTS ix_execucoes_empresa_tipo_status ON execucoes_importacao (empresa_id, tipo, status)"),
     ("ix_sincronizacao_empresa_tipo", "CREATE UNIQUE INDEX IF NOT EXISTS ix_sincronizacao_empresa_tipo ON sincronizacoes_dfe (empresa_id, tipo)"),
-    # Módulo Procurações RFB. As tabelas nascem do create_all; estes índices
-    # compostos é que sustentam a fila e o painel com milhares de empresas —
-    # sem eles, "52 empresas sem procuração" vira varredura de tabela inteira
-    # a cada carregamento de tela.
-    ("ix_proc_jobs_escritorio_status", "CREATE INDEX IF NOT EXISTS ix_proc_jobs_escritorio_status ON procuracao_jobs (escritorio_id, status)"),
-    ("ix_proc_jobs_fila", "CREATE INDEX IF NOT EXISTS ix_proc_jobs_fila ON procuracao_jobs (status, prioridade, id)"),
-    ("ix_proc_jobs_lease", "CREATE INDEX IF NOT EXISTS ix_proc_jobs_lease ON procuracao_jobs (lease_ate)"),
-    ("ix_proc_jobs_empresa", "CREATE INDEX IF NOT EXISTS ix_proc_jobs_empresa ON procuracao_jobs (empresa_id, id)"),
-    ("ix_proc_autorizacoes_situacao", "CREATE INDEX IF NOT EXISTS ix_proc_autorizacoes_situacao ON procuracao_autorizacoes (escritorio_id, situacao)"),
-    ("ix_proc_autorizacoes_validade", "CREATE INDEX IF NOT EXISTS ix_proc_autorizacoes_validade ON procuracao_autorizacoes (escritorio_id, data_validade)"),
-    ("ix_proc_eventos_job_quando", "CREATE INDEX IF NOT EXISTS ix_proc_eventos_job_quando ON procuracao_job_eventos (job_id, quando)"),
-    ("ix_proc_nonces_expira", "CREATE INDEX IF NOT EXISTS ix_proc_nonces_expira ON procuracao_agente_nonces (expira_em)"),
-    ("ix_proc_inventario_busca", "CREATE INDEX IF NOT EXISTS ix_proc_inventario_busca ON procuracao_certificados_inventario (escritorio_id, documento, situacao)"),
-    ("ix_proc_notificacoes_abertas", "CREATE INDEX IF NOT EXISTS ix_proc_notificacoes_abertas ON procuracao_notificacoes (escritorio_id, reconhecida_em)"),
 ]
 
 # `ALTER TYPE` só faz sentido no PostgreSQL (SQLite guarda enum como texto).
@@ -199,7 +175,6 @@ def aplicar_migracoes() -> None:
     _preencher_competencia_faltante()
     _rebaixar_xmls_incompletos()
     _habilitar_manifestacao_automatica_padrao()
-    _apagar_credenciais_jettax()
     _semear_sincronizacoes()
 
 
@@ -304,35 +279,6 @@ def _habilitar_manifestacao_automatica_padrao() -> None:
             )
     except Exception as exc:  # noqa: BLE001
         log.warning("Migração: ajuste de manifestar_automaticamente pulado (%s)", exc)
-
-
-def _apagar_credenciais_jettax() -> None:
-    """Remove credenciais da integração Jettax 360 (removida do produto).
-
-    A decisão é do dono do produto: não existe endpoint público documentado
-    para a tela de procurações do painel, então o Jettax passa a ser apenas
-    **procedência de dado** (importação manual). Segredo de integração que não
-    se usa não fica guardado no cofre. Idempotente: rodar de novo não encontra
-    nada e não falha.
-    """
-    if "procuracao_credenciais_integracao" not in _tabelas_existentes():
-        return
-    try:
-        with engine.begin() as conexao:
-            resultado = conexao.execute(
-                text(
-                    "DELETE FROM procuracao_credenciais_integracao "
-                    "WHERE fonte = 'jettax360'"
-                )
-            )
-        if resultado.rowcount:
-            log.info(
-                "Migração: %d credencial(is) jettax360 removida(s) da tabela "
-                "procuracao_credenciais_integracao",
-                resultado.rowcount,
-            )
-    except Exception as exc:  # noqa: BLE001 — limpeza não pode derrubar o startup
-        log.warning("Migração: limpeza de credenciais jettax360 pulada (%s)", exc)
 
 
 def _tabelas_existentes() -> set[str]:

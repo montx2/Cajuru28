@@ -47,7 +47,6 @@ Reordenação editorial do front-end para priorizar saúde, decisões humanas e 
 - **Importações:** sincronismo vem antes do formulário, sem passos numerados. Prévia e disparo são as ações operacionais visíveis.
 - **Documentos:** a barra foi reduzida a busca, filtros, Exportar e `⋮`. Durante seleção, as ferramentas são substituídas por baixar XMLs e excluir.
 - **Empresas:** busca, “Nova empresa” e `⋮` formam a barra; situação, preferências de tabela e importações continuam alcançáveis pelo menu.
-- **Certificados, Execuções, Equipe, Auditoria, Configurações, Atenção e Procurações:** recarga manual usa ícone de 40 px com nome acessível e horário da última leitura.
 - **Empresa:** cada aba expõe uma única ação principal; exclusão permanece separada e destrutiva.
 - **Saúde:** backup manual e teste de restauração foram agrupados em “Manutenção”, ambos com confirmação explícita.
 - **Fechamento:** competência, conferência e downloads dividem uma única barra operacional.
@@ -66,7 +65,6 @@ Reordenação editorial do front-end para priorizar saúde, decisões humanas e 
 | Filtros de situação, colunas e densidade em Empresas | `⋮` da barra da tabela |
 | Importar lote em Certificados | `⋮` do cabeçalho |
 | Excluir empresa | `⋮` do detalhe, com confirmação digitada |
-| Instrução permanente sobre fonte externa em Procurações | ajuda recolhível dentro do importador, visível só para a fonte escolhida |
 | Imprimir e baixar CSV no Fechamento | menu Baixar ao lado de Conferir competência |
 
 ### Fundação e documentação
@@ -74,7 +72,6 @@ Reordenação editorial do front-end para priorizar saúde, decisões humanas e 
 - O estado global de atualização agora registra o último refetch concluído e o Header o mostra em telas largas.
 - `Tabela` troca de barra em seleção, em vez de sobrepor ações ao rodapé.
 - `MenuSuspenso` passou a renderizar separadores declarados e limita a altura com rolagem em menus extensos.
-- A tabela de rotas em `design/SISTEMA.md` inclui as duas rotas de Procurações.
 - Testes de regressão cobrem a nova hierarquia, a descoberta contextual e a substituição da barra da tabela.
 
 ### Verificação

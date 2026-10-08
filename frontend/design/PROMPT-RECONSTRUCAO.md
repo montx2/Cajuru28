@@ -28,7 +28,7 @@ Três critérios, nesta ordem, vêm do sistema visual e não são negociáveis:
 
 - **O que é:** captura automática de documentos fiscais (NFS-e nacional, NF-e, CT-e) pela
   SEFAZ/ADN com certificado A1, organização por empresa e competência, e exportação para o
-  sistema contábil (Unico). Módulo auxiliar de procurações RFB.
+  sistema contábil (Unico).
 - **Quem opera:** 1 a 3 pessoas de um escritório contábil, o dia inteiro, em telas abertas por
   horas. Não é demo, não é vitrine, não é landing page. É instrumento de trabalho contínuo.
 - **Escala:** centenas de empresas, milhões de documentos. Toda decisão de UI passa por isso.
@@ -90,7 +90,7 @@ desta reconstrução.
 - **Igualdade visual entre o rotineiro e o raro:** "Importar lote", "Importar XML", "testar
   webhook", "executar backup" têm o mesmo peso visual de "Exportar o mês".
 
-### 2.4 Corrigir — integrações externas expostas demais (Jettax e afins)
+### 2.4 Corrigir — integrações externas expostas demais
 
 Audição de onde o caminho "de fora" aparece hoje:
 
@@ -98,8 +98,6 @@ Audição de onde o caminho "de fora" aparece hoje:
 |---|---|---|
 | `Importacoes.tsx:381` | `<ImportarXmls />` como cartão inteiro no topo da tela | É o caminho de exceção (nota que veio de outro sistema) com o melhor lugar da tela |
 | `ImportarXmls.tsx` ("Importar notas por XML") | Cartão + drag-and-drop sempre visível | Idem |
-| `procuracoes/ImportarLista.tsx` | Seletor de fonte com "Jettax 360" em destaque + Aviso "Como copiar do painel do Jettax" | Nome de ferramenta de terceiro disputa atenção com o fluxo próprio |
-| `procuracoes/ConfiguracaoProcuracoes.tsx:188` | Aviso permanente sobre a lista do Jettax 360 | Aviso que não é ação vira papel de parede |
 
 **Diretiva:** importação de fora é o **rodapé da hierarquia**, não o topo. Ver §7.
 
@@ -107,9 +105,6 @@ Audição de onde o caminho "de fora" aparece hoje:
 
 - `package.json` ainda diz `notasflow-frontend`; o produto se chama Fluxa em 27 arquivos.
   Unifique: o `name` vira `fluxa-frontend`.
-- `design/SISTEMA.md` §13 (tabela de rotas) não lista `/dashboard/procuracoes` e
-  `/dashboard/procuracoes/empresa`, que existem em `lib/rotas.ts`. Documento que mente é pior
-  que documento ausente: atualize a tabela ao final.
 - Comentários que descrevem a paleta antiga (ex.: "verde do carimbo" em `Botao.tsx`) já foram
   corrigidos na última rodada — reconfira durante a reescrita; comentário errado é bug de
   documentação.
@@ -243,8 +238,8 @@ Estas regras valem para **todas** as telas e prevalecem sobre preferências loca
 ## 7. Diretiva específica: importações de fora ficam escondidas
 
 O princípio: **o Fluxa captura sozinho pela SEFAZ/ADN**. Importar arquivo de outro sistema é o
-caminho de exceção — e aparece como exceção. Nenhum nome de ferramenta de terceiro (Jettax,
-portal de prefeitura, "outro sistema") tem lugar no primeiro scroll de qualquer tela.
+caminho de exceção — e aparece como exceção. Nenhum nome de ferramenta de terceiro, portal
+de prefeitura ou "outro sistema" tem lugar no primeiro scroll de qualquer tela.
 
 Regra aplicada:
 
@@ -255,15 +250,8 @@ Regra aplicada:
    Nenhuma perda de função, todo o ganho de silêncio.
 2. **Tela Documentos:** o atalho de importar XML continua existindo — no `⋮` da barra da
    tabela, ao lado de "Completar XMLs", não na barra.
-3. **Procurações:** o Aviso permanente "A lista do Jettax 360 entra por importação" de
-   `ConfiguracaoProcuracoes` vira **uma linha de ajuda** (`Dica` ou texto `text-tinta-suave`)
-   dentro do próprio fluxo de importação. O seletor de fonte de `ImportarLista` mantém a opção
-   "Jettax 360", mas como a *segunda* opção ("Planilha do escritório" primeiro), com o texto de
-   instrução "como copiar do painel" colapsado num `<details>`-estilo ou `Popover` — quem sabe
-   o que está fazendo abre; quem não sabe não é obrigado a ler todo dia.
-4. **Linguagem:** em nenhuma tela o nome "Jettax" aparece em título de cartão, `CabecalhoPagina`
-   ou botão. Se precisar nomear (ajuda a pessoa que vem do outro sistema), é no corpo de um
-   texto de ajuda, em minúsculo relativo: "lista exportada do Jettax 360".
+3. **Linguagem:** o nome de uma ferramenta externa só aparece em ajuda contextual quando
+   isso é necessário para identificar a origem de um arquivo importado.
 
 ---
 
@@ -358,11 +346,7 @@ O que muda em cada rota. O que não está listado aqui, não muda.
 ### 9.12 `/dashboard/auditoria` e `/dashboard/usuarios`
 - Somente leitura / CRUD simples já corretos. Dieta de botões padrão.
 
-### 9.13 `/dashboard/procuracoes*` — Procurações RFB
-- Aplicar §7.3/§7.4. A navegação do módulo (fila, jobs, escritório) permanece como está.
-- O `Aviso` sobre Jettax deixa de ser permanente (vira ajuda contextual do importador).
-
-### 9.14 `/login`
+### 9.13 `/login`
 - Sem alterações estruturais. Conferir copy (§8) e o toggle de senha (ícone de olho, se ainda
   textual).
 
@@ -386,15 +370,15 @@ O que muda em cada rota. O que não está listado aqui, não muda.
 
 ## 11. Plano de execução (nesta ordem, um PR por fase)
 
-1. **Fase 0 — inventário e fix de verdade:** `package.json` → `fluxa-frontend`; atualizar
-   §13 do SISTEMA.md com as rotas de Procurações; conferir comentários de paleta.
+1. **Fase 0 — inventário e fix de verdade:** `package.json` → `fluxa-frontend`; conferir
+   comentários de paleta e atualizar o inventário de rotas.
 2. **Fase 1 — shell e navegação:** Sidebar com grupos e contagem silenciosa (badge numérico
    só onde há pendência), Header com timestamp do último refresh global. Nenhuma mudança de
    rota/caminho.
 3. **Fase 2 — Painel e Atenção** (§9.1, §9.2): a nova hierarquia do topo.
 4. **Fase 3 — as duas telas de dieta pesada:** Documentos e Importações (§9.4, §9.5) —
    inclui a mudança do §7 (XML import para modal via `⋮`).
-5. **Fase 4 — Empresas/Certificados/detalhe** (§9.6–9.8) e Procurações (§9.13).
+5. **Fase 4 — Empresas/Certificados/detalhe** (§9.6–9.8).
 6. **Fase 5 — telas de sistema** (§9.10–9.12) e revisão de copy geral (§8).
 7. **Fase 6 — QA e fechamento:** checklist do §12 completo, `typecheck`, `vitest`, `next
    build`, atualização do `CHANGELOG-FRONTEND.md` e do SISTEMA.md.
@@ -412,7 +396,6 @@ Cada fase termina verde (`npm run typecheck && npm run test && npm run build`) e
 - [ ] Documentos ≤ 5 controles na barra; Importações ≤ 2 no cabeçalho; Empresas ≤ 3.
 - [ ] "Importar XMLs de outro sistema" não é visível em nenhuma tela sem abrir menu — e abre
       o modal com drag-and-drop e resultado por arquivo, igual aos de hoje.
-- [ ] A palavra "Jettax" não aparece em título, botão ou cabeçalho de tela.
 - [ ] Todo botão removido tem linha no PR dizendo para onde foi (paleta, menu `⋮`, aba).
 - [ ] Os KPIs do Painel mostram delta vs. competência anterior ao lado do valor.
 - [ ] Passos numerados "1 ·"/"2 ·" não existem mais.

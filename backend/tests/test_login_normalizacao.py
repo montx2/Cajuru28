@@ -8,12 +8,17 @@ CREDENCIAIS.txt junto com a quebra de linha, tomava "Email ou senha
 incorretos" com a credencial certa.
 """
 
+from datetime import datetime, timedelta, timezone
+from uuid import uuid4
+
+import jwt
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.core.config import settings
 from app.core.security import gerar_hash_senha
 from app.db.base import Base
 from app.db.session import get_db
@@ -111,6 +116,31 @@ def test_login_recusa_usuario_inativo(contexto):
     resposta = cliente.post("/auth/login", json={"email": EMAIL, "senha": SENHA})
     # Mesma resposta de credenciais incorretas: não revela estado da conta.
     assert resposta.status_code == 401
+
+
+def test_token_expirado_nao_abre_sessao_e_exige_autenticacao_nova(contexto):
+    cliente, _db, usuario = contexto
+    agora = datetime.now(timezone.utc)
+    token_expirado = jwt.encode(
+        {
+            "sub": str(usuario.id),
+            "escritorio_id": usuario.escritorio_id,
+            "sv": usuario.versao_sessao,
+            "jti": str(uuid4()),
+            "iat": agora - timedelta(minutes=2),
+            "exp": agora - timedelta(seconds=1),
+            "iss": settings.jwt_issuer,
+            "aud": settings.jwt_audience,
+        },
+        settings.secret_key,
+        algorithm=settings.algorithm,
+    )
+
+    cliente.cookies.set(settings.session_cookie_name, token_expirado)
+    resposta = cliente.get("/auth/me")
+
+    assert resposta.status_code == 401
+    assert resposta.json()["detail"] == "Sessão inválida ou expirada"
 
 
 def test_sessao_cookie_permite_me_e_logout_revoga(contexto):

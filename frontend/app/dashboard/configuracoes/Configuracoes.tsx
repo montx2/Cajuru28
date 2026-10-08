@@ -142,7 +142,7 @@ function AbaAmbiente({ sistema, saude }: { sistema: RecursoSistema; saude: Recur
       {sistema.erro ? (
         <EstadoErro erro={sistema.erro} aoTentarNovamente={sistema.atualizar} contexto="ler as informações do sistema" />
       ) : sistema.dados ? (
-        <Cartao titulo="Instalação" descricao="Somente leitura: estas definições vêm do compose e das variáveis de ambiente">
+        <Cartao titulo="Instalação" descricao="Somente leitura: valores detectados na configuração ativa da aplicação">
           <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3">
             <Dado rotulo="Modo" valor={sistema.dados.modo} />
             <Dado rotulo="Banco" valor={sistema.dados.banco} mono />
