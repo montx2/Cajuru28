@@ -549,7 +549,7 @@ def test_export_zip_avisa_quando_leiaute_completo_mas_arquivo_sumiu_do_disco(cli
     assert "arquivo-ausente-no-disco" in linha_nova
 
     leia_me = pacote.read("Fluxa/LEIA-ME.txt").decode("utf-8")
-    assert "1 documento(s) constam como 'XML completo'" in leia_me
+    assert "1 documento consta como 'XML completo'" in leia_me
     assert "arquivo-ausente-no-disco" in leia_me
 
     # o CSV avulso (sem baixar XML nenhum) precisa contar a mesma verdade.
@@ -1259,3 +1259,146 @@ def test_reset_geral_deixa_o_escritorio_sem_empresas(cliente):
     assert client.get("/empresas").json() == []
     assert client.get("/documentos", params=TUDO).json() == []
     assert db.query(DocumentoFiscal).filter_by(empresa_id=cliente["empresa_id"]).count() == 0
+
+
+def test_abrir_a_ficha_de_um_resumo_nao_consulta_a_sefaz(cliente, monkeypatch):
+    """A ficha do documento é LEITURA: não gasta cota nem espera a SEFAZ.
+
+    Antes, abrir um resumo chamava a busca do XML completo dentro do GET: a
+    tela ficava presa no tempo do ambiente fiscal (15,2 s medidos com o
+    ambiente fora) e cada abertura consumia uma consulta por chave da cota de
+    20/h por CNPJ, sem o operador ter pedido nada. A busca continua no botão
+    "Buscar XML completo", que é ação explícita.
+    """
+    from app.worker import tasks
+
+    client, db, empresa_id = cliente["client"], cliente["db"], cliente["empresa_id"]
+    resumo = DocumentoFiscal(
+        empresa_id=empresa_id,
+        tipo=TipoDocumentoFiscal.NFE,
+        direcao="tomada",
+        chave_acesso="35261012345678000199550010000000099999999999",
+        nsu="77",
+        data_emissao=datetime(2026, 10, 1, 9, 0, tzinfo=timezone.utc),
+        competencia=date(2026, 10, 1),
+        valor_total=100.0,
+        xml_path="/tmp/inexistente-resumo.xml",
+        leiaute="resumo",
+    )
+    db.add(resumo)
+    db.commit()
+
+    def nao_deveria_ser_chamada(*args, **kwargs):
+        raise AssertionError("abrir a ficha não pode consultar a SEFAZ")
+
+    monkeypatch.setattr(tasks, "completar_xml_documento_imediato", nao_deveria_ser_chamada)
+
+    resposta = client.get(f"/documentos/detalhe/{resumo.id}")
+
+    assert resposta.status_code == 200, resposta.text
+    assert resposta.json()["leiaute"] == "resumo"
+
+
+def test_baixar_xml_de_um_resumo_nao_consulta_a_sefaz(cliente, monkeypatch):
+    """O download entrega arquivo — não gasta cota da SEFAZ nem espera por ela.
+
+    Medido com o ambiente fiscal fora: baixar um resumo levava 15,3 s e
+    devolvia 409 "SEFAZ indisponível após 3 tentativas" — o operador pediu um
+    arquivo e recebeu um erro de integração, depois de esperar. A busca do XML
+    completo continua em `POST /{id}/completar-xml`, que é ação explícita.
+    """
+    from app.worker import tasks
+
+    client, db, empresa_id = cliente["client"], cliente["db"], cliente["empresa_id"]
+    resumo = DocumentoFiscal(
+        empresa_id=empresa_id,
+        tipo=TipoDocumentoFiscal.NFE,
+        direcao="tomada",
+        chave_acesso="35261012345678000199550010000000088888888888",
+        nsu="88",
+        data_emissao=datetime(2026, 10, 1, 9, 0, tzinfo=timezone.utc),
+        competencia=date(2026, 10, 1),
+        valor_total=100.0,
+        xml_path="/tmp/inexistente-download.xml",
+        leiaute="resumo",
+    )
+    db.add(resumo)
+    db.commit()
+
+    def nao_deveria_ser_chamada(*args, **kwargs):
+        raise AssertionError("baixar o arquivo não pode consultar a SEFAZ")
+
+    monkeypatch.setattr(tasks, "completar_xml_documento_imediato", nao_deveria_ser_chamada)
+
+    resposta = cliente["client"].get(f"/documentos/{resumo.id}/xml")
+
+    assert resposta.status_code == 409, resposta.text
+    detalhe = resposta.json()["detail"]
+    assert "Buscar XML completo" in detalhe
+    assert "SEFAZ" in detalhe
+
+
+def test_baixar_xml_serve_a_nota_que_esta_no_disco(cliente, tmp_path):
+    """Quem decide o download é o arquivo — o cadastro pode estar desatualizado.
+
+    Registro marcado como "resumo" com a procNFe no disco: o arquivo é a nota,
+    então ele sai. (O contrário — dizer "completo" e ter resumo no disco — já é
+    barrado, e é o caso que corromperia a escrituração.)
+    """
+    arquivo = tmp_path / "35261012345678000199550010000000077777777777.xml"
+    arquivo.write_bytes(
+        b'<nfeProc versao="4.00" xmlns="http://www.portalfiscal.inf.br/nfe">'
+        b'<NFe><infNFe Id="NFe35261012345678000199550010000000077777777777" versao="4.00">'
+        b"<ide><chNFe>35261012345678000199550010000000077777777777</chNFe></ide>"
+        b"<total><ICMSTot><vNF>10.00</vNF></ICMSTot></total></infNFe></NFe>"
+        b"<protNFe><infProt><cStat>100</cStat></infProt></protNFe></nfeProc>"
+    )
+    resumo = DocumentoFiscal(
+        empresa_id=cliente["empresa_id"],
+        tipo=TipoDocumentoFiscal.NFE,
+        direcao="tomada",
+        chave_acesso="35261012345678000199550010000000077777777777",
+        nsu="87",
+        data_emissao=datetime(2026, 10, 1, 9, 0, tzinfo=timezone.utc),
+        competencia=date(2026, 10, 1),
+        valor_total=10.0,
+        xml_path=str(arquivo),
+        leiaute="resumo",
+    )
+    cliente["db"].add(resumo)
+    cliente["db"].commit()
+
+    resposta = cliente["client"].get(f"/documentos/{resumo.id}/xml")
+
+    assert resposta.status_code == 200, resposta.text
+    assert resposta.content.startswith(b"<nfeProc")
+
+
+def test_baixar_xml_recusa_arquivo_que_nao_e_a_nota(cliente, tmp_path):
+    """Protocolo/evento/resumo com nome de nota continua barrado, com o motivo."""
+    arquivo = tmp_path / "35261012345678000199550010000000066666666666.xml"
+    arquivo.write_bytes(
+        b'<resNFe versao="1.01" xmlns="http://www.portalfiscal.inf.br/nfe">'
+        b"<chNFe>35261012345678000199550010000000066666666666</chNFe></resNFe>"
+    )
+    doc = DocumentoFiscal(
+        empresa_id=cliente["empresa_id"],
+        tipo=TipoDocumentoFiscal.NFE,
+        direcao="tomada",
+        chave_acesso="35261012345678000199550010000000066666666666",
+        nsu="86",
+        data_emissao=datetime(2026, 10, 1, 9, 0, tzinfo=timezone.utc),
+        competencia=date(2026, 10, 1),
+        valor_total=10.0,
+        xml_path=str(arquivo),
+        leiaute="completo",
+    )
+    cliente["db"].add(doc)
+    cliente["db"].commit()
+
+    resposta = cliente["client"].get(f"/documentos/{doc.id}/xml")
+
+    assert resposta.status_code == 409, resposta.text
+    # e o cadastro foi corrigido no caminho: o arquivo manda
+    cliente["db"].refresh(doc)
+    assert doc.leiaute == "resumo"

@@ -25,7 +25,7 @@ describe("hierarquia operacional reconstruída", () => {
       '<footer',
     ]);
     expect(codigo).toContain('pendencias > 0 ? (');
-    expect(codigo).toContain('Ver {numero(pendencias)}');
+    expect(codigo).toContain('Ver {contagem(pendencias, "pendência", "pendências")}');
     expect(codigo).not.toContain('href="/dashboard/importacoes"');
   });
 
@@ -51,7 +51,7 @@ describe("hierarquia operacional reconstruída", () => {
     // A exclusão em lote saiu do lado do botão principal e foi para o "⋯":
     // destrutiva, rara e vizinha de clique por engano na barra de seleção.
     expect(documentos).toContain('rotulo="Mais ações da seleção"');
-    expect(documentos).toContain("Excluir ${numero(quantidade)} documentos…");
+    expect(documentos).toContain('Excluir ${contagem(quantidade, "documento", "documentos")}…');
     expect(documentos).not.toContain(">Excluir {numero(quantidade)}…<");
 
     expect(empresas).toContain('rotulo="Buscar empresa"');

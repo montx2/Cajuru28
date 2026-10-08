@@ -5,8 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { ROTULO_ACAO_LOTE } from "@/lib/acoes-documento";
-import { dataCurta, dataHora, formatarCnpjCpf, numero, plural, tempoDecorrido } from "@/lib/format";
-import { estadoDaExecucao, estadoDaSincronizacao, estadoDoCertificado } from "@/lib/estados";
+import { contagem, dataCurta, dataHora, formatarCnpjCpf, numero } from "@/lib/format";
+import { cn } from "@/lib/cn";
+import { estadoDaExecucao, duracaoDaExecucao, execucaoEmAberto, estadoDaSincronizacao, estadoDoCertificado } from "@/lib/estados";
 import { mensagemDoErro } from "@/lib/erros";
 import { MOTIVO_SOMENTE_LEITURA } from "@/lib/papel";
 import { paraFiltro, rotuloPeriodo } from "@/lib/periodo";
@@ -33,6 +34,7 @@ import { DialogoConfirmacao } from "@/components/ui/DialogoConfirmacao";
 import { EsqueletoBloco } from "@/components/ui/Esqueleto";
 import { EstadoErro } from "@/components/ui/EstadoErro";
 import { EstadoVazio } from "@/components/ui/EstadoVazio";
+import { Formulario } from "@/components/ui/Formulario";
 import { Etiqueta } from "@/components/ui/Etiqueta";
 import { Cnpj, DataHora, ValorMoeda } from "@/components/ui/Formatadores";
 import { Icone } from "@/components/ui/Icone";
@@ -50,7 +52,15 @@ import {
   type TipoDocumentoFiscal,
 } from "@/lib/types";
 
-const ABAS = ["dados", "certificado", "sincronismo", "documentos", "execucoes"];
+/**
+ * Ordem das abas = ordem de uso, não ordem de cadastro.
+ *
+ * A página abre em Documentos: o cabeçalho já mostra CNPJ, UF, situação e
+ * certificado, então "Dados" só repetia o topo enquanto escondia atrás de um
+ * clique o motivo real de abrir uma empresa — o que chegou e se a captura está
+ * andando. Editar o cadastro é o caso raro; fica por último.
+ */
+const ABAS = ["documentos", "sincronismo", "certificado", "execucoes", "dados"];
 
 /**
  * Detalhe da empresa: tudo que decide a captura dela num lugar só.
@@ -67,7 +77,7 @@ export function Empresa() {
   const { periodo, aoMudar: aoMudarPeriodo, pronto } = usePeriodoUrl();
 
   const id = lerNumero("id");
-  const aba = ABAS.includes(ler("aba")) ? ler("aba") : "dados";
+  const aba = ABAS.includes(ler("aba")) ? ler("aba") : "documentos";
   const documentoAberto = lerNumero("doc") ?? null;
 
   const [editarAberto, setEditarAberto] = useState(false);
@@ -147,16 +157,16 @@ export function Empresa() {
   const documentosNoPeriodo = documentos.dados ?? [];
 
   const abas: Aba[] = [
-    { valor: "dados", rotulo: "Dados", icone: "empresa" },
+    { valor: "documentos", rotulo: "Documentos", icone: "documento", contador: pronto ? documentosNoPeriodo.length || undefined : undefined },
+    { valor: "sincronismo", rotulo: "Sincronismo", icone: "sincronizar", contador: (sincronizacao.dados ?? []).length || undefined },
     {
       valor: "certificado",
       rotulo: "Certificado",
       icone: "certificado",
       contador: certificado && (certificado.vencido || !certificado.tem_certificado) ? 1 : undefined,
     },
-    { valor: "sincronismo", rotulo: "Sincronismo", icone: "sincronizar", contador: (sincronizacao.dados ?? []).length || undefined },
-    { valor: "documentos", rotulo: "Documentos", icone: "documento", contador: pronto ? documentosNoPeriodo.length || undefined : undefined },
     { valor: "execucoes", rotulo: "Execuções", icone: "execucao", contador: (execucoes.dados ?? []).length || undefined },
+    { valor: "dados", rotulo: "Dados", icone: "empresa" },
   ];
 
   return (
@@ -179,7 +189,7 @@ export function Empresa() {
             {certificado ? <IndicadorEstado {...estadoDoCertificado(certificado)} variante="texto" /> : <IndicadorEstado tom="erro" rotulo="Sem certificado A1" icone="certificado" variante="texto" />}
             {pendenciaTotal > 0 ? (
               <span className="nums text-espera">
-                {numero(pendenciaTotal)} {plural(pendenciaTotal, "documento pendente", "documentos pendentes")}
+                {contagem(pendenciaTotal, "documento pendente", "documentos pendentes")}
               </span>
             ) : null}
           </span>
@@ -390,7 +400,7 @@ export function Empresa() {
                 vazioTitulo: pronto ? "Nenhum documento neste período" : "Escolha o período",
                 vazioInstrucao: pronto
                   ? "Se o certificado estiver válido, dispare a captura deste período — o documento pode ainda não ter sido distribuído pela SEFAZ."
-                  : "A API exige data inicial e final para listar o acervo.",
+                  : "Informe data inicial e final para listar o acervo.",
                 vazioAcao:
                   pronto && !somenteLeitura ? (
                     <BotaoLink variante="secundaria" href={`/dashboard/importacoes?empresa_ids=${dados.id}`}>
@@ -401,7 +411,7 @@ export function Empresa() {
               }}
               rodape={
                 <p className="nums text-xs text-tinta-suave">
-                  {numero(documentosNoPeriodo.length)} {plural(documentosNoPeriodo.length, "documento", "documentos")} ·{" "}
+                  {contagem(documentosNoPeriodo.length, "documento", "documentos")} ·{" "}
                   {numero(documentosNoPeriodo.filter((documento) => documento.leiaute !== "completo").length)} sem XML completo · clique numa linha para abrir o detalhe
                 </p>
               }
@@ -423,11 +433,16 @@ export function Empresa() {
                 aoTentarNovamente: execucoes.atualizar,
                 vazioTitulo: "Nenhuma execução registrada",
                 vazioInstrucao: "Dispare a captura para criar o primeiro histórico desta empresa.",
+                vazioAcao: somenteLeitura ? undefined : (
+                  <BotaoLink variante="secundaria" href={`/dashboard/importacoes?empresa_ids=${dados.id}`}>
+                    Disparar captura
+                  </BotaoLink>
+                ),
                 vazioIcone: "execucao",
               }}
               rodape={
                 <p className="nums text-xs text-tinta-suave">
-                  {numero((execucoes.dados ?? []).length)} {plural((execucoes.dados ?? []).length, "execução", "execuções")} ·{" "}
+                  {contagem((execucoes.dados ?? []).length, "execução", "execuções")} ·{" "}
                   {numero((execucoes.dados ?? []).filter((execucao) => execucao.status === "erro").length)} com erro
                 </p>
               }
@@ -472,7 +487,7 @@ export function Empresa() {
         consequencia="A empresa sai do cadastro junto com certificado, sincronismo e histórico de execuções. Os XMLs dela são apagados do disco."
         impacto={
           <span>
-            {numero(documentosNoPeriodo.length)} documentos no período {rotuloPeriodo(periodo)} · {numero((sincronizacao.dados ?? []).length)} combinações de
+            {contagem(documentosNoPeriodo.length, "documento", "documentos")} no período {rotuloPeriodo(periodo)} · {contagem((sincronizacao.dados ?? []).length, "combinação", "combinações")} de
             sincronismo. A captura automática desta empresa para imediatamente.
           </span>
         }
@@ -584,7 +599,7 @@ function colunasExecucoes(agora: number): Array<ColunaTabela<ExecucaoImportacao>
       cabecalho: "Duração",
       alinhamento: "direita",
       numerica: true,
-      celula: (execucao) => (execucao.finalizado_em ? tempoDecorrido(execucao.iniciado_em, execucao.finalizado_em, agora) : "em curso"),
+      celula: (execucao) => <span className={cn(!execucao.finalizado_em && !execucaoEmAberto(execucao) && "text-tinta-suave")}>{duracaoDaExecucao(execucao, agora)}</span>,
     },
     {
       id: "erro",
@@ -700,7 +715,7 @@ function ModalEditarEmpresa({
         </div>
       }
     >
-      <div className="space-y-4">
+      <Formulario aoEnviar={salvar} ocupado={enviando} className="space-y-4">
         <Entrada rotulo="Razão social" obrigatorio value={razao} onChange={(evento) => setRazao(evento.target.value)} />
         <div className="grid gap-4 sm:grid-cols-2">
           <Selecao rotulo="UF" value={uf} onChange={(evento) => setUf(evento.target.value)} opcoes={[{ valor: "", rotulo: "Não informar" }, ...UFS.map((item) => ({ valor: item.sigla, rotulo: `${item.sigla} · ${item.nome}` }))]} />
@@ -752,11 +767,11 @@ function ModalEditarEmpresa({
         </div>
 
         {erro ? (
-          <p role="alert" className="rounded-controle border border-erro/40 bg-erro-tenue px-3 py-2 text-sm leading-6 text-erro">
+          <Aviso tom="erro" compacto urgente>
             {erro}
-          </p>
+          </Aviso>
         ) : null}
-      </div>
+      </Formulario>
     </Modal>
   );
 }

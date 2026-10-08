@@ -4,8 +4,8 @@ import { useCallback, useEffect } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { emQuanto, mesesAnteriores, rotulo as rotuloCompetencia } from "@/lib/competencia";
-import { contagemRegressiva, moeda, moedaCompacta, numero, percentual, plural, tempoRelativo } from "@/lib/format";
+import { emQuanto, mesAtual, mesesAnteriores, rotulo as rotuloCompetencia } from "@/lib/competencia";
+import { contagem, contagemRegressiva, moeda, moedaCompacta, numero, percentual, plural, tempoRelativo } from "@/lib/format";
 import { estadoGeral, compararPorGravidade } from "@/lib/estados";
 import { useCompetenciaUrl } from "@/lib/usePeriodoUrl";
 import { usePolling } from "@/lib/usePolling";
@@ -71,11 +71,11 @@ export function Painel() {
 
   if (painel.carregando) {
     return (
-      <div className="space-y-6" aria-busy="true">
+      <div className="space-y-5" aria-busy="true">
         <EsqueletoBloco linhas={2} />
         <div className="grid grid-cols-2 gap-3 xl:grid-cols-5">
           {Array.from({ length: 5 }, (_, indice) => (
-            <div key={indice} className="rounded-cartao border border-traco bg-superficie p-3.5">
+            <div key={indice} className="superficie-plana rounded-cartao p-3.5">
               <EsqueletoBloco linhas={2} />
             </div>
           ))}
@@ -106,6 +106,9 @@ export function Painel() {
 
   const pontoAtual = evolucao.dados?.find((ponto) => ponto.mes === mes);
   const pontoAnterior = evolucao.dados?.find((ponto) => ponto.mes === mesesAnteriores(mes));
+  // Competência em curso compara um mês incompleto com um mês fechado: a
+  // variação continua à vista, mas rotulada e em tom neutro (ver Kpi).
+  const mesEmAndamento = Boolean(mes) && mes === mesAtual();
   const itens: KpiProps[] = [
     {
       rotulo: `Documentos em ${rotuloCompetencia(mes || null)}`,
@@ -115,6 +118,7 @@ export function Painel() {
       variacao: {
         valor: indicadores?.variacao_pct ?? variacaoEntre(pontoAtual?.total, pontoAnterior?.total),
         base: "vs. mês anterior",
+        parcial: mesEmAndamento,
       },
       href: `/dashboard/documentos?mes=${mes}`,
       carregando: pronto && (kpis.carregando || evolucao.carregando),
@@ -126,7 +130,7 @@ export function Painel() {
       icone: "moeda",
       valor: moeda(indicadores?.valor_mes ?? pontoAtual?.valor ?? documentos.valor_mes),
       contexto: `${moeda(pontoAnterior?.valor ?? 0)} no mês anterior`,
-      variacao: { valor: variacaoEntre(pontoAtual?.valor, pontoAnterior?.valor), base: "vs. mês anterior" },
+      variacao: { valor: variacaoEntre(pontoAtual?.valor, pontoAnterior?.valor), base: "vs. mês anterior", parcial: mesEmAndamento },
       carregando: pronto && (kpis.carregando || evolucao.carregando),
       href: `/dashboard/relatorios?mes=${mes}`,
       dica: "Somatório dos documentos normais da competência, sem os cancelados.",
@@ -136,7 +140,7 @@ export function Painel() {
       icone: "fechamento",
       valor: numero(pontoAtual?.nfse ?? 0),
       contexto: `${numero(pontoAnterior?.nfse ?? 0)} no mês anterior`,
-      variacao: { valor: variacaoEntre(pontoAtual?.nfse, pontoAnterior?.nfse), base: "vs. mês anterior" },
+      variacao: { valor: variacaoEntre(pontoAtual?.nfse, pontoAnterior?.nfse), base: "vs. mês anterior", parcial: mesEmAndamento },
       carregando: pronto && evolucao.carregando,
       href: `/dashboard/documentos?mes=${mes}&tipo=nfse`,
       dica: "Notas de serviço capturadas na competência.",
@@ -152,7 +156,7 @@ export function Painel() {
   const ultimoBackup = backups.dados?.saude.ultimo_ok_em;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <CabecalhoPagina
         kicker="Visão geral"
         titulo="Painel operacional"
@@ -162,7 +166,7 @@ export function Painel() {
             <BotaoIcone rotulo="Atualizar painel" dica="Atualizar painel" icone={<Icone nome="atualizar" className="h-4 w-4" />} onClick={recarregar} carregando={atualizando} />
             {pendencias > 0 ? (
               <BotaoLink variante="primaria" href="/dashboard/atencao" iconeDireita={<Icone nome="seta-direita" className="h-4 w-4" />}>
-                Ver {numero(pendencias)} {plural(pendencias, "pendência", "pendências")}
+                Ver {contagem(pendencias, "pendência", "pendências")}
               </BotaoLink>
             ) : null}
           </>
@@ -184,7 +188,10 @@ export function Painel() {
               <Icone nome="sincronizar" className="h-4 w-4" /> Sincronizadas hoje
             </div>
             <p className="nums mt-2 text-xl font-semibold tracking-tight text-tinta-forte">
-              {numero(empresas.sincronizadas_hoje)} <span className="text-base font-normal text-tinta-suave">de {numero(empresas.habilitadas_sincronizacao)} empresas</span>
+              {numero(empresas.sincronizadas_hoje)}{" "}
+              <span className="text-base font-normal text-tinta-suave">
+                de {numero(empresas.habilitadas_sincronizacao)} com captura automática
+              </span>
             </p>
             <div
               role="progressbar"
@@ -200,13 +207,13 @@ export function Painel() {
         </div>
         <dl className="grid grid-cols-2 gap-px border-t border-traco bg-traco lg:grid-cols-4">
           {[
-            { rotulo: "Empresas ativas", valor: empresas.ativas, icone: "empresa" as const, href: "/dashboard/empresas" },
-            { rotulo: "Documentos hoje", valor: documentos.hoje, icone: "documento" as const, href: "/dashboard/documentos" },
-            { rotulo: "Capturas concluídas hoje", valor: execucoes.concluidas_hoje, icone: "verificar-circulo" as const, href: "/dashboard/execucoes" },
-            { rotulo: "Certificados válidos", valor: certificados.validos, icone: "certificado" as const, href: "/dashboard/certificados" },
+            { rotulo: "Empresas ativas", valor: empresas.ativas, icone: "empresa" as const, href: "/dashboard/empresas", dica: "Cadastradas e marcadas como ativas — pode ser menos que o total cadastrado." },
+            { rotulo: "Documentos capturados hoje", valor: documentos.hoje, icone: "documento" as const, href: "/dashboard/documentos", dica: "Contados pela data de captura (dia de Brasília); a primeira carga de uma empresa entra toda aqui." },
+            { rotulo: "Capturas concluídas hoje", valor: execucoes.concluidas_hoje, icone: "verificar-circulo" as const, href: "/dashboard/execucoes", dica: "Execuções finalizadas desde a meia-noite de Brasília." },
+            { rotulo: "Certificados válidos", valor: certificados.validos, icone: "certificado" as const, href: "/dashboard/certificados", dica: "Certificados A1 com mais de 30 dias de validade." },
           ].map((item) => (
             <div key={item.rotulo} className="bg-superficie px-4 py-4 sm:px-6">
-              <dt className="flex items-center gap-2 text-xs text-tinta-suave"><Icone nome={item.icone} className="h-4 w-4 flex-none" />{item.rotulo}</dt>
+              <dt className="flex items-center gap-2 text-xs text-tinta-suave" title={item.dica}><Icone nome={item.icone} className="h-4 w-4 flex-none" />{item.rotulo}</dt>
               <dd className="nums mt-2 text-lg font-semibold tracking-tight"><Link href={item.href} className="rounded-sm hover:text-acento">{numero(item.valor)}</Link></dd>
             </div>
           ))}
@@ -219,15 +226,15 @@ export function Painel() {
           icone="alerta"
           descricao={
             pendencias > 0
-              ? `${numero(pendencias)} ${plural(pendencias, "item", "itens")} em aberto, do mais grave para o menos grave`
+              ? `${contagem(pendencias, "item", "itens")} em aberto, do mais grave para o menos grave`
               : "Nenhuma decisão pendente"
           }
           className="xl:col-span-2"
           acoes={
             pendencias > 5 ? (
-              <Link href="/dashboard/atencao" className="text-xs font-medium text-acento underline-offset-4 hover:underline">
+              <BotaoLink href="/dashboard/atencao" variante="link" tamanho="sm">
                 Ver todos
-              </Link>
+              </BotaoLink>
             ) : undefined
           }
         >
@@ -260,9 +267,9 @@ export function Painel() {
               : "Nenhuma execução em andamento"
           }
           acoes={
-            <Link href="/dashboard/execucoes" className="text-xs font-medium text-acento underline-offset-4 hover:underline">
+            <BotaoLink href="/dashboard/execucoes" variante="link" tamanho="sm">
               Ver central
-            </Link>
+            </BotaoLink>
           }
         >
           {central.carregando ? (
@@ -270,7 +277,7 @@ export function Painel() {
           ) : central.erro ? (
             <EstadoErro erro={central.erro} aoTentarNovamente={central.atualizar} contexto="carregar as execuções" />
           ) : central.dados && central.dados.agora.length > 0 ? (
-            <ul className="divide-y divide-traco rounded-cartao border border-traco bg-superficie">
+            <ul className="superficie-plana divide-y divide-traco rounded-cartao">
               {central.dados.agora.slice(0, 4).map((execucao) => (
                 <LinhaExecucao key={execucao.execucao_id} execucao={execucao} />
               ))}
@@ -287,14 +294,18 @@ export function Painel() {
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 id="titulo-numeros-mes" className="text-md font-semibold tracking-tight text-tinta-forte">Números do mês</h2>
-            <p className="text-xs text-tinta-suave">Cada valor compara a competência anterior.</p>
+            <p className="text-xs text-tinta-suave">
+              {mesEmAndamento
+                ? "Cada valor compara a competência anterior — o mês em andamento ainda está recebendo documentos."
+                : "Cada valor compara a competência anterior."}
+            </p>
           </div>
           <SeletorCompetencia mes={mes} aoMudar={aoMudar} atalhos={0} className="w-full sm:w-auto" />
         </div>
         <GradeKpis itens={itens} colunas={3} rotulo={`Indicadores de ${rotuloCompetencia(mes)}`} />
       </section>
 
-      <details className="group overflow-hidden rounded-cartao border border-traco bg-superficie">
+      <details className="superficie-plana group overflow-hidden rounded-cartao">
         <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-5 py-4 text-sm font-medium text-tinta-forte marker:hidden">
           <span>
             Mês em números
@@ -316,7 +327,7 @@ export function Painel() {
                   dados={evolucao.dados.map((ponto) => ({
                     rotulo: ponto.rotulo,
                     valor: ponto.total,
-                    titulo: `${ponto.rotulo}: ${numero(ponto.total)} documentos · ${moeda(ponto.valor)}`,
+                    titulo: `${ponto.rotulo}: ${contagem(ponto.total, "documento", "documentos")} · ${moeda(ponto.valor)}`,
                   }))}
                 />
               ) : (
@@ -371,9 +382,9 @@ export function Painel() {
         <span className="nums">
           backup {ultimoBackup ? tempoRelativo(ultimoBackup, agora) : backups.carregando ? "em consulta" : "sem registro"}
         </span>
-        <Link href="/dashboard/saude" className="font-medium text-acento underline-offset-4 hover:underline">
+        <BotaoLink href="/dashboard/saude" variante="link">
           Ver saúde
-        </Link>
+        </BotaoLink>
       </footer>
     </div>
   );
@@ -389,7 +400,7 @@ function ProximasJanelas({ janelas, agora }: { janelas: JanelaProximaConsulta[];
             <div className="min-w-0">
               <p className="truncate text-sm text-tinta">{janela.razao_social}</p>
               <p className="truncate text-xs text-tinta-suave">
-                {janela.tipo.toUpperCase()} · {janela.bloqueada ? "janela SEFAZ" : `${numero(janela.pendencia)} pendentes`}
+                {janela.tipo.toUpperCase()} · {janela.bloqueada ? "janela SEFAZ" : `${contagem(janela.pendencia, "pendente", "pendentes")}`}
               </p>
             </div>
             <span className={cn("nums flex-none text-xs", janela.bloqueada ? "text-espera" : "text-tinta-suave")}>
@@ -405,35 +416,33 @@ function ProximasJanelas({ janelas, agora }: { janelas: JanelaProximaConsulta[];
 function ListaEmitentes({ emitentes }: { emitentes: EmitenteTop[] }) {
   const maximo = Math.max(...emitentes.map((emitente) => emitente.total), 1);
   return (
-    <table className="w-full text-sm">
+    <table className="tabela-dados">
       <caption className="sr-only">Maiores emitentes do período, por quantidade de documentos</caption>
       <thead>
-        <tr className="border-b border-traco text-left text-2xs uppercase tracking-[.04em] text-tinta-suave">
-          <th scope="col" className="py-2 font-medium">
-            Emitente
-          </th>
-          <th scope="col" className="w-40 py-2 text-right font-medium">
+        <tr>
+          <th scope="col">Emitente</th>
+          <th scope="col" className="w-40 text-right">
             Documentos
           </th>
-          <th scope="col" className="w-32 py-2 text-right font-medium">
+          <th scope="col" className="w-32 text-right">
             Valor
           </th>
         </tr>
       </thead>
       <tbody>
         {emitentes.map((emitente, indice) => (
-          <tr key={`${emitente.documento ?? indice}-${emitente.nome ?? indice}`} className="border-b border-traco last:border-0">
-            <th scope="row" className="max-w-0 py-2 pr-3 text-left font-normal">
+          <tr key={`${emitente.documento ?? indice}-${emitente.nome ?? indice}`}>
+            <th scope="row" className="max-w-0 pr-3">
               <span className="block truncate text-tinta">{emitente.nome ?? "Emitente sem nome"}</span>
               {emitente.documento ? <Cnpj valor={emitente.documento} className="text-xs text-tinta-suave" copiar={false} /> : null}
             </th>
-            <td className="py-2 text-right">
+            <td className="text-right">
               <span className="nums block text-tinta-forte">{numero(emitente.total)}</span>
               <span aria-hidden="true" className="mt-1 block h-1 overflow-hidden rounded-full bg-traco">
                 <span className="block h-full rounded-full bg-acento" style={{ width: `${Math.round((emitente.total / maximo) * 100)}%` }} />
               </span>
             </td>
-            <td className="nums py-2 text-right text-tinta">
+            <td className="nums text-right text-tinta">
               <ValorMoeda valor={emitente.valor} semSimbolo titulo={moeda(emitente.valor)} />
               <span className="sr-only">{moeda(emitente.valor)}</span>
             </td>
@@ -442,7 +451,7 @@ function ListaEmitentes({ emitentes }: { emitentes: EmitenteTop[] }) {
       </tbody>
       <tfoot>
         <tr className="text-xs text-tinta-suave">
-          <td colSpan={3} className="pt-2">
+          <td colSpan={3} className="pt-1">
             Somatório dos {plural(emitentes.length, "emitente", "emitentes")} com mais documentos · {moedaCompacta(emitentes.reduce((soma, item) => soma + item.valor, 0))} ·{" "}
             {percentual(100, 0)} da amostra exibida
           </td>

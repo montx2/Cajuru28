@@ -19,6 +19,10 @@ const config: Config = {
       lg: ["20px", "28px"],
       xl: ["28px", "36px"],
       "2xl": ["36px", "44px"],
+      // Os dois degraus de display existem para a capa do login, a única tela
+      // do produto que fala antes de o usuário entrar. Fora dela, `2xl` é o teto.
+      "3xl": ["42px", "48px"],
+      "4xl": ["54px", "62px"],
     },
     extend: {
       colors: {
@@ -82,6 +86,11 @@ const config: Config = {
         controle: "8px",
         cartao: "12px",
         camada: "16px",
+      },
+      letterSpacing: {
+        // Caixa alta pede respiro; o valor era escrito à mão 18 vezes.
+        rotulo: ".04em", // cabeçalho de coluna, rótulo de campo, etiqueta em caixa alta
+        kicker: ".12em", // sobretítulo de tela
       },
       boxShadow: {
         none: "none",

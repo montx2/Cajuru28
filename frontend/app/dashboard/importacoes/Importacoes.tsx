@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { contagemRegressiva, numero, plural } from "@/lib/format";
+import { contagem, contagemRegressiva, numero } from "@/lib/format";
 import { estadoDaSincronizacao, type EstadoVisual } from "@/lib/estados";
+import { avisoDoDisparo } from "@/lib/importacao";
 import { mensagemDoErro } from "@/lib/erros";
 import { MOTIVO_SOMENTE_LEITURA } from "@/lib/papel";
 import { paraFiltro, rotuloPeriodo } from "@/lib/periodo";
@@ -23,7 +24,7 @@ import { ResumoImportacao } from "@/components/fiscal/ResumoImportacao";
 import { SeletorEmpresas } from "@/components/fiscal/SeletorEmpresas";
 import { SeletorPeriodo } from "@/components/fiscal/SeletorPeriodo";
 import { Aviso } from "@/components/ui/Aviso";
-import { Botao } from "@/components/ui/Botao";
+import { Botao, BotaoLink } from "@/components/ui/Botao";
 import { CabecalhoPagina, Cartao } from "@/components/ui/Cartao";
 import { Alternador, Caixa, Selecao } from "@/components/ui/Campo";
 import { Dado } from "@/components/ui/Dado";
@@ -285,6 +286,10 @@ export function Importacoes() {
     [forcar, periodo, selecionadas, tipos]
   );
 
+  // Id do texto visível que explica o botão desabilitado. O motivo existia só
+  // em `title`: quem navega por teclado ou leitor de tela não descobria por que
+  // a ação principal estava travada (e a ação que a libera fica no fim da página).
+  const idMotivoIndisponivel = useId();
   const podeDisparar = pronto && dadosDoDisparo.empresa_ids.length > 0 && dadosDoDisparo.tipos.length > 0 && !somenteLeitura;
   const motivoIndisponivel = somenteLeitura
     ? MOTIVO_SOMENTE_LEITURA
@@ -316,16 +321,7 @@ export function Importacoes() {
       const dados = await api.importarSelecionadas(dadosDoDisparo);
       setResultado({ modo: "resultado", dados });
       setConfirmando(false);
-      avisar({
-        tom: dados.enfileiradas > 0 ? "ok" : dados.aguardando > 0 ? "espera" : "info",
-        titulo:
-          dados.enfileiradas > 0
-            ? `${numero(dados.enfileiradas)} ${plural(dados.enfileiradas, "captura enfileirada", "capturas enfileiradas")}`
-            : dados.aguardando > 0
-              ? "Nada enfileirado: há janelas em espera"
-              : "Nada a fazer neste recorte",
-        descricao: `${numero(dados.aguardando)} aguardando · ${numero(dados.ignoradas)} ignoradas · ${rotuloPeriodo(periodo)}`,
-      });
+      avisar(avisoDoDisparo(dados, rotuloPeriodo(periodo)));
       estados.atualizar();
       resumoSync.atualizar();
       atualizarAlertas();
@@ -345,15 +341,26 @@ export function Importacoes() {
         descricao="A captura automática mostra o que está em dia, o que aguarda janela e o que precisa ser disparado."
         acoes={
           <div className="flex flex-wrap items-center gap-2">
-            <Botao variante="secundaria" onClick={verPrevia} carregando={enviando === "previa"} disabled={!podeDisparar} title={motivoIndisponivel}>
+            <Botao
+              variante="secundaria"
+              onClick={verPrevia}
+              carregando={enviando === "previa"}
+              disabled={!podeDisparar}
+              title={motivoIndisponivel}
+              aria-describedby={!podeDisparar ? idMotivoIndisponivel : undefined}
+            >
               Ver prévia
             </Botao>
             <Botao
-              variante="primaria"
+              /* Com a prévia ou o resultado na tela, o disparo é o botão
+                 daquele cartão — dois "Disparar captura" primários ao mesmo
+                 tempo seriam duas ações principais para a mesma decisão. */
+              variante={resultado ? "secundaria" : "primaria"}
               onClick={() => setConfirmando(true)}
               carregando={enviando === "disparo"}
               disabled={!podeDisparar}
               title={motivoIndisponivel}
+              aria-describedby={!podeDisparar ? idMotivoIndisponivel : undefined}
               iconeEsquerda={<Icone nome="importacao" className="h-4 w-4" />}
             >
               Disparar captura
@@ -377,6 +384,12 @@ export function Importacoes() {
         }
       />
 
+      {!podeDisparar ? (
+        <Aviso id={idMotivoIndisponivel} tom="espera">
+          {motivoIndisponivel}. A captura continua automática para as empresas já habilitadas.
+        </Aviso>
+      ) : null}
+
       {somenteLeitura ? (
         <Aviso tom="info" icone="cadeado" titulo="Seu papel é somente leitura">
           {MOTIVO_SOMENTE_LEITURA} Você ainda pode consultar período, empresas e estado do sincronismo.
@@ -393,9 +406,9 @@ export function Importacoes() {
         titulo="Captura automática"
         descricao="Onde a captura está e o que ainda aguarda a SEFAZ"
         acoes={
-          <Link href="/dashboard/execucoes?aba=fila" className="text-xs font-medium text-acento underline-offset-4 hover:underline">
+          <BotaoLink href="/dashboard/execucoes?aba=fila" variante="link" tamanho="sm">
             Próximas janelas
-          </Link>
+          </BotaoLink>
         }
       >
           {resumoSync.carregando ? (
@@ -432,7 +445,7 @@ export function Importacoes() {
                 <p className="mt-4 border-t border-traco pt-3 text-sm text-espera">
                   {numero(certificados.dados.filter((certificado) => !certificado.tem_certificado).length)} empresas sem certificado e{" "}
                   {numero(certificados.dados.filter((certificado) => certificado.vencido).length)} com certificado vencido não podem ser capturadas.{" "}
-                  <Link href="/dashboard/certificados" className="font-medium underline-offset-4 hover:underline">
+                  <Link href="/dashboard/certificados" className="link-prosa font-medium">
                     Resolver em Certificados
                   </Link>
                   .
@@ -447,7 +460,7 @@ export function Importacoes() {
         descricao="O período é obrigatório: é ele que define o que será guardado no acervo."
         acoes={
           <span className="nums text-xs text-tinta-suave">
-            {numero(selecionadas.size)} {plural(selecionadas.size, "empresa", "empresas")} · {numero(tipos.size)} {plural(tipos.size, "tipo", "tipos")}
+            {contagem(selecionadas.size, "empresa", "empresas")} · {contagem(tipos.size, "tipo", "tipos")}
           </span>
         }
       >
@@ -487,13 +500,13 @@ export function Importacoes() {
         descricao="Marque quem deve ser capturado. Sem certificado A1 válido a empresa fica bloqueada."
         acoes={
           selecionadas.size > 0 ? (
-            <button
-              type="button"
+            <Botao
+              variante="link-sutil"
+              tamanho="sm"
               onClick={() => definir({ empresa_ids: null, empresa_id: null })}
-              className="text-xs font-medium text-tinta-suave underline-offset-4 hover:text-tinta hover:underline"
             >
               Limpar seleção
-            </button>
+            </Botao>
           ) : undefined
         }
       >
@@ -523,19 +536,45 @@ export function Importacoes() {
               : "Situação de cada empresa e tipo neste disparo."
           }
           acoes={
-            <button type="button" onClick={() => setResultado(null)} className="text-xs font-medium text-tinta-suave underline-offset-4 hover:text-tinta hover:underline">
+            <Botao variante="link-sutil" tamanho="sm" onClick={() => setResultado(null)}>
               Fechar
-            </button>
+            </Botao>
           }
         >
           <ResumoImportacao resultado={resultado.dados} modo={resultado.modo} />
+          {resultado.modo === "resultado" && resultado.dados.enfileiradas > 0 ? (
+            // Fecha o laço: disparado, o operador precisa saber onde ver o
+            // resultado — a captura roda na SEFAZ e os documentos caem na lista
+            // conforme chegam, não neste instante.
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-traco pt-3">
+              <p className="max-w-leitura text-sm leading-6 text-tinta-suave">
+                {contagem(resultado.dados.enfileiradas, "captura está rodando", "capturas estão rodando")} em
+                segundo plano. Os documentos entram na lista conforme chegam — ela avisa enquanto isso.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <BotaoLink variante="secundaria" tamanho="sm" href="/dashboard/documentos">
+                  Ver documentos
+                </BotaoLink>
+                <BotaoLink variante="link" tamanho="sm" href="/dashboard/execucoes?aba=fila">
+                  Acompanhar na central
+                </BotaoLink>
+              </div>
+            </div>
+          ) : null}
+
           {resultado.modo === "previa" && resultado.dados.enfileiradas > 0 ? (
             <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-traco pt-3">
               <p className="text-sm text-tinta-suave">
-                {numero(resultado.dados.enfileiradas)} {plural(resultado.dados.enfileiradas, "captura será enfileirada", "capturas serão enfileiradas")} ·{" "}
-                {numero(resultado.dados.aguardando)} {plural(resultado.dados.aguardando, "ficará aguardando janela", "ficarão aguardando janela")}.
+                {contagem(resultado.dados.enfileiradas, "captura será enfileirada", "capturas serão enfileiradas")} ·{" "}
+                {contagem(resultado.dados.aguardando, "ficará aguardando janela", "ficarão aguardando janela")}.
               </p>
-              <Botao variante="primaria" onClick={() => setConfirmando(true)} disabled={!podeDisparar} title={motivoIndisponivel}>
+              <Botao
+                variante="primaria"
+                onClick={() => setConfirmando(true)}
+                disabled={!podeDisparar}
+                title={motivoIndisponivel}
+                aria-describedby={!podeDisparar ? idMotivoIndisponivel : undefined}
+              >
                 Disparar captura
               </Botao>
             </div>
@@ -555,6 +594,11 @@ export function Importacoes() {
           aoTentarNovamente: estados.atualizar,
           vazioTitulo: "Nenhuma combinação com este recorte",
           vazioInstrucao: "Cadastre empresas e certificados A1 para que o sincronismo apareça aqui.",
+          vazioAcao: (
+            <BotaoLink variante="secundaria" href="/dashboard/empresas">
+              Ver empresas
+            </BotaoLink>
+          ),
           vazioIcone: "sincronizar",
           filtroAtivo: Boolean(ler("sinc_empresa") || ler("sinc_situacao")),
           aoLimparFiltro: () => definir({ sinc_empresa: null, sinc_situacao: null }),
@@ -589,7 +633,7 @@ export function Importacoes() {
         }
         rodape={
           <p className="nums text-xs text-tinta-suave">
-            {numero(linhasSincronismo.length)} {plural(linhasSincronismo.length, "combinação", "combinações")} empresa × tipo
+            {contagem(linhasSincronismo.length, "combinação", "combinações")} empresa × tipo
           </p>
         }
       />
@@ -612,7 +656,7 @@ export function Importacoes() {
         titulo="Disparar captura"
         consequencia={
           <span>
-            {numero(dadosDoDisparo.empresa_ids.length)} {plural(dadosDoDisparo.empresa_ids.length, "empresa", "empresas")} ×{" "}
+            {contagem(dadosDoDisparo.empresa_ids.length, "empresa", "empresas")} ×{" "}
             {dadosDoDisparo.tipos.map((tipo) => ROTULO_TIPO[tipo]).join(", ")} no período {rotuloPeriodo(periodo)}
             {forcar ? ", ignorando o cursor atual" : ""}.
           </span>

@@ -228,7 +228,7 @@ def test_worker_guarda_o_que_vem_fora_do_periodo_e_apenas_contabiliza(tmp_path, 
     assert execucao.documentos_importados == 3
     assert execucao.documentos_no_periodo == 1
     assert execucao.documentos_fora_do_periodo == 2
-    assert "2 documento(s) vieram fora do período 08/2026" in (execucao.aviso or "")
+    assert "2 documentos vieram fora do período 08/2026" in (execucao.aviso or "")
     assert "guardados assim mesmo" in (execucao.aviso or "")
 
     guardados = sessao.query(DocumentoFiscal).all()

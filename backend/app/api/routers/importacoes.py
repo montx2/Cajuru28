@@ -20,9 +20,10 @@ from datetime import date, datetime, time, timedelta, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import case, func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import escritorio_id_atual, requer_escrita
+from app.core.plural import contagem
 from app.core.config import settings
 from app.core.tempo import hoje_operacional
 from app.db.session import get_db
@@ -38,8 +39,10 @@ from app.models import (
 )
 from app.services import auditoria
 from app.schemas import (
+    CapturaAoVivo,
     ConferenciaCompetenciaResposta,
     EstadoSincronizacaoResposta,
+    ExecucaoAoVivo,
     ExecucaoImportacaoResposta,
     ImportacaoSelecionadas,
     ImportacaoSolicitar,
@@ -170,6 +173,10 @@ def solicitar_importacao(
 
     if resultado.status in ("sem_certificado", "sem_uf"):
         raise HTTPException(status_code=409, detail=resultado.mensagem)
+    if resultado.status == "fila_indisponivel":
+        # 503: o pedido não foi aceito por indisponibilidade do próprio Fluxa.
+        # Nenhuma execução é criada e nenhuma cota da SEFAZ é gasta.
+        raise HTTPException(status_code=503, detail=resultado.mensagem)
     if resultado.status == "em_cooldown":
         raise HTTPException(
             status_code=429,
@@ -752,7 +759,7 @@ def importar_selecionadas(
     aguardando = sum(1 for item in itens if item.status == "em_cooldown")
     auditoria.registrar(
         db, usuario, "importacao_selecao",
-        detalhe=f"{len(dados.empresa_ids)} empresa(s): {enfileiradas} enfileiradas, {aguardando} na janela",
+        detalhe=f"{contagem(len(dados.empresa_ids), 'empresa', 'empresas')}: {enfileiradas} enfileiradas, {aguardando} na janela",
     )
     db.commit()
     return ResultadoImportacaoSelecionada(
@@ -1262,7 +1269,7 @@ def conferir_competencia(
     if ids is not None:
         fora = [identificador for identificador in ids if identificador not in encontrados]
         if fora:
-            raise HTTPException(status_code=403, detail=f"Empresa(s) fora deste escritório: {fora}")
+            raise HTTPException(status_code=403, detail=f"{plural(len(fora), 'Empresa', 'Empresas')} fora deste escritório: {fora}")
 
     contagens = _contagens_por_empresa_tipo(
         db,
@@ -1358,6 +1365,79 @@ def conferir_competencia(
         itens_pendentes=itens_pendentes,
         itens_criticos=itens_criticos,
         itens=itens,
+    )
+
+
+@router.get("/ao-vivo", response_model=CapturaAoVivo)
+def captura_ao_vivo(
+    empresa_ids: str | None = Query(default=None, description="1,2,3 — vazio = escritório inteiro"),
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+):
+    """Estado vivo da captura, para a tela do acervo dizer que a lista ainda chega.
+
+    Deliberadamente leve: a tela de documentos consulta isto em laço curto
+    enquanto há captura rodando, e `/painel/execucoes` (que monta janelas,
+    recentes e erros) seria caro demais para esse ritmo.
+
+    A "última" vem sempre — quem decide se ela é recente o bastante para virar
+    aviso na tela é o cliente, que conhece o próprio relógio.
+    """
+    recorte = _parse_ids_csv(empresa_ids, nome="empresa_ids")
+
+    vivas = (
+        db.query(ExecucaoImportacao)
+        # `razao_social` é lida em cada item: sem o joinedload, este endpoint
+        # consultado a cada 5 s faria uma consulta por empresa viva.
+        .options(joinedload(ExecucaoImportacao.empresa))
+        .join(Empresa)
+        .filter(
+            Empresa.escritorio_id == escritorio_id,
+            ExecucaoImportacao.status.in_([StatusExecucao.EM_ANDAMENTO, StatusExecucao.AGUARDANDO]),
+        )
+        .order_by(ExecucaoImportacao.iniciado_em.asc())
+        .all()
+    )
+    no_recorte = [ex for ex in vivas if recorte is None or ex.empresa_id in recorte]
+
+    ultima = (
+        db.query(ExecucaoImportacao)
+        .options(joinedload(ExecucaoImportacao.empresa))
+        .join(Empresa)
+        .filter(
+            Empresa.escritorio_id == escritorio_id,
+            ExecucaoImportacao.finalizado_em.isnot(None),
+            ExecucaoImportacao.status.in_([StatusExecucao.CONCLUIDA, StatusExecucao.ERRO]),
+        )
+        .order_by(ExecucaoImportacao.finalizado_em.desc())
+        .first()
+    )
+    resposta_ultima = None
+    if ultima is not None:
+        resposta_ultima = ExecucaoImportacaoResposta.model_validate(ultima)
+        resposta_ultima.empresa_razao_social = ultima.empresa.razao_social
+
+    return CapturaAoVivo(
+        em_andamento=[
+            ExecucaoAoVivo(
+                execucao_id=ex.id,
+                empresa_id=ex.empresa_id,
+                razao_social=ex.empresa.razao_social,
+                tipo=ex.tipo.value,
+                status=ex.status.value,
+                documentos_importados=ex.documentos_importados or 0,
+                ultimo_nsu=ex.ultimo_nsu,
+                iniciado_em=ex.iniciado_em,
+                aguardando_ate=ex.bloqueado_ate,
+                motivo_espera=ex.aviso,
+                aviso=ex.aviso,
+                mensagem_erro=ex.mensagem_erro,
+            )
+            for ex in no_recorte
+        ],
+        documentos_em_andamento=sum(ex.documentos_importados or 0 for ex in no_recorte),
+        fora_do_recorte=len(vivas) - len(no_recorte) if recorte is not None else 0,
+        ultima=resposta_ultima,
     )
 
 

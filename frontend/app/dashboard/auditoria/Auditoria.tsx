@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo } from "react";
 import { api } from "@/lib/api";
-import { numero, plural } from "@/lib/format";
+import { contagem, numero } from "@/lib/format";
 import { useBuscaUrl } from "@/lib/useBuscaUrl";
 import { useRecurso } from "@/lib/useRecurso";
 import { useUrlEstado } from "@/lib/urlEstado";
@@ -169,7 +169,7 @@ export function Auditoria() {
         rodape={
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="nums text-xs text-tinta-suave">
-              {numero(linhas.length)} {plural(linhas.length, "registro", "registros")} exibidos · mais recentes primeiro
+              {contagem(linhas.length, "registro", "registros")} exibidos · mais recentes primeiro
               {ehAdmin(papel) ? " · visível para administradores e operadores" : ""}
             </p>
             <Paginacao

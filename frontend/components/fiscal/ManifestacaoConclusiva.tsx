@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { ROTULO_ACAO } from "@/lib/acoes-documento";
 import { chaveEmGrupos } from "@/lib/format";
 import type { DocumentoDetalhe, TipoManifestacaoConclusiva } from "@/lib/types";
-import { Area, Botao, DialogoConfirmacao, GrupoRadio, Icone } from "@/components/ui";
+import { Area, Aviso, Botao, DialogoConfirmacao, GrupoRadio, Icone } from "@/components/ui";
 import type { TamanhoBotao, VarianteBotao } from "@/components/ui/Botao";
 import { useToast } from "@/components/ui/Toast";
 
@@ -166,9 +166,9 @@ export function ManifestacaoConclusiva({
               />
             ) : null}
             {erro ? (
-              <p role="alert" className="rounded-controle border border-erro/40 bg-erro-tenue px-3 py-2 text-sm text-erro">
+              <Aviso tom="erro" compacto urgente>
                 {erro}
-              </p>
+              </Aviso>
             ) : null}
           </div>
         }

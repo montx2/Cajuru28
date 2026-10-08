@@ -47,32 +47,32 @@ export function ResumoImportacao({ resultado, modo, className }: ResumoImportaca
         })}
       </ul>
 
-      <div className="rolagem-fina mt-3 max-h-72 overflow-y-auto rounded-controle border border-traco">
-        <table className="w-full text-sm">
+      <div className="caixa-tabela mt-3 max-h-72">
+        <table className="tabela-dados">
           <caption className="sr-only">
             {modo === "previa" ? "Prévia do disparo por empresa e tipo" : "Resultado do disparo por empresa e tipo"}
           </caption>
           <thead>
-            <tr className="border-b border-traco bg-fundo-afundado text-left text-xs text-tinta-suave">
-              <th scope="col" className="h-9 px-3 font-medium">Empresa</th>
-              <th scope="col" className="h-9 px-3 font-medium">Tipo</th>
-              <th scope="col" className="h-9 px-3 font-medium">Situação</th>
-              <th scope="col" className="h-9 px-3 font-medium">Detalhe</th>
+            <tr>
+              <th scope="col">Empresa</th>
+              <th scope="col">Tipo</th>
+              <th scope="col">Situação</th>
+              <th scope="col">Detalhe</th>
             </tr>
           </thead>
           <tbody>
             {resultado.itens.map((item) => {
               const estado = estadoDaSelecao(item.status);
               return (
-                <tr key={`${item.empresa_id}-${item.tipo}`} className="h-10 border-b border-traco last:border-0">
-                  <td className="max-w-56 truncate px-3" title={item.razao_social}>
+                <tr key={`${item.empresa_id}-${item.tipo}`}>
+                  <td className="max-w-56 truncate" title={item.razao_social}>
                     {item.razao_social}
                   </td>
-                  <td className="px-3 text-xs uppercase tracking-[.04em] text-tinta-suave">{item.tipo}</td>
-                  <td className="px-3">
+                  <td className="text-xs uppercase tracking-rotulo text-tinta-suave">{item.tipo}</td>
+                  <td>
                     <IndicadorEstado {...estado} variante="texto" />
                   </td>
-                  <td className="max-w-80 px-3 text-xs text-tinta-suave" title={item.mensagem}>
+                  <td className="max-w-80 text-xs text-tinta-suave" title={item.mensagem}>
                     <span className="line-clamp-1">{item.mensagem}</span>
                     {item.disponivel_em ? (
                       <span className="nums ml-1 whitespace-nowrap text-espera" title={item.disponivel_em}>

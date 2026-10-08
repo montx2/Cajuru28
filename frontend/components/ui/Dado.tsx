@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import Link from "next/link";
+import { BotaoLink } from "./Botao";
 import type { Tom } from "@/lib/estados";
 import { cn } from "@/lib/cn";
 
@@ -50,7 +50,7 @@ const COR_TOM: Record<Tom, string> = {
 export function Dado({ rotulo, valor, mono, destaque, tom, contexto, quebrar, largo, compacto, href, linhas = 1, dica, className }: DadoProps) {
   return (
     <div className={cn("min-w-0", largo && "col-span-2 sm:col-span-3", className)}>
-      <dt className={cn("text-xs text-tinta-suave", !compacto && "uppercase tracking-[.04em]")}>{rotulo}</dt>
+      <dt className={cn("text-xs text-tinta-suave", !compacto && "uppercase tracking-rotulo")}>{rotulo}</dt>
       <dd
         className={cn(
           "mt-1.5 nums",
@@ -62,9 +62,9 @@ export function Dado({ rotulo, valor, mono, destaque, tom, contexto, quebrar, la
         title={dica ?? (typeof valor === "string" ? valor : undefined)}
       >
         {href ? (
-          <Link href={href} className="text-acento underline-offset-4 hover:underline">
+          <BotaoLink href={href} variante="link">
             {valor}
-          </Link>
+          </BotaoLink>
         ) : (
           valor
         )}

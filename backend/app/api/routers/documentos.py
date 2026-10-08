@@ -37,6 +37,7 @@ from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
 
 from app.api.deps import escritorio_id_atual, requer_escrita, requer_papel, usuario_atual
+from app.core.plural import contagem, plural
 from app.core.config import settings
 from app.db.session import get_db
 from app.models import (
@@ -256,7 +257,7 @@ def _ids_empresas_do_escritorio(
 
     invalidos = set(ids) - empresas_do_escritorio
     if invalidos:
-        raise HTTPException(status_code=403, detail=f"Empresa(s) fora deste escritório: {sorted(invalidos)}")
+        raise HTTPException(status_code=403, detail=f"{plural(len(invalidos), 'Empresa', 'Empresas')} fora deste escritório: {sorted(invalidos)}")
     # Deduplica preservando a ordem que veio da tela.
     vistos: list[int] = []
     for item in ids:
@@ -626,7 +627,7 @@ def exportar_relacao_csv(
     total = consulta.count()
     auditoria.registrar(
         db, usuario, "exportacao_csv",
-        detalhe=f"{total} documento(s) · {periodo.rotulo()}" + (f" · tipo {tipo.value}" if tipo else ""),
+        detalhe=f"{contagem(total, 'documento', 'documentos')} · {periodo.rotulo()}" + (f" · tipo {tipo.value}" if tipo else ""),
     )
     db.commit()
     if total == 0:
@@ -732,7 +733,7 @@ def exportar_xmls(
     total = consulta.count()
     registro_auditoria = auditoria.registrar(
         db, usuario, "exportacao_zip",
-        detalhe=f"{total} documento(s) · {periodo.rotulo()}" + (f" · tipo {tipo.value}" if tipo else ""),
+        detalhe=f"{contagem(total, 'documento', 'documentos')} · {periodo.rotulo()}" + (f" · tipo {tipo.value}" if tipo else ""),
     )
     db.commit()
     if total == 0:
@@ -763,8 +764,8 @@ def exportar_xmls(
     # Sem a contagem de pendências não dá para responder depois a pergunta
     # "por que o lote de 09 faltou 14 notas?" — agora dá.
     registro_auditoria.detalhe = (
-        f"{total} documento(s) no filtro · {notas_no_pacote} XML(s) de nota no pacote · "
-        f"{total_pendencias} pendência(s) · {periodo.rotulo()}"
+        f"{contagem(total, 'documento', 'documentos')} no filtro · {contagem(notas_no_pacote, 'XML de nota', 'XMLs de nota')} no pacote · "
+        f"{contagem(total_pendencias, 'pendência', 'pendências')} · {periodo.rotulo()}"
         + (f" · tipo {tipo.value}" if tipo else "")
         + (" · incluiu incompletos" if incluir_incompletos else "")
     )
@@ -1330,7 +1331,8 @@ def _leia_me(
 ) -> str:
     aviso_ausentes = (
         (
-            f"\nATENÇÃO: {arquivos_ausentes} documento(s) constam como 'XML completo'\n"
+            f"\nATENÇÃO: {contagem(arquivos_ausentes, 'documento', 'documentos')} "
+              f"{plural(arquivos_ausentes, 'consta', 'constam')} como 'XML completo'\n"
             "no cadastro, mas o arquivo não foi encontrado no disco na hora de\n"
             "gerar este pacote (procure 'arquivo-ausente-no-disco' na coluna\n"
             "xml_completo da relacao.csv). Confira o backup/disco do servidor;\n"
@@ -1342,7 +1344,8 @@ def _leia_me(
     )
     if pendencias > 0:
         aviso_pendencias = (
-            f"\n{pendencias} documento(s) do filtro NÃO entraram no pacote de notas.\n"
+            f"\n{contagem(pendencias, 'documento', 'documentos')} do filtro NÃO "
+              f"{plural(pendencias, 'entrou', 'entraram')} no pacote de notas.\n"
             "Estão listados em pendencias.csv, com o motivo e o que fazer em\n"
             "cada caso (buscar XML completo, manifestar operação, recapturar).\n"
             + (
@@ -1423,10 +1426,10 @@ def _mensagem_xml_incompleto(real: str | None, documento: DocumentoFiscal) -> st
             "não a nota fiscal. O XML completo ainda precisa ser recuperado na SEFAZ."
         )
     return (
-        "Esta nota ainda está apenas em resumo (resNFe): a SEFAZ libera o XML "
-        "completo depois da manifestação do destinatário. O sistema registra a "
-        "Ciência da Operação e baixa a NF-e inteira (procNFe) sozinho — aguarde "
-        "alguns instantes e baixe de novo."
+        "Esta nota ainda está apenas em resumo (resNFe): o XML completo vem da "
+        "SEFAZ, depois da manifestação do destinatário. Baixar o arquivo não "
+        "consulta mais a SEFAZ — use “Buscar XML completo” na ficha da nota "
+        "(ação explícita, que registra a Ciência da Operação e traz a procNFe)."
     )
 
 
@@ -1436,7 +1439,15 @@ def baixar_xml(
     db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
 ):
-    """Entrega somente o XML fiscal completo, buscando-o na SEFAZ sob demanda quando ainda em resumo."""
+    """Entrega o XML que está no disco. **Não** consulta a SEFAZ.
+
+    Antes, baixar uma nota que ainda estava em resumo registrava a Ciência e
+    buscava a procNFe dentro deste GET: 15,3 s medidos com o ambiente fiscal
+    fora, uma consulta por chave da cota da SEFAZ (20/h por CNPJ) gasta por um
+    clique de download, e uma resposta que só dizia "SEFAZ indisponível" para
+    quem pediu um arquivo. A busca continua existindo, como ação explícita:
+    `POST /{id}/completar-xml` (e o lote), onde o operador sabe o que pediu.
+    """
     documento = _documento_do_escritorio(db, documento_id, escritorio_id)
     # O cadastro pode estar desatualizado (versões anteriores gravavam o resumo
     # e marcavam "completo"): o operador está olhando exatamente esta nota,
@@ -1444,26 +1455,7 @@ def baixar_xml(
     if xml_integridade.reconciliar(db, documento):
         db.commit()
     tem_arquivo = bool(documento.xml_path and os.path.isfile(documento.xml_path))
-    real_no_disco = xml_integridade.leiaute_do_arquivo(documento.xml_path) if tem_arquivo else None
-    eh_resumo_ou_prot = documento.leiaute == "resumo" or xml_integridade.nao_e_a_nota(real_no_disco)
-
-    mensagem_tentativa = ""
-    if documento.tipo == TipoDocumentoFiscal.NFE and (eh_resumo_ou_prot or not tem_arquivo):
-        from app.worker.tasks import completar_xml_documento_imediato
-
-        _, mensagem_tentativa = completar_xml_documento_imediato(db, documento)
-        db.refresh(documento)
-        tem_arquivo = bool(documento.xml_path and os.path.isfile(documento.xml_path))
-
     real = xml_integridade.leiaute_do_arquivo(documento.xml_path) if tem_arquivo else None
-    if documento.leiaute == "resumo" or (tem_arquivo and xml_integridade.nao_e_a_nota(real)):
-        # Nunca entregar resumo/protocolo/evento com a chave da nota no nome do
-        # arquivo: é assim que um XML que não serve para escriturar entra na
-        # contabilidade do cliente sem ninguém perceber.
-        raise HTTPException(
-            status_code=409,
-            detail=mensagem_tentativa or _mensagem_xml_incompleto(real, documento),
-        )
 
     if not tem_arquivo:
         if documento.leiaute == "metadados":
@@ -1471,7 +1463,16 @@ def baixar_xml(
                 status_code=409,
                 detail="Esta NFS-e foi registrada somente com metadados: a fonte de origem não forneceu XML original. Exporte o período para baixar o JSON normalizado junto da relação CSV.",
             )
+        if documento.leiaute == "resumo":
+            raise HTTPException(status_code=409, detail=_mensagem_xml_incompleto(None, documento))
         raise HTTPException(status_code=404, detail="Arquivo XML não encontrado no disco")
+
+    if xml_integridade.nao_e_a_nota(real):
+        # Nunca entregar resumo/protocolo/evento com a chave da nota no nome do
+        # arquivo: é assim que um XML que não serve para escriturar entra na
+        # contabilidade do cliente sem ninguém perceber. Quem decide é o
+        # arquivo: cadastro marcado como "resumo" com a nota no disco baixa.
+        raise HTTPException(status_code=409, detail=_mensagem_xml_incompleto(real, documento))
 
     return FileResponse(
         documento.xml_path,
@@ -1578,7 +1579,7 @@ def manifestar_conclusiva_documentos(
     encontrados = {documento.id for documento in documentos}
     faltando = [item for item in payload.ids if item not in encontrados]
     if faltando:
-        raise HTTPException(status_code=404, detail=f"Documento(s) não encontrado(s): {faltando}")
+        raise HTTPException(status_code=404, detail=f"{plural(len(faltando), 'Documento', 'Documentos')} não {plural(len(faltando), 'encontrado', 'encontrados')}: {faltando}")
 
     tipos = {
         "confirmacao": TIPO_EVENTO_CONFIRMACAO,
@@ -1619,9 +1620,9 @@ def manifestar_conclusiva_documentos(
         entidade="documento_fiscal",
         entidade_id=None,
         detalhe=(
-            f"{payload.tipo} em {len(documentos)} nota(s): "
-            f"{sum(1 for item in resultados if item['ok'])} registrada(s), "
-            f"{sum(1 for item in resultados if not item['ok'])} recusada(s)"
+            f"{payload.tipo} em {contagem(len(documentos), 'nota', 'notas')}: "
+            f"{contagem(sum(1 for item in resultados if item['ok']), 'registrada', 'registradas')}, "
+            f"{contagem(sum(1 for item in resultados if not item['ok']), 'recusada', 'recusadas')}"
         ),
     )
     db.commit()
@@ -1669,7 +1670,7 @@ def excluir_documentos_lote(
     encontrados = {doc.id for doc in documentos}
     faltando = [item for item in payload.ids if item not in encontrados]
     if faltando:
-        raise HTTPException(status_code=404, detail=f"Documento(s) não encontrado(s): {faltando}")
+        raise HTTPException(status_code=404, detail=f"{plural(len(faltando), 'Documento', 'Documentos')} não {plural(len(faltando), 'encontrado', 'encontrados')}: {faltando}")
 
     arquivos = _arquivos_exclusivos(db, documentos)
     tipos = ", ".join(sorted({doc.tipo.value for doc in documentos}))
@@ -1677,7 +1678,7 @@ def excluir_documentos_lote(
         db,
         usuario,
         "documentos_excluir_lote",
-        detalhe=f"{len(documentos)} documento(s) · tipos: {tipos or 'n/a'}",
+        detalhe=f"{contagem(len(documentos), 'documento', 'documentos')} · tipos: {tipos or 'n/a'}",
     )
     for documento in documentos:
         db.delete(documento)
@@ -1726,15 +1727,12 @@ def detalhe_documento(
     # mostrar a ficha (senão a tela afirma "XML completo" para um resNFe).
     if xml_integridade.reconciliar(db, documento):
         db.commit()
-    if (
-        documento.tipo == TipoDocumentoFiscal.NFE
-        and documento.leiaute == "resumo"
-        and documento.manifestacao_erro is None
-    ):
-        from app.worker.tasks import completar_xml_documento_imediato
-
-        completar_xml_documento_imediato(db, documento)
-        db.refresh(documento)
+    # Abrir a ficha NÃO consulta a SEFAZ. Antes, abrir um resumo chamava
+    # `completar_xml_documento_imediato` aqui dentro: a leitura ficava presa no
+    # tempo da SEFAZ (15,2 s medidos com o ambiente fora) e cada abertura
+    # gastava uma consulta por chave da cota de 20/h do CNPJ — sem o operador
+    # pedir nada. A busca do XML completo continua no botão "Buscar XML
+    # completo" (POST /{id}/completar-xml) e no download, que são explícitos.
     empresa = db.get(Empresa, documento.empresa_id)
     xml_disponivel = bool(documento.xml_path and os.path.isfile(documento.xml_path))
     tamanho = None

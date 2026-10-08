@@ -156,7 +156,9 @@
   .botao-sm { --altura-botao: 36px; }
   .botao-lg { --altura-botao: 48px; }
   .botao-icone { width: var(--altura-botao, 40px); padding-inline: 0; }
-  .botao-link { height: auto; }
+  /* Link de texto: altura do próprio texto, mas com 24 px de alvo — abaixo
+     disso o clique deixa de ser confortável (WCAG 2.5.8) sem ganhar em nada. */
+  .botao-link { height: auto; min-height: 24px; }
   .botao-conteudo > svg { flex-shrink: 0; }
   .controle-sm { height: 36px; }
   .controle-md { height: 40px; }
@@ -172,8 +174,59 @@
     background: var(--superficie);
     box-shadow: var(--sombra-cartao);
   }
+  /* Superfície com traço e fundo: a caixa padrão (tabela, lista, ferramenta,
+     bloco de impacto). O raio fica no uso — nem toda caixa é um cartão. */
+  .superficie-plana { border: 1px solid var(--traco); background: var(--superficie); }
+
+  /* Superfície de risco: contém controles destrutivos (não é mensagem — a
+     mensagem é do `Aviso`). O tom vem do token, não de `border-erro/40` à mão. */
+  .superficie-perigo {
+    border: 1px solid rgb(var(--erro-rgb) / 0.4);
+    background: var(--erro-tenue);
+  }
+
+  /* Caixa de tabela: rola por dentro e mantém o cabeçalho à vista. O respiro
+     horizontal é da caixa; o ritmo vertical e as linhas são da skin. */
+  .caixa-tabela { @apply superficie-plana rolagem-fina overflow-y-auto rounded-cartao; }
+  .caixa-tabela :where(thead th) { position: sticky; top: 0; background: var(--superficie-alta); }
+  .caixa-tabela :where(th, td) { padding-inline: 12px; }
+
+  /*
+   * Skin de tabela de dados: estrutura no JSX da tela, pele aqui.
+   *
+   * `:where()` não é enfeite — ele zera a especificidade da parte de dentro, e
+   * a regra inteira fica valendo 0-1-0, igual a um utilitário. Como a camada de
+   * componentes sai antes da de utilitários, `text-right`/`py-4` da tela
+   * vencem. Sem isso, `thead th` (0-2-1) atropelaria o alinhamento da coluna.
+   */
+  .tabela-dados { @apply w-full text-sm; }
+  .tabela-dados :where(thead tr) { border-bottom: 1px solid var(--traco); }
+  .tabela-dados :where(thead th) {
+    @apply text-left text-2xs font-medium uppercase tracking-[.04em] text-tinta-suave;
+  }
+  .tabela-dados :where(th, td) { padding-block: 8px; }
+  .tabela-dados :where(tbody th) { text-align: left; }
+  .tabela-dados :where(tbody tr) { border-bottom: 1px solid var(--traco); }
+  .tabela-dados :where(tbody tr:last-child) { border-bottom: 0; }
+
+  /* Folha impressa: o papel não rola, então a densidade é a legibilidade. */
+  .tabela-impressao { @apply w-full text-xs; }
+  .tabela-impressao :where(th, td) { border-bottom: 1px solid var(--traco); padding: 3px 6px; }
+  .tabela-impressao :where(thead th) {
+    @apply text-left font-semibold uppercase tracking-[.04em];
+  }
+  .tabela-impressao :where(tbody tr:last-child) :where(th, td) { border-bottom: 0; }
+
   .acoes-pagina { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 8px; }
   .acoes-pagina > div { max-width: 100%; }
+  /* Link DENTRO de uma frase: herda a cor do texto em volta (num aviso, ele é
+     da cor do aviso) e só ganha o sublinhado no hover. Ação de texto isolada
+     não usa isto — usa `Botao variante="link"`, que tem cor e área próprias. */
+  .link-prosa {
+    text-decoration-thickness: 1px;
+    text-underline-offset: 4px;
+  }
+  .link-prosa:hover { text-decoration-line: underline; }
   .ferramentas-tabela { min-width: 0; flex: 1; }
   .ferramentas-tabela > div { width: 100%; min-width: 0; }
   .painel-status {

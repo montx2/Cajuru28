@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { api } from "@/lib/api";
-import { numero, plural } from "@/lib/format";
+import { contagem } from "@/lib/format";
 import { compararPorGravidade, estadoDoNivel } from "@/lib/estados";
 import { usePreferencia } from "@/lib/usePreferencia";
 import { useRecurso } from "@/lib/useRecurso";
@@ -116,7 +116,7 @@ export function Atencao() {
         titulo="Precisa da sua atenção"
         descricao={
           alertas.dados
-            ? `${numero(alertas.dados.total)} ${plural(alertas.dados.total, "item", "itens")} em aberto · ${numero(alertas.dados.criticos)} ${plural(alertas.dados.criticos, "crítico", "críticos")} · ${numero(alertas.dados.atencao)} importantes`
+            ? `${contagem(alertas.dados.total, "item", "itens")} em aberto · ${contagem(alertas.dados.criticos, "crítico", "críticos")} · ${contagem(alertas.dados.atencao, "importante", "importantes")}`
             : "Decisões pendentes da operação, em ordem de gravidade"
         }
         acoes={
@@ -206,7 +206,7 @@ export function Atencao() {
           />
         )
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-5">
           {grupos.map((grupo) => (
             <section key={grupo.nivel} aria-labelledby={`grupo-${grupo.nivel}`}>
               <div className="mb-2 flex items-baseline gap-2">
@@ -214,7 +214,7 @@ export function Atencao() {
                   {grupo.estado.rotulo}
                 </h2>
                 <span className="nums text-xs text-tinta-suave">
-                  {numero(grupo.itens.length)} {plural(grupo.itens.length, "item", "itens")}
+                  {contagem(grupo.itens.length, "item", "itens")}
                 </span>
               </div>
               <ul className="space-y-2">

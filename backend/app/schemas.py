@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.core.documentos import normalizar_cnpj, normalizar_documento
+from app.core.documentos import normalizar_cnpj, normalizar_documento, validar_documento
 from app.models import (
     DirecaoDocumento,
     StatusDocumentoFiscal,
@@ -75,9 +75,19 @@ class EmpresaCriar(BaseModel):
     @classmethod
     def normalizar_documento(cls, v: str) -> str:
         try:
-            return normalizar_documento(v)
+            documento = normalizar_documento(v)
         except ValueError as exc:
             raise ValueError(str(exc)) from exc
+        # Formato certo não é documento válido: "11.111.111/1111-11" tem 14
+        # caracteres e dígitos verificadores impossíveis. Sem esta checagem o
+        # cadastro aceitava o CNPJ, gravava a empresa e só falhava depois, na
+        # consulta pública, com mensagem que não falava de CNPJ nenhum.
+        if not validar_documento(documento):
+            raise ValueError(
+                "CPF inválido — confira os dígitos." if len(documento) == 11
+                else "CNPJ inválido — confira os dígitos."
+            )
+        return documento
 
     @field_validator("uf")
     @classmethod
@@ -546,6 +556,7 @@ class ExecucaoImportacaoResposta(BaseModel):
     iniciado_em: datetime
     finalizado_em: datetime | None
     mensagem_erro: str | None = None
+    falha: str | None = None
     aviso: str | None = None
     ultimo_nsu: str | None = None
     empresa_razao_social: str | None = None
@@ -1030,6 +1041,26 @@ class ExecucaoAoVivo(BaseModel):
     motivo_espera: str | None = None
     aviso: str | None = None
     mensagem_erro: str | None = None
+
+
+class CapturaAoVivo(BaseModel):
+    """O que a captura está fazendo agora — para a lista do acervo não parecer parada.
+
+    Existe porque uma importação demora, e enquanto ela roda a tela de
+    documentos mostra o que já chegou, não o que está chegando. Sem isso o
+    operador olha uma lista parada e conclui que o sistema já pegou tudo — ou
+    que não veio nada. Duas informações resolvem: a contagem viva da captura em
+    andamento e o desfecho da última que terminou.
+
+    `fora_do_recorte` conta as capturas que estão rodando em empresas que **não**
+    estão no filtro da tela: sem esse número, quem filtra por uma empresa fica
+    vendo a lista parada enquanto o escritório inteiro é capturado.
+    """
+
+    em_andamento: list[ExecucaoAoVivo] = []
+    documentos_em_andamento: int = 0
+    fora_do_recorte: int = 0
+    ultima: ExecucaoImportacaoResposta | None = None
 
 
 class JanelaProximaConsulta(BaseModel):

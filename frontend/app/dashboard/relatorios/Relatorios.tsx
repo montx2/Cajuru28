@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { dataCurta, moeda, numero, percentual, plural } from "@/lib/format";
+import { contagem, dataCurta, moeda, numero, percentual } from "@/lib/format";
 import { estadoDaConferencia } from "@/lib/estados";
 import { mensagemDoErro } from "@/lib/erros";
 import { rotulo as rotuloCompetencia } from "@/lib/competencia";
@@ -64,8 +64,8 @@ export function Relatorios() {
 
   const indicadores: KpiProps[] = totais
     ? [
-        { rotulo: "Documentos", valor: numero(totais.documentos), contexto: rotuloCompetencia(mes), carregando: fechamento.atualizando },
-        { rotulo: "Valor do mês", valor: moeda(totais.valor), carregando: fechamento.atualizando },
+        { rotulo: "Documentos", valor: numero(totais.documentos), contexto: rotuloCompetencia(mes), carregando: fechamento.carregando, atualizando: fechamento.atualizando },
+        { rotulo: "Valor do mês", valor: moeda(totais.valor), carregando: fechamento.carregando, atualizando: fechamento.atualizando },
         { rotulo: "Canceladas", valor: numero(totais.canceladas), tom: totais.canceladas > 0 ? "espera" : "neutro", contexto: totais.documentos > 0 ? `${percentual((totais.canceladas / totais.documentos) * 100, 1)} do mês` : undefined },
         { rotulo: "Sem XML completo", valor: numero(totais.sem_xml), tom: totais.sem_xml > 0 ? "erro" : "ok", contexto: "recebidas só em resumo", href: `/dashboard/documentos?leiaute=resumo&mes=${mes}` },
         {
@@ -148,7 +148,7 @@ export function Relatorios() {
         descricao="Conferência do mês por empresa e tipo, com a folha pronta para o dossiê do cliente."
       />
 
-      <div className="nao-imprimir flex flex-wrap items-end justify-between gap-3 rounded-cartao border border-traco bg-superficie p-3">
+      <div className="superficie-plana nao-imprimir flex flex-wrap items-end justify-between gap-3 rounded-cartao p-3">
         <SeletorCompetencia mes={mes} aoMudar={aoMudar} descricao="Mês de competência dos documentos" />
         <div className="flex flex-wrap items-center gap-2">
           <Botao
@@ -187,7 +187,7 @@ export function Relatorios() {
           titulo={estadoConferencia.rotulo}
           acao={
             conferencia.dados.ok ? undefined : (
-              <Link href="/dashboard/importacoes" className="text-sm font-medium underline-offset-4 hover:underline">
+              <Link href="/dashboard/importacoes" className="link-prosa text-sm font-medium">
                 Disparar captura
               </Link>
             )
@@ -262,7 +262,7 @@ export function Relatorios() {
                   dados={[...empresas]
                     .sort((a, b) => b.total - a.total)
                     .slice(0, 8)
-                    .map((linha) => ({ rotulo: linha.razao_social, valor: linha.total, titulo: `${linha.razao_social}: ${numero(linha.total)} documentos · ${moeda(linha.valor)}` }))}
+                    .map((linha) => ({ rotulo: linha.razao_social, valor: linha.total, titulo: `${linha.razao_social}: ${contagem(linha.total, "documento", "documentos")} · ${moeda(linha.valor)}` }))}
                 />
               ) : (
                 <EstadoVazio inline titulo="Nenhuma empresa com documento" icone="empresa" />
@@ -281,12 +281,17 @@ export function Relatorios() {
                 carregando: false,
                 vazioTitulo: "Nenhuma empresa com documento no mês",
                 vazioInstrucao: "Dispare a captura do período para preencher o fechamento.",
+                vazioAcao: (
+                  <BotaoLink variante="secundaria" href={`/dashboard/importacoes?mes=${mes}`}>
+                    Disparar captura
+                  </BotaoLink>
+                ),
                 vazioIcone: "fechamento",
               }}
               rodape={
                 <p className="nums text-xs text-tinta-suave">
-                  {numero(empresas.length)} {plural(empresas.length, "empresa", "empresas")} · {numero(totais.documentos)} documentos · {moeda(totais.valor)} ·{" "}
-                  {numero(totais.canceladas)} canceladas
+                  {contagem(empresas.length, "empresa", "empresas")} · {contagem(totais.documentos, "documento", "documentos")} · {moeda(totais.valor)} ·{" "}
+                  {contagem(totais.canceladas, "cancelada", "canceladas")}
                 </p>
               }
             />
@@ -294,7 +299,7 @@ export function Relatorios() {
 
           {/* Folha de impressão: tabela completa (sem virtualização), totais e assinatura. */}
           <div className="hidden print:block pagina-paisagem">
-            <table className="w-full text-xs">
+            <table className="tabela-impressao">
               <caption className="sr-only">Fechamento por empresa</caption>
               <thead>
                 <tr>
@@ -364,11 +369,11 @@ export function Relatorios() {
                 <p>Conferência: {conferencia.dados?.status ?? "não verificada"}</p>
                 <p>
                   {numero(conferencia.dados?.itens_ok ?? 0)} de {numero(conferencia.dados?.itens_total ?? 0)} combinações conferidas ·{" "}
-                  {numero(conferencia.dados?.sem_xml_completo ?? 0)} documentos sem XML completo
+                  {contagem(conferencia.dados?.sem_xml_completo ?? 0, "documento", "documentos")} sem XML completo
                 </p>
               </div>
               <div className="text-right">
-                <p className="mt-8 border-t border-black pt-1">Assinatura do responsável</p>
+                <p className="mt-8 border-t border-tinta-forte pt-1">Assinatura do responsável</p>
               </div>
             </div>
           </div>

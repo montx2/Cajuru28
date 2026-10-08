@@ -4,7 +4,7 @@ Fluxa é um instrumento operacional, não um painel promocional. A primeira supe
 
 ## Decisões
 
-- **Papel & Grafite:** papel neutro, tinta em quatro níveis, um acento índigo com vidro controlado (header, sidebar, camadas flutuantes) e cores de estado exclusivamente semânticas.
+- **Papel & Grafite:** papel neutro, tinta em quatro níveis, um acento verde-menta (`#7ce0b3` no escuro, `#176b49` no claro) com vidro controlado (header, sidebar, camadas flutuantes) e cores de estado exclusivamente semânticas.
 - **Hierarquia silenciosa:** peso máximo 600, títulos contidos, divisores no lugar de sombras e números tabulares.
 - **Operação antes de observação:** cada alerta traz a ação de resolução; detalhes de NSU, execução e XML ficam sob demanda.
 - **Contexto durável:** período e filtros vivem na URL; tema, densidade e colunas são preferências locais, nunca credenciais.

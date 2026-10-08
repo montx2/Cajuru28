@@ -1,3 +1,8 @@
+> **Nota de 08/10/2026.** Este documento é o retrato da auditoria de 01/10/2026.
+> Onde ele disser que o acento é índigo, leia verde-menta: os tokens reais em
+> `app/globals.css` são `--acento: #7ce0b3` (tema escuro) e `--acento: #176b49`
+> (tema claro). A referência de design vigente é `SISTEMA.md`.
+
 # Diagnóstico do front-end — auditoria antes do redesign
 
 Auditoria de 108 arquivos (~17,2 mil linhas) em `frontend/`, feita antes de escrever
@@ -25,7 +30,7 @@ zero. O que está no repositório hoje é outra coisa:
 | Escala tipográfica de 5-6 tamanhos, pesos 400/500/600 | Feito, e travado: `font-bold`/`font-black` **resolvem para 600** no config. |
 | Sombras discretas, nada exagerado | Travado: `shadow-sm`…`shadow-2xl` resolvem para `none`; só `nivel1`/`nivel2` elevam. |
 | Raios contidos | Travado: `rounded-2xl`/`rounded-3xl` resolvem para 12px. |
-| 1 acento só, semânticos restritos a status | Feito. Acento índigo único; `ok/espera/erro/info` só em badge e mensagem. |
+| 1 acento só, semânticos restritos a status | Feito. Acento único verde-menta (`#7ce0b3` no escuro, `#176b49` no claro); `ok/espera/erro/info` só em badge e mensagem. |
 | WCAG AA, contraste medido | Feito e **documentado com os valores** (ex.: tinta-forte 17,3:1, acento 7,3:1). |
 | Label visível + `aria-describedby` + erro ligado ao campo | Feito em `components/ui/Campo.tsx`. |
 | Light/dark mode | Feito, calibrado separadamente (não é paleta invertida), sem flash. |
@@ -36,7 +41,7 @@ zero. O que está no repositório hoje é outra coisa:
 | Feedback de ação assíncrona | Feito: `Toast` + `carregando` no `Botao`. |
 
 Ou seja: **o redesign completo que você pediu já foi feito** — só que sob outro nome
-de produto e com uma paleta índigo própria, não a lista de hex do brief.
+de produto e com paleta própria — hoje verde-menta (`#7ce0b3` no escuro, `#176b49` no claro), não a lista de hex do brief.
 
 O bug crítico, por outro lado, era real. Ele foi diagnosticado, corrigido e coberto
 por teste (§3).
@@ -50,9 +55,11 @@ Poucos, e nenhum estrutural. O sistema de design está sólido; o que sobra é r
 1. **Identidade dividida.** `package.json` diz `notasflow-frontend`; todo o resto diz
    Fluxa. Quem entra no projeto não sabe qual é o nome do produto.
 2. **Comentário do código desalinhado da paleta.** `components/ui/Botao.tsx:24` diz
-   *"`primaria` é o verde do carimbo"* — mas o acento virou índigo (`#4338ca`) na
-   reconstrução. O comentário ficou do sistema antigo. Mesma coisa no
-   `CHANGELOG-FRONTEND.md`, que fala em "um único acento verde".
+   *"`primaria` é o verde do carimbo"* — na revisão de 01/10/2026 o acento era
+   índigo (`#4338ca`) e o comentário ficou do sistema anterior. **Corrigido em
+   08/10/2026:** o acento voltou a ser verde-menta (`#7ce0b3` no escuro,
+   `#176b49` no claro), então comentário e `CHANGELOG-FRONTEND.md` estão de
+   acordo com o CSS real.
 3. **14 rotas no painel** contra as 6 telas que o brief lista. Existem
    `/atencao`, `/execucoes`, `/auditoria`, `/relatorios`, `/saude`, `/alertas`,
    `/configuracoes`, `/usuarios` além das 6. Não é defeito — mas é densidade de

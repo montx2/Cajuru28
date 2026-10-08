@@ -157,6 +157,8 @@ export interface ExecucaoImportacao {
   iniciado_em: string;
   finalizado_em: string | null;
   mensagem_erro?: string | null;
+  /** Natureza da falha — decide o "próximo passo" que a tela mostra. */
+  falha?: string | null;
   aviso?: string | null;
   ultimo_nsu?: string | null;
   empresa_razao_social: string | null;
@@ -703,6 +705,18 @@ export interface JanelaProximaConsulta {
   proxima_consulta_em: string;
   bloqueada: boolean;
   pendencia: number;
+}
+
+/**
+ * O que a captura está fazendo agora — para a lista do acervo não parecer
+ * parada. `ultima` vem sempre; quem decide se ela ainda é notícia é a tela.
+ */
+export interface CapturaAoVivo {
+  em_andamento: ExecucaoAoVivo[];
+  documentos_em_andamento: number;
+  /** Capturas rodando em empresas que não estão no filtro da tela. */
+  fora_do_recorte: number;
+  ultima: ExecucaoImportacao | null;
 }
 
 export interface CentralExecucoes {

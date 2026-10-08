@@ -10,3 +10,21 @@ os.environ.setdefault("REDIS_URL", "redis://localhost:6379/0")
 os.environ.setdefault("SECRET_KEY", "chave-de-teste-nao-usar-em-producao")
 os.environ.setdefault("VAULT_MASTER_KEY", Fernet.generate_key().decode())
 os.environ.setdefault("BACKUP_ENCRYPTION_KEY", Fernet.generate_key().decode())
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def fila_respondendo_nos_testes(monkeypatch):
+    """
+    Nos testes não existe broker: a checagem curta da fila diria "fora do ar"
+    em toda chamada e nenhum caminho de enfileiramento seria exercitado.
+
+    O comportamento da checagem tem teste próprio
+    (`test_fila_fora_do_ar_nao_cria_execucao_nem_faz_nada_esperar`), que a
+    desliga de propósito; aqui ela responde "sim" para o resto da suíte testar
+    a decisão da fila, não a infraestrutura.
+    """
+    from app.services import fila
+
+    monkeypatch.setattr(fila, "fila_respondendo", lambda: True)

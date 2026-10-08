@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { api, type FiltrosDocumentos } from "@/lib/api";
 import { ROTULO_ACAO_LOTE } from "@/lib/acoes-documento";
@@ -8,7 +8,7 @@ import {
   filtrosParaBaixarSelecao,
   filtrosParaBaixarTudoDoFiltro,
 } from "@/lib/exportacao-documentos";
-import { bytesParaTexto, chaveEmGrupos, dataCurta, formatarCnpjCpf, mesAno, numero, plural } from "@/lib/format";
+import { bytesParaTexto, chaveEmGrupos, contagem, dataCurta, formatarCnpjCpf, mesAno, numero, plural } from "@/lib/format";
 import { estadoDoDocumento } from "@/lib/estados";
 import { mensagemDoErro } from "@/lib/erros";
 import { MOTIVO_SOMENTE_LEITURA } from "@/lib/papel";
@@ -17,16 +17,19 @@ import { hrefComEstado } from "@/lib/urlEstadoLink";
 import { useBuscaUrl } from "@/lib/useBuscaUrl";
 import { usePreferencia } from "@/lib/usePreferencia";
 import { usePeriodoUrl } from "@/lib/usePeriodoUrl";
+import { usePolling } from "@/lib/usePolling";
 import { useRecurso } from "@/lib/useRecurso";
 import { useUrlEstado } from "@/lib/urlEstado";
 import { useSinalizarAtualizacao } from "@/components/shell/BarraAtualizacao";
 import { useSessao } from "@/components/shell/ProvedorSessao";
 import { PainelDocumento } from "@/components/fiscal/PainelDocumento";
+import { CapturaEmAndamento } from "@/components/fiscal/CapturaEmAndamento";
 import { FiltrosAcervoDocumentos } from "@/components/fiscal/FiltrosAcervoDocumentos";
 import { SeletorCompetencia } from "@/components/fiscal/SeletorCompetencia";
 import { SeletorPeriodo } from "@/components/fiscal/SeletorPeriodo";
 import { ModalImportarXmls } from "@/app/dashboard/importacoes/ImportarXmls";
 import { Botao, BotaoLink } from "@/components/ui/Botao";
+import { Aviso } from "@/components/ui/Aviso";
 import { CabecalhoPagina, Cartao } from "@/components/ui/Cartao";
 import { Busca, Caixa, Entrada, Selecao } from "@/components/ui/Campo";
 import { Combobox, type OpcaoCombobox } from "@/components/ui/Combobox";
@@ -134,6 +137,9 @@ export function Documentos() {
   const documentos = useRecurso(() => api.listarDocumentos({ ...filtros, limit: PASSO, offset: 0 }), [chaveFiltros], { automatico: pronto });
   const resumo = useRecurso(() => api.resumoDocumentos(filtros), [chaveFiltros], { automatico: pronto });
   const empresas = useRecurso(() => api.listarEmpresas(), []);
+  // A captura em andamento é do recorte da tela: filtrando por uma empresa, o
+  // aviso fala dela; sem filtro, fala do escritório.
+  const captura = useRecurso(() => api.capturaAoVivo(empresa ? [empresa] : undefined), [empresa]);
   const opcoesEmpresa = useMemo<OpcaoCombobox[]>(
     () => [
       { valor: "", rotulo: "Todas as empresas" },
@@ -153,6 +159,40 @@ export function Documentos() {
   const mesSelecionado = mesDoPeriodo || periodo.inicio.slice(0, 7);
 
   useSinalizarAtualizacao(documentos.atualizando || resumo.atualizando);
+
+  const capturando = (captura.dados?.em_andamento.length ?? 0) > 0;
+  const recarregarDoRecorte = useCallback(() => {
+    documentos.atualizar();
+    resumo.atualizar();
+    captura.atualizar();
+  }, [captura, documentos, resumo]);
+
+  // Enquanto a captura roda, a lista e a contagem andam sozinhas — é o que
+  // evita o operador concluir que "já pegou tudo" (ou que "não veio nada") com
+  // a tela parada. Em repouso, 20 s bastam para notar uma rodada que começou
+  // em outra tela.
+  usePolling(captura.atualizar, capturando ? 5_000 : 20_000);
+  usePolling(recarregarDoRecorte, capturando && pronto ? 5_000 : null);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    document.title = capturando ? "Capturando documentos · Fluxa" : "Documentos · Fluxa";
+  }, [capturando]);
+
+  // Ao terminar a captura, uma última recarga: o laço de 5 s para no mesmo
+  // instante em que a rodada fecha, e sem isto o último lote que chegou ficaria
+  // de fora justamente quando o operador olha para conferir o resultado.
+  const estavaCapturando = useRef(false);
+  useEffect(() => {
+    if (capturando) {
+      estavaCapturando.current = true;
+      return;
+    }
+    if (!estavaCapturando.current) return;
+    estavaCapturando.current = false;
+    documentos.atualizar();
+    resumo.atualizar();
+  }, [capturando, documentos, resumo]);
 
   // Trocou o filtro, a seleção anterior não significa mais nada.
   useEffect(() => {
@@ -300,14 +340,14 @@ export function Documentos() {
         avisar({
           tom: "ok",
           titulo: "XMLs da seleção baixados",
-          descricao: `${escopoEmpresa} · ${numero(quantidadeSelecionada)} ${plural(quantidadeSelecionada, "documento", "documentos")} · canceladas fora do pacote`,
+          descricao: `${escopoEmpresa} · ${contagem(quantidadeSelecionada, "documento", "documentos")} · canceladas fora do pacote`,
         });
       } else {
         await api.baixarCsvDocumentos(filtroSelecao, `Fluxa_selecao_${sufixoArquivo(periodo)}.csv`);
         avisar({
           tom: "ok",
           titulo: "CSV da seleção gerado",
-          descricao: `${escopoEmpresa} · ${numero(quantidadeSelecionada)} ${plural(quantidadeSelecionada, "documento", "documentos")}`,
+          descricao: `${escopoEmpresa} · ${contagem(quantidadeSelecionada, "documento", "documentos")}`,
         });
       }
     } catch (falha) {
@@ -324,8 +364,8 @@ export function Documentos() {
       const resultado = ids.length === 1 ? await api.excluirDocumento(ids[0]) : await api.excluirDocumentos(ids);
       avisar({
         tom: "ok",
-        titulo: `${numero(resultado.excluidos)} ${plural(resultado.excluidos, "documento excluído", "documentos excluídos")}`,
-        descricao: `${numero(resultado.arquivos_removidos)} ${plural(resultado.arquivos_removidos, "arquivo removido", "arquivos removidos")} do disco`,
+        titulo: `${contagem(resultado.excluidos, "documento excluído", "documentos excluídos")}`,
+        descricao: `${contagem(resultado.arquivos_removidos, "arquivo removido", "arquivos removidos")} do disco`,
       });
       setExcluirLote(null);
       setExcluirUm(null);
@@ -382,14 +422,15 @@ export function Documentos() {
       {
         id: "emissao",
         cabecalho: "Emissão",
-        largura: "min-w-28",
+        largura: "min-w-24",
         ordenavel: true,
         celula: (documento) => <span className="nums whitespace-nowrap text-tinta">{dataCurta(documento.data_emissao)}</span>,
       },
       {
         id: "competencia",
         cabecalho: "Competência",
-        largura: "min-w-28",
+        ocultaPorPadrao: true,
+        largura: "min-w-24",
         ordenavel: true,
         celula: (documento) => (
           <span className="nums whitespace-nowrap text-tinta">
@@ -406,7 +447,7 @@ export function Documentos() {
       {
         id: "numero",
         cabecalho: "Número",
-        largura: "min-w-36",
+        largura: "min-w-24",
         ordenavel: true,
         celula: (documento) => (
           <span className="nums whitespace-nowrap text-tinta">
@@ -419,7 +460,9 @@ export function Documentos() {
         id: "parte",
         cabecalho: "Emitente / destinatário",
         dica: "Emitente nas tomadas, destinatário nas prestadas",
-        largura: "min-w-60",
+        // Nome truncado com `title` e detalhe por clique: 240 px de piso só
+        // empurravam a tabela para fora da tela.
+        largura: "min-w-36",
         ordenavel: true,
         celula: (documento) => {
           const nome = documento.direcao === "tomada" ? documento.emitente_nome : documento.destinatario_nome;
@@ -437,7 +480,7 @@ export function Documentos() {
       {
         id: "empresa",
         cabecalho: "Empresa",
-        largura: "min-w-48",
+        largura: "min-w-28",
         ordenavel: true,
         celula: (documento) => (
           <Link
@@ -455,13 +498,14 @@ export function Documentos() {
         cabecalho: "Valor",
         alinhamento: "direita",
         numerica: true,
+        largura: "min-w-32",
         ordenavel: true,
         celula: (documento) => <ValorMoeda valor={documento.valor_total} cancelado={documento.status === "cancelada"} />,
       },
       {
         id: "status",
         cabecalho: "Situação",
-        largura: "min-w-36",
+        largura: "min-w-32",
         ordenavel: true,
         celula: (documento) => (
           <IndicadorEstado
@@ -499,7 +543,7 @@ export function Documentos() {
         id: "acoes",
         fixar: "direita",
         cabecalho: "Ações",
-        largura: "w-16 min-w-16",
+        largura: "w-12 min-w-12",
         alinhamento: "direita",
         fixa: true,
         celula: (documento) => (
@@ -523,7 +567,7 @@ export function Documentos() {
 
   const indicadores: KpiProps[] = resumo.dados
     ? [
-        { rotulo: "Documentos no recorte", valor: numero(resumo.dados.total), contexto: rotuloPeriodo(periodo), carregando: resumo.atualizando },
+        { rotulo: "Documentos no recorte", valor: numero(resumo.dados.total), contexto: rotuloPeriodo(periodo), carregando: resumo.carregando, atualizando: resumo.atualizando },
         { rotulo: "Normais", valor: numero(resumo.dados.normais), tom: "ok" },
         {
           rotulo: "Canceladas",
@@ -608,6 +652,14 @@ export function Documentos() {
       </Cartao>
       {resumo.dados ? <GradeKpis itens={indicadores} colunas={indicadores.length <= 3 ? 3 : indicadores.length <= 4 ? 4 : indicadores.length <= 5 ? 5 : 6} rotulo="Resumo do recorte" /> : null}
 
+      {pronto ? (
+        <CapturaEmAndamento
+          captura={captura.dados}
+          escopo={empresaSelecionada?.razao_social ?? null}
+          aoAtualizar={recarregarDoRecorte}
+        />
+      ) : null}
+
       <Tabela
         linhas={linhas}
         colunas={colunas}
@@ -672,7 +724,7 @@ export function Documentos() {
                 },
                 {
                   id: "excluir",
-                  rotulo: `Excluir ${numero(quantidade)} documentos…`,
+                  rotulo: `Excluir ${contagem(quantidade, "documento", "documentos")}…`,
                   icone: "excluir",
                   tom: "perigo" as const,
                   separarAcima: true,
@@ -740,9 +792,9 @@ export function Documentos() {
                     titulo="Filtros"
                     acao={
                       quantidadeFiltros > 0 ? (
-                        <button type="button" onClick={limparFiltrosAvancados} className="text-xs font-medium text-acento underline-offset-4 hover:underline">
+                        <Botao variante="link" tamanho="sm" onClick={limparFiltrosAvancados}>
                           Limpar
-                        </button>
+                        </Botao>
                       ) : undefined
                     }
                   />
@@ -938,9 +990,9 @@ export function Documentos() {
             Calculando o que será baixado…
           </p>
         ) : erroExportacao ? (
-          <p role="alert" className="text-sm text-erro">
+          <Aviso tom="erro" compacto urgente>
             {erroExportacao}
-          </p>
+          </Aviso>
         ) : estimativa ? (
           <div className="space-y-3">
             <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
@@ -989,7 +1041,7 @@ export function Documentos() {
         carregando={enviandoExclusao}
         erro={erroExclusao}
         tom="perigo"
-        titulo={`Excluir ${numero(excluirLote?.length ?? 0)} ${plural(excluirLote?.length ?? 0, "documento", "documentos")}`}
+        titulo={`Excluir ${contagem(excluirLote?.length ?? 0, "documento", "documentos")}`}
         consequencia="Os registros saem do banco e os arquivos XML são apagados do disco. Não há como desfazer."
         impacto={
           <span>

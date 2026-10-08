@@ -1,6 +1,7 @@
 "use client";
 
 import { Abas } from "@/components/ui/Abas";
+import { Botao } from "@/components/ui/Botao";
 import type { DirecaoDocumento, TipoDocumentoFiscal } from "@/lib/types";
 
 const TIPOS_DOCUMENTO = [
@@ -62,9 +63,9 @@ export function FiltrosAcervoDocumentos({ tipo, direcao, aoMudarTipo, aoMudarDir
           <span className="font-medium text-tinta">Saída / prestada</span> para serviços prestados.
         </p>
         {filtroAtivo ? (
-          <button type="button" onClick={aoLimpar} className="flex-none text-xs font-medium text-acento underline-offset-4 hover:underline">
+          <Botao variante="link" tamanho="sm" className="flex-none" onClick={aoLimpar}>
             Limpar todos os filtros
-          </button>
+          </Botao>
         ) : null}
       </div>
     </section>

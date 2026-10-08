@@ -5,7 +5,7 @@ import { forwardRef, type ButtonHTMLAttributes, type ComponentProps, type ReactN
 import { cn } from "@/lib/cn";
 import { Spinner } from "./Spinner";
 
-export type VarianteBotao = "primaria" | "secundaria" | "sutil" | "perigo" | "perigo-sutil" | "link";
+export type VarianteBotao = "primaria" | "secundaria" | "sutil" | "perigo" | "perigo-sutil" | "link" | "link-sutil";
 export type TamanhoBotao = "sm" | "md" | "lg";
 
 export interface BotaoProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -33,6 +33,9 @@ const VARIANTES: Record<VarianteBotao, string> = {
   perigo: "border-destrutivo bg-destrutivo text-destrutivo-contraste hover:border-destrutivo-hover hover:bg-destrutivo-hover active:bg-destrutivo-hover",
   "perigo-sutil": "border-erro/45 bg-superficie text-erro hover:border-erro hover:bg-erro-tenue active:bg-erro-tenue",
   link: "border-transparent bg-transparent px-0 text-acento underline-offset-4 hover:underline",
+  // Ação de texto neutra (fechar, limpar, "cancelar" de leitura): mesma forma do
+  // `link`, sem o acento — o acento é para o caminho que resolve, não para sair.
+  "link-sutil": "border-transparent bg-transparent px-0 text-tinta-suave hover:text-tinta underline-offset-4 hover:underline",
 };
 
 const TAMANHOS: Record<TamanhoBotao, string> = {
@@ -41,16 +44,30 @@ const TAMANHOS: Record<TamanhoBotao, string> = {
   lg: "botao-lg gap-2 px-5 text-base",
 };
 
+/**
+ * Tamanho das variantes de link: só o texto muda.
+ *
+ * `px-0` da variante e `px-3`/`px-3.5` do tamanho convivem no classList e o
+ * utilitário vence (mesma propriedade, ordem do CSS), então um link "de texto"
+ * saía com padding de botão. Aqui a lista de link não emite padding nenhum.
+ */
+const TAMANHOS_LINK: Record<TamanhoBotao, string> = {
+  sm: "botao-sm gap-1.5 text-xs",
+  md: "gap-2 text-sm",
+  lg: "botao-lg gap-2 text-base",
+};
+
 /** Classes compartilhadas por `Botao` e `BotaoLink` — um visual, dois elementos. */
 function classesDoBotao(variante: VarianteBotao, tamanho: TamanhoBotao, somenteIcone: boolean, className?: string): string {
+  const ehLink = variante === "link" || variante === "link-sutil";
   return cn(
     "botao-controle relative inline-flex min-w-0 select-none items-center justify-center rounded-controle border font-medium",
     "transition-[background-color,border-color,color,opacity] duration-120 ease-produto",
     "disabled:pointer-events-none disabled:opacity-45",
     VARIANTES[variante],
-    TAMANHOS[tamanho],
+    ehLink ? TAMANHOS_LINK[tamanho] : TAMANHOS[tamanho],
     somenteIcone && "botao-icone",
-    variante === "link" && "botao-link rounded-none disabled:opacity-60",
+    ehLink && "botao-link rounded-none disabled:opacity-60",
     className
   );
 }

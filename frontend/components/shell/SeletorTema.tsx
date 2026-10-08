@@ -29,7 +29,7 @@ export function SeletorTema() {
         aoClicar: () => definir(opcao.valor),
       }))}
     >
-      <p className="px-3 pb-1 pt-1.5 text-2xs font-medium uppercase tracking-[.04em] text-tinta-fraca">Aparência</p>
+      <p className="px-3 pb-1 pt-1.5 text-2xs font-medium uppercase tracking-rotulo text-tinta-fraca">Aparência</p>
     </MenuSuspenso>
   );
 }

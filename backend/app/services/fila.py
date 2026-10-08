@@ -21,10 +21,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
+import redis
 from sqlalchemy import func
 
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models import (
     Certificado,
     Empresa,
@@ -60,6 +62,32 @@ class ResultadoEnfileiramento:
     @property
     def enfileirada(self) -> bool:
         return self.status == "enfileirada"
+
+
+# Curto de propósito: com o broker fora, o clique não pode esperar os retries
+# do Celery (cerca de 20 s) para ouvir "não deu". Um segundo é folga de sobra
+# para um Redis local responder — e evita recusar captura por host ocupado.
+TIMEOUT_FILA_SEGUNDOS = 1.0
+
+
+def fila_respondendo() -> bool:
+    """
+    O broker responde? Uma ida ao Redis resolve a dúvida em milissegundos.
+
+    A checagem não substitui o enfileiramento (que continua sendo a verdade);
+    ela existe para não criar execução nem segurar o operador quando a fila
+    está fora — é o estado em que o painel já mostra "Redis não responde".
+    """
+    try:
+        cliente = redis.Redis.from_url(
+            settings.redis_url,
+            socket_connect_timeout=TIMEOUT_FILA_SEGUNDOS,
+            socket_timeout=TIMEOUT_FILA_SEGUNDOS,
+        )
+        cliente.ping()
+        return True
+    except Exception:  # noqa: BLE001 — qualquer falha aqui significa "não respondeu"
+        return False
 
 
 def _disparar(empresa_id: int, tipo: str, execucao_id: int) -> None:
@@ -202,6 +230,19 @@ def enfileirar(
             "Consulta FORÇADA dentro da janela de consumo. Se o ambiente "
             "responder 656, o bloqueio recomeça do zero."
         )
+    # Última porta antes de criar a execução: fila fora do ar não gera linha
+    # nem 20 s de espera. Nada foi consultado, então a cota fiscal segue inteira.
+    if not fila_respondendo():
+        return ResultadoEnfileiramento(
+            status="fila_indisponivel",
+            empresa_id=empresa.id,
+            tipo=tipo.value,
+            mensagem=(
+                "A fila de processamento não respondeu, então nada foi consultado "
+                "na SEFAZ. Confira se os serviços de fila e worker estão no ar e "
+                "dispare de novo."
+            ),
+        )
     db.add(execucao)
     db.commit()
     db.refresh(execucao)
@@ -210,10 +251,16 @@ def enfileirar(
         _disparar(empresa.id, tipo.value, execucao.id)
     except Exception as exc:  # noqa: BLE001 — fila fora do ar não pode deixar execução zumbi
         execucao.status = StatusExecucao.ERRO
+        execucao.falha = "fila_indisponivel"
         execucao.mensagem_erro = (
             "Não foi possível enfileirar a importação (Redis/Celery indisponível?): "
             f"{str(exc)[:300]}"
         )
+        # ERRO é estado final: sem `finalizado_em`, a central de Execuções
+        # desenha a duração de uma falha de dias atrás como "em curso", como se
+        # a varredura ainda estivesse rodando. O fim registrado é o que separa
+        # "falhou" de "não sei se terminou".
+        execucao.finalizado_em = datetime.now(timezone.utc)
         db.commit()
         return ResultadoEnfileiramento(
             status="fila_indisponivel",

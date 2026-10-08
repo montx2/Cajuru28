@@ -1,10 +1,41 @@
 /**
  * Competência = o mês que o contador pede.
  *
- * A API aceita `MM/AAAA`; o `<input type="month">` do navegador fala
- * `AAAA-MM`. Estas duas funções são a única tradução entre os dois formatos no
- * app inteiro — foi assim que "esquecer o mês" deixou de ser possível.
+ * A API aceita `MM/AAAA`; a superfície fala `AAAA-MM` (mesma língua do antigo
+ * `<input type="month">`, que o seletor próprio substituiu). Estas duas funções
+ * são a única tradução entre os dois formatos no app inteiro — foi assim que
+ * "esquecer o mês" deixou de ser possível.
  */
+
+export const NOMES_DOS_MESES = [
+  "janeiro",
+  "fevereiro",
+  "março",
+  "abril",
+  "maio",
+  "junho",
+  "julho",
+  "agosto",
+  "setembro",
+  "outubro",
+  "novembro",
+  "dezembro",
+] as const;
+
+export const NOMES_CURTOS_DOS_MESES = [
+  "jan",
+  "fev",
+  "mar",
+  "abr",
+  "mai",
+  "jun",
+  "jul",
+  "ago",
+  "set",
+  "out",
+  "nov",
+  "dez",
+] as const;
 
 export function paraAPI(valor: string | null): string | undefined {
   if (!valor) return undefined;
@@ -23,21 +54,42 @@ export function daAPI(valor?: string | null): string {
 export function rotulo(valor: string | null): string {
   if (!valor) return "todos os períodos";
   const [ano, mes] = valor.split("-");
-  const nome = [
-    "janeiro",
-    "fevereiro",
-    "março",
-    "abril",
-    "maio",
-    "junho",
-    "julho",
-    "agosto",
-    "setembro",
-    "outubro",
-    "novembro",
-    "dezembro",
-  ][Number(mes) - 1];
+  const nome = NOMES_DOS_MESES[Number(mes) - 1];
   return `${nome ?? mes}/${ano}`;
+}
+
+/** Ano do formato interno, com o ano corrente como reserva. */
+export function anoDe(valor: string | null | undefined): number {
+  const ano = Number((valor ?? "").split("-")[0]);
+  return Number.isInteger(ano) && ano > 1900 ? ano : Number(mesAtual().split("-")[0]);
+}
+
+export interface MesDoAno {
+  /** Formato interno AAAA-MM. */
+  valor: string;
+  /** Nome por extenso com o ano — é o nome acessível do botão. */
+  rotulo: string;
+  /** Três letras para a grade. */
+  curto: string;
+  /** `false` para meses depois do teto (o mês em andamento é o último válido). */
+  disponivel: boolean;
+}
+
+/**
+ * Os doze meses de um ano, já com o teto aplicado.
+ * O teto é uma string AAAA-MM: comparar assim funciona porque o formato é
+ * ordenável — nada de aritmética de data para decidir o que pode ser clicado.
+ */
+export function mesesDoAno(ano: number, max?: string | null): MesDoAno[] {
+  return NOMES_DOS_MESES.map((nome, indice) => {
+    const valor = `${ano}-${String(indice + 1).padStart(2, "0")}`;
+    return {
+      valor,
+      rotulo: `${nome} de ${ano}`,
+      curto: NOMES_CURTOS_DOS_MESES[indice],
+      disponivel: !max || valor <= max,
+    };
+  });
 }
 
 export function mesesAnteriores(valor: string, quantos = 1): string {

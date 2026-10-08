@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { numero } from "@/lib/format";
+import { Botao } from "./Botao";
 import { Caixa } from "./Campo";
 import { EsqueletoTabela } from "./Esqueleto";
 import { EstadoErro } from "./EstadoErro";
@@ -366,14 +367,14 @@ export function Tabela<L>({
                 : `${numero(selecionadas.size)} ${selecionadas.size === 1 ? "selecionada" : "selecionadas"}`}
             </p>
             {selecao?.todasDoFiltro && selecao.aoCancelarTudoDoFiltro ? (
-              <button type="button" onClick={selecao.aoCancelarTudoDoFiltro} className="flex-none rounded-badge text-xs font-medium text-acento underline-offset-4 hover:underline">
+              <Botao variante="link" tamanho="sm" className="flex-none" onClick={selecao.aoCancelarTudoDoFiltro}>
                 Cancelar seleção do filtro
-              </button>
+              </Botao>
             ) : null}
             {!selecao?.todasDoFiltro && selecao?.aoSelecionarTudoDoFiltro && (selecao.totalNoFiltro ?? 0) > selecionadas.size ? (
-              <button type="button" onClick={selecao.aoSelecionarTudoDoFiltro} className="flex-none rounded-badge text-xs font-medium text-acento underline-offset-4 hover:underline">
+              <Botao variante="link" tamanho="sm" className="flex-none" onClick={selecao.aoSelecionarTudoDoFiltro}>
                 Selecionar todas as {numero(selecao.totalNoFiltro)}{selecionaApenasElegiveis ? " elegíveis" : ""} do filtro
-              </button>
+              </Botao>
             ) : null}
             <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
               {barraDeSelecao?.({
@@ -426,7 +427,7 @@ export function Tabela<L>({
               <Popover rotulo="Colunas" icone="colunas" alinhamento="direita" largura="w-60" dica="Escolher colunas">
                 {() => (
                   <div className="max-h-80 overflow-y-auto py-1">
-                    <p className="px-3 py-1.5 text-2xs font-medium uppercase tracking-[.04em] text-tinta-fraca">Colunas visíveis</p>
+                    <p className="px-3 py-1.5 text-2xs font-medium uppercase tracking-rotulo text-tinta-fraca">Colunas visíveis</p>
                     {colunas.map((coluna) => (
                       <Caixa
                         key={coluna.id}

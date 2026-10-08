@@ -343,7 +343,8 @@ def test_criacao_preenche_ibge_vindo_da_consulta_publica(monkeypatch):
         ),
     )
 
-    dados = _completar_dados_empresa(EmpresaCriar(cnpj_cpf="12.345.678/0001-99"))
+    # CNPJ com DV válido de propósito: o schema recusa documento impossível (A11).
+    dados = _completar_dados_empresa(EmpresaCriar(cnpj_cpf="11.222.333/0001-81"))
 
     assert dados["codigo_ibge"] == "3114205"
 
@@ -575,7 +576,7 @@ def test_nenhuma_senha_das_planilhas_abre_conta_quantas_foram_testadas(cliente):
     assert resposta.status_code == 200
     item = resposta.json()["itens"][0]
     assert item["status"] == "erro"
-    assert "Foram testadas 2 senha(s) declaradas" in item["mensagem"]
+    assert "Foram testadas 2 senhas declaradas" in item["mensagem"]
 
 
 def test_criar_empresa_ja_existente_atualiza_e_reativa_sem_erro_409(cliente, monkeypatch):

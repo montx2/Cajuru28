@@ -4,12 +4,13 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { dataCurta } from "@/lib/format";
 import { mensagemDoErro } from "@/lib/erros";
+import { Aviso } from "@/components/ui/Aviso";
 import { Botao } from "@/components/ui/Botao";
 import { CampoArquivo } from "@/components/ui/CampoArquivo";
 import { CampoSenha } from "@/components/ui/CampoSenha";
 import { Combobox } from "@/components/ui/Combobox";
+import { Formulario } from "@/components/ui/Formulario";
 import { Etiqueta } from "@/components/ui/Etiqueta";
-import { Icone } from "@/components/ui/Icone";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 
@@ -120,7 +121,7 @@ export function ModalCertificado({ aberto, aoFechar, aoInstalar, empresas, empre
         </div>
       }
     >
-      <div className="space-y-4">
+      <Formulario aoEnviar={instalar} ocupado={enviando} className="space-y-4">
         {pedeEmpresa ? (
           <div>
             <p className="mb-1.5 text-xs font-medium text-tinta">
@@ -157,10 +158,9 @@ export function ModalCertificado({ aberto, aoFechar, aoInstalar, empresas, empre
         />
 
         {erro ? (
-          <p role="alert" className="flex items-start gap-2 rounded-controle border border-erro/40 bg-erro-tenue px-3 py-2 text-sm leading-6 text-erro">
-            <Icone nome="alerta" className="mt-1 h-4 w-4 flex-none" />
-            <span>{erro}</span>
-          </p>
+          <Aviso tom="erro" compacto urgente>
+            {erro}
+          </Aviso>
         ) : null}
 
         {pedeEmpresa && empresa ? (
@@ -171,7 +171,7 @@ export function ModalCertificado({ aberto, aoFechar, aoInstalar, empresas, empre
             </Etiqueta>
           </p>
         ) : null}
-      </div>
+      </Formulario>
     </Modal>
   );
 }

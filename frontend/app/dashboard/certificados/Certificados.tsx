@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { mensagemDoErro } from "@/lib/erros";
-import { dataCurta, numero, plural } from "@/lib/format";
+import { contagem, dataCurta, numero } from "@/lib/format";
 import { estadoDoCertificado } from "@/lib/estados";
 import { MOTIVO_SOMENTE_LEITURA } from "@/lib/papel";
 import { useBuscaUrl } from "@/lib/useBuscaUrl";
@@ -16,7 +16,7 @@ import { useToast } from "@/components/ui/Toast";
 import { ModalCertificado } from "@/components/fiscal/ModalCertificado";
 import { ModalImportacaoLote } from "@/app/dashboard/empresas/Empresas";
 import { Aviso } from "@/components/ui/Aviso";
-import { Botao } from "@/components/ui/Botao";
+import { Botao, BotaoLink } from "@/components/ui/Botao";
 import { BotaoIcone } from "@/components/ui/BotaoIcone";
 import { CabecalhoPagina } from "@/components/ui/Cartao";
 import { Busca } from "@/components/ui/Campo";
@@ -114,7 +114,7 @@ export function Certificados() {
     return base;
   }, [empresas.dados, painel.dados]);
 
-  const contagem = useMemo(
+  const totaisCertificado = useMemo(
     () => ({
       validos: linhas.filter((linha) => linha.tem_certificado && !linha.vencido && !linha.vence_em_breve).length,
       vencendo: linhas.filter((linha) => linha.vence_em_breve).length,
@@ -208,7 +208,7 @@ export function Certificados() {
       {
         id: "erro",
         cabecalho: "Último erro de autenticação",
-        largura: "min-w-48",
+        largura: "min-w-32",
         celula: (linha) =>
           linha.ultimo_erro ? (
             <Truncado texto={linha.ultimo_erro} className="text-erro" titulo={linha.ultimo_erro} />
@@ -259,10 +259,10 @@ export function Certificados() {
   );
 
   const indicadores: KpiProps[] = [
-    { rotulo: "Válidos", valor: numero(contagem.validos), tom: "ok", href: "/dashboard/certificados?filtro=validos", carregando: painel.carregando },
-    { rotulo: "Vencendo em 30 dias", valor: numero(contagem.vencendo), tom: contagem.vencendo > 0 ? "espera" : "neutro", href: "/dashboard/certificados?filtro=vencendo", carregando: painel.carregando },
-    { rotulo: "Vencidos", valor: numero(contagem.vencidos), tom: contagem.vencidos > 0 ? "erro" : "neutro", href: "/dashboard/certificados?filtro=vencidos", carregando: painel.carregando, dica: "Empresa com certificado vencido para de capturar documentos." },
-    { rotulo: "Sem certificado", valor: numero(contagem.sem), tom: contagem.sem > 0 ? "erro" : "neutro", href: "/dashboard/certificados?filtro=sem", carregando: painel.carregando },
+    { rotulo: "Válidos", valor: numero(totaisCertificado.validos), tom: "ok", href: "/dashboard/certificados?filtro=validos", carregando: painel.carregando },
+    { rotulo: "Vencendo em 30 dias", valor: numero(totaisCertificado.vencendo), tom: totaisCertificado.vencendo > 0 ? "espera" : "neutro", href: "/dashboard/certificados?filtro=vencendo", carregando: painel.carregando },
+    { rotulo: "Vencidos", valor: numero(totaisCertificado.vencidos), tom: totaisCertificado.vencidos > 0 ? "erro" : "neutro", href: "/dashboard/certificados?filtro=vencidos", carregando: painel.carregando, dica: "Empresa com certificado vencido para de capturar documentos." },
+    { rotulo: "Sem certificado", valor: numero(totaisCertificado.sem), tom: totaisCertificado.sem > 0 ? "erro" : "neutro", href: "/dashboard/certificados?filtro=sem", carregando: painel.carregando },
   ];
 
   const vencidos = linhas.filter((linha) => linha.vencido || !linha.tem_certificado);
@@ -314,7 +314,7 @@ export function Certificados() {
       />
 
       {vencidos.length > 0 ? (
-        <Aviso tom={contagem.vencidos > 0 ? "erro" : "espera"} icone="certificado" titulo={`${numero(vencidos.length)} ${plural(vencidos.length, "empresa está", "empresas estão")} sem captura garantida`}>
+        <Aviso tom={totaisCertificado.vencidos > 0 ? "erro" : "espera"} icone="certificado" titulo={`${contagem(vencidos.length, "empresa está", "empresas estão")} sem captura garantida`}>
           Certificado vencido ou ausente faz a SEFAZ recusar a consulta: o cursor (NSU) para e os documentos deixam de chegar. Substitua o A1 — a
           varredura automática retoma sozinha na próxima janela.
         </Aviso>
@@ -336,6 +336,11 @@ export function Certificados() {
           aoTentarNovamente: painel.atualizar,
           vazioTitulo: "Nenhum certificado neste recorte",
           vazioInstrucao: "Troque o filtro ou cadastre a empresa antes de enviar o A1.",
+          vazioAcao: (
+            <BotaoLink variante="secundaria" href="/dashboard/empresas">
+              Ver empresas
+            </BotaoLink>
+          ),
           vazioIcone: "certificado",
           filtroAtivo: Boolean(filtro || busca.valor.trim()),
           aoLimparFiltro: () => {
@@ -367,7 +372,7 @@ export function Certificados() {
         }
         rodape={
           <p className="nums text-xs text-tinta-suave">
-            {numero(filtradas.length)} {plural(filtradas.length, "empresa", "empresas")} · ordenadas por validade (a mais urgente primeiro)
+            {contagem(filtradas.length, "empresa", "empresas")} · ordenadas por validade (a mais urgente primeiro)
             {painel.ultimaAtualizacao ? <span className="ml-2 text-tinta-fraca">· consultado <DataHora iso={new Date(painel.ultimaAtualizacao).toISOString()} /></span> : null}
           </p>
         }

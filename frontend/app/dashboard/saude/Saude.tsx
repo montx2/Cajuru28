@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { api } from "@/lib/api";
-import { bytesParaTexto, dataHora, numero, plural, tempoRelativo } from "@/lib/format";
+import { bytesParaTexto, contagem, dataHora, numero, tempoRelativo } from "@/lib/format";
 import { estadoDoBackup, estadoDoComponente } from "@/lib/estados";
 import { mensagemDoErro } from "@/lib/erros";
 import { MOTIVO_SOMENTE_LEITURA, ehAdmin } from "@/lib/papel";
@@ -68,7 +68,7 @@ export function Saude() {
     setExecutandoBackup(0);
     try {
       const registro = await api.executarBackup();
-      avisar({ tom: registro.status === "ok" ? "ok" : "espera", titulo: `Backup ${registro.status === "ok" ? "concluído" : "em andamento"}`, descricao: `${numero(registro.empresas)} empresas · ${numero(registro.documentos)} documentos` });
+      avisar({ tom: registro.status === "ok" ? "ok" : "espera", titulo: `Backup ${registro.status === "ok" ? "concluído" : "em andamento"}`, descricao: `${contagem(registro.empresas, "empresa", "empresas")} · ${contagem(registro.documentos, "documento", "documentos")}` });
       backups.atualizar();
     } catch (falha) {
       avisar({ tom: "erro", titulo: "O backup não rodou", descricao: mensagemDoErro(falha, "executar o backup") });
@@ -102,7 +102,7 @@ export function Saude() {
       valor: dados ? (dados.ok ? "Operacional" : `${numero(problemas.length)} problemas`) : "—",
       tom: dados ? (dados.ok ? "ok" : "erro") : "neutro",
       carregando: saude.carregando,
-      dica: "Leitura de /sistema/saude-detalhada: banco, disco e fila.",
+      dica: "Verificação de banco de dados, disco e processamento em segundo plano.",
     },
     { rotulo: "Banco de dados", valor: dados ? (dados.banco_ok ? "Conectado" : "Sem conexão") : "—", tom: dados?.banco_ok ? "ok" : "erro", carregando: saude.carregando },
     {
@@ -180,7 +180,7 @@ export function Saude() {
       />
 
       {problemas.length > 0 ? (
-        <Aviso tom="erro" icone="risco" titulo={`${numero(problemas.length)} ${plural(problemas.length, "problema detectado", "problemas detectados")}`}>
+        <Aviso tom="erro" icone="risco" titulo={`${contagem(problemas.length, "problema detectado", "problemas detectados")}`}>
           <ul className="mt-1 list-disc space-y-1 pl-4 text-sm">
             {problemas.map((problema) => (
               <li key={problema}>{problema}</li>
@@ -199,7 +199,7 @@ export function Saude() {
       <GradeKpis itens={indicadores} colunas={5} rotulo="Estado do ambiente" />
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <Cartao titulo="Componentes" descricao="Leitura de /painel/operacional">
+        <Cartao titulo="Componentes" descricao="Verificação contínua de banco, disco e processamento em segundo plano">
           {painel.carregando ? (
             <EsqueletoBloco linhas={4} />
           ) : painel.erro ? (
@@ -251,7 +251,7 @@ export function Saude() {
               </dl>
 
               <div>
-                <p className="mb-1.5 text-xs font-medium uppercase tracking-[.04em] text-tinta-suave">Agenda da fila</p>
+                <p className="mb-1.5 text-xs font-medium uppercase tracking-rotulo text-tinta-suave">Agenda da fila</p>
                 {Object.keys(sistema.dados.fila.agenda).length === 0 ? (
                   <p className="text-sm text-tinta-fraca">Nenhuma tarefa agendada.</p>
                 ) : (
@@ -352,12 +352,12 @@ export function Saude() {
             erro: backups.erro,
             aoTentarNovamente: backups.atualizar,
             vazioTitulo: "Nenhum backup registrado",
-            vazioInstrucao: "Execute um backup agora e confira o agendador na fila (Celery beat).",
+            vazioInstrucao: "Execute um backup agora e confira na tela Saúde se o agendador está ativo.",
             vazioIcone: "disco",
           }}
           rodape={
             <p className="nums text-xs text-tinta-suave">
-              {numero(backups.dados?.registros.length ?? 0)} {plural(backups.dados?.registros.length ?? 0, "registro", "registros")} · retenção{" "}
+              {contagem(backups.dados?.registros.length ?? 0, "registro", "registros")} · retenção{" "}
               {numero(backups.dados?.saude.retencao ?? 0)}
             </p>
           }

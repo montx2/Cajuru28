@@ -92,7 +92,7 @@ export function mesAno(iso: string | null | undefined): string {
 /** Camada absoluta do tempo: 18/09/2026 14:32:07 — vai em `title` e tooltip. */
 export function dataHora(iso: string | null | undefined): string {
   if (!iso) return AUSENTE;
-  const data = new Date(iso);
+  const data = instante(iso);
   return Number.isNaN(data.getTime()) ? AUSENTE : dataHoraCompleta.format(data);
 }
 
@@ -111,10 +111,26 @@ export function horaMinuto(iso: string | null | undefined): string {
   return `${String(data.getHours()).padStart(2, "0")}:${String(data.getMinutes()).padStart(2, "0")}`;
 }
 
+/**
+ * Instante a partir de ISO vindo da API.
+ *
+ * A API grava tudo em UTC e, quando o banco é SQLite (dev) ou o serializador
+ * sai sem sufixo, o texto chega como "2026-10-08T10:44:44" — sem offset.
+ * `new Date` interpreta esse formato como hora LOCAL: em Brasília (UTC-3) um
+ * registro gravado agora aparecia como "há 3 h" ou, pior, "em 3 h" no futuro.
+ * Sem offset explícito, o valor é UTC por contrato da API.
+ */
+const SEM_OFFSET = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/;
+
+export function instante(iso: string): Date {
+  // AAAA-MM-DD puro é data civil: meio-dia local evita perder um dia no fuso.
+  if (iso.length <= 10) return new Date(`${iso}T12:00:00`);
+  return new Date(SEM_OFFSET.test(iso.trim()) ? `${iso.trim()}Z` : iso);
+}
+
 function normalizarData(iso: string | null | undefined): Date | null {
   if (!iso) return null;
-  // AAAA-MM-DD puro é data civil: parsear como UTC desloca o dia em -3h no BR.
-  const data = new Date(iso.length <= 10 ? `${iso}T12:00:00` : iso);
+  const data = instante(iso);
   return Number.isNaN(data.getTime()) ? null : data;
 }
 
@@ -147,7 +163,7 @@ export function duracaoCurta(segundos: number): string {
  */
 export function contagemRegressiva(iso: string | null | undefined, agora = Date.now()): string | null {
   if (!iso) return null;
-  const segundos = Math.round((new Date(iso).getTime() - agora) / 1000);
+  const segundos = Math.round((instante(iso).getTime() - agora) / 1000);
   if (Number.isNaN(segundos) || segundos <= 0) return null;
   return `em ${duracaoCurta(segundos)}`;
 }
@@ -205,9 +221,21 @@ export function iniciais(nome: string | null | undefined): string {
   return (partes[0][0] + partes[partes.length - 1][0]).toUpperCase();
 }
 
-/** Plural certo em frase curta: "1 documento" / "12 documentos". */
+/**
+ * Só a palavra, sem o número: "documento" / "documentos".
+ *
+ * O número nunca vem daqui — quem escreve a frase escolhe onde ele entra
+ * ("Ver 9 pendências", "1 resultado"). Enquanto esta função devolvia
+ * "9 pendências", 32 chamadas somavam um `numero(...)` próprio e a tela
+ * mostrava "9 9 pendências".
+ */
 export function plural(quantidade: number, singular: string, plurals?: string): string {
-  return `${numero(quantidade)} ${quantidade === 1 ? singular : (plurals ?? `${singular}s`)}`;
+  return quantidade === 1 ? singular : (plurals ?? `${singular}s`);
+}
+
+/** Número + palavra, com plural certo: "1 documento" / "12 documentos". */
+export function contagem(quantidade: number, singular: string, plurals?: string): string {
+  return `${numero(quantidade)} ${plural(quantidade, singular, plurals)}`;
 }
 
 export async function copiarTexto(texto: string): Promise<boolean> {

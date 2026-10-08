@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { bytesParaTexto, dataHora, numero, plural } from "@/lib/format";
+import { bytesParaTexto, contagem, dataHora, numero } from "@/lib/format";
 import { estadoDeIntegracao } from "@/lib/estados";
 import { mensagemDoErro } from "@/lib/erros";
 import { MOTIVO_SOMENTE_LEITURA, ehAdmin } from "@/lib/papel";
@@ -111,7 +111,7 @@ function AbaAmbiente({ sistema, saude }: { sistema: RecursoSistema; saude: Recur
       ) : saude.dados ? (
         <Cartao
           titulo="Diagnóstico"
-          descricao="Leitura de /sistema/saude-detalhada"
+          descricao="Verificação de banco, disco e processamento em segundo plano"
           acoes={<BotaoLink variante="sutil" tamanho="sm" href="/dashboard/saude">Abrir Saúde</BotaoLink>}
         >
           <div className="flex flex-wrap items-center gap-2">
@@ -157,7 +157,7 @@ function AbaAmbiente({ sistema, saude }: { sistema: RecursoSistema; saude: Recur
           </dl>
 
           <div className="mt-4 border-t border-traco pt-3">
-            <p className="mb-1.5 text-xs font-medium uppercase tracking-[.04em] text-tinta-suave">Tarefas agendadas</p>
+            <p className="mb-1.5 text-xs font-medium uppercase tracking-rotulo text-tinta-suave">Tarefas agendadas</p>
             {Object.keys(sistema.dados.fila.agenda).length === 0 ? (
               <p className="text-sm text-tinta-fraca">Nenhuma tarefa agendada — a captura automática depende delas.</p>
             ) : (
@@ -292,7 +292,7 @@ function AbaIntegracoes({
                   executar("sincronizar empresas das Acessórias", async () => {
                     const resultado = await api.sincronizarEmpresasAcessorias();
                     return {
-                      titulo: `${numero(resultado.criadas)} ${plural(resultado.criadas, "empresa criada", "empresas criadas")}`,
+                      titulo: `${contagem(resultado.criadas, "empresa criada", "empresas criadas")}`,
                       descricao: `${numero(resultado.atualizadas)} atualizadas · ${numero(resultado.ignoradas)} ignoradas · ${numero(resultado.invalidas)} inválidas`,
                       tom: resultado.invalidas > 0 ? "espera" : "ok",
                     };
@@ -353,7 +353,7 @@ function AbaAlertas({ admin, sistema }: { admin: boolean; sistema: RecursoSistem
             </dl>
             <p className="text-sm text-tinta-suave">
               A URL e o segredo do webhook são definidos por variável de ambiente no servidor — não por esta tela. Alterar o nível mínimo muda quais
-              alertas saem do Fluxa: abaixo dele, o item continua visível em <Link href="/dashboard/atencao" className="font-medium text-acento underline-offset-4 hover:underline">Precisa da sua atenção</Link>.
+              alertas saem do Fluxa: abaixo dele, o item continua visível em <Link href="/dashboard/atencao" className="link-prosa font-medium text-acento">Precisa da sua atenção</Link>.
             </p>
             <Botao variante="secundaria" onClick={testarWebhook} carregando={testando} disabled={!admin} title={admin ? "Envia um alerta de teste para o destino configurado" : "Somente administrador testa o webhook"}>
               Enviar alerta de teste
@@ -412,7 +412,7 @@ function AbaDados({ admin }: { admin: boolean }) {
       avisar({
         tom: "espera",
         titulo: "Reset geral executado",
-        descricao: `${numero(resposta.documentos)} documentos e ${numero(resposta.empresas)} empresas apagados`,
+        descricao: `${contagem(resposta.documentos, "documento", "documentos")} e ${contagem(resposta.empresas, "empresa", "empresas")} apagados`,
       });
     } catch (falha) {
       setErro(mensagemDoErro(falha, "executar o reset geral"));
@@ -436,8 +436,8 @@ function AbaDados({ admin }: { admin: boolean }) {
       {resultado ? (
         <Aviso tom="espera" icone="risco" titulo="Reset geral executado" aoFechar={() => setResultado(null)}>
           <span className="nums">
-            {numero(resultado.empresas)} empresas · {numero(resultado.documentos)} documentos · {numero(resultado.certificados)} certificados ·{" "}
-            {numero(resultado.execucoes)} execuções · {numero(resultado.sincronizacoes)} sincronizações · {numero(resultado.arquivos_removidos)} arquivos
+            {contagem(resultado.empresas, "empresa", "empresas")} · {contagem(resultado.documentos, "documento", "documentos")} · {contagem(resultado.certificados, "certificado", "certificados")} ·{" "}
+            {contagem(resultado.execucoes, "execução", "execuções")} · {contagem(resultado.sincronizacoes, "sincronização", "sincronizações")} · {contagem(resultado.arquivos_removidos, "arquivo", "arquivos")}
             removidos{resultado.integracoes > 0 ? ` · ${numero(resultado.integracoes)} integrações` : ""}.
           </span>{" "}
           Comece recadastrando as empresas e enviando os certificados A1.
@@ -451,7 +451,7 @@ function AbaDados({ admin }: { admin: boolean }) {
             sincronizações — e remove os arquivos XML do disco. Não há como desfazer.
           </p>
 
-          <div className="space-y-3 rounded-controle border border-erro/40 bg-erro-tenue p-3">
+          <div className="superficie-perigo space-y-3 rounded-controle p-3">
             <Alternador
               rotulo="Remover também as credenciais de integração"
               descricao="As integrações voltam a “não configuradas”."
@@ -467,9 +467,9 @@ function AbaDados({ admin }: { admin: boolean }) {
           </div>
 
           {erro ? (
-            <p role="alert" className="text-sm text-erro">
+            <Aviso tom="erro" compacto urgente>
               {erro}
-            </p>
+            </Aviso>
           ) : null}
 
           <div className="flex flex-wrap items-center gap-2">

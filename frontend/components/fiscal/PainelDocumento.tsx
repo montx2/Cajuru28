@@ -4,12 +4,12 @@ import { useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { acoesDoDocumento, situacaoDoDocumento, type SituacaoDocumento } from "@/lib/acoes-documento";
-import { cn } from "@/lib/cn";
 import { bytesParaTexto, chaveEmGrupos, dataCurta, dataHora, mesAno, numero, nsuFormatado, tempoRelativo } from "@/lib/format";
 import { estadoDoDocumento } from "@/lib/estados";
 import { useRecurso } from "@/lib/useRecurso";
 import { ROTULO_TIPO, type DocumentoDetalhe, type TipoDocumentoFiscal } from "@/lib/types";
-import { Botao } from "@/components/ui/Botao";
+import { Aviso } from "@/components/ui/Aviso";
+import { Botao, BotaoLink } from "@/components/ui/Botao";
 import { Dado } from "@/components/ui/Dado";
 import { EsqueletoBloco } from "@/components/ui/Esqueleto";
 import { EstadoErro } from "@/components/ui/EstadoErro";
@@ -70,7 +70,7 @@ function ConteudoDocumento({ id, aoExcluir, somenteLeitura }: { id: number; aoEx
 
   if (recurso.carregando) {
     return (
-      <div className="space-y-6" aria-busy="true">
+      <div className="space-y-5" aria-busy="true">
         <EsqueletoBloco linhas={2} />
         <EsqueletoBloco linhas={6} />
         <EsqueletoBloco linhas={4} />
@@ -143,7 +143,7 @@ function ConteudoDocumento({ id, aoExcluir, somenteLeitura }: { id: number; aoEx
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <section>
         <div className="flex flex-wrap items-center gap-2">
           <IndicadorEstado {...estado} titulo={documento.status === "cancelada" ? (documento.motivo_cancelamento ?? "Cancelada") : undefined} />
@@ -169,7 +169,7 @@ function ConteudoDocumento({ id, aoExcluir, somenteLeitura }: { id: number; aoEx
       </section>
 
       <section aria-labelledby="chave-do-documento">
-        <h4 id="chave-do-documento" className="text-xs font-medium uppercase tracking-[.04em] text-tinta-suave">
+        <h4 id="chave-do-documento" className="text-xs font-medium uppercase tracking-rotulo text-tinta-suave">
           Chave de acesso
         </h4>
         <div className="mt-1.5 rounded-controle border border-traco bg-fundo-afundado px-3 py-2">
@@ -179,7 +179,7 @@ function ConteudoDocumento({ id, aoExcluir, somenteLeitura }: { id: number; aoEx
       </section>
 
       <section aria-labelledby="dados-do-documento">
-        <h4 id="dados-do-documento" className="text-xs font-medium uppercase tracking-[.04em] text-tinta-suave">
+        <h4 id="dados-do-documento" className="text-xs font-medium uppercase tracking-rotulo text-tinta-suave">
           Dados
         </h4>
         <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
@@ -197,14 +197,14 @@ function ConteudoDocumento({ id, aoExcluir, somenteLeitura }: { id: number; aoEx
 
       <section aria-labelledby="partes-do-documento" className="grid gap-4 sm:grid-cols-2">
         <div>
-          <h4 id="partes-do-documento" className="text-xs font-medium uppercase tracking-[.04em] text-tinta-suave">
+          <h4 id="partes-do-documento" className="text-xs font-medium uppercase tracking-rotulo text-tinta-suave">
             Emitente
           </h4>
           <p className="mt-1 text-sm text-tinta">{documento.emitente_nome || "—"}</p>
           <Cnpj valor={documento.emitente_documento} className="mt-0.5" />
         </div>
         <div>
-          <h4 className="text-xs font-medium uppercase tracking-[.04em] text-tinta-suave">Destinatário</h4>
+          <h4 className="text-xs font-medium uppercase tracking-rotulo text-tinta-suave">Destinatário</h4>
           <p className="mt-1 text-sm text-tinta">{documento.destinatario_nome || "—"}</p>
           <Cnpj valor={documento.destinatario_documento} className="mt-0.5" />
         </div>
@@ -212,7 +212,7 @@ function ConteudoDocumento({ id, aoExcluir, somenteLeitura }: { id: number; aoEx
 
       <section aria-labelledby="xml-do-documento">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h4 id="xml-do-documento" className="text-xs font-medium uppercase tracking-[.04em] text-tinta-suave">
+          <h4 id="xml-do-documento" className="text-xs font-medium uppercase tracking-rotulo text-tinta-suave">
             XML
           </h4>
           <div className="flex flex-wrap items-center gap-2">
@@ -228,9 +228,9 @@ function ConteudoDocumento({ id, aoExcluir, somenteLeitura }: { id: number; aoEx
           </div>
         </div>
         {erroXml ? (
-          <p role="alert" className="mt-2 text-sm text-erro">
+          <Aviso tom="erro" compacto urgente className="mt-2">
             {erroXml} Use “Baixar XML” para obter o arquivo diretamente.
-          </p>
+          </Aviso>
         ) : null}
         {xml !== null ? <VisualizadorXml texto={xml} /> : null}
       </section>
@@ -280,15 +280,16 @@ function ConteudoDocumento({ id, aoExcluir, somenteLeitura }: { id: number; aoEx
 
         {acoes.secundarias.map((secundaria) =>
           secundaria.id === "ver-empresa" ? (
-            <Link
+            <BotaoLink
               key={secundaria.id}
               data-acao="secundaria"
+              variante="link"
+              tamanho="sm"
               href={`/dashboard/empresa?id=${documento.empresa_id}`}
-              className="inline-flex h-8 items-center gap-1.5 rounded-controle px-2.5 text-sm font-medium text-acento underline-offset-4 hover:underline"
+              iconeEsquerda={<Icone nome={secundaria.icone} className="h-4 w-4" />}
             >
-              <Icone nome={secundaria.icone} className="h-4 w-4" />
               {secundaria.rotulo}
-            </Link>
+            </BotaoLink>
           ) : null
         )}
 
@@ -320,12 +321,6 @@ function somenteDigitosChave(chave: string): number {
 
 /* ── Situação ─────────────────────────────────────────────────────────────── */
 
-const TOM_BLOCO: Record<string, string> = {
-  erro: "border-erro/40 bg-erro-tenue text-erro",
-  espera: "border-espera/40 bg-espera-tenue text-espera",
-  info: "border-info/40 bg-info-tenue text-info",
-};
-
 /**
  * O bloco único de situação da ficha.
  *
@@ -342,26 +337,23 @@ function BlocoSituacao({ situacao }: { situacao: SituacaoDocumento }) {
     return <p className="mt-2 text-xs text-tinta-suave">{situacao.titulo}</p>;
   }
   return (
-    <div
+    <Aviso
       data-situacao="documento"
-      className={cn(
-        "mt-2 rounded-controle border px-3 py-2 text-sm leading-6",
-        TOM_BLOCO[situacao.tom] ?? TOM_BLOCO.espera
-      )}
+      tom={situacao.tom}
+      titulo={situacao.titulo}
+      className="mt-2"
     >
-      <p className="font-medium">{situacao.titulo}</p>
       {situacao.paragrafos.map((paragrafo) => (
-        <p key={paragrafo} className="mt-1">
+        <p key={paragrafo}>
           {paragrafo}
         </p>
       ))}
       {situacao.acao ? (
-        <p className="mt-2 text-xs">
-          Para resolver: <span className="font-medium">{situacao.acao}</span>, no rodapé desta
-          ficha.
+        <p className="mt-1 text-xs">
+          Para resolver: <span className="font-medium">{situacao.acao}</span>, no rodapé desta ficha.
         </p>
       ) : null}
-    </div>
+    </Aviso>
   );
 }
 

@@ -3,6 +3,7 @@
 import { useId, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { bytesParaTexto } from "@/lib/format";
+import { Aviso } from "./Aviso";
 import { Campo, type CampoBase } from "./Campo";
 import { Icone } from "./Icone";
 
@@ -127,11 +128,13 @@ export function CampoArquivo({ rotulo, descricao, erro, nota, obrigatorio, acaoR
           ) : null}
 
           {recusados.length ? (
-            <ul role="alert" className="space-y-1 rounded-controle border border-erro/40 bg-erro-tenue px-3 py-2 text-xs text-erro">
-              {recusados.map((mensagem) => (
-                <li key={mensagem}>{mensagem}</li>
-              ))}
-            </ul>
+            <Aviso tom="erro" compacto urgente>
+              <ul className="space-y-1">
+                {recusados.map((mensagem) => (
+                  <li key={mensagem}>{mensagem}</li>
+                ))}
+              </ul>
+            </Aviso>
           ) : null}
         </div>
       )}

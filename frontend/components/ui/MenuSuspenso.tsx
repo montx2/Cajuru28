@@ -194,7 +194,7 @@ export function MenuGrupo({ rotulo }: { rotulo?: string }) {
     <>
       <div aria-hidden="true" className="my-1 border-t border-traco" />
       {rotulo ? (
-        <p role="presentation" className="px-3 pb-1 pt-1.5 text-2xs font-medium uppercase tracking-[.04em] text-tinta-fraca">
+        <p role="presentation" className="px-3 pb-1 pt-1.5 text-2xs font-medium uppercase tracking-rotulo text-tinta-fraca">
           {rotulo}
         </p>
       ) : null}

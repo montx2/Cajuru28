@@ -301,3 +301,38 @@ def test_endpoint_lista_backups_e_saude(ambiente):
         assert teste.json()["ok"] is True
     finally:
         app.dependency_overrides.clear()
+
+
+def test_saude_detalhada_nao_diz_operacional_com_a_fila_fora(ambiente, monkeypatch):
+    """A tela de Saúde promete verificar o processamento em segundo plano.
+
+    Sem a checagem da fila, o cartão "Situação geral" respondia "Operacional"
+    enquanto o cartão de componentes mostrava a fila em erro — e o operador
+    seguia sem entender por que nenhuma captura saía.
+    """
+    from app.services import fila
+
+    db, escritorio, _tmp = ambiente
+    usuario = db.query(Usuario).first()
+
+    def _get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = _get_db
+    app.dependency_overrides[usuario_atual] = lambda: usuario
+    app.dependency_overrides[escritorio_id_atual] = lambda: escritorio.id
+    try:
+        client = TestClient(app)
+        monkeypatch.setattr(fila, "fila_respondendo", lambda: True)
+        resposta = client.get("/sistema/saude-detalhada")
+        assert resposta.status_code == 200
+        assert resposta.json()["ok"] is True
+
+        monkeypatch.setattr(fila, "fila_respondendo", lambda: False)
+        resposta = client.get("/sistema/saude-detalhada")
+        corpo = resposta.json()
+        assert corpo["ok"] is False
+        assert any("fila de processamento" in problema for problema in corpo["problemas"])
+        assert corpo["banco_ok"] is True
+    finally:
+        app.dependency_overrides.clear()

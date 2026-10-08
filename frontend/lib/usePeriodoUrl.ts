@@ -78,7 +78,7 @@ export function usePeriodoUrl(padrao: () => Periodo = periodoPadrao): PeriodoUrl
 }
 
 export interface CompetenciaUrl {
-  /** Formato interno `AAAA-MM` (o `<input type="month">` fala a mesma língua). */
+  /** Formato interno `AAAA-MM` — a mesma língua do seletor de competência. */
   mes: string;
   /** Formato da API: `MM/AAAA`. */
   competencia: string | undefined;

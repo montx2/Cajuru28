@@ -401,3 +401,189 @@ def test_sem_nota_596_o_alerta_nao_aparece(cliente):
 
     itens = client.get("/alertas").json()["itens"]
     assert not [item for item in itens if item["id"] == "ciencia-fora-do-prazo"]
+
+
+def test_acao_do_alerta_abre_o_lugar_que_resolve(cliente):
+    """O botão do alerta tem de cair na aba/filtro que resolve o item.
+
+    O alerta de certificado vencido prometia "Enviar novo certificado" e
+    abria a empresa na primeira aba; o de sincronismo dizia "Ver sincronismo"
+    e abria a mesma primeira aba; o de resumo mandava para o acervo inteiro
+    sem o filtro. Em todos, o operador chegava na tela e tinha de reencontrar
+    o problema. Aqui cada destino é conferido.
+    """
+    client, db, escritorio_id = cliente
+
+    vencida = _empresa(db, escritorio_id, "Certificado vencido")
+    _certificado(db, vencida, dias_para_vencer=-3)
+
+    vencendo = _empresa(db, escritorio_id, "Certificado vencendo")
+    _certificado(db, vencendo, dias_para_vencer=12)
+
+    sem_certificado = _empresa(db, escritorio_id, "Sem certificado")
+
+    parada = _empresa(db, escritorio_id, "Cursor parado")
+    _certificado(db, parada, dias_para_vencer=200)
+    db.add(
+        SincronizacaoDFe(
+            empresa_id=parada.id,
+            tipo=TipoDocumentoFiscal.NFE,
+            ultimo_nsu="10",
+            max_nsu="50",
+            ultima_consulta_em=datetime.now(timezone.utc) - timedelta(days=9),
+        )
+    )
+
+    com_resumo = _empresa(db, escritorio_id, "Com resumo")
+    _certificado(db, com_resumo, dias_para_vencer=200)
+    db.add(
+        DocumentoFiscal(
+            empresa_id=com_resumo.id,
+            tipo=TipoDocumentoFiscal.NFE,
+            direcao=DirecaoDocumento.TOMADA,
+            chave_acesso="9" * 44,
+            nsu="1",
+            data_emissao=datetime.now(timezone.utc),
+            valor_total=10.0,
+            xml_path="/tmp/9.xml",
+            leiaute="resumo",
+        )
+    )
+    db.commit()
+
+    itens = {item["id"]: item for item in client.get("/alertas").json()["itens"]}
+
+    assert itens[f"cert-vencido-{vencida.id}"]["acao_href"].endswith(
+        f"/dashboard/empresa?id={vencida.id}&aba=certificado"
+    )
+    assert itens["cert-vencendo"]["acao_href"].endswith("/dashboard/certificados?filtro=vencendo")
+    assert itens["cert-ausente"]["acao_href"].endswith("/dashboard/certificados")
+    assert itens[f"parado-{parada.id}-nfe"]["acao_href"].endswith(
+        f"/dashboard/empresa?id={parada.id}&aba=sincronismo"
+    )
+    assert itens["resumos-pendentes"]["acao_href"].endswith("/dashboard/documentos?leiaute=resumo")
+
+
+def test_toda_acao_de_alerta_aponta_para_tela_do_produto(cliente):
+    """Nenhum alerta pode apontar para fora das telas conhecidas do painel."""
+    client, db, escritorio_id = cliente
+    empresa = _empresa(db, escritorio_id, "Empresa qualquer")
+    _certificado(db, empresa, dias_para_vencer=-1)
+    db.commit()
+
+    telas = {
+        "/dashboard",
+        "/dashboard/atencao",
+        "/dashboard/empresas",
+        "/dashboard/empresa",
+        "/dashboard/certificados",
+        "/dashboard/documentos",
+        "/dashboard/importacoes",
+        "/dashboard/execucoes",
+        "/dashboard/relatorios",
+        "/dashboard/saude",
+        "/dashboard/configuracoes",
+        "/dashboard/usuarios",
+        "/dashboard/auditoria",
+    }
+    for item in client.get("/alertas").json()["itens"]:
+        href = item["acao_href"]
+        assert href, f"alerta {item['id']} sem ação"
+        assert item["acao_rotulo"], f"alerta {item['id']} sem rótulo de ação"
+        assert href.split("?")[0] in telas, f"alerta {item['id']} aponta para {href}"
+
+
+def test_captura_ao_vivo_conta_o_que_esta_chegando(cliente):
+    """A lista do acervo precisa saber que a captura está em andamento.
+
+    Duas rodadas vivas na mesma empresa (uma rodando, uma esperando janela): os
+    documentos já gravados aparecem somados, e a última execução concluída vem
+    junto para a tela poder fechar o desfecho ("N documentos novos" ou "nenhum").
+    """
+    client, db, escritorio_id = cliente
+    empresa = _empresa(db, escritorio_id, "Alfa Ltda")
+    outra = _empresa(db, escritorio_id, "Beta Ltda")
+
+    db.add_all(
+        [
+            ExecucaoImportacao(
+                empresa_id=empresa.id,
+                tipo=TipoDocumentoFiscal.NFE,
+                status=StatusExecucao.EM_ANDAMENTO,
+                documentos_importados=7,
+            ),
+            ExecucaoImportacao(
+                empresa_id=empresa.id,
+                tipo=TipoDocumentoFiscal.NFSE,
+                status=StatusExecucao.AGUARDANDO,
+                documentos_importados=2,
+                bloqueado_ate=datetime.now(timezone.utc) + timedelta(minutes=40),
+                aviso="Aguardando janela da SEFAZ.",
+            ),
+            ExecucaoImportacao(
+                empresa_id=outra.id,
+                tipo=TipoDocumentoFiscal.NFE,
+                status=StatusExecucao.EM_ANDAMENTO,
+                documentos_importados=5,
+            ),
+            ExecucaoImportacao(
+                empresa_id=empresa.id,
+                tipo=TipoDocumentoFiscal.CTE,
+                status=StatusExecucao.CONCLUIDA,
+                documentos_importados=4,
+                finalizado_em=datetime.now(timezone.utc) - timedelta(minutes=2),
+            ),
+        ]
+    )
+    db.commit()
+
+    corpo = client.get("/importacoes/ao-vivo").json()
+
+    assert len(corpo["em_andamento"]) == 3
+    assert corpo["documentos_em_andamento"] == 14  # 7 + 2 + 5
+    assert corpo["fora_do_recorte"] == 0
+    assert corpo["ultima"]["documentos_importados"] == 4
+    assert corpo["ultima"]["empresa_razao_social"] == "Alfa Ltda"
+    tipos = {item["tipo"] for item in corpo["em_andamento"]}
+    # O contrato do painel é minúsculo (`ex.tipo.value`), como em /painel/execucoes.
+    assert tipos == {"nfe", "nfse"}
+
+
+def test_captura_ao_vivo_separa_o_que_esta_fora_do_filtro(cliente):
+    """Filtrar por uma empresa não pode esconder que o escritório está trabalhando.
+
+    Sem o recorte, a lista filtrada fica parada e o operador não tem como saber
+    que há captura rodando em outras empresas — é exatamente a confusão de
+    "já pegou tudo?" versus "não veio nada".
+    """
+    client, db, escritorio_id = cliente
+    alfa = _empresa(db, escritorio_id, "Alfa Ltda")
+    beta = _empresa(db, escritorio_id, "Beta Ltda")
+
+    db.add_all(
+        [
+            ExecucaoImportacao(
+                empresa_id=alfa.id,
+                tipo=TipoDocumentoFiscal.NFE,
+                status=StatusExecucao.EM_ANDAMENTO,
+                documentos_importados=3,
+            ),
+            ExecucaoImportacao(
+                empresa_id=beta.id,
+                tipo=TipoDocumentoFiscal.NFE,
+                status=StatusExecucao.EM_ANDAMENTO,
+                documentos_importados=9,
+            ),
+        ]
+    )
+    db.commit()
+
+    do_alfa = client.get(f"/importacoes/ao-vivo?empresa_ids={alfa.id}").json()
+
+    assert [item["empresa_id"] for item in do_alfa["em_andamento"]] == [alfa.id]
+    assert do_alfa["documentos_em_andamento"] == 3
+    assert do_alfa["fora_do_recorte"] == 1
+
+    do_escritorio = client.get("/importacoes/ao-vivo").json()
+    assert do_escritorio["documentos_em_andamento"] == 12
+    assert do_escritorio["fora_do_recorte"] == 0

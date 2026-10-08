@@ -1,5 +1,5 @@
 import type { NomeIcone } from "@/components/ui/Icone";
-import { contagemRegressiva, numero, plural, tempoRelativo } from "./format";
+import { contagem, contagemRegressiva, numero, tempoDecorrido, tempoRelativo } from "./format";
 import type {
   DocumentoFiscal,
   EstadoSincronizacao,
@@ -33,6 +33,64 @@ export interface EstadoVisual {
 }
 
 /* ── Execuções ───────────────────────────────────────────────────────────── */
+
+/**
+ * Execução que ainda pode terminar. `finalizado_em` é a fonte principal, mas
+ * NÃO é a única: o estado final (falhou/concluída) manda mais que o campo.
+ * Uma falha de enfileiramento antiga pode não ter o fim gravado — e desenhar
+ * isso como "em curso" faz uma captura que morreu parecer trabalho rodando.
+ */
+export function execucaoEmAberto(execucao: {
+  status: StatusExecucao | string;
+  finalizado_em: string | null;
+}): boolean {
+  if (execucao.finalizado_em) return false;
+  return execucao.status === "em_andamento" || execucao.status === "aguardando";
+}
+
+/** O que a central de Execuções escreve quando o fim não foi gravado. */
+export const SEM_FIM_REGISTRADO = "sem fim registrado";
+
+/**
+ * Duração para exibir. Só uma execução aberta pode dizer "em curso"; encerrada
+ * sem horário de fim é dívida de dado, e a tela admite isso em vez de inventar
+ * um número que cresce sozinho a cada segundo.
+ */
+export function duracaoDaExecucao(
+  execucao: { status: StatusExecucao | string; iniciado_em: string; finalizado_em: string | null },
+  agora = Date.now(),
+): string {
+  if (execucao.finalizado_em) {
+    return tempoDecorrido(execucao.iniciado_em, execucao.finalizado_em, agora);
+  }
+  return execucaoEmAberto(execucao) ? "em curso" : SEM_FIM_REGISTRADO;
+}
+
+/**
+ * "Próximo passo" de uma execução que falhou, por natureza da falha.
+ *
+ * Um conselho só servia para todo erro: "confira o certificado A1 e a janela da
+ * SEFAZ". Quando a fila do próprio Fluxa está fora do ar, isso manda o contador
+ * mexer no lugar errado — e o certificado dele está bom.
+ */
+const ORIENTACAO_POR_FALHA: Record<string, string> = {
+  fila_indisponivel:
+    "Nada foi consultado na SEFAZ e a cota do dia segue inteira. Confira se os serviços de fila e worker estão no ar e dispare de novo.",
+  cadastro:
+    "É cadastro, não SEFAZ: resolva o cadastro desta empresa (certificado A1, UF ou situação da empresa) e reprocesse o período.",
+  ambiente_fiscal:
+    "O ambiente fiscal não respondeu dentro das tentativas — nada foi perdido. O agendador volta sozinho na próxima varredura; se persistir, veja a tela Saúde.",
+  importacao_parcial:
+    "As notas que chegaram foram gravadas e os lotes com problema ficaram preservados. Reprocesse para ler os lotes de novo, sem repetir a consulta fiscal.",
+  sistema:
+    "Falha interna do Fluxa, não da SEFAZ: nada foi consultado. Veja a tela Saúde e reprocesse depois.",
+  captura:
+    "Confira se o certificado A1 da empresa está válido e se a SEFAZ não está em janela de espera. Depois, reprocesse o período.",
+};
+
+export function orientacaoDaExecucao(falha: string | null | undefined): string {
+  return ORIENTACAO_POR_FALHA[falha ?? ""] ?? ORIENTACAO_POR_FALHA.captura;
+}
 
 export function estadoDaExecucao(status: StatusExecucao | string): EstadoVisual {
   switch (status) {
@@ -230,7 +288,7 @@ export function estadoDaSincronizacao(estado: EstadoSincronizacao, agora = Date.
   if ((estado.lotes_pendentes ?? 0) > 0) {
     return {
       tom: "erro", rotulo: "Importação parcial", icone: "alerta",
-      absoluto: `${numero(estado.lotes_pendentes!)} ${plural(estado.lotes_pendentes!, "lote recebido precisa", "lotes recebidos precisam")} de reprocessamento local. As respostas foram preservadas.`,
+      absoluto: `${contagem(estado.lotes_pendentes!, "lote recebido precisa", "lotes recebidos precisam")} de reprocessamento local. As respostas foram preservadas.`,
     };
   }
   if (estado.risco_documento_fora_da_distribuicao) {

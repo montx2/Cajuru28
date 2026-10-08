@@ -24,16 +24,16 @@ export function AtalhosTeclado({ aberto, aoFechar }: { aberto: boolean; aoFechar
           if (atalhos.length === 0) return null;
           return (
             <section key={grupo}>
-              <h3 className="mb-2 text-xs font-medium uppercase tracking-[.04em] text-tinta-suave">{grupo}</h3>
-              <table className="w-full text-sm">
+              <h3 className="mb-2 text-xs font-medium uppercase tracking-rotulo text-tinta-suave">{grupo}</h3>
+              <table className="tabela-dados">
                 <caption className="sr-only">Atalhos do grupo {grupo}</caption>
                 <tbody>
                   {atalhos.map((atalho) => (
-                    <tr key={`${grupo}-${atalho.rotulo}`} className="border-b border-traco last:border-0">
-                      <th scope="row" className="py-2 pr-4 text-left font-normal text-tinta">
+                    <tr key={`${grupo}-${atalho.rotulo}`}>
+                      <th scope="row" className="pr-4 text-tinta">
                         {atalho.rotulo}
                       </th>
-                      <td className="w-40 py-2 text-right">
+                      <td className="w-40 text-right">
                         {atalho.teclas.map((tecla, indice) => (
                           <span key={tecla} className="inline-flex items-center gap-1">
                             {indice > 0 ? <span className="text-xs text-tinta-fraca">+</span> : null}

@@ -18,6 +18,7 @@ from cryptography import x509
 from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.x509.oid import ExtensionOID, NameOID, ObjectIdentifier
 
+from app.core.plural import contagem, plural
 from app.core.documentos import (
     normalizar_cnpj,
     normalizar_documento,
@@ -247,7 +248,7 @@ def abrir_pfx_tentando_senhas(
         except ValueError:
             continue
     detalhe = (
-        f" Foram testadas {len(candidatas)} senha(s) candidatas "
+        f" Foram testadas {contagem(len(candidatas), 'senha candidata', 'senhas candidatas')} "
         "(padrões nome+ano, planilhas anexadas e senhas comuns)."
         if len(candidatas) > 1
         else ""

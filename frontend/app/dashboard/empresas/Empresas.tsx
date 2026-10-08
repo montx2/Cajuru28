@@ -3,14 +3,14 @@
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
-import { dataCurta, formatarCnpjCpf, numero, plural, somenteDigitos } from "@/lib/format";
+import { contagem, dataCurta, formatarCnpjCpf, numero, plural, somenteDigitos } from "@/lib/format";
 import {
   ATRIBUTOS_SELETOR_DE_PASTA,
   LIMITE_CERTIFICADOS_POR_LOTE,
   certificadosDaPasta,
 } from "@/lib/pastaCertificados";
 import { estadoDaSincronizacao, estadoDoCertificado, type EstadoVisual } from "@/lib/estados";
-import { mensagemDoErro } from "@/lib/erros";
+import { mensagemDoErro, problemasDeValidacao } from "@/lib/erros";
 import { MOTIVO_SOMENTE_LEITURA } from "@/lib/papel";
 import { paraFiltro, rotuloPeriodo } from "@/lib/periodo";
 import { UFS } from "@/lib/uf";
@@ -24,7 +24,10 @@ import { useSinalizarAtualizacao } from "@/components/shell/BarraAtualizacao";
 import { useSessao } from "@/components/shell/ProvedorSessao";
 import { ModalImportarXmls } from "@/app/dashboard/importacoes/ImportarXmls";
 import { Botao } from "@/components/ui/Botao";
+import { Aviso } from "@/components/ui/Aviso";
 import { CabecalhoPagina, Cartao } from "@/components/ui/Cartao";
+import { Formulario } from "@/components/ui/Formulario";
+import { ErroDoCampo } from "@/components/ui/Campo";
 import { Busca, Caixa, Entrada, Selecao } from "@/components/ui/Campo";
 import { CampoArquivo } from "@/components/ui/CampoArquivo";
 import { Dado } from "@/components/ui/Dado";
@@ -219,7 +222,7 @@ export function Empresas() {
         ordenavel: true,
         celula: (linha) =>
           linha.sincronismo ? (
-            <IndicadorEstado {...linha.sincronismo} detalhe={linha.pendencia > 0 ? <span className="nums">· {numero(linha.pendencia)} pendentes</span> : undefined} />
+            <IndicadorEstado {...linha.sincronismo} detalhe={linha.pendencia > 0 ? <span className="nums">· {contagem(linha.pendencia, "pendente", "pendentes")}</span> : undefined} />
           ) : (
             <span className="text-tinta-fraca">sem histórico</span>
           ),
@@ -393,7 +396,7 @@ export function Empresas() {
         }
         rodape={
           <p className="nums text-xs text-tinta-suave">
-            {numero(filtradas.length)} {plural(filtradas.length, "empresa", "empresas")} · {numero(linhas.filter((linha) => !linha.certificado?.tem_certificado).length)} sem certificado ·{" "}
+            {contagem(filtradas.length, "empresa", "empresas")} · {numero(linhas.filter((linha) => !linha.certificado?.tem_certificado).length)} sem certificado ·{" "}
             {numero(linhas.filter((linha) => linha.pendencia > 0).length)} com pendência
           </p>
         }
@@ -539,11 +542,21 @@ function ModalNovaEmpresa({ aberto, aoFechar, aoCriar }: { aberto: boolean; aoFe
     } catch (falha) {
       const msg = mensagemDoErro(falha, "cadastrar a empresa");
       setErro(msg);
-      if (/raz[aã]o social/i.test(msg) && !razao.trim()) {
-        setErrosCampo((atual) => ({ ...atual, razao: "Informe a razão social manualmente." }));
-      }
-      if (/\bUF\b/i.test(msg) && !uf) {
-        setErrosCampo((atual) => ({ ...atual, uf: "Selecione a UF da empresa." }));
+      // O destaque do campo vem do `loc` estruturado da API. Antes o código
+      // varria o texto do erro procurando "UF"/"razão social": o mesmo erro
+      // ganhava duas mensagens (a do servidor e a inventada aqui) e qualquer
+      // texto que citasse "UF" acendia o campo errado.
+      for (const problema of problemasDeValidacao(falha)) {
+        const campo = problema.campo.split(" → ").pop() ?? "";
+        if (campo === "razao_social" && !razao.trim()) {
+          setErrosCampo((atual) => ({ ...atual, razao: "Informe a razão social como consta no certificado." }));
+        }
+        if (campo === "uf" && !uf) {
+          setErrosCampo((atual) => ({ ...atual, uf: "Selecione a UF da empresa." }));
+        }
+        if (campo === "cnpj_cpf") {
+          setErrosCampo((atual) => ({ ...atual, cnpj: problema.mensagem }));
+        }
       }
     } finally {
       setEnviando(false);
@@ -568,7 +581,7 @@ function ModalNovaEmpresa({ aberto, aoFechar, aoCriar }: { aberto: boolean; aoFe
         </div>
       }
     >
-      <div className="space-y-4">
+      <Formulario aoEnviar={enviar} ocupado={enviando} className="space-y-4">
         <Entrada
           rotulo="CNPJ ou CPF"
           obrigatorio
@@ -585,14 +598,9 @@ function ModalNovaEmpresa({ aberto, aoFechar, aoCriar }: { aberto: boolean; aoFe
           inputMode="numeric"
           autoComplete="off"
           acaoRotulo={
-            <button
-              type="button"
-              onClick={consultarCnpj}
-              disabled={consultando}
-              className="inline-flex items-center gap-1 rounded-badge px-1.5 py-0.5 text-xs font-medium text-acento underline-offset-4 hover:underline disabled:opacity-50"
-            >
+            <Botao variante="link" tamanho="sm" onClick={consultarCnpj} disabled={consultando}>
               {consultando ? "Consultando…" : "Consultar CNPJ"}
-            </button>
+            </Botao>
           }
         />
         <Entrada
@@ -620,11 +628,11 @@ function ModalNovaEmpresa({ aberto, aoFechar, aoCriar }: { aberto: boolean; aoFe
           opcoes={[{ valor: "", rotulo: "Não informar" }, ...UFS.map((item) => ({ valor: item.sigla, rotulo: `${item.sigla} · ${item.nome}` }))]}
         />
         {erro ? (
-          <p role="alert" className="rounded-controle border border-erro/40 bg-erro-tenue px-3 py-2 text-sm leading-6 text-erro">
+          <Aviso tom="erro" compacto urgente>
             {erro}
-          </p>
+          </Aviso>
         ) : null}
-      </div>
+      </Formulario>
     </Modal>
   );
 }
@@ -647,7 +655,7 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
     certificados.length === 0
       ? "Escolha a pasta (ou os arquivos) dos certificados"
       : acimaDoLote
-        ? `A pasta tem ${numero(certificados.length)} certificados — o limite por lote é ${LIMITE_CERTIFICADOS_POR_LOTE}. Importe em etapas.`
+        ? `A pasta tem ${contagem(certificados.length, "certificado", "certificados")} — o limite por lote é ${LIMITE_CERTIFICADOS_POR_LOTE}. Importe em etapas.`
         : undefined;
 
   function receberPasta(lista: FileList | null) {
@@ -683,8 +691,8 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
       setResultado(lote);
       avisar({
         tom: lote.erros > 0 ? "espera" : "ok",
-        titulo: `${numero(lote.criadas)} ${plural(lote.criadas, "empresa criada", "empresas criadas")}`,
-        descricao: `${numero(lote.certificados)} ${plural(lote.certificados, "certificado", "certificados")} · ${numero(lote.ja_existiam)} já existiam · ${numero(lote.erros)} com erro`,
+        titulo: `${contagem(lote.criadas, "empresa criada", "empresas criadas")}`,
+        descricao: `${contagem(lote.certificados, "certificado", "certificados")} · ${numero(lote.ja_existiam)} já existiam · ${numero(lote.erros)} com erro`,
       });
       aoImportar();
     } catch (falha) {
@@ -726,7 +734,7 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
       {resultado ? (
         <ResultadoLote resultado={resultado} planilhasAnexadas={planilhas.length} />
       ) : (
-        <div className="space-y-4">
+        <Formulario aoEnviar={enviar} ocupado={enviando} className="space-y-4">
           <div className="flex flex-wrap items-center gap-3 rounded-controle border border-borda-controle p-3">
             <div className="min-w-0 flex-1">
               <p className="text-sm text-tinta">Pasta dos certificados no computador</p>
@@ -746,9 +754,7 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
                 </p>
               ) : null}
               {acimaDoLote ? (
-                <p role="alert" className="mt-1 text-xs text-erro">
-                  {motivoBloqueio}
-                </p>
+                <ErroDoCampo className="mt-1">{motivoBloqueio}</ErroDoCampo>
               ) : null}
             </div>
             <input
@@ -759,7 +765,7 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
               onChange={(evento) => receberPasta(evento.target.files)}
             />
             <Botao
-              variante="primaria"
+              variante="secundaria"
               tamanho="sm"
               onClick={() => pastaRef.current?.click()}
               iconeEsquerda={<Icone nome="pasta" className="h-4 w-4" />}
@@ -785,11 +791,11 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
             descricao="Anexe a planilha que o escritório já tem: valem cnpj;senha, razao_social;cnpj_cpf;uf;senha e o inventário de A1 arquivo;cnpj;emissor;senha;validade — com ou sem linha de título. Cada certificado é amarrado à sua linha pelo CNPJ que está no nome do arquivo. A UF só é usada como apoio se a consulta pública não a encontrar."
           />
           {erro ? (
-            <p role="alert" className="rounded-controle border border-erro/40 bg-erro-tenue px-3 py-2 text-sm leading-6 text-erro">
+            <Aviso tom="erro" compacto urgente>
               {erro}
-            </p>
+            </Aviso>
           ) : null}
-        </div>
+        </Formulario>
       )}
     </Modal>
   );
@@ -816,10 +822,10 @@ function ResultadoLote({
         </dl>
         {planilhasAnexadas > 0 ? (
           linhasDaPlanilha === 0 ? (
-            <p role="alert" className="mt-3 border-t border-traco pt-2 text-xs leading-5 text-erro">
-              A planilha anexada não rendeu nenhuma linha. Ela precisa do CNPJ (ou do nome do .pfx) e da
-              senha de cada certificado — confira as colunas e importe de novo.
-            </p>
+            <Aviso tom="erro" compacto urgente className="mt-3">
+              A planilha anexada não rendeu nenhuma linha. Ela precisa do CNPJ (ou do nome do .pfx) e da senha de
+              cada certificado — confira as colunas e importe de novo.
+            </Aviso>
           ) : (
             <p className="mt-3 border-t border-traco pt-2 text-2xs leading-5 text-tinta-suave">
               Planilha de apoio: {numero(linhasDaPlanilha)}{" "}
@@ -830,23 +836,15 @@ function ResultadoLote({
         ) : null}
       </Cartao>
 
-      <div className="rolagem-fina max-h-80 overflow-y-auto rounded-cartao border border-traco">
-        <table className="w-full text-sm">
+      <div className="caixa-tabela max-h-80">
+        <table className="tabela-dados">
           <caption className="sr-only">Itens processados no lote</caption>
-          <thead className="sticky top-0 bg-superficie-alta">
-            <tr className="border-b border-traco text-left text-2xs uppercase tracking-[.04em] text-tinta-suave">
-              <th scope="col" className="px-3 py-2 font-medium">
-                Origem
-              </th>
-              <th scope="col" className="px-3 py-2 font-medium">
-                Empresa
-              </th>
-              <th scope="col" className="px-3 py-2 font-medium">
-                Situação
-              </th>
-              <th scope="col" className="px-3 py-2 font-medium">
-                Mensagem
-              </th>
+          <thead>
+            <tr>
+              <th scope="col">Origem</th>
+              <th scope="col">Empresa</th>
+              <th scope="col">Situação</th>
+              <th scope="col">Mensagem</th>
             </tr>
           </thead>
           <tbody>
@@ -861,18 +859,18 @@ function ResultadoLote({
                       ? "espera"
                       : "ok";
               return (
-              <tr key={`${item.cnpj_cpf}-${indice}`} className="border-b border-traco last:border-0">
-                <td className="px-3 py-2 text-xs text-tinta-suave">{item.origem}</td>
-                <th scope="row" className="px-3 py-2 text-left font-normal">
+              <tr key={`${item.cnpj_cpf}-${indice}`}>
+                <td className="text-xs text-tinta-suave">{item.origem}</td>
+                <th scope="row">
                   <span className="block truncate text-tinta">{item.razao_social || "—"}</span>
                   <Cnpj valor={item.cnpj_cpf} copiar={false} className="text-xs text-tinta-suave" />
                 </th>
-                <td className="px-3 py-2">
+                <td>
                   <Etiqueta tom={tomItem} titulo={vencido && item.status !== "erro" ? "Certificado vencido" : undefined}>
                     {ROTULO_STATUS_LOTE[item.status] ?? item.status}
                   </Etiqueta>
                 </td>
-                <td className="max-w-0 px-3 py-2">
+                <td className="max-w-0">
                   <span className="block truncate text-xs text-tinta-suave" title={item.mensagem}>
                     {item.mensagem || "—"}
                   </span>

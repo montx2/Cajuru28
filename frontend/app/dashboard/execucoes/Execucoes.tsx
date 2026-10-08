@@ -4,8 +4,8 @@ import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { contagemRegressiva, dataCurta, numero, plural, tempoDecorrido, tempoRelativo } from "@/lib/format";
-import { estadoDaExecucao } from "@/lib/estados";
+import { contagem, contagemRegressiva, dataCurta, numero, tempoRelativo } from "@/lib/format";
+import { estadoDaExecucao, duracaoDaExecucao, execucaoEmAberto, orientacaoDaExecucao, SEM_FIM_REGISTRADO } from "@/lib/estados";
 import { MOTIVO_SOMENTE_LEITURA } from "@/lib/papel";
 import { ultimosMeses } from "@/lib/periodo";
 import { usePreferencia } from "@/lib/usePreferencia";
@@ -117,7 +117,7 @@ export function Execucoes() {
       {
         id: "empresa",
         cabecalho: "Empresa",
-        largura: "min-w-56",
+        largura: "min-w-44",
         fixa: true,
         ordenavel: true,
         celula: (execucao) => (
@@ -192,7 +192,7 @@ export function Execucoes() {
         cabecalho: "Duração",
         alinhamento: "direita",
         numerica: true,
-        celula: (execucao) => (execucao.finalizado_em ? tempoDecorrido(execucao.iniciado_em, execucao.finalizado_em, agora) : "em curso"),
+        celula: (execucao) => <span className={cn(!execucao.finalizado_em && !execucaoEmAberto(execucao) && "text-tinta-suave")}>{duracaoDaExecucao(execucao, agora)}</span>,
       },
       {
         id: "inicio",
@@ -284,7 +284,7 @@ export function Execucoes() {
 
       {aoVivo > 0 ? (
         <Aviso tom="info" icone="execucao" compacto>
-          {numero(aoVivo)} {plural(aoVivo, "execução em andamento", "execuções em andamento")} — esta tela se atualiza sozinha a cada 5 segundos.
+          {contagem(aoVivo, "execução em andamento", "execuções em andamento")} — esta tela se atualiza sozinha a cada 5 segundos.
         </Aviso>
       ) : null}
 
@@ -297,7 +297,7 @@ export function Execucoes() {
           ) : central.erro ? (
             <EstadoErro erro={central.erro} aoTentarNovamente={central.atualizar} contexto="carregar as execuções em andamento" />
           ) : emAndamento.length > 0 ? (
-            <ul className="divide-y divide-traco rounded-cartao border border-traco bg-superficie">
+            <ul className="superficie-plana divide-y divide-traco rounded-cartao">
               {emAndamento.map((execucao) => (
                 <LinhaExecucao key={execucao.execucao_id} execucao={execucao} />
               ))}
@@ -440,7 +440,7 @@ export function Execucoes() {
             }
             rodape={
               <p className="text-xs text-tinta-suave">
-                {numero(linhas.length)} {plural(linhas.length, "execução", "execuções")} no recorte · clique em uma linha para ver o detalhe técnico
+                {contagem(linhas.length, "execução", "execuções")} no recorte · clique em uma linha para ver o detalhe técnico
               </p>
             }
           />
@@ -454,9 +454,9 @@ export function Execucoes() {
         contexto={detalhe ? `${detalhe.empresa_razao_social ?? ""} · ${ROTULO_TIPO[detalhe.tipo as TipoDocumentoFiscal] ?? detalhe.tipo}` : undefined}
         acoes={
           detalhe ? (
-            <Link href={`/dashboard/empresa?id=${detalhe.empresa_id}&aba=sincronismo`} className="text-xs font-medium text-acento underline-offset-4 hover:underline">
+            <BotaoLink href={`/dashboard/empresa?id=${detalhe.empresa_id}&aba=sincronismo`} variante="link" tamanho="sm">
               Ver empresa
-            </Link>
+            </BotaoLink>
           ) : undefined
         }
         rodape={
@@ -528,9 +528,7 @@ function compararExecucoes(a: ExecucaoImportacao, b: ExecucaoImportacao, coluna:
 
 function DetalheExecucao({ execucao, agora }: { execucao: ExecucaoImportacao; agora: number }) {
   const estado = estadoDaExecucao(execucao.status);
-  const duracao = execucao.finalizado_em
-    ? tempoDecorrido(execucao.iniciado_em, execucao.finalizado_em, agora)
-    : tempoDecorrido(execucao.iniciado_em, null, agora);
+  const duracao = duracaoDaExecucao(execucao, agora);
 
   return (
     <div className="space-y-5">
@@ -545,7 +543,7 @@ function DetalheExecucao({ execucao, agora }: { execucao: ExecucaoImportacao; ag
         <Aviso tom="erro" titulo="Por que falhou">
           <p className="text-sm leading-6">{execucao.mensagem_erro}</p>
           <p className="mt-2 text-sm leading-6">
-            Próximo passo: confira se o certificado A1 da empresa está válido e se a SEFAZ não está em janela de espera. Depois, reprocesse o período.
+            Próximo passo: {orientacaoDaExecucao(execucao.falha)}
           </p>
         </Aviso>
       ) : null}
@@ -558,7 +556,18 @@ function DetalheExecucao({ execucao, agora }: { execucao: ExecucaoImportacao; ag
 
       <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
         <Dado rotulo="Início" valor={<DataHora iso={execucao.iniciado_em} />} />
-        <Dado rotulo="Fim" valor={execucao.finalizado_em ? <DataHora iso={execucao.finalizado_em} /> : "em curso"} />
+        <Dado
+          rotulo="Fim"
+          valor={
+            execucao.finalizado_em ? (
+              <DataHora iso={execucao.finalizado_em} />
+            ) : execucaoEmAberto(execucao) ? (
+              "em curso"
+            ) : (
+              SEM_FIM_REGISTRADO
+            )
+          }
+        />
         <Dado rotulo="Duração" valor={<span className="nums">{duracao}</span>} />
         <Dado rotulo="Período varrido" valor={execucao.data_inicio && execucao.data_fim ? <span className="nums">{`${dataCurta(execucao.data_inicio)} – ${dataCurta(execucao.data_fim)}`}</span> : "—"} />
         <Dado rotulo="Documentos no período" valor={<span className="nums">{numero(execucao.documentos_no_periodo)}</span>} />
@@ -585,9 +594,9 @@ function DetalheExecucao({ execucao, agora }: { execucao: ExecucaoImportacao; ag
       </dl>
 
       <div className="border-t border-traco pt-4 text-xs">
-        <Link href={`/dashboard/documentos?empresa=${execucao.empresa_id}`} className="font-medium text-acento underline-offset-4 hover:underline">
+        <BotaoLink href={`/dashboard/documentos?empresa=${execucao.empresa_id}`} variante="link">
           Ver documentos desta empresa
-        </Link>
+        </BotaoLink>
       </div>
     </div>
   );

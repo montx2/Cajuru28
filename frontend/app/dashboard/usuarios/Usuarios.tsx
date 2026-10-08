@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
-import { numero, plural } from "@/lib/format";
-import { MOTIVO_SOMENTE_LEITURA, ehAdmin } from "@/lib/papel";
+import { contagem } from "@/lib/format";
+import { ehAdmin } from "@/lib/papel";
 import { useBuscaUrl } from "@/lib/useBuscaUrl";
 import { useRecurso } from "@/lib/useRecurso";
 import { useUrlEstado } from "@/lib/urlEstado";
@@ -16,6 +16,7 @@ import { CabecalhoPagina } from "@/components/ui/Cartao";
 import { Alternador, Busca, Entrada, Selecao } from "@/components/ui/Campo";
 import { CampoSenha } from "@/components/ui/CampoSenha";
 import { EstadoVazio } from "@/components/ui/EstadoVazio";
+import { Formulario } from "@/components/ui/Formulario";
 import { Etiqueta } from "@/components/ui/Etiqueta";
 import { DataHora } from "@/components/ui/Formatadores";
 import { Icone } from "@/components/ui/Icone";
@@ -190,7 +191,10 @@ export function Usuarios() {
               variante="primaria"
               onClick={() => setCriando(true)}
               disabled={!admin}
-              title={admin ? undefined : MOTIVO_SOMENTE_LEITURA}
+              /* Papel insuficiente não é "somente leitura": o operador não é
+                 somente leitura, e o antigo tooltip ainda mandava pedir a um
+                 operador — que era ele mesmo. O motivo é o papel exigido. */
+              title={admin ? undefined : "Somente administrador cria acesso de equipe."}
               iconeEsquerda={<Icone nome="adicionar" className="h-4 w-4" />}
             >
               Novo usuário
@@ -240,8 +244,8 @@ export function Usuarios() {
         }
         rodape={
           <p className="nums text-xs text-tinta-suave">
-            {numero(linhas.length)} {plural(linhas.length, "usuário", "usuários")} · {numero((usuarios.dados ?? []).filter((usuario) => usuario.ativo).length)} ativos ·{" "}
-            {numero((usuarios.dados ?? []).filter((usuario) => usuario.papel === "admin" && usuario.ativo).length)} administradores
+            {contagem(linhas.length, "usuário", "usuários")} · {contagem((usuarios.dados ?? []).filter((usuario) => usuario.ativo).length, "ativo", "ativos")} ·{" "}
+            {contagem((usuarios.dados ?? []).filter((usuario) => usuario.papel === "admin" && usuario.ativo).length, "administrador", "administradores")}
           </p>
         }
       />
@@ -332,7 +336,7 @@ function ModalUsuario({
         </div>
       }
     >
-      <div className="space-y-4">
+      <Formulario aoEnviar={salvar} ocupado={enviando} className="space-y-4">
         <Entrada rotulo="Nome" obrigatorio value={nome} onChange={(evento) => setNome(evento.target.value)} erro={errosCampo.nome ?? null} autoComplete="off" />
         <Entrada rotulo="E-mail" obrigatorio type="email" inputMode="email" value={email} onChange={(evento) => setEmail(evento.target.value)} erro={errosCampo.email ?? null} autoComplete="off" />
         <CampoSenha
@@ -361,12 +365,11 @@ function ModalUsuario({
           />
         ) : null}
         {erro ? (
-          <p role="alert" className="flex items-start gap-2 rounded-controle border border-erro/40 bg-erro-tenue px-3 py-2 text-sm leading-6 text-erro">
-            <Icone nome="alerta" className="mt-1 h-4 w-4 flex-none" />
-            <span>{erro}</span>
-          </p>
+          <Aviso tom="erro" compacto urgente>
+            {erro}
+          </Aviso>
         ) : null}
-      </div>
+      </Formulario>
     </Modal>
   );
 }

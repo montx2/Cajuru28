@@ -162,6 +162,43 @@ def validar_certificado_da_empresa(
     agora = datetime.now(timezone.utc)
     try:
         pfx_bytes = ler_pfx_protegido(certificado.arquivo_path)
+    except FileNotFoundError:
+        # Arquivo sumiu do disco (volume de dados não montado, restauração
+        # parcial). Dizer que "a senha não abre" mandava o operador reenviar o
+        # A1 à toa: o problema não é senha nem arquivo corrompido, é ausência.
+        certificado.ultima_validacao_em = agora
+        certificado.ultimo_erro = (
+            "Arquivo do certificado não encontrado no volume de dados "
+            f"({certificado.arquivo_path})."
+        )
+        db.commit()
+        return {
+            "empresa_id": empresa_id,
+            "certificado_id": certificado.id,
+            "valido": False,
+            "detalhe": (
+                "O arquivo do certificado não está no volume de dados — ele "
+                "nunca chegou a ser gravado ou o volume foi restaurado sem a "
+                "pasta de certificados. Envie o A1 novamente; se o volume "
+                "deveria ter o arquivo, confira a montagem antes de reenviar."
+            ),
+        }
+    except Exception as exc:  # noqa: BLE001 — cifra ilegível/erro de leitura: telemetria, não 500
+        certificado.ultima_validacao_em = agora
+        certificado.ultimo_erro = f"Leitura do .pfx falhou: {str(exc)[:300]}"
+        db.commit()
+        return {
+            "empresa_id": empresa_id,
+            "certificado_id": certificado.id,
+            "valido": False,
+            "detalhe": (
+                "O arquivo do certificado está no disco, mas não pôde ser lido "
+                "com a chave do cofre atual (restauração com chave antiga?). "
+                "Confira a chave do cofre ou envie o A1 novamente."
+            ),
+        }
+
+    try:
         senha = decifrar_segredo(certificado.senha_cifrada)
         chave, cert, _ = pkcs12.load_key_and_certificates(pfx_bytes, senha.encode())
         if chave is None or cert is None:

@@ -4,6 +4,7 @@ import { cn } from "@/lib/cn";
 import { anoCorrente, erroDoPeriodo, intervaloDoMes, mesPassado, periodoValido, ultimosMeses, type Periodo } from "@/lib/periodo";
 import { mesAtual } from "@/lib/competencia";
 import { Botao } from "@/components/ui/Botao";
+import { ErroDoCampo } from "@/components/ui/Campo";
 import { SeletorData } from "@/components/ui/SeletorData";
 import { Icone } from "@/components/ui/Icone";
 
@@ -57,7 +58,7 @@ export function SeletorPeriodo({
       <legend className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-tinta">
         Período
         {obrigatorio ? (
-          <span className="text-erro" title="Obrigatório: a API recusa consulta ao acervo sem intervalo">
+          <span className="text-erro" title="Obrigatório: informe o intervalo para consultar o acervo">
             *
           </span>
         ) : null}
@@ -114,10 +115,7 @@ export function SeletorPeriodo({
       ) : null}
 
       {erro ? (
-        <p role="alert" className="mt-2 flex items-start gap-1.5 text-xs leading-5 text-erro">
-          <Icone nome="alerta" className="mt-0.5 h-3.5 w-3.5 flex-none" />
-          <span>{erro}</span>
-        </p>
+        <ErroDoCampo className="mt-2">{erro}</ErroDoCampo>
       ) : (
         <p className="mt-2 text-xs leading-5 text-tinta-suave">
           A competência é o mês fiscal do documento; o período personalizado permite recortar por datas específicas.

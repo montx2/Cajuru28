@@ -50,10 +50,19 @@ describe("422 com vários campos", () => {
 });
 
 describe("422 sem detalhe estruturado", () => {
-  it("mantém a orientação genérica de filtros (é o caso das consultas)", () => {
-    const descrito = descreverErro(new ApiError(422, "Período obrigatório"));
-    expect(descrito.titulo).toBe("A API recusou os parâmetros");
-    expect(descrito.causa).toBe("Período obrigatório");
+  it("mostra a mensagem do servidor sem presumir filtro nem período", () => {
+    // Nem toda tela que recebe 422 é uma consulta: "Nova empresa" recebia
+    // "confira o período e os filtros destacados abaixo", texto que não existe
+    // no formulário. A mensagem do servidor é a única verdade disponível.
+    const descrito = descreverErro(new ApiError(422, "Não foi possível identificar a UF automaticamente."));
+    expect(descrito.titulo).toBe("A API recusou o envio");
+    expect(descrito.causa).toBe("Não foi possível identificar a UF automaticamente.");
+    expect(descrito.proximoPasso).not.toMatch(/filtro|período/i);
+  });
+
+  it("não inventa causa quando o servidor não manda mensagem", () => {
+    const descrito = descreverErro(new ApiError(422, ""));
+    expect(descrito.causa).toContain("não informou qual campo");
   });
 });
 

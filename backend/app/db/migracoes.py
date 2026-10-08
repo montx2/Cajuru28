@@ -66,6 +66,9 @@ _COLUNAS_POR_TABELA: dict[str, list[tuple[str, str]]] = {
         # (`DEFAULT 0` derruba o startup em bancos de versões anteriores).
         # TRUE/FALSE também são compreendidos pelo SQLite.
         ("forcar", "BOOLEAN NOT NULL DEFAULT FALSE"),
+        # Natureza da falha: sem ela o "próximo passo" da execução era o mesmo
+        # para todo erro (mandava conferir o A1 até em falha local de fila).
+        ("falha", "VARCHAR(24)"),
     ],
     "empresas": [
         ("sincronizar_automaticamente", "BOOLEAN NOT NULL DEFAULT TRUE"),

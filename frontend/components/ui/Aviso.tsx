@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import type { Tom } from "@/lib/estados";
 import { Icone, type NomeIcone } from "./Icone";
@@ -12,7 +12,8 @@ const TONS: Record<Tom, { faixa: string; fundo: string; tinta: string; icone: No
   acento: { faixa: "bg-acento", fundo: "bg-acento-tenue", tinta: "text-acento-escuro", icone: "info" },
 };
 
-export interface AvisoProps {
+export interface AvisoProps extends Omit<ComponentProps<"div">, "id" | "className" | "children" | "role"> {
+  id?: string;
   tom?: Tom;
   titulo?: ReactNode;
   children?: ReactNode;
@@ -29,10 +30,12 @@ export interface AvisoProps {
  * Aviso em linha. A faixa lateral de 3 px carrega o tom e o fundo fica suave:
  * alerta berrante compete com o dado, e aqui o dado é o que importa.
  */
-export function Aviso({ tom = "info", titulo, children, icone, acao, aoFechar, className, urgente, compacto }: AvisoProps) {
+export function Aviso({ id, tom = "info", titulo, children, icone, acao, aoFechar, className, urgente, compacto, ...props }: AvisoProps) {
   const cores = TONS[tom];
   return (
     <div
+      {...props}
+      id={id}
       role={urgente ? "alert" : "status"}
       className={cn(
         "relative flex gap-3 overflow-hidden rounded-cartao border border-traco",

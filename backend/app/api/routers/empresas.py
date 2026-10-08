@@ -23,6 +23,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from sqlalchemy.orm import Session
 
 from app.api.deps import escritorio_id_atual, requer_escrita
+from app.core.plural import contagem, plural
 from app.core.config import settings
 from app.core.documentos import eh_cnpj_numerico, normalizar_documento
 from app.core.vault import cifrar_segredo
@@ -36,6 +37,7 @@ from app.models import (
     ExecucaoImportacao,
     SincronizacaoDFe,
     StatusExecucao,
+    TipoDocumentoFiscal,
     Usuario,
 )
 from app.services import auditoria
@@ -160,12 +162,24 @@ def _completar_dados_empresa(dados: EmpresaCriar, existente: Empresa | None = No
     if not razao:
         raise HTTPException(
             status_code=422,
-            detail="Razão social não identificada automaticamente. Informe o nome da empresa.",
+            detail=[
+                {
+                    "loc": ["body", "razao_social"],
+                    "msg": "Razão social não identificada automaticamente. Informe o nome da empresa.",
+                    "type": "value_error",
+                }
+            ],
         )
     if not uf:
         raise HTTPException(
             status_code=422,
-            detail="Não foi possível identificar a UF automaticamente. Informe a UF manualmente.",
+            detail=[
+                {
+                    "loc": ["body", "uf"],
+                    "msg": "Não foi possível identificar a UF automaticamente. Informe a UF manualmente.",
+                    "type": "value_error",
+                }
+            ],
         )
 
     return {
@@ -683,7 +697,7 @@ async def _processar_pfx(
             if len(senhas_declaradas) > 1:
                 msg_erro = (
                     "Não foi possível abrir o certificado com a senha informada "
-                    f"(senha incorreta ou arquivo corrompido). Foram testadas {len(senhas_declaradas)} senha(s) declaradas para este CNPJ "
+                    f"(senha incorreta ou arquivo corrompido). Foram testadas {contagem(len(senhas_declaradas), 'senha declarada', 'senhas declaradas')} para este CNPJ "
                     "(as das planilhas anexadas e a senha global)."
                 )
             else:

@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import escritorio_id_atual, requer_papel
 from app.api.routers.importacoes import estados_do_escritorio
+from app.core.plural import contagem
 from app.core.config import settings
 from app.db.session import get_db
 from app.models import (
@@ -123,12 +124,12 @@ def computar_alertas(db: Session, escritorio_id: int) -> list[AlertaItem]:
                 "critico",
                 "certificado",
                 f"Certificado vencido — {empresa.razao_social}",
-                f"Venceu há {abs(dias)} dia(s). Nenhuma importação desta empresa "
+                f"Venceu há {contagem(abs(dias), 'dia', 'dias')}. Nenhuma importação desta empresa "
                 f"funciona até a renovação do A1.",
                 empresa_id=empresa.id,
                 empresa_razao_social=empresa.razao_social,
                 acao_rotulo="Enviar novo certificado",
-                acao_href=f"/dashboard/empresa?id={empresa.id}",
+                acao_href=f"/dashboard/empresa?id={empresa.id}&aba=certificado",
             )
         )
     if vencendo:
@@ -139,11 +140,11 @@ def computar_alertas(db: Session, escritorio_id: int) -> list[AlertaItem]:
                 "cert-vencendo",
                 "atencao",
                 "certificado",
-                f"{len(vencendo)} certificado(s) vencendo em até 30 dias",
+                f"{contagem(len(vencendo), 'certificado', 'certificados')} vencendo em até 30 dias",
                 f"{nomes}{' …' if resto > 0 else ''} — o A1 leva dias para "
                 f"renovar; programe-se antes do vencimento.",
                 acao_rotulo="Ver certificados",
-                acao_href="/dashboard/certificados",
+                acao_href="/dashboard/certificados?filtro=vencendo",
             )
         )
     if sem_cert:
@@ -154,11 +155,11 @@ def computar_alertas(db: Session, escritorio_id: int) -> list[AlertaItem]:
                 "cert-ausente",
                 "atencao",
                 "cadastro",
-                f"{len(sem_cert)} empresa(s) sem certificado A1",
+                f"{contagem(len(sem_cert), 'empresa', 'empresas')} sem certificado A1",
                 f"{nomes}{' …' if resto > 0 else ''} — sem o .pfx a importação "
                 f"nem começa.",
                 acao_rotulo="Enviar certificados",
-                acao_href="/dashboard/empresas",
+                acao_href="/dashboard/certificados",
             )
         )
 
@@ -217,7 +218,7 @@ def computar_alertas(db: Session, escritorio_id: int) -> list[AlertaItem]:
                     "atencao",
                     "sincronismo",
                     f"{estado.dias_sem_varrer} dias sem varrer — {empresa.razao_social} ({rotulo})",
-                    f"Faltam {estado.pendencia} documento(s). "
+                    f"Faltam {contagem(estado.pendencia, 'documento', 'documentos')}. "
                     + (
                         "O sincronismo automático está desligado nesta empresa."
                         if not estado.sincronizar_automaticamente
@@ -226,7 +227,7 @@ def computar_alertas(db: Session, escritorio_id: int) -> list[AlertaItem]:
                     empresa_id=empresa.id,
                     empresa_razao_social=empresa.razao_social,
                     acao_rotulo="Ver sincronismo",
-                    acao_href=f"/dashboard/empresa?id={empresa.id}",
+                    acao_href=f"/dashboard/empresa?id={empresa.id}&aba=sincronismo",
                 )
             )
 
@@ -247,12 +248,12 @@ def computar_alertas(db: Session, escritorio_id: int) -> list[AlertaItem]:
                 "resumos-pendentes",
                 "info",
                 "xml",
-                f"{resumos} documento(s) aguardando XML completo",
+                f"{contagem(resumos, 'documento', 'documentos')} aguardando XML completo",
                 "A SEFAZ distribui primeiro o resumo; o XML inteiro vem pela "
                 "chave (cota de 20/h por CNPJ). O sistema completa sozinho — "
                 "ou adiante pela tela de Documentos.",
                 acao_rotulo="Ver documentos",
-                acao_href="/dashboard/documentos",
+                acao_href="/dashboard/documentos?leiaute=resumo",
             )
         )
 
@@ -310,7 +311,7 @@ def computar_alertas(db: Session, escritorio_id: int) -> list[AlertaItem]:
                 "erros-24h",
                 "atencao",
                 "execucao",
-                f"{erros} execução(ões) falharam nas últimas 24h",
+                f"{contagem(erros, 'execução', 'execuções')} falharam nas últimas 24h",
                 "Abra a central de Execuções para ver o motivo de cada "
                 "uma — falhas de rede se resolvem sozinhas na retomada.",
                 acao_rotulo="Ver execuções",
