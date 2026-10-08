@@ -16,7 +16,7 @@ import { useToast } from "@/components/ui/Toast";
 import { ModalCertificado } from "@/components/fiscal/ModalCertificado";
 import { ModalImportacaoLote } from "@/app/dashboard/empresas/Empresas";
 import { Aviso } from "@/components/ui/Aviso";
-import { Botao } from "@/components/ui/Botao";
+import { Botao, BotaoLink } from "@/components/ui/Botao";
 import { BotaoIcone } from "@/components/ui/BotaoIcone";
 import { CabecalhoPagina } from "@/components/ui/Cartao";
 import { Busca } from "@/components/ui/Campo";
@@ -336,6 +336,11 @@ export function Certificados() {
           aoTentarNovamente: painel.atualizar,
           vazioTitulo: "Nenhum certificado neste recorte",
           vazioInstrucao: "Troque o filtro ou cadastre a empresa antes de enviar o A1.",
+          vazioAcao: (
+            <BotaoLink variante="secundaria" href="/dashboard/empresas">
+              Ver empresas
+            </BotaoLink>
+          ),
           vazioIcone: "certificado",
           filtroAtivo: Boolean(filtro || busca.valor.trim()),
           aoLimparFiltro: () => {

@@ -50,7 +50,15 @@ import {
   type TipoDocumentoFiscal,
 } from "@/lib/types";
 
-const ABAS = ["dados", "certificado", "sincronismo", "documentos", "execucoes"];
+/**
+ * Ordem das abas = ordem de uso, não ordem de cadastro.
+ *
+ * A página abre em Documentos: o cabeçalho já mostra CNPJ, UF, situação e
+ * certificado, então "Dados" só repetia o topo enquanto escondia atrás de um
+ * clique o motivo real de abrir uma empresa — o que chegou e se a captura está
+ * andando. Editar o cadastro é o caso raro; fica por último.
+ */
+const ABAS = ["documentos", "sincronismo", "certificado", "execucoes", "dados"];
 
 /**
  * Detalhe da empresa: tudo que decide a captura dela num lugar só.
@@ -67,7 +75,7 @@ export function Empresa() {
   const { periodo, aoMudar: aoMudarPeriodo, pronto } = usePeriodoUrl();
 
   const id = lerNumero("id");
-  const aba = ABAS.includes(ler("aba")) ? ler("aba") : "dados";
+  const aba = ABAS.includes(ler("aba")) ? ler("aba") : "documentos";
   const documentoAberto = lerNumero("doc") ?? null;
 
   const [editarAberto, setEditarAberto] = useState(false);
@@ -147,16 +155,16 @@ export function Empresa() {
   const documentosNoPeriodo = documentos.dados ?? [];
 
   const abas: Aba[] = [
-    { valor: "dados", rotulo: "Dados", icone: "empresa" },
+    { valor: "documentos", rotulo: "Documentos", icone: "documento", contador: pronto ? documentosNoPeriodo.length || undefined : undefined },
+    { valor: "sincronismo", rotulo: "Sincronismo", icone: "sincronizar", contador: (sincronizacao.dados ?? []).length || undefined },
     {
       valor: "certificado",
       rotulo: "Certificado",
       icone: "certificado",
       contador: certificado && (certificado.vencido || !certificado.tem_certificado) ? 1 : undefined,
     },
-    { valor: "sincronismo", rotulo: "Sincronismo", icone: "sincronizar", contador: (sincronizacao.dados ?? []).length || undefined },
-    { valor: "documentos", rotulo: "Documentos", icone: "documento", contador: pronto ? documentosNoPeriodo.length || undefined : undefined },
     { valor: "execucoes", rotulo: "Execuções", icone: "execucao", contador: (execucoes.dados ?? []).length || undefined },
+    { valor: "dados", rotulo: "Dados", icone: "empresa" },
   ];
 
   return (
@@ -423,6 +431,11 @@ export function Empresa() {
                 aoTentarNovamente: execucoes.atualizar,
                 vazioTitulo: "Nenhuma execução registrada",
                 vazioInstrucao: "Dispare a captura para criar o primeiro histórico desta empresa.",
+                vazioAcao: somenteLeitura ? undefined : (
+                  <BotaoLink variante="secundaria" href={`/dashboard/importacoes?empresa_ids=${dados.id}`}>
+                    Disparar captura
+                  </BotaoLink>
+                ),
                 vazioIcone: "execucao",
               }}
               rodape={

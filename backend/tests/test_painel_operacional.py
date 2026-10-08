@@ -401,3 +401,93 @@ def test_sem_nota_596_o_alerta_nao_aparece(cliente):
 
     itens = client.get("/alertas").json()["itens"]
     assert not [item for item in itens if item["id"] == "ciencia-fora-do-prazo"]
+
+
+def test_acao_do_alerta_abre_o_lugar_que_resolve(cliente):
+    """O botão do alerta tem de cair na aba/filtro que resolve o item.
+
+    O alerta de certificado vencido prometia "Enviar novo certificado" e
+    abria a empresa na primeira aba; o de sincronismo dizia "Ver sincronismo"
+    e abria a mesma primeira aba; o de resumo mandava para o acervo inteiro
+    sem o filtro. Em todos, o operador chegava na tela e tinha de reencontrar
+    o problema. Aqui cada destino é conferido.
+    """
+    client, db, escritorio_id = cliente
+
+    vencida = _empresa(db, escritorio_id, "Certificado vencido")
+    _certificado(db, vencida, dias_para_vencer=-3)
+
+    vencendo = _empresa(db, escritorio_id, "Certificado vencendo")
+    _certificado(db, vencendo, dias_para_vencer=12)
+
+    sem_certificado = _empresa(db, escritorio_id, "Sem certificado")
+
+    parada = _empresa(db, escritorio_id, "Cursor parado")
+    _certificado(db, parada, dias_para_vencer=200)
+    db.add(
+        SincronizacaoDFe(
+            empresa_id=parada.id,
+            tipo=TipoDocumentoFiscal.NFE,
+            ultimo_nsu="10",
+            max_nsu="50",
+            ultima_consulta_em=datetime.now(timezone.utc) - timedelta(days=9),
+        )
+    )
+
+    com_resumo = _empresa(db, escritorio_id, "Com resumo")
+    _certificado(db, com_resumo, dias_para_vencer=200)
+    db.add(
+        DocumentoFiscal(
+            empresa_id=com_resumo.id,
+            tipo=TipoDocumentoFiscal.NFE,
+            direcao=DirecaoDocumento.TOMADA,
+            chave_acesso="9" * 44,
+            nsu="1",
+            data_emissao=datetime.now(timezone.utc),
+            valor_total=10.0,
+            xml_path="/tmp/9.xml",
+            leiaute="resumo",
+        )
+    )
+    db.commit()
+
+    itens = {item["id"]: item for item in client.get("/alertas").json()["itens"]}
+
+    assert itens[f"cert-vencido-{vencida.id}"]["acao_href"].endswith(
+        f"/dashboard/empresa?id={vencida.id}&aba=certificado"
+    )
+    assert itens["cert-vencendo"]["acao_href"].endswith("/dashboard/certificados?filtro=vencendo")
+    assert itens["cert-ausente"]["acao_href"].endswith("/dashboard/certificados")
+    assert itens[f"parado-{parada.id}-nfe"]["acao_href"].endswith(
+        f"/dashboard/empresa?id={parada.id}&aba=sincronismo"
+    )
+    assert itens["resumos-pendentes"]["acao_href"].endswith("/dashboard/documentos?leiaute=resumo")
+
+
+def test_toda_acao_de_alerta_aponta_para_tela_do_produto(cliente):
+    """Nenhum alerta pode apontar para fora das telas conhecidas do painel."""
+    client, db, escritorio_id = cliente
+    empresa = _empresa(db, escritorio_id, "Empresa qualquer")
+    _certificado(db, empresa, dias_para_vencer=-1)
+    db.commit()
+
+    telas = {
+        "/dashboard",
+        "/dashboard/atencao",
+        "/dashboard/empresas",
+        "/dashboard/empresa",
+        "/dashboard/certificados",
+        "/dashboard/documentos",
+        "/dashboard/importacoes",
+        "/dashboard/execucoes",
+        "/dashboard/relatorios",
+        "/dashboard/saude",
+        "/dashboard/configuracoes",
+        "/dashboard/usuarios",
+        "/dashboard/auditoria",
+    }
+    for item in client.get("/alertas").json()["itens"]:
+        href = item["acao_href"]
+        assert href, f"alerta {item['id']} sem ação"
+        assert item["acao_rotulo"], f"alerta {item['id']} sem rótulo de ação"
+        assert href.split("?")[0] in telas, f"alerta {item['id']} aponta para {href}"

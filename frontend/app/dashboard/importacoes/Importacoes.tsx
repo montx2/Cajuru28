@@ -23,7 +23,7 @@ import { ResumoImportacao } from "@/components/fiscal/ResumoImportacao";
 import { SeletorEmpresas } from "@/components/fiscal/SeletorEmpresas";
 import { SeletorPeriodo } from "@/components/fiscal/SeletorPeriodo";
 import { Aviso } from "@/components/ui/Aviso";
-import { Botao } from "@/components/ui/Botao";
+import { Botao, BotaoLink } from "@/components/ui/Botao";
 import { CabecalhoPagina, Cartao } from "@/components/ui/Cartao";
 import { Alternador, Caixa, Selecao } from "@/components/ui/Campo";
 import { Dado } from "@/components/ui/Dado";
@@ -360,7 +360,10 @@ export function Importacoes() {
               Ver prévia
             </Botao>
             <Botao
-              variante="primaria"
+              /* Com a prévia ou o resultado na tela, o disparo é o botão
+                 daquele cartão — dois "Disparar captura" primários ao mesmo
+                 tempo seriam duas ações principais para a mesma decisão. */
+              variante={resultado ? "secundaria" : "primaria"}
               onClick={() => setConfirmando(true)}
               carregando={enviando === "disparo"}
               disabled={!podeDisparar}
@@ -580,6 +583,11 @@ export function Importacoes() {
           aoTentarNovamente: estados.atualizar,
           vazioTitulo: "Nenhuma combinação com este recorte",
           vazioInstrucao: "Cadastre empresas e certificados A1 para que o sincronismo apareça aqui.",
+          vazioAcao: (
+            <BotaoLink variante="secundaria" href="/dashboard/empresas">
+              Ver empresas
+            </BotaoLink>
+          ),
           vazioIcone: "sincronizar",
           filtroAtivo: Boolean(ler("sinc_empresa") || ler("sinc_situacao")),
           aoLimparFiltro: () => definir({ sinc_empresa: null, sinc_situacao: null }),

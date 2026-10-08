@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
 import { contagem } from "@/lib/format";
-import { MOTIVO_SOMENTE_LEITURA, ehAdmin } from "@/lib/papel";
+import { ehAdmin } from "@/lib/papel";
 import { useBuscaUrl } from "@/lib/useBuscaUrl";
 import { useRecurso } from "@/lib/useRecurso";
 import { useUrlEstado } from "@/lib/urlEstado";
@@ -190,7 +190,10 @@ export function Usuarios() {
               variante="primaria"
               onClick={() => setCriando(true)}
               disabled={!admin}
-              title={admin ? undefined : MOTIVO_SOMENTE_LEITURA}
+              /* Papel insuficiente não é "somente leitura": o operador não é
+                 somente leitura, e o antigo tooltip ainda mandava pedir a um
+                 operador — que era ele mesmo. O motivo é o papel exigido. */
+              title={admin ? undefined : "Somente administrador cria acesso de equipe."}
               iconeEsquerda={<Icone nome="adicionar" className="h-4 w-4" />}
             >
               Novo usuário

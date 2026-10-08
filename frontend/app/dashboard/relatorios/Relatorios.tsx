@@ -281,6 +281,11 @@ export function Relatorios() {
                 carregando: false,
                 vazioTitulo: "Nenhuma empresa com documento no mês",
                 vazioInstrucao: "Dispare a captura do período para preencher o fechamento.",
+                vazioAcao: (
+                  <BotaoLink variante="secundaria" href={`/dashboard/importacoes?mes=${mes}`}>
+                    Disparar captura
+                  </BotaoLink>
+                ),
                 vazioIcone: "fechamento",
               }}
               rodape={

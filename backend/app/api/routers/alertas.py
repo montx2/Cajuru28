@@ -129,7 +129,7 @@ def computar_alertas(db: Session, escritorio_id: int) -> list[AlertaItem]:
                 empresa_id=empresa.id,
                 empresa_razao_social=empresa.razao_social,
                 acao_rotulo="Enviar novo certificado",
-                acao_href=f"/dashboard/empresa?id={empresa.id}",
+                acao_href=f"/dashboard/empresa?id={empresa.id}&aba=certificado",
             )
         )
     if vencendo:
@@ -144,7 +144,7 @@ def computar_alertas(db: Session, escritorio_id: int) -> list[AlertaItem]:
                 f"{nomes}{' …' if resto > 0 else ''} — o A1 leva dias para "
                 f"renovar; programe-se antes do vencimento.",
                 acao_rotulo="Ver certificados",
-                acao_href="/dashboard/certificados",
+                acao_href="/dashboard/certificados?filtro=vencendo",
             )
         )
     if sem_cert:
@@ -159,7 +159,7 @@ def computar_alertas(db: Session, escritorio_id: int) -> list[AlertaItem]:
                 f"{nomes}{' …' if resto > 0 else ''} — sem o .pfx a importação "
                 f"nem começa.",
                 acao_rotulo="Enviar certificados",
-                acao_href="/dashboard/empresas",
+                acao_href="/dashboard/certificados",
             )
         )
 
@@ -227,7 +227,7 @@ def computar_alertas(db: Session, escritorio_id: int) -> list[AlertaItem]:
                     empresa_id=empresa.id,
                     empresa_razao_social=empresa.razao_social,
                     acao_rotulo="Ver sincronismo",
-                    acao_href=f"/dashboard/empresa?id={empresa.id}",
+                    acao_href=f"/dashboard/empresa?id={empresa.id}&aba=sincronismo",
                 )
             )
 
@@ -253,7 +253,7 @@ def computar_alertas(db: Session, escritorio_id: int) -> list[AlertaItem]:
                 "chave (cota de 20/h por CNPJ). O sistema completa sozinho — "
                 "ou adiante pela tela de Documentos.",
                 acao_rotulo="Ver documentos",
-                acao_href="/dashboard/documentos",
+                acao_href="/dashboard/documentos?leiaute=resumo",
             )
         )
 

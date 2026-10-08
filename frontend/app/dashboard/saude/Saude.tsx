@@ -199,7 +199,7 @@ export function Saude() {
       <GradeKpis itens={indicadores} colunas={5} rotulo="Estado do ambiente" />
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <Cartao titulo="Componentes" descricao="Leitura de /painel/operacional">
+        <Cartao titulo="Componentes" descricao="Verificação contínua de banco, disco e processamento em segundo plano">
           {painel.carregando ? (
             <EsqueletoBloco linhas={4} />
           ) : painel.erro ? (
