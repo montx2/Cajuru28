@@ -549,7 +549,7 @@ def test_export_zip_avisa_quando_leiaute_completo_mas_arquivo_sumiu_do_disco(cli
     assert "arquivo-ausente-no-disco" in linha_nova
 
     leia_me = pacote.read("Fluxa/LEIA-ME.txt").decode("utf-8")
-    assert "1 documento(s) constam como 'XML completo'" in leia_me
+    assert "1 documento consta como 'XML completo'" in leia_me
     assert "arquivo-ausente-no-disco" in leia_me
 
     # o CSV avulso (sem baixar XML nenhum) precisa contar a mesma verdade.

@@ -11,6 +11,7 @@ from app.db.base import Base
 from app.db.session import get_db
 
 from app.api.deps import requer_escrita, requer_papel, usuario_atual
+from app.core.plural import contagem
 from app.core.config import settings
 from app.models import (
     AcessoriasCredencial,
@@ -107,7 +108,7 @@ def informacao_do_sistema(_usuario=Depends(usuario_atual)):
         "modo_servidor": not usando_sqlite,
         "banco": "SQLite" if usando_sqlite else "PostgreSQL",
         "dados_dir": settings.dados_dir,
-        "fila": {"modo": "celery", "agenda": agenda},
+        "fila": {"modo": "Em segundo plano", "tecnologia": "Celery", "agenda": agenda},
         "hora_do_servidor": datetime.now(timezone.utc).isoformat(),
         "iniciar_com_windows": False,
         "pode_iniciar_com_windows": False,
@@ -279,8 +280,8 @@ def reset_geral(
         usuario,
         "reset_geral",
         detalhe=(
-            f"{empresas} empresa(s), {documentos} documento(s), {certificados} certificado(s), "
-            f"{execucoes} execução(ões), {sincronizacoes} sincronização(ões); "
+            f"{contagem(empresas, 'empresa', 'empresas')}, {contagem(documentos, 'documento', 'documentos')}, {contagem(certificados, 'certificado', 'certificados')}, "
+            f"{contagem(execucoes, 'execução', 'execuções')}, {contagem(sincronizacoes, 'sincronização', 'sincronizações')}; "
             f"integracoes_removidas={integracoes}"
         ),
     )

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { emQuanto, mesesAnteriores, rotulo as rotuloCompetencia } from "@/lib/competencia";
-import { contagemRegressiva, moeda, moedaCompacta, numero, percentual, plural, tempoRelativo } from "@/lib/format";
+import { contagem, contagemRegressiva, moeda, moedaCompacta, numero, percentual, plural, tempoRelativo } from "@/lib/format";
 import { estadoGeral, compararPorGravidade } from "@/lib/estados";
 import { useCompetenciaUrl } from "@/lib/usePeriodoUrl";
 import { usePolling } from "@/lib/usePolling";
@@ -162,7 +162,7 @@ export function Painel() {
             <BotaoIcone rotulo="Atualizar painel" dica="Atualizar painel" icone={<Icone nome="atualizar" className="h-4 w-4" />} onClick={recarregar} carregando={atualizando} />
             {pendencias > 0 ? (
               <BotaoLink variante="primaria" href="/dashboard/atencao" iconeDireita={<Icone nome="seta-direita" className="h-4 w-4" />}>
-                Ver {numero(pendencias)} {plural(pendencias, "pendência", "pendências")}
+                Ver {contagem(pendencias, "pendência", "pendências")}
               </BotaoLink>
             ) : null}
           </>
@@ -184,7 +184,7 @@ export function Painel() {
               <Icone nome="sincronizar" className="h-4 w-4" /> Sincronizadas hoje
             </div>
             <p className="nums mt-2 text-xl font-semibold tracking-tight text-tinta-forte">
-              {numero(empresas.sincronizadas_hoje)} <span className="text-base font-normal text-tinta-suave">de {numero(empresas.habilitadas_sincronizacao)} empresas</span>
+              {numero(empresas.sincronizadas_hoje)} <span className="text-base font-normal text-tinta-suave">de {contagem(empresas.habilitadas_sincronizacao, "empresa", "empresas")}</span>
             </p>
             <div
               role="progressbar"
@@ -219,7 +219,7 @@ export function Painel() {
           icone="alerta"
           descricao={
             pendencias > 0
-              ? `${numero(pendencias)} ${plural(pendencias, "item", "itens")} em aberto, do mais grave para o menos grave`
+              ? `${contagem(pendencias, "item", "itens")} em aberto, do mais grave para o menos grave`
               : "Nenhuma decisão pendente"
           }
           className="xl:col-span-2"
@@ -316,7 +316,7 @@ export function Painel() {
                   dados={evolucao.dados.map((ponto) => ({
                     rotulo: ponto.rotulo,
                     valor: ponto.total,
-                    titulo: `${ponto.rotulo}: ${numero(ponto.total)} documentos · ${moeda(ponto.valor)}`,
+                    titulo: `${ponto.rotulo}: ${contagem(ponto.total, "documento", "documentos")} · ${moeda(ponto.valor)}`,
                   }))}
                 />
               ) : (
@@ -389,7 +389,7 @@ function ProximasJanelas({ janelas, agora }: { janelas: JanelaProximaConsulta[];
             <div className="min-w-0">
               <p className="truncate text-sm text-tinta">{janela.razao_social}</p>
               <p className="truncate text-xs text-tinta-suave">
-                {janela.tipo.toUpperCase()} · {janela.bloqueada ? "janela SEFAZ" : `${numero(janela.pendencia)} pendentes`}
+                {janela.tipo.toUpperCase()} · {janela.bloqueada ? "janela SEFAZ" : `${contagem(janela.pendencia, "pendente", "pendentes")}`}
               </p>
             </div>
             <span className={cn("nums flex-none text-xs", janela.bloqueada ? "text-espera" : "text-tinta-suave")}>

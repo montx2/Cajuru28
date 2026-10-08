@@ -8,7 +8,7 @@ import {
   filtrosParaBaixarSelecao,
   filtrosParaBaixarTudoDoFiltro,
 } from "@/lib/exportacao-documentos";
-import { bytesParaTexto, chaveEmGrupos, dataCurta, formatarCnpjCpf, mesAno, numero, plural } from "@/lib/format";
+import { bytesParaTexto, chaveEmGrupos, contagem, dataCurta, formatarCnpjCpf, mesAno, numero, plural } from "@/lib/format";
 import { estadoDoDocumento } from "@/lib/estados";
 import { mensagemDoErro } from "@/lib/erros";
 import { MOTIVO_SOMENTE_LEITURA } from "@/lib/papel";
@@ -300,14 +300,14 @@ export function Documentos() {
         avisar({
           tom: "ok",
           titulo: "XMLs da seleção baixados",
-          descricao: `${escopoEmpresa} · ${numero(quantidadeSelecionada)} ${plural(quantidadeSelecionada, "documento", "documentos")} · canceladas fora do pacote`,
+          descricao: `${escopoEmpresa} · ${contagem(quantidadeSelecionada, "documento", "documentos")} · canceladas fora do pacote`,
         });
       } else {
         await api.baixarCsvDocumentos(filtroSelecao, `Fluxa_selecao_${sufixoArquivo(periodo)}.csv`);
         avisar({
           tom: "ok",
           titulo: "CSV da seleção gerado",
-          descricao: `${escopoEmpresa} · ${numero(quantidadeSelecionada)} ${plural(quantidadeSelecionada, "documento", "documentos")}`,
+          descricao: `${escopoEmpresa} · ${contagem(quantidadeSelecionada, "documento", "documentos")}`,
         });
       }
     } catch (falha) {
@@ -324,8 +324,8 @@ export function Documentos() {
       const resultado = ids.length === 1 ? await api.excluirDocumento(ids[0]) : await api.excluirDocumentos(ids);
       avisar({
         tom: "ok",
-        titulo: `${numero(resultado.excluidos)} ${plural(resultado.excluidos, "documento excluído", "documentos excluídos")}`,
-        descricao: `${numero(resultado.arquivos_removidos)} ${plural(resultado.arquivos_removidos, "arquivo removido", "arquivos removidos")} do disco`,
+        titulo: `${contagem(resultado.excluidos, "documento excluído", "documentos excluídos")}`,
+        descricao: `${contagem(resultado.arquivos_removidos, "arquivo removido", "arquivos removidos")} do disco`,
       });
       setExcluirLote(null);
       setExcluirUm(null);
@@ -672,7 +672,7 @@ export function Documentos() {
                 },
                 {
                   id: "excluir",
-                  rotulo: `Excluir ${numero(quantidade)} documentos…`,
+                  rotulo: `Excluir ${contagem(quantidade, "documento", "documentos")}…`,
                   icone: "excluir",
                   tom: "perigo" as const,
                   separarAcima: true,
@@ -989,7 +989,7 @@ export function Documentos() {
         carregando={enviandoExclusao}
         erro={erroExclusao}
         tom="perigo"
-        titulo={`Excluir ${numero(excluirLote?.length ?? 0)} ${plural(excluirLote?.length ?? 0, "documento", "documentos")}`}
+        titulo={`Excluir ${contagem(excluirLote?.length ?? 0, "documento", "documentos")}`}
         consequencia="Os registros saem do banco e os arquivos XML são apagados do disco. Não há como desfazer."
         impacto={
           <span>

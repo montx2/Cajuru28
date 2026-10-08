@@ -116,7 +116,7 @@ Audição de onde o caminho "de fora" aparece hoje:
 `design/SISTEMA.md` é a autoridade. O resumo abaixo é o que você vai tocar todo dia; divergência
 entre este resumo e o SISTEMA.md, o SISTEMA.md vence.
 
-- **Cor:** um acento (índigo `--acento`) e cinco semânticas (`ok`, `espera`, `erro`, `info`,
+- **Cor:** um acento (`--acento`; verde-menta `#7ce0b3` no escuro e `#176b49` no claro — o índigo citado no brief original não é a cor vigente) e cinco semânticas (`ok`, `espera`, `erro`, `info`,
   grafite). Nenhum hex em componente. Estado = ícone + palavra + cor, nunca só cor. Espera
   oficial da SEFAZ é âmbar, nunca vermelho.
 - **Tipografia:** Inter + JetBrains Mono (self-hosted). Escala `2xs`→`2xl`, `text-sm` padrão de

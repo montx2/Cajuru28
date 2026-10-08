@@ -155,11 +155,15 @@ export function descreverErro(erro: unknown, contexto = "carregar estes dados"):
           };
         }
         return {
-          titulo: "A API recusou os parâmetros",
+          // 422 sem lista de campos = `detail` string do backend (ex.: "Não foi
+          // possível identificar a UF automaticamente"). Antes este ramo dizia
+          // "Confira o período e os filtros destacados abaixo" — texto que não
+          // existe em formulário como "Nova empresa", onde o erro foi visto.
+          titulo: "A API recusou o envio",
           causa:
             erro.message ||
-            "Algum filtro obrigatório está ausente ou em formato diferente do esperado (período em AAAA-MM-DD, competência em MM/AAAA).",
-          proximoPasso: "Confira o período e os filtros destacados abaixo e envie novamente.",
+            "O servidor recusou o conteúdo enviado, mas não informou qual campo. Revise os dados preenchidos.",
+          proximoPasso: "Revise os dados informados e envie novamente.",
           tom: "erro",
           detalhe: erro.message,
         };

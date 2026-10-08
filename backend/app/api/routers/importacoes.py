@@ -23,6 +23,7 @@ from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from app.api.deps import escritorio_id_atual, requer_escrita
+from app.core.plural import contagem
 from app.core.config import settings
 from app.core.tempo import hoje_operacional
 from app.db.session import get_db
@@ -752,7 +753,7 @@ def importar_selecionadas(
     aguardando = sum(1 for item in itens if item.status == "em_cooldown")
     auditoria.registrar(
         db, usuario, "importacao_selecao",
-        detalhe=f"{len(dados.empresa_ids)} empresa(s): {enfileiradas} enfileiradas, {aguardando} na janela",
+        detalhe=f"{contagem(len(dados.empresa_ids), 'empresa', 'empresas')}: {enfileiradas} enfileiradas, {aguardando} na janela",
     )
     db.commit()
     return ResultadoImportacaoSelecionada(
@@ -1262,7 +1263,7 @@ def conferir_competencia(
     if ids is not None:
         fora = [identificador for identificador in ids if identificador not in encontrados]
         if fora:
-            raise HTTPException(status_code=403, detail=f"Empresa(s) fora deste escritório: {fora}")
+            raise HTTPException(status_code=403, detail=f"{plural(len(fora), 'Empresa', 'Empresas')} fora deste escritório: {fora}")
 
     contagens = _contagens_por_empresa_tipo(
         db,

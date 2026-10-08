@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.core.documentos import normalizar_cnpj, normalizar_documento
+from app.core.documentos import normalizar_cnpj, normalizar_documento, validar_documento
 from app.models import (
     DirecaoDocumento,
     StatusDocumentoFiscal,
@@ -75,9 +75,19 @@ class EmpresaCriar(BaseModel):
     @classmethod
     def normalizar_documento(cls, v: str) -> str:
         try:
-            return normalizar_documento(v)
+            documento = normalizar_documento(v)
         except ValueError as exc:
             raise ValueError(str(exc)) from exc
+        # Formato certo não é documento válido: "11.111.111/1111-11" tem 14
+        # caracteres e dígitos verificadores impossíveis. Sem esta checagem o
+        # cadastro aceitava o CNPJ, gravava a empresa e só falhava depois, na
+        # consulta pública, com mensagem que não falava de CNPJ nenhum.
+        if not validar_documento(documento):
+            raise ValueError(
+                "CPF inválido — confira os dígitos." if len(documento) == 11
+                else "CNPJ inválido — confira os dígitos."
+            )
+        return documento
 
     @field_validator("uf")
     @classmethod

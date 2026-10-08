@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { dataCurta, formatarCnpjCpf, numero } from "@/lib/format";
+import { contagem, dataCurta, formatarCnpjCpf, numero } from "@/lib/format";
 import { ultimosMeses } from "@/lib/periodo";
 import { ROTAS, rotaVisivel } from "@/lib/rotas";
 import { useTema } from "@/lib/tema";
@@ -341,7 +341,7 @@ export function PaletaComandos({ aberto, aoFechar, aoAbrirAtalhos }: PaletaComan
             <span>Enter abrir</span>
             <span>Esc fechar</span>
           </span>
-          <span className="nums">{plano.length} resultados</span>
+          <span className="nums">{contagem(plano.length, "resultado", "resultados")}</span>
         </footer>
       </div>
     </div>,

@@ -252,7 +252,7 @@ def test_a_decisao_fica_na_auditoria(cliente, lote):
         .one()
     )
     assert "confirmacao" in registro.detalhe
-    assert "1 registrada(s)" in registro.detalhe
+    assert "1 registrada" in registro.detalhe
 
 
 def test_lote_vazio_e_recusado(cliente, lote):

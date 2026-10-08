@@ -54,6 +54,7 @@ from sqlalchemy import case
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
+from app.core.plural import contagem, plural
 from app.core.arquivos import gravar_bytes_atomicamente
 from app.core.config import settings
 from app.core.money import valor_monetario
@@ -415,7 +416,10 @@ def importar_documentos(
         if total_completados:
             execucao.aviso = _resumir_avisos(
                 execucao.aviso,
-                [f"{total_completados} nota(s) que estavam só em resumo foram completadas com o XML integral."],
+                [
+                    f"{contagem(total_completados, 'nota', 'notas')} que estavam só em resumo "
+                    "foram completadas com o XML integral."
+                ],
             )
 
         if total_fora_do_periodo:
@@ -425,7 +429,8 @@ def importar_documentos(
             execucao.aviso = _resumir_avisos(
                 execucao.aviso,
                 [
-                    f"{total_fora_do_periodo} documento(s) vieram fora do período "
+                    f"{contagem(total_fora_do_periodo, 'documento', 'documentos')} "
+                    f"{plural(total_fora_do_periodo, 'veio', 'vieram')} fora do período "
                     f"{periodo.rotulo()} e foram guardados assim mesmo (a SEFAZ não "
                     "reapresenta NSU já consumido). Para vê-los, ajuste o período "
                     "na tela de documentos."

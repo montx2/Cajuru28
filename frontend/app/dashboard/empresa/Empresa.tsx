@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { ROTULO_ACAO_LOTE } from "@/lib/acoes-documento";
-import { dataCurta, dataHora, formatarCnpjCpf, numero, plural, tempoDecorrido } from "@/lib/format";
+import { contagem, dataCurta, dataHora, formatarCnpjCpf, numero, tempoDecorrido } from "@/lib/format";
 import { estadoDaExecucao, estadoDaSincronizacao, estadoDoCertificado } from "@/lib/estados";
 import { mensagemDoErro } from "@/lib/erros";
 import { MOTIVO_SOMENTE_LEITURA } from "@/lib/papel";
@@ -179,7 +179,7 @@ export function Empresa() {
             {certificado ? <IndicadorEstado {...estadoDoCertificado(certificado)} variante="texto" /> : <IndicadorEstado tom="erro" rotulo="Sem certificado A1" icone="certificado" variante="texto" />}
             {pendenciaTotal > 0 ? (
               <span className="nums text-espera">
-                {numero(pendenciaTotal)} {plural(pendenciaTotal, "documento pendente", "documentos pendentes")}
+                {contagem(pendenciaTotal, "documento pendente", "documentos pendentes")}
               </span>
             ) : null}
           </span>
@@ -390,7 +390,7 @@ export function Empresa() {
                 vazioTitulo: pronto ? "Nenhum documento neste período" : "Escolha o período",
                 vazioInstrucao: pronto
                   ? "Se o certificado estiver válido, dispare a captura deste período — o documento pode ainda não ter sido distribuído pela SEFAZ."
-                  : "A API exige data inicial e final para listar o acervo.",
+                  : "Informe data inicial e final para listar o acervo.",
                 vazioAcao:
                   pronto && !somenteLeitura ? (
                     <BotaoLink variante="secundaria" href={`/dashboard/importacoes?empresa_ids=${dados.id}`}>
@@ -401,7 +401,7 @@ export function Empresa() {
               }}
               rodape={
                 <p className="nums text-xs text-tinta-suave">
-                  {numero(documentosNoPeriodo.length)} {plural(documentosNoPeriodo.length, "documento", "documentos")} ·{" "}
+                  {contagem(documentosNoPeriodo.length, "documento", "documentos")} ·{" "}
                   {numero(documentosNoPeriodo.filter((documento) => documento.leiaute !== "completo").length)} sem XML completo · clique numa linha para abrir o detalhe
                 </p>
               }
@@ -427,7 +427,7 @@ export function Empresa() {
               }}
               rodape={
                 <p className="nums text-xs text-tinta-suave">
-                  {numero((execucoes.dados ?? []).length)} {plural((execucoes.dados ?? []).length, "execução", "execuções")} ·{" "}
+                  {contagem((execucoes.dados ?? []).length, "execução", "execuções")} ·{" "}
                   {numero((execucoes.dados ?? []).filter((execucao) => execucao.status === "erro").length)} com erro
                 </p>
               }
@@ -472,7 +472,7 @@ export function Empresa() {
         consequencia="A empresa sai do cadastro junto com certificado, sincronismo e histórico de execuções. Os XMLs dela são apagados do disco."
         impacto={
           <span>
-            {numero(documentosNoPeriodo.length)} documentos no período {rotuloPeriodo(periodo)} · {numero((sincronizacao.dados ?? []).length)} combinações de
+            {contagem(documentosNoPeriodo.length, "documento", "documentos")} no período {rotuloPeriodo(periodo)} · {contagem((sincronizacao.dados ?? []).length, "combinação", "combinações")} de
             sincronismo. A captura automática desta empresa para imediatamente.
           </span>
         }

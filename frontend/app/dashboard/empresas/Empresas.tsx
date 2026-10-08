@@ -3,14 +3,14 @@
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
-import { dataCurta, formatarCnpjCpf, numero, plural, somenteDigitos } from "@/lib/format";
+import { contagem, dataCurta, formatarCnpjCpf, numero, plural, somenteDigitos } from "@/lib/format";
 import {
   ATRIBUTOS_SELETOR_DE_PASTA,
   LIMITE_CERTIFICADOS_POR_LOTE,
   certificadosDaPasta,
 } from "@/lib/pastaCertificados";
 import { estadoDaSincronizacao, estadoDoCertificado, type EstadoVisual } from "@/lib/estados";
-import { mensagemDoErro } from "@/lib/erros";
+import { mensagemDoErro, problemasDeValidacao } from "@/lib/erros";
 import { MOTIVO_SOMENTE_LEITURA } from "@/lib/papel";
 import { paraFiltro, rotuloPeriodo } from "@/lib/periodo";
 import { UFS } from "@/lib/uf";
@@ -219,7 +219,7 @@ export function Empresas() {
         ordenavel: true,
         celula: (linha) =>
           linha.sincronismo ? (
-            <IndicadorEstado {...linha.sincronismo} detalhe={linha.pendencia > 0 ? <span className="nums">· {numero(linha.pendencia)} pendentes</span> : undefined} />
+            <IndicadorEstado {...linha.sincronismo} detalhe={linha.pendencia > 0 ? <span className="nums">· {contagem(linha.pendencia, "pendente", "pendentes")}</span> : undefined} />
           ) : (
             <span className="text-tinta-fraca">sem histórico</span>
           ),
@@ -393,7 +393,7 @@ export function Empresas() {
         }
         rodape={
           <p className="nums text-xs text-tinta-suave">
-            {numero(filtradas.length)} {plural(filtradas.length, "empresa", "empresas")} · {numero(linhas.filter((linha) => !linha.certificado?.tem_certificado).length)} sem certificado ·{" "}
+            {contagem(filtradas.length, "empresa", "empresas")} · {numero(linhas.filter((linha) => !linha.certificado?.tem_certificado).length)} sem certificado ·{" "}
             {numero(linhas.filter((linha) => linha.pendencia > 0).length)} com pendência
           </p>
         }
@@ -539,11 +539,21 @@ function ModalNovaEmpresa({ aberto, aoFechar, aoCriar }: { aberto: boolean; aoFe
     } catch (falha) {
       const msg = mensagemDoErro(falha, "cadastrar a empresa");
       setErro(msg);
-      if (/raz[aã]o social/i.test(msg) && !razao.trim()) {
-        setErrosCampo((atual) => ({ ...atual, razao: "Informe a razão social manualmente." }));
-      }
-      if (/\bUF\b/i.test(msg) && !uf) {
-        setErrosCampo((atual) => ({ ...atual, uf: "Selecione a UF da empresa." }));
+      // O destaque do campo vem do `loc` estruturado da API. Antes o código
+      // varria o texto do erro procurando "UF"/"razão social": o mesmo erro
+      // ganhava duas mensagens (a do servidor e a inventada aqui) e qualquer
+      // texto que citasse "UF" acendia o campo errado.
+      for (const problema of problemasDeValidacao(falha)) {
+        const campo = problema.campo.split(" → ").pop() ?? "";
+        if (campo === "razao_social" && !razao.trim()) {
+          setErrosCampo((atual) => ({ ...atual, razao: "Informe a razão social como consta no certificado." }));
+        }
+        if (campo === "uf" && !uf) {
+          setErrosCampo((atual) => ({ ...atual, uf: "Selecione a UF da empresa." }));
+        }
+        if (campo === "cnpj_cpf") {
+          setErrosCampo((atual) => ({ ...atual, cnpj: problema.mensagem }));
+        }
       }
     } finally {
       setEnviando(false);
@@ -647,7 +657,7 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
     certificados.length === 0
       ? "Escolha a pasta (ou os arquivos) dos certificados"
       : acimaDoLote
-        ? `A pasta tem ${numero(certificados.length)} certificados — o limite por lote é ${LIMITE_CERTIFICADOS_POR_LOTE}. Importe em etapas.`
+        ? `A pasta tem ${contagem(certificados.length, "certificado", "certificados")} — o limite por lote é ${LIMITE_CERTIFICADOS_POR_LOTE}. Importe em etapas.`
         : undefined;
 
   function receberPasta(lista: FileList | null) {
@@ -683,8 +693,8 @@ export function ModalImportacaoLote({ aberto, aoFechar, aoImportar }: { aberto: 
       setResultado(lote);
       avisar({
         tom: lote.erros > 0 ? "espera" : "ok",
-        titulo: `${numero(lote.criadas)} ${plural(lote.criadas, "empresa criada", "empresas criadas")}`,
-        descricao: `${numero(lote.certificados)} ${plural(lote.certificados, "certificado", "certificados")} · ${numero(lote.ja_existiam)} já existiam · ${numero(lote.erros)} com erro`,
+        titulo: `${contagem(lote.criadas, "empresa criada", "empresas criadas")}`,
+        descricao: `${contagem(lote.certificados, "certificado", "certificados")} · ${numero(lote.ja_existiam)} já existiam · ${numero(lote.erros)} com erro`,
       });
       aoImportar();
     } catch (falha) {

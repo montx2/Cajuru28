@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import escritorio_id_atual
 from app.api.routers.alertas import computar_alertas
 from app.api.routers.importacoes import estados_do_escritorio
+from app.core.plural import contagem
 from app.core.config import settings
 from app.core.tempo import inicio_do_dia_operacional_utc, hoje_operacional
 from app.db.session import get_db
@@ -80,12 +81,12 @@ def _status_geral(criticos: int, atencao: int, componentes_ruins: int) -> tuple[
     if criticos > 0 or componentes_ruins > 0:
         return (
             "critico",
-            f"{criticos or componentes_ruins} ponto(s) exigem ação agora — comece pela lista de atenção.",
+            f"{contagem(criticos or componentes_ruins, 'ponto exige', 'pontos exigem')} ação agora — comece pela lista de atenção.",
         )
     if atencao > 0:
         return (
             "atencao",
-            f"Automação em atividade com {atencao} pendência(s) — nada urgente, mas vale resolver.",
+            f"Automação em atividade com {contagem(atencao, 'pendência', 'pendências')} — nada urgente, mas vale resolver.",
         )
     return "operando", "Todas as sincronizações estão funcionando normalmente."
 

@@ -26,6 +26,7 @@ from sqlalchemy import func, insert, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
+from app.core.plural import contagem, plural
 from app.core.config import settings
 from app.db.base import Base
 from app.models import BackupRegistro, StatusBackup
@@ -471,7 +472,7 @@ def testar_restauracao(db: Session, backup_id: int) -> tuple[bool, str]:
             db.commit()
             return True, (
                 f"Restaurado em banco de prova: {sum(carregadas.values())} registros e "
-                f"{registro.arquivos_incluidos} objeto(s) fiscal(is) com hashes conferidos."
+                f"{contagem(registro.arquivos_incluidos, 'objeto fiscal', 'objetos fiscais')} com hashes conferidos."
             )
     except Exception as exc:  # noqa: BLE001
         try:

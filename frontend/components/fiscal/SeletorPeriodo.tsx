@@ -57,7 +57,7 @@ export function SeletorPeriodo({
       <legend className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-tinta">
         Período
         {obrigatorio ? (
-          <span className="text-erro" title="Obrigatório: a API recusa consulta ao acervo sem intervalo">
+          <span className="text-erro" title="Obrigatório: informe o intervalo para consultar o acervo">
             *
           </span>
         ) : null}

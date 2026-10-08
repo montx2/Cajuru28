@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { contagemRegressiva, numero, plural } from "@/lib/format";
+import { contagem, contagemRegressiva, numero } from "@/lib/format";
 import { estadoDaSincronizacao, type EstadoVisual } from "@/lib/estados";
 import { mensagemDoErro } from "@/lib/erros";
 import { MOTIVO_SOMENTE_LEITURA } from "@/lib/papel";
@@ -285,6 +285,10 @@ export function Importacoes() {
     [forcar, periodo, selecionadas, tipos]
   );
 
+  // Id do texto visível que explica o botão desabilitado. O motivo existia só
+  // em `title`: quem navega por teclado ou leitor de tela não descobria por que
+  // a ação principal estava travada (e a ação que a libera fica no fim da página).
+  const idMotivoIndisponivel = useId();
   const podeDisparar = pronto && dadosDoDisparo.empresa_ids.length > 0 && dadosDoDisparo.tipos.length > 0 && !somenteLeitura;
   const motivoIndisponivel = somenteLeitura
     ? MOTIVO_SOMENTE_LEITURA
@@ -320,7 +324,7 @@ export function Importacoes() {
         tom: dados.enfileiradas > 0 ? "ok" : dados.aguardando > 0 ? "espera" : "info",
         titulo:
           dados.enfileiradas > 0
-            ? `${numero(dados.enfileiradas)} ${plural(dados.enfileiradas, "captura enfileirada", "capturas enfileiradas")}`
+            ? `${contagem(dados.enfileiradas, "captura enfileirada", "capturas enfileiradas")}`
             : dados.aguardando > 0
               ? "Nada enfileirado: há janelas em espera"
               : "Nada a fazer neste recorte",
@@ -345,7 +349,14 @@ export function Importacoes() {
         descricao="A captura automática mostra o que está em dia, o que aguarda janela e o que precisa ser disparado."
         acoes={
           <div className="flex flex-wrap items-center gap-2">
-            <Botao variante="secundaria" onClick={verPrevia} carregando={enviando === "previa"} disabled={!podeDisparar} title={motivoIndisponivel}>
+            <Botao
+              variante="secundaria"
+              onClick={verPrevia}
+              carregando={enviando === "previa"}
+              disabled={!podeDisparar}
+              title={motivoIndisponivel}
+              aria-describedby={!podeDisparar ? idMotivoIndisponivel : undefined}
+            >
               Ver prévia
             </Botao>
             <Botao
@@ -354,6 +365,7 @@ export function Importacoes() {
               carregando={enviando === "disparo"}
               disabled={!podeDisparar}
               title={motivoIndisponivel}
+              aria-describedby={!podeDisparar ? idMotivoIndisponivel : undefined}
               iconeEsquerda={<Icone nome="importacao" className="h-4 w-4" />}
             >
               Disparar captura
@@ -376,6 +388,13 @@ export function Importacoes() {
           </div>
         }
       />
+
+      {!podeDisparar ? (
+        <p id={idMotivoIndisponivel} className="text-sm text-tinta-suave" role="status">
+          <Icone nome="alerta" className="mr-1.5 inline h-4 w-4 align-[-3px] text-espera" />
+          {motivoIndisponivel}. A captura continua automática para as empresas já habilitadas.
+        </p>
+      ) : null}
 
       {somenteLeitura ? (
         <Aviso tom="info" icone="cadeado" titulo="Seu papel é somente leitura">
@@ -447,7 +466,7 @@ export function Importacoes() {
         descricao="O período é obrigatório: é ele que define o que será guardado no acervo."
         acoes={
           <span className="nums text-xs text-tinta-suave">
-            {numero(selecionadas.size)} {plural(selecionadas.size, "empresa", "empresas")} · {numero(tipos.size)} {plural(tipos.size, "tipo", "tipos")}
+            {contagem(selecionadas.size, "empresa", "empresas")} · {contagem(tipos.size, "tipo", "tipos")}
           </span>
         }
       >
@@ -532,10 +551,16 @@ export function Importacoes() {
           {resultado.modo === "previa" && resultado.dados.enfileiradas > 0 ? (
             <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-traco pt-3">
               <p className="text-sm text-tinta-suave">
-                {numero(resultado.dados.enfileiradas)} {plural(resultado.dados.enfileiradas, "captura será enfileirada", "capturas serão enfileiradas")} ·{" "}
-                {numero(resultado.dados.aguardando)} {plural(resultado.dados.aguardando, "ficará aguardando janela", "ficarão aguardando janela")}.
+                {contagem(resultado.dados.enfileiradas, "captura será enfileirada", "capturas serão enfileiradas")} ·{" "}
+                {contagem(resultado.dados.aguardando, "ficará aguardando janela", "ficarão aguardando janela")}.
               </p>
-              <Botao variante="primaria" onClick={() => setConfirmando(true)} disabled={!podeDisparar} title={motivoIndisponivel}>
+              <Botao
+                variante="primaria"
+                onClick={() => setConfirmando(true)}
+                disabled={!podeDisparar}
+                title={motivoIndisponivel}
+                aria-describedby={!podeDisparar ? idMotivoIndisponivel : undefined}
+              >
                 Disparar captura
               </Botao>
             </div>
@@ -589,7 +614,7 @@ export function Importacoes() {
         }
         rodape={
           <p className="nums text-xs text-tinta-suave">
-            {numero(linhasSincronismo.length)} {plural(linhasSincronismo.length, "combinação", "combinações")} empresa × tipo
+            {contagem(linhasSincronismo.length, "combinação", "combinações")} empresa × tipo
           </p>
         }
       />
@@ -612,7 +637,7 @@ export function Importacoes() {
         titulo="Disparar captura"
         consequencia={
           <span>
-            {numero(dadosDoDisparo.empresa_ids.length)} {plural(dadosDoDisparo.empresa_ids.length, "empresa", "empresas")} ×{" "}
+            {contagem(dadosDoDisparo.empresa_ids.length, "empresa", "empresas")} ×{" "}
             {dadosDoDisparo.tipos.map((tipo) => ROTULO_TIPO[tipo]).join(", ")} no período {rotuloPeriodo(periodo)}
             {forcar ? ", ignorando o cursor atual" : ""}.
           </span>

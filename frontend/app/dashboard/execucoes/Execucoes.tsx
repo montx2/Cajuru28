@@ -4,7 +4,7 @@ import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { contagemRegressiva, dataCurta, numero, plural, tempoDecorrido, tempoRelativo } from "@/lib/format";
+import { contagem, contagemRegressiva, dataCurta, numero, tempoDecorrido, tempoRelativo } from "@/lib/format";
 import { estadoDaExecucao } from "@/lib/estados";
 import { MOTIVO_SOMENTE_LEITURA } from "@/lib/papel";
 import { ultimosMeses } from "@/lib/periodo";
@@ -284,7 +284,7 @@ export function Execucoes() {
 
       {aoVivo > 0 ? (
         <Aviso tom="info" icone="execucao" compacto>
-          {numero(aoVivo)} {plural(aoVivo, "execução em andamento", "execuções em andamento")} — esta tela se atualiza sozinha a cada 5 segundos.
+          {contagem(aoVivo, "execução em andamento", "execuções em andamento")} — esta tela se atualiza sozinha a cada 5 segundos.
         </Aviso>
       ) : null}
 
@@ -440,7 +440,7 @@ export function Execucoes() {
             }
             rodape={
               <p className="text-xs text-tinta-suave">
-                {numero(linhas.length)} {plural(linhas.length, "execução", "execuções")} no recorte · clique em uma linha para ver o detalhe técnico
+                {contagem(linhas.length, "execução", "execuções")} no recorte · clique em uma linha para ver o detalhe técnico
               </p>
             }
           />

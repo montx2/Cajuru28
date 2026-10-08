@@ -37,6 +37,7 @@ from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
 
 from app.api.deps import escritorio_id_atual, requer_escrita, requer_papel, usuario_atual
+from app.core.plural import contagem, plural
 from app.core.config import settings
 from app.db.session import get_db
 from app.models import (
@@ -256,7 +257,7 @@ def _ids_empresas_do_escritorio(
 
     invalidos = set(ids) - empresas_do_escritorio
     if invalidos:
-        raise HTTPException(status_code=403, detail=f"Empresa(s) fora deste escritório: {sorted(invalidos)}")
+        raise HTTPException(status_code=403, detail=f"{plural(len(invalidos), 'Empresa', 'Empresas')} fora deste escritório: {sorted(invalidos)}")
     # Deduplica preservando a ordem que veio da tela.
     vistos: list[int] = []
     for item in ids:
@@ -626,7 +627,7 @@ def exportar_relacao_csv(
     total = consulta.count()
     auditoria.registrar(
         db, usuario, "exportacao_csv",
-        detalhe=f"{total} documento(s) · {periodo.rotulo()}" + (f" · tipo {tipo.value}" if tipo else ""),
+        detalhe=f"{contagem(total, 'documento', 'documentos')} · {periodo.rotulo()}" + (f" · tipo {tipo.value}" if tipo else ""),
     )
     db.commit()
     if total == 0:
@@ -732,7 +733,7 @@ def exportar_xmls(
     total = consulta.count()
     registro_auditoria = auditoria.registrar(
         db, usuario, "exportacao_zip",
-        detalhe=f"{total} documento(s) · {periodo.rotulo()}" + (f" · tipo {tipo.value}" if tipo else ""),
+        detalhe=f"{contagem(total, 'documento', 'documentos')} · {periodo.rotulo()}" + (f" · tipo {tipo.value}" if tipo else ""),
     )
     db.commit()
     if total == 0:
@@ -763,8 +764,8 @@ def exportar_xmls(
     # Sem a contagem de pendências não dá para responder depois a pergunta
     # "por que o lote de 09 faltou 14 notas?" — agora dá.
     registro_auditoria.detalhe = (
-        f"{total} documento(s) no filtro · {notas_no_pacote} XML(s) de nota no pacote · "
-        f"{total_pendencias} pendência(s) · {periodo.rotulo()}"
+        f"{contagem(total, 'documento', 'documentos')} no filtro · {contagem(notas_no_pacote, 'XML de nota', 'XMLs de nota')} no pacote · "
+        f"{contagem(total_pendencias, 'pendência', 'pendências')} · {periodo.rotulo()}"
         + (f" · tipo {tipo.value}" if tipo else "")
         + (" · incluiu incompletos" if incluir_incompletos else "")
     )
@@ -1330,7 +1331,8 @@ def _leia_me(
 ) -> str:
     aviso_ausentes = (
         (
-            f"\nATENÇÃO: {arquivos_ausentes} documento(s) constam como 'XML completo'\n"
+            f"\nATENÇÃO: {contagem(arquivos_ausentes, 'documento', 'documentos')} "
+              f"{plural(arquivos_ausentes, 'consta', 'constam')} como 'XML completo'\n"
             "no cadastro, mas o arquivo não foi encontrado no disco na hora de\n"
             "gerar este pacote (procure 'arquivo-ausente-no-disco' na coluna\n"
             "xml_completo da relacao.csv). Confira o backup/disco do servidor;\n"
@@ -1342,7 +1344,8 @@ def _leia_me(
     )
     if pendencias > 0:
         aviso_pendencias = (
-            f"\n{pendencias} documento(s) do filtro NÃO entraram no pacote de notas.\n"
+            f"\n{contagem(pendencias, 'documento', 'documentos')} do filtro NÃO "
+              f"{plural(pendencias, 'entrou', 'entraram')} no pacote de notas.\n"
             "Estão listados em pendencias.csv, com o motivo e o que fazer em\n"
             "cada caso (buscar XML completo, manifestar operação, recapturar).\n"
             + (
@@ -1578,7 +1581,7 @@ def manifestar_conclusiva_documentos(
     encontrados = {documento.id for documento in documentos}
     faltando = [item for item in payload.ids if item not in encontrados]
     if faltando:
-        raise HTTPException(status_code=404, detail=f"Documento(s) não encontrado(s): {faltando}")
+        raise HTTPException(status_code=404, detail=f"{plural(len(faltando), 'Documento', 'Documentos')} não {plural(len(faltando), 'encontrado', 'encontrados')}: {faltando}")
 
     tipos = {
         "confirmacao": TIPO_EVENTO_CONFIRMACAO,
@@ -1619,9 +1622,9 @@ def manifestar_conclusiva_documentos(
         entidade="documento_fiscal",
         entidade_id=None,
         detalhe=(
-            f"{payload.tipo} em {len(documentos)} nota(s): "
-            f"{sum(1 for item in resultados if item['ok'])} registrada(s), "
-            f"{sum(1 for item in resultados if not item['ok'])} recusada(s)"
+            f"{payload.tipo} em {contagem(len(documentos), 'nota', 'notas')}: "
+            f"{contagem(sum(1 for item in resultados if item['ok']), 'registrada', 'registradas')}, "
+            f"{contagem(sum(1 for item in resultados if not item['ok']), 'recusada', 'recusadas')}"
         ),
     )
     db.commit()
@@ -1669,7 +1672,7 @@ def excluir_documentos_lote(
     encontrados = {doc.id for doc in documentos}
     faltando = [item for item in payload.ids if item not in encontrados]
     if faltando:
-        raise HTTPException(status_code=404, detail=f"Documento(s) não encontrado(s): {faltando}")
+        raise HTTPException(status_code=404, detail=f"{plural(len(faltando), 'Documento', 'Documentos')} não {plural(len(faltando), 'encontrado', 'encontrados')}: {faltando}")
 
     arquivos = _arquivos_exclusivos(db, documentos)
     tipos = ", ".join(sorted({doc.tipo.value for doc in documentos}))
@@ -1677,7 +1680,7 @@ def excluir_documentos_lote(
         db,
         usuario,
         "documentos_excluir_lote",
-        detalhe=f"{len(documentos)} documento(s) · tipos: {tipos or 'n/a'}",
+        detalhe=f"{contagem(len(documentos), 'documento', 'documentos')} · tipos: {tipos or 'n/a'}",
     )
     for documento in documentos:
         db.delete(documento)

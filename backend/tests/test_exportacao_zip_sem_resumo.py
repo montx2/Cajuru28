@@ -485,7 +485,7 @@ def test_leia_me_e_auditoria_contam_o_que_ficou_de_fora(acervo):
     leia_me = pacote.read("Fluxa/LEIA-ME.txt").decode("utf-8")
 
     assert "XMLs de nota no pacote: 2" in leia_me
-    assert "7 documento(s) do filtro NÃO entraram no pacote de notas" in leia_me
+    assert "7 documentos do filtro NÃO entraram no pacote de notas" in leia_me
     assert "pendencias.csv" in leia_me
     assert "Manifestar operação" in leia_me
 
@@ -499,5 +499,5 @@ def test_leia_me_e_auditoria_contam_o_que_ficou_de_fora(acervo):
     )
     assert registros, "a exportação não foi registrada na auditoria"
     detalhe = registros[-1].detalhe
-    assert "2 XML(s) de nota no pacote" in detalhe
-    assert "7 pendência(s)" in detalhe
+    assert "2 XMLs de nota no pacote" in detalhe
+    assert "7 pendências" in detalhe

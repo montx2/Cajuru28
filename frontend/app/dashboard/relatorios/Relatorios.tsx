@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { dataCurta, moeda, numero, percentual, plural } from "@/lib/format";
+import { contagem, dataCurta, moeda, numero, percentual } from "@/lib/format";
 import { estadoDaConferencia } from "@/lib/estados";
 import { mensagemDoErro } from "@/lib/erros";
 import { rotulo as rotuloCompetencia } from "@/lib/competencia";
@@ -262,7 +262,7 @@ export function Relatorios() {
                   dados={[...empresas]
                     .sort((a, b) => b.total - a.total)
                     .slice(0, 8)
-                    .map((linha) => ({ rotulo: linha.razao_social, valor: linha.total, titulo: `${linha.razao_social}: ${numero(linha.total)} documentos · ${moeda(linha.valor)}` }))}
+                    .map((linha) => ({ rotulo: linha.razao_social, valor: linha.total, titulo: `${linha.razao_social}: ${contagem(linha.total, "documento", "documentos")} · ${moeda(linha.valor)}` }))}
                 />
               ) : (
                 <EstadoVazio inline titulo="Nenhuma empresa com documento" icone="empresa" />
@@ -285,8 +285,8 @@ export function Relatorios() {
               }}
               rodape={
                 <p className="nums text-xs text-tinta-suave">
-                  {numero(empresas.length)} {plural(empresas.length, "empresa", "empresas")} · {numero(totais.documentos)} documentos · {moeda(totais.valor)} ·{" "}
-                  {numero(totais.canceladas)} canceladas
+                  {contagem(empresas.length, "empresa", "empresas")} · {contagem(totais.documentos, "documento", "documentos")} · {moeda(totais.valor)} ·{" "}
+                  {contagem(totais.canceladas, "cancelada", "canceladas")}
                 </p>
               }
             />
@@ -364,7 +364,7 @@ export function Relatorios() {
                 <p>Conferência: {conferencia.dados?.status ?? "não verificada"}</p>
                 <p>
                   {numero(conferencia.dados?.itens_ok ?? 0)} de {numero(conferencia.dados?.itens_total ?? 0)} combinações conferidas ·{" "}
-                  {numero(conferencia.dados?.sem_xml_completo ?? 0)} documentos sem XML completo
+                  {contagem(conferencia.dados?.sem_xml_completo ?? 0, "documento", "documentos")} sem XML completo
                 </p>
               </div>
               <div className="text-right">

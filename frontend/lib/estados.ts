@@ -1,5 +1,5 @@
 import type { NomeIcone } from "@/components/ui/Icone";
-import { contagemRegressiva, numero, plural, tempoRelativo } from "./format";
+import { contagem, contagemRegressiva, numero, tempoRelativo } from "./format";
 import type {
   DocumentoFiscal,
   EstadoSincronizacao,
@@ -230,7 +230,7 @@ export function estadoDaSincronizacao(estado: EstadoSincronizacao, agora = Date.
   if ((estado.lotes_pendentes ?? 0) > 0) {
     return {
       tom: "erro", rotulo: "Importação parcial", icone: "alerta",
-      absoluto: `${numero(estado.lotes_pendentes!)} ${plural(estado.lotes_pendentes!, "lote recebido precisa", "lotes recebidos precisam")} de reprocessamento local. As respostas foram preservadas.`,
+      absoluto: `${contagem(estado.lotes_pendentes!, "lote recebido precisa", "lotes recebidos precisam")} de reprocessamento local. As respostas foram preservadas.`,
     };
   }
   if (estado.risco_documento_fora_da_distribuicao) {

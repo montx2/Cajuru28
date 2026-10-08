@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/api";
-import { numero, plural } from "@/lib/format";
+import { contagem } from "@/lib/format";
 import { MOTIVO_SOMENTE_LEITURA, ehAdmin } from "@/lib/papel";
 import { useBuscaUrl } from "@/lib/useBuscaUrl";
 import { useRecurso } from "@/lib/useRecurso";
@@ -240,8 +240,8 @@ export function Usuarios() {
         }
         rodape={
           <p className="nums text-xs text-tinta-suave">
-            {numero(linhas.length)} {plural(linhas.length, "usuário", "usuários")} · {numero((usuarios.dados ?? []).filter((usuario) => usuario.ativo).length)} ativos ·{" "}
-            {numero((usuarios.dados ?? []).filter((usuario) => usuario.papel === "admin" && usuario.ativo).length)} administradores
+            {contagem(linhas.length, "usuário", "usuários")} · {contagem((usuarios.dados ?? []).filter((usuario) => usuario.ativo).length, "ativo", "ativos")} ·{" "}
+            {contagem((usuarios.dados ?? []).filter((usuario) => usuario.papel === "admin" && usuario.ativo).length, "administrador", "administradores")}
           </p>
         }
       />

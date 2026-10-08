@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { bytesParaTexto, dataHora, numero, plural } from "@/lib/format";
+import { bytesParaTexto, contagem, dataHora, numero } from "@/lib/format";
 import { estadoDeIntegracao } from "@/lib/estados";
 import { mensagemDoErro } from "@/lib/erros";
 import { MOTIVO_SOMENTE_LEITURA, ehAdmin } from "@/lib/papel";
@@ -111,7 +111,7 @@ function AbaAmbiente({ sistema, saude }: { sistema: RecursoSistema; saude: Recur
       ) : saude.dados ? (
         <Cartao
           titulo="Diagnóstico"
-          descricao="Leitura de /sistema/saude-detalhada"
+          descricao="Verificação de banco, disco e processamento em segundo plano"
           acoes={<BotaoLink variante="sutil" tamanho="sm" href="/dashboard/saude">Abrir Saúde</BotaoLink>}
         >
           <div className="flex flex-wrap items-center gap-2">
@@ -292,7 +292,7 @@ function AbaIntegracoes({
                   executar("sincronizar empresas das Acessórias", async () => {
                     const resultado = await api.sincronizarEmpresasAcessorias();
                     return {
-                      titulo: `${numero(resultado.criadas)} ${plural(resultado.criadas, "empresa criada", "empresas criadas")}`,
+                      titulo: `${contagem(resultado.criadas, "empresa criada", "empresas criadas")}`,
                       descricao: `${numero(resultado.atualizadas)} atualizadas · ${numero(resultado.ignoradas)} ignoradas · ${numero(resultado.invalidas)} inválidas`,
                       tom: resultado.invalidas > 0 ? "espera" : "ok",
                     };
@@ -412,7 +412,7 @@ function AbaDados({ admin }: { admin: boolean }) {
       avisar({
         tom: "espera",
         titulo: "Reset geral executado",
-        descricao: `${numero(resposta.documentos)} documentos e ${numero(resposta.empresas)} empresas apagados`,
+        descricao: `${contagem(resposta.documentos, "documento", "documentos")} e ${contagem(resposta.empresas, "empresa", "empresas")} apagados`,
       });
     } catch (falha) {
       setErro(mensagemDoErro(falha, "executar o reset geral"));
@@ -436,8 +436,8 @@ function AbaDados({ admin }: { admin: boolean }) {
       {resultado ? (
         <Aviso tom="espera" icone="risco" titulo="Reset geral executado" aoFechar={() => setResultado(null)}>
           <span className="nums">
-            {numero(resultado.empresas)} empresas · {numero(resultado.documentos)} documentos · {numero(resultado.certificados)} certificados ·{" "}
-            {numero(resultado.execucoes)} execuções · {numero(resultado.sincronizacoes)} sincronizações · {numero(resultado.arquivos_removidos)} arquivos
+            {contagem(resultado.empresas, "empresa", "empresas")} · {contagem(resultado.documentos, "documento", "documentos")} · {contagem(resultado.certificados, "certificado", "certificados")} ·{" "}
+            {contagem(resultado.execucoes, "execução", "execuções")} · {contagem(resultado.sincronizacoes, "sincronização", "sincronizações")} · {contagem(resultado.arquivos_removidos, "arquivo", "arquivos")}
             removidos{resultado.integracoes > 0 ? ` · ${numero(resultado.integracoes)} integrações` : ""}.
           </span>{" "}
           Comece recadastrando as empresas e enviando os certificados A1.
