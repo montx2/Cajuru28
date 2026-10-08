@@ -10,6 +10,7 @@ from sqlalchemy import MetaData, Table, func, inspect, select, text
 from app.db.base import Base
 from app.db.session import get_db
 
+from app.services import fila
 from app.api.deps import requer_escrita, requer_papel, usuario_atual
 from app.core.plural import contagem
 from app.core.config import settings
@@ -122,7 +123,14 @@ def informacao_do_sistema(_usuario=Depends(usuario_atual)):
 
 @router.get("/saude-detalhada")
 def saude_detalhada(db=Depends(get_db), _usuario=Depends(usuario_atual)):
-    """Verifica banco, cofre e espaço no volume persistente."""
+    """
+    Verifica banco, cofre, fila e espaço no volume persistente.
+
+    A fila entrou aqui porque o cartão "Situação geral" da tela de Saúde diz
+    que verifica "processamento em segundo plano" — e sem esta checagem ele
+    respondia "Operacional" com o Redis fora do ar, enquanto o cartão de
+    componentes, logo abaixo, mostrava a fila em erro.
+    """
     problemas: list[str] = []
     banco_ok = True
     try:
@@ -130,6 +138,12 @@ def saude_detalhada(db=Depends(get_db), _usuario=Depends(usuario_atual)):
     except Exception as exc:  # diagnóstico deve responder mesmo com o banco indisponível
         banco_ok = False
         problemas.append(f"Banco de dados inacessível: {str(exc)[:200]}")
+
+    if not fila.fila_respondendo():
+        problemas.append(
+            "A fila de processamento não responde (Redis fora do ar): nenhuma "
+            "captura sai, automática ou manual."
+        )
 
     if not settings.vault_master_key:
         problemas.append("VAULT_MASTER_KEY não configurada — certificados não podem ser gravados.")
