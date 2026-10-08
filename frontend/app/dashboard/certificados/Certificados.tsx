@@ -208,7 +208,7 @@ export function Certificados() {
       {
         id: "erro",
         cabecalho: "Último erro de autenticação",
-        largura: "min-w-48",
+        largura: "min-w-32",
         celula: (linha) =>
           linha.ultimo_erro ? (
             <Truncado texto={linha.ultimo_erro} className="text-erro" titulo={linha.ultimo_erro} />

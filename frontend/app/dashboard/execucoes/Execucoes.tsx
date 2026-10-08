@@ -117,7 +117,7 @@ export function Execucoes() {
       {
         id: "empresa",
         cabecalho: "Empresa",
-        largura: "min-w-56",
+        largura: "min-w-44",
         fixa: true,
         ordenavel: true,
         celula: (execucao) => (

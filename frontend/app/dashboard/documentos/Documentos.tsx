@@ -382,14 +382,15 @@ export function Documentos() {
       {
         id: "emissao",
         cabecalho: "Emissão",
-        largura: "min-w-28",
+        largura: "min-w-24",
         ordenavel: true,
         celula: (documento) => <span className="nums whitespace-nowrap text-tinta">{dataCurta(documento.data_emissao)}</span>,
       },
       {
         id: "competencia",
         cabecalho: "Competência",
-        largura: "min-w-28",
+        ocultaPorPadrao: true,
+        largura: "min-w-24",
         ordenavel: true,
         celula: (documento) => (
           <span className="nums whitespace-nowrap text-tinta">
@@ -406,7 +407,7 @@ export function Documentos() {
       {
         id: "numero",
         cabecalho: "Número",
-        largura: "min-w-36",
+        largura: "min-w-24",
         ordenavel: true,
         celula: (documento) => (
           <span className="nums whitespace-nowrap text-tinta">
@@ -419,7 +420,9 @@ export function Documentos() {
         id: "parte",
         cabecalho: "Emitente / destinatário",
         dica: "Emitente nas tomadas, destinatário nas prestadas",
-        largura: "min-w-60",
+        // Nome truncado com `title` e detalhe por clique: 240 px de piso só
+        // empurravam a tabela para fora da tela.
+        largura: "min-w-36",
         ordenavel: true,
         celula: (documento) => {
           const nome = documento.direcao === "tomada" ? documento.emitente_nome : documento.destinatario_nome;
@@ -437,7 +440,7 @@ export function Documentos() {
       {
         id: "empresa",
         cabecalho: "Empresa",
-        largura: "min-w-48",
+        largura: "min-w-28",
         ordenavel: true,
         celula: (documento) => (
           <Link
@@ -455,13 +458,14 @@ export function Documentos() {
         cabecalho: "Valor",
         alinhamento: "direita",
         numerica: true,
+        largura: "min-w-32",
         ordenavel: true,
         celula: (documento) => <ValorMoeda valor={documento.valor_total} cancelado={documento.status === "cancelada"} />,
       },
       {
         id: "status",
         cabecalho: "Situação",
-        largura: "min-w-36",
+        largura: "min-w-32",
         ordenavel: true,
         celula: (documento) => (
           <IndicadorEstado
@@ -499,7 +503,7 @@ export function Documentos() {
         id: "acoes",
         fixar: "direita",
         cabecalho: "Ações",
-        largura: "w-16 min-w-16",
+        largura: "w-12 min-w-12",
         alinhamento: "direita",
         fixa: true,
         celula: (documento) => (
