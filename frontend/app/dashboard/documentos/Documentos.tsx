@@ -523,7 +523,7 @@ export function Documentos() {
 
   const indicadores: KpiProps[] = resumo.dados
     ? [
-        { rotulo: "Documentos no recorte", valor: numero(resumo.dados.total), contexto: rotuloPeriodo(periodo), carregando: resumo.atualizando },
+        { rotulo: "Documentos no recorte", valor: numero(resumo.dados.total), contexto: rotuloPeriodo(periodo), carregando: resumo.carregando, atualizando: resumo.atualizando },
         { rotulo: "Normais", valor: numero(resumo.dados.normais), tom: "ok" },
         {
           rotulo: "Canceladas",

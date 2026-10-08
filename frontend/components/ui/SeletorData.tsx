@@ -8,10 +8,14 @@ export interface SeletorDataProps extends CampoBase, Omit<InputHTMLAttributes<HT
 }
 
 /**
- * Data e mês usam o controle nativo do navegador de propósito: calendário
- * desenhado à mão é a maior superfície de bugs de acessibilidade que existe
- * num sistema fiscal, e o operador já sabe usar o do próprio sistema.
- * O valor entra e sai em AAAA-MM-DD (e AAAA-MM), que é o que a API aceita.
+ * Data usa o controle nativo do navegador de propósito: calendário desenhado à
+ * mão é a maior superfície de bugs de acessibilidade que existe num sistema
+ * fiscal, e o operador já sabe usar o do próprio sistema. O valor entra e sai
+ * em AAAA-MM-DD, que é o que a API aceita.
+ *
+ * Mês (competência) NÃO mora aqui: o `<input type="month">` desenha diferente
+ * em cada navegador e não tem grade no Firefox nem no Safari — ele vive em
+ * `components/fiscal/SeletorMes`, com grade de meses do próprio produto.
  */
 export const SeletorData = forwardRef<HTMLInputElement, SeletorDataProps>(function SeletorData(
   { tamanho = "md", classeControle, ...props },
@@ -21,22 +25,6 @@ export const SeletorData = forwardRef<HTMLInputElement, SeletorDataProps>(functi
     <Entrada
       ref={ref}
       type="date"
-      tamanho={tamanho}
-      numerico
-      classeControle={classeControle}
-      {...props}
-    />
-  );
-});
-
-export const SeletorMes = forwardRef<HTMLInputElement, SeletorDataProps>(function SeletorMes(
-  { tamanho = "md", classeControle, ...props },
-  ref
-) {
-  return (
-    <Entrada
-      ref={ref}
-      type="month"
       tamanho={tamanho}
       numerico
       classeControle={classeControle}

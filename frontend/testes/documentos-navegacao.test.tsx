@@ -63,8 +63,12 @@ describe("filtros do acervo de documentos", () => {
     }
     render(<SeletorControlado />);
 
+    expect(screen.getByLabelText("Competência")).toHaveTextContent("agosto/2026");
+
     await usuario.click(screen.getByRole("button", { name: "Competência anterior" }));
 
-    expect(screen.getByLabelText("Competência")).toHaveValue("2026-07");
+    // O seletor próprio mostra a competência por extenso; o valor continua
+    // sendo AAAA-MM para quem chamou (é ele quem viaja na URL).
+    expect(screen.getByLabelText("Competência")).toHaveTextContent("julho/2026");
   });
 });

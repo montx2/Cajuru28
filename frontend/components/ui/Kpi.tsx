@@ -16,6 +16,12 @@ export interface VariacaoKpi {
   base?: string;
   /** Crescer é ruim aqui (canceladas, erros): inverte o tom. */
   invertida?: boolean;
+  /**
+   * Competência ainda em curso: a base é um mês fechado, então a variação é
+   * parcial por construção. Continua visível, mas em tom neutro e rotulada —
+   * mês em andamento menor que o mês passado não é perda.
+   */
+  parcial?: boolean;
 }
 
 export interface KpiProps {
@@ -28,7 +34,13 @@ export interface KpiProps {
   tom?: Tom;
   dica?: string;
   href?: string;
+  /** Primeira carga: não há número ainda — aí o esqueleto é honesto. */
   carregando?: boolean;
+  /**
+   * Recarga com número já na tela: o valor fica, só esmaece. Trocar por
+   * esqueleto aqui apagaria o dado que o operador está lendo a cada filtro.
+   */
+  atualizando?: boolean;
   /** O número que conduz a leitura da grade recebe escala maior. */
   destaque?: boolean;
   className?: string;
@@ -49,7 +61,7 @@ const COR_VALOR: Record<Tom, string> = {
  * O cartão não levanta no hover: ele é leitura, não botão. Quando `href` existe,
  * a única mudança é a borda — e o cartão inteiro vira um link nomeado.
  */
-export function Kpi({ rotulo, icone, valor, contexto, variacao, tom = "neutro", dica, href, carregando, destaque = false, className }: KpiProps) {
+export function Kpi({ rotulo, icone, valor, contexto, variacao, tom = "neutro", dica, href, carregando, atualizando = false, destaque = false, className }: KpiProps) {
   const conteudo = (
     <>
       <div className="flex min-h-9 items-start justify-between gap-3">
@@ -67,7 +79,16 @@ export function Kpi({ rotulo, icone, valor, contexto, variacao, tom = "neutro", 
         ) : null}
       </div>
 
-      <div className={cn("nums my-3 min-w-0 break-words font-semibold tracking-[-.035em]", destaque ? "text-2xl" : "text-xl", COR_VALOR[tom])}>
+      <div
+        aria-busy={atualizando || undefined}
+        title={atualizando ? "Atualizando…" : undefined}
+        className={cn(
+          "nums my-3 min-w-0 break-words font-semibold tracking-[-.035em] transition-opacity duration-180",
+          destaque ? "text-2xl" : "text-xl",
+          COR_VALOR[tom],
+          atualizando && "opacity-55"
+        )}
+      >
         {carregando ? <EsqueletoNumero className={destaque ? "h-9 w-28" : "h-7 w-20"} /> : valor}
       </div>
 
@@ -77,7 +98,7 @@ export function Kpi({ rotulo, icone, valor, contexto, variacao, tom = "neutro", 
         <p
           className={cn(
             "nums mt-3 flex flex-wrap items-center gap-1.5 text-xs",
-            variacao.valor === null || variacao.valor === 0
+            variacao.parcial || variacao.valor === null || variacao.valor === 0
               ? "text-tinta-suave"
               : variacao.invertida
                 ? variacao.valor > 0
@@ -87,11 +108,20 @@ export function Kpi({ rotulo, icone, valor, contexto, variacao, tom = "neutro", 
                   ? "text-ok"
                   : "text-erro"
           )}
-          title={variacao.base}
+          title={
+            variacao.parcial
+              ? `${variacao.base ?? "vs. período anterior"} — mês em andamento, comparação parcial`
+              : variacao.base
+          }
         >
           <Icone nome="tendencia" className={cn("h-3.5 w-3.5 flex-none", (variacao.valor ?? 0) < 0 && "-scale-y-100")} />
           {variacao.valor === null ? "sem base" : `${variacao.valor > 0 ? "+" : ""}${percentual(variacao.valor, 1)}`}
           <span className="truncate font-normal text-tinta-suave">{variacao.base ?? "vs. período anterior"}</span>
+          {variacao.parcial ? (
+            <span className="rounded-badge border border-traco px-1.5 py-0.5 text-2xs font-normal text-tinta-suave">
+              mês em andamento
+            </span>
+          ) : null}
         </p>
       ) : null}
     </>

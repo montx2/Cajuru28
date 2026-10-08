@@ -1,10 +1,9 @@
 "use client";
 
-import { useId } from "react";
 import { cn } from "@/lib/cn";
 import { mesAtual, mesesAnteriores, rotulo as rotuloCompetencia, ultimosMeses } from "@/lib/competencia";
 import { BotaoIcone } from "@/components/ui/BotaoIcone";
-import { SeletorMes } from "@/components/ui/SeletorData";
+import { SeletorMes } from "@/components/fiscal/SeletorMes";
 import { Icone } from "@/components/ui/Icone";
 
 export interface SeletorCompetenciaProps {
@@ -20,7 +19,6 @@ export interface SeletorCompetenciaProps {
 
 /** Competência sempre MM/AAAA na superfície, com navegação ‹ ›. */
 export function SeletorCompetencia({ mes, aoMudar, className, rotulo = "Competência", atalhos = 6, descricao }: SeletorCompetenciaProps) {
-  const idDescricao = useId();
   const atual = mes || mesAtual();
   const ehOMesAtual = atual === mesAtual();
   const anoSeguinte = () => {
@@ -44,8 +42,8 @@ export function SeletorCompetencia({ mes, aoMudar, className, rotulo = "Competê
           rotulo={rotulo}
           value={atual}
           max={mesAtual()}
-          aria-describedby={descricao ? idDescricao : undefined}
-          onChange={(evento) => aoMudar(evento.target.value)}
+          descricao={descricao}
+          onChange={aoMudar}
         />
         <BotaoIcone
           rotulo="Próxima competência"
@@ -56,7 +54,6 @@ export function SeletorCompetencia({ mes, aoMudar, className, rotulo = "Competê
 
         />
       </div>
-      {descricao ? <p id={idDescricao} className="mt-2 text-xs text-tinta-suave">{descricao}</p> : null}
       {atalhos > 0 ? (
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           <span className="text-xs text-tinta-suave">Atalhos</span>

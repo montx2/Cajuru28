@@ -64,8 +64,8 @@ export function Relatorios() {
 
   const indicadores: KpiProps[] = totais
     ? [
-        { rotulo: "Documentos", valor: numero(totais.documentos), contexto: rotuloCompetencia(mes), carregando: fechamento.atualizando },
-        { rotulo: "Valor do mês", valor: moeda(totais.valor), carregando: fechamento.atualizando },
+        { rotulo: "Documentos", valor: numero(totais.documentos), contexto: rotuloCompetencia(mes), carregando: fechamento.carregando, atualizando: fechamento.atualizando },
+        { rotulo: "Valor do mês", valor: moeda(totais.valor), carregando: fechamento.carregando, atualizando: fechamento.atualizando },
         { rotulo: "Canceladas", valor: numero(totais.canceladas), tom: totais.canceladas > 0 ? "espera" : "neutro", contexto: totais.documentos > 0 ? `${percentual((totais.canceladas / totais.documentos) * 100, 1)} do mês` : undefined },
         { rotulo: "Sem XML completo", valor: numero(totais.sem_xml), tom: totais.sem_xml > 0 ? "erro" : "ok", contexto: "recebidas só em resumo", href: `/dashboard/documentos?leiaute=resumo&mes=${mes}` },
         {

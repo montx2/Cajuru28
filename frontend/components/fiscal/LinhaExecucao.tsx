@@ -44,8 +44,11 @@ export function LinhaExecucao({ execucao, className, aoReprocessar }: LinhaExecu
   return (
     <li className={cn("border-b border-traco last:border-0", className)}>
       <div className="flex flex-wrap items-start gap-3 px-3 py-2.5">
-        <IndicadorEstado {...estado} variante="texto" className="w-44 flex-none" titulo={dataHora(execucao.iniciado_em)} />
-        <div className="min-w-0 flex-1">
+        <IndicadorEstado {...estado} variante="texto" className="w-40 flex-none" titulo={dataHora(execucao.iniciado_em)} />
+        {/* `basis-52` é o que impede a empresa de virar "C…": o resumo tem uma
+            largura mínima declarada, então em cartão estreito ele desce para a
+            linha de baixo em vez de encolher até o truncamento de uma letra. */}
+        <div className="min-w-0 flex-1 basis-52">
           <p className="truncate text-sm font-medium text-tinta-forte" title={execucao.razao_social}>
             {execucao.razao_social}
             <span className="ml-2 text-xs font-normal text-tinta-suave">{tipo}</span>

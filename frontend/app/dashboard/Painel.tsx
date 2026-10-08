@@ -4,7 +4,7 @@ import { useCallback, useEffect } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { emQuanto, mesesAnteriores, rotulo as rotuloCompetencia } from "@/lib/competencia";
+import { emQuanto, mesAtual, mesesAnteriores, rotulo as rotuloCompetencia } from "@/lib/competencia";
 import { contagem, contagemRegressiva, moeda, moedaCompacta, numero, percentual, plural, tempoRelativo } from "@/lib/format";
 import { estadoGeral, compararPorGravidade } from "@/lib/estados";
 import { useCompetenciaUrl } from "@/lib/usePeriodoUrl";
@@ -106,6 +106,9 @@ export function Painel() {
 
   const pontoAtual = evolucao.dados?.find((ponto) => ponto.mes === mes);
   const pontoAnterior = evolucao.dados?.find((ponto) => ponto.mes === mesesAnteriores(mes));
+  // Competência em curso compara um mês incompleto com um mês fechado: a
+  // variação continua à vista, mas rotulada e em tom neutro (ver Kpi).
+  const mesEmAndamento = Boolean(mes) && mes === mesAtual();
   const itens: KpiProps[] = [
     {
       rotulo: `Documentos em ${rotuloCompetencia(mes || null)}`,
@@ -115,6 +118,7 @@ export function Painel() {
       variacao: {
         valor: indicadores?.variacao_pct ?? variacaoEntre(pontoAtual?.total, pontoAnterior?.total),
         base: "vs. mês anterior",
+        parcial: mesEmAndamento,
       },
       href: `/dashboard/documentos?mes=${mes}`,
       carregando: pronto && (kpis.carregando || evolucao.carregando),
@@ -126,7 +130,7 @@ export function Painel() {
       icone: "moeda",
       valor: moeda(indicadores?.valor_mes ?? pontoAtual?.valor ?? documentos.valor_mes),
       contexto: `${moeda(pontoAnterior?.valor ?? 0)} no mês anterior`,
-      variacao: { valor: variacaoEntre(pontoAtual?.valor, pontoAnterior?.valor), base: "vs. mês anterior" },
+      variacao: { valor: variacaoEntre(pontoAtual?.valor, pontoAnterior?.valor), base: "vs. mês anterior", parcial: mesEmAndamento },
       carregando: pronto && (kpis.carregando || evolucao.carregando),
       href: `/dashboard/relatorios?mes=${mes}`,
       dica: "Somatório dos documentos normais da competência, sem os cancelados.",
@@ -136,7 +140,7 @@ export function Painel() {
       icone: "fechamento",
       valor: numero(pontoAtual?.nfse ?? 0),
       contexto: `${numero(pontoAnterior?.nfse ?? 0)} no mês anterior`,
-      variacao: { valor: variacaoEntre(pontoAtual?.nfse, pontoAnterior?.nfse), base: "vs. mês anterior" },
+      variacao: { valor: variacaoEntre(pontoAtual?.nfse, pontoAnterior?.nfse), base: "vs. mês anterior", parcial: mesEmAndamento },
       carregando: pronto && evolucao.carregando,
       href: `/dashboard/documentos?mes=${mes}&tipo=nfse`,
       dica: "Notas de serviço capturadas na competência.",
@@ -184,7 +188,10 @@ export function Painel() {
               <Icone nome="sincronizar" className="h-4 w-4" /> Sincronizadas hoje
             </div>
             <p className="nums mt-2 text-xl font-semibold tracking-tight text-tinta-forte">
-              {numero(empresas.sincronizadas_hoje)} <span className="text-base font-normal text-tinta-suave">de {contagem(empresas.habilitadas_sincronizacao, "empresa", "empresas")}</span>
+              {numero(empresas.sincronizadas_hoje)}{" "}
+              <span className="text-base font-normal text-tinta-suave">
+                de {numero(empresas.habilitadas_sincronizacao)} com captura automática
+              </span>
             </p>
             <div
               role="progressbar"
@@ -200,13 +207,13 @@ export function Painel() {
         </div>
         <dl className="grid grid-cols-2 gap-px border-t border-traco bg-traco lg:grid-cols-4">
           {[
-            { rotulo: "Empresas ativas", valor: empresas.ativas, icone: "empresa" as const, href: "/dashboard/empresas" },
-            { rotulo: "Documentos hoje", valor: documentos.hoje, icone: "documento" as const, href: "/dashboard/documentos" },
-            { rotulo: "Capturas concluídas hoje", valor: execucoes.concluidas_hoje, icone: "verificar-circulo" as const, href: "/dashboard/execucoes" },
-            { rotulo: "Certificados válidos", valor: certificados.validos, icone: "certificado" as const, href: "/dashboard/certificados" },
+            { rotulo: "Empresas ativas", valor: empresas.ativas, icone: "empresa" as const, href: "/dashboard/empresas", dica: "Cadastradas e marcadas como ativas — pode ser menos que o total cadastrado." },
+            { rotulo: "Documentos capturados hoje", valor: documentos.hoje, icone: "documento" as const, href: "/dashboard/documentos", dica: "Contados pela data de captura (dia de Brasília); a primeira carga de uma empresa entra toda aqui." },
+            { rotulo: "Capturas concluídas hoje", valor: execucoes.concluidas_hoje, icone: "verificar-circulo" as const, href: "/dashboard/execucoes", dica: "Execuções finalizadas desde a meia-noite de Brasília." },
+            { rotulo: "Certificados válidos", valor: certificados.validos, icone: "certificado" as const, href: "/dashboard/certificados", dica: "Certificados A1 com mais de 30 dias de validade." },
           ].map((item) => (
             <div key={item.rotulo} className="bg-superficie px-4 py-4 sm:px-6">
-              <dt className="flex items-center gap-2 text-xs text-tinta-suave"><Icone nome={item.icone} className="h-4 w-4 flex-none" />{item.rotulo}</dt>
+              <dt className="flex items-center gap-2 text-xs text-tinta-suave" title={item.dica}><Icone nome={item.icone} className="h-4 w-4 flex-none" />{item.rotulo}</dt>
               <dd className="nums mt-2 text-lg font-semibold tracking-tight"><Link href={item.href} className="rounded-sm hover:text-acento">{numero(item.valor)}</Link></dd>
             </div>
           ))}
@@ -287,7 +294,11 @@ export function Painel() {
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 id="titulo-numeros-mes" className="text-md font-semibold tracking-tight text-tinta-forte">Números do mês</h2>
-            <p className="text-xs text-tinta-suave">Cada valor compara a competência anterior.</p>
+            <p className="text-xs text-tinta-suave">
+              {mesEmAndamento
+                ? "Cada valor compara a competência anterior — o mês em andamento ainda está recebendo documentos."
+                : "Cada valor compara a competência anterior."}
+            </p>
           </div>
           <SeletorCompetencia mes={mes} aoMudar={aoMudar} atalhos={0} className="w-full sm:w-auto" />
         </div>
