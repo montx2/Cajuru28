@@ -478,14 +478,15 @@ def test_lote_pasta_com_versao_antiga_e_atualizada_mantem_a_atual(cliente):
     assert 398 <= delta <= 400
 
 
-def test_lote_certificado_expirado_entra_com_aviso_claro(cliente):
-    """Vincular um certificado vencido não é erro do lote, mas o item precisa
-    dizer que ele não serve para capturar."""
+def test_lote_certificado_vencido_recusa_e_diz_o_que_fazer(cliente):
+    """Um .pfx vencido não entra no cofre — mas a recusa tem que ser legível:
+    a data do vencimento e o que o operador precisa fazer. Silenciar aqui é o
+    que faz a pessoa reenviar o mesmo arquivo dez vezes."""
     client, db, _ = cliente
 
     resposta = client.post(
         "/empresas/lote",
-        data={"senha": SENHA, "uf_padrao": "SP"},
+        data={"senha": SENHA},
         files=[
             ("arquivos", (f"{CNPJ_A}.pfx", _pfx(CNPJ_A, "ALFA SERVICOS LTDA", validade_dias=-10), "application/octet-stream")),
         ],
@@ -493,9 +494,15 @@ def test_lote_certificado_expirado_entra_com_aviso_claro(cliente):
 
     assert resposta.status_code == 200
     item = resposta.json()["itens"][0]
-    assert item["status"] == "criada"
-    assert "EXPIRADO" in item["mensagem"]
-    assert "venceu em" in item["mensagem"]
+    assert item["status"] == "erro"
+    assert "vencido" in item["mensagem"]
+    assert "2026" in item["mensagem"]  # a data do vencimento aparece
+    assert "válido" in item["mensagem"]  # e o caminho: mandar a versão atual
+    assert item["certificado_id"] is None
+    # Recusar não pode criar nada: nem empresa fantasma nem certificado inerte.
+    assert db.query(Certificado).count() == 0
+    assert db.query(Empresa).count() == 0
+
 
 def test_duas_planilhas_a_senha_certa_pode_estar_na_antiga(cliente):
     """A empresa trocou a senha ao renovar o certificado: a senha que abre

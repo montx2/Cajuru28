@@ -304,6 +304,24 @@ function AbaIntegracoes({
               >
                 Sincronizar empresas
               </Botao>
+              <Botao
+                variante="sutil"
+                onClick={() =>
+                  executar("completar cadastros pendentes", async () => {
+                    const resultado = await api.completarCadastrosEmpresas({ reconsultar: true });
+                    return {
+                      titulo: `${contagem(resultado.corrigidas, "razão social corrigida", "razões sociais corrigidas")}`,
+                      descricao: `${numero(resultado.analisadas)} analisadas · ${numero(resultado.uf_completada)} UF completadas · ${numero(resultado.sem_fonte)} sem cadastro em nenhuma fonte`,
+                      tom: resultado.corrigidas > 0 ? ("ok" as const) : ("espera" as const),
+                    };
+                  })
+                }
+                carregando={ocupado === "completar cadastros pendentes"}
+                disabled={bloqueado}
+                title="Percorre as empresas cujo nome é só o CNPJ e completa pelo Acessórias ou pela Receita"
+              >
+                Completar nomes pendentes
+              </Botao>
             </div>
           </div>
         ) : null}

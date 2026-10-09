@@ -53,8 +53,44 @@ empresas.
      certificado depende de uma consulta pública de CNPJ para descobrir o
      estado — com centenas de empresas o lote fica mais lento e sujeito ao
      limite dessas fontes.
-3. **Importar lote** — um clique. O CNPJ e a razão social vêm do certificado;
-   a UF é consultada automaticamente pelo CNPJ.
+3. **Importar lote** — um clique. O CNPJ vem do certificado; a razão social
+   obedece a esta ordem e para no primeiro nome de empresa aproveitável:
+
+   1. a coluna de nome da **planilha de apoio**, se houver;
+   2. o **cadastro do escritório no Acessórias**, consultado pelo CNPJ — a
+      mesma fonte sincronizada em Configurações;
+   3. as **fontes públicas da Receita** (BrasilAPI → MinhaReceita → CNPJ.ws);
+   4. o **subject do certificado** (o `CN`/`O` do X.509);
+   5. `Empresa <CNPJ>` — placeholder visível e corrigível, nunca um nome falso.
+
+   Consultar custa tempo, então o 2º e o 3º só são chamados quando falta nome
+   **ou** falta UF: um certificado que já diz "ALFA SERVICOS LTDA" no subject
+   e tem UF na planilha não gera nenhuma requisição externa.
+
+   O que nunca vale como nome: a marca da cadeia. O subject de um A1 traz
+   `O = ICP-Brasil` (e às vezes `OU = AC Soluti`, `AC Certisign`…) — é a
+   autoridade certificadora, não o titular. Um lote de 203 certificados lidos
+   sem essa régua criou 203 empresas chamadas "ICP-Brasil". Nome de cadeia,
+   rótulo de coluna ("Razão social: …"), nome de arquivo e o próprio CNPJ são
+   descartados antes de gravar — na planilha e no certificado.
+
+   A UF é consultada pelo CNPJ quando não vem da planilha nem do cadastro. Como
+   a mesma consulta entrega as duas coisas, um lookup resolve nome e estado.
+
+## Faltou nome? O lote avisa e conserta no mesmo lugar
+
+Quando alguma empresa entra sem razão social (nem o certificado, nem a
+planilha, nem o Acessórias, nem a Receita disseram o nome), o resultado do lote
+mostra **quantas** foram e oferece **"Completar nomes agora"** — uma rodada que
+reconsulta o CNPJ em todas as fontes, sem reenviar arquivo nenhum. É o botão
+que resolve o "203 empresas chamadas ICP-Brasil".
+
+O mesmo reparo, para o escritório inteiro, está em **Configurações →
+Integrações → Acessórias → Completar nomes pendentes** (`POST
+/empresas/completar-cadastros`), e vale também para cadastros antigos criados
+antes dessa régua. Ele nunca sobrescreve um nome verdadeiro: só substitui o
+ruído e o placeholder. Reimportar o `.pfx` de uma empresa específica também a
+conserta, porque um nome já digitado à mão não é perdido no processo.
 
 ## O resultado confirma a planilha
 

@@ -8,11 +8,13 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import escritorio_id_atual, requer_papel
 from app.core.documentos import normalizar_documento
+from app.core.nomes import nome_provisorio, nome_usavel, precisa_completar_nome
 from app.core.vault import cifrar_segredo, decifrar_segredo
 from app.db.session import get_db
 from app.models import AcessoriasCredencial, Empresa, Usuario
 from app.services import auditoria
 from app.services.acessorias import AcessoriasErro, ClienteAcessorias
+from app.services.cadastro import limpar_cache
 
 router = APIRouter(prefix="/integracoes/acessorias", tags=["integrações · Acessórias"])
 _ADMIN = Depends(requer_papel("admin"))
@@ -74,6 +76,7 @@ def salvar_credencial(dados: CredencialEntrada, db: Session = Depends(get_db), e
     item.token_cifrado = cifrar_segredo(dados.token)
     auditoria.registrar(db, usuario, "acessorias_credencial_atualizada", entidade="integracao", detalhe="Token Acessórias atualizado no cofre")
     db.commit()
+    limpar_cache()  # token novo: um "não encontrei" antigo não pode continuar válido
     return {"configurado": True, "base_url": item.base_url}
 
 
@@ -82,6 +85,7 @@ def remover_credencial(db: Session = Depends(get_db), escritorio_id: int = Depen
     db.query(AcessoriasCredencial).filter_by(escritorio_id=escritorio_id).delete()
     auditoria.registrar(db, usuario, "acessorias_credencial_removida", entidade="integracao", detalhe="Token Acessórias removido")
     db.commit()
+    limpar_cache()
     return Response(status_code=204)
 
 
@@ -102,14 +106,15 @@ def sincronizar_empresas(dados: SincronizacaoEntrada, db: Session = Depends(get_
     except AcessoriasErro as exc:
         raise _erro(exc)
     locais = {e.cnpj_cpf: e for e in db.query(Empresa).filter_by(escritorio_id=escritorio_id).all()}
-    criadas = atualizadas = ignoradas = invalidas = 0
+    criadas = atualizadas = ignoradas = invalidas = nomes_preservados = 0
     for remota in remotas:
         try:
             documento = normalizar_documento(str(remota.get("Identificador") or ""))
         except ValueError:
             invalidas += 1
             continue
-        razao = str(remota.get("Razao") or remota.get("Fantasia") or documento).strip()[:255]
+        # `Razao` pode vir vazio ou repetindo o documento no cadastro remoto.
+        razao = nome_usavel(remota.get("Razao") or remota.get("Fantasia"), documento=documento)
         uf = str(remota.get("UF") or "").strip().upper()
         if len(uf) != 2:
             invalidas += 1
@@ -117,14 +122,43 @@ def sincronizar_empresas(dados: SincronizacaoEntrada, db: Session = Depends(get_
         ativa = str(remota.get("Status") or "").strip().lower() == "ativa"
         empresa = locais.get(documento)
         if empresa is None:
-            empresa = Empresa(escritorio_id=escritorio_id, cnpj_cpf=documento, razao_social=razao, uf=uf, ativa=ativa)
+            empresa = Empresa(
+                escritorio_id=escritorio_id,
+                cnpj_cpf=documento,
+                razao_social=(razao or nome_provisorio(documento))[:255],
+                uf=uf,
+                ativa=ativa,
+            )
             db.add(empresa); locais[documento] = empresa; criadas += 1
         elif dados.atualizar_existentes:
-            empresa.razao_social, empresa.uf, empresa.ativa = razao, uf, ativa
+            # O Acessórias manda no nome: é o cadastro do escritório. Mas um
+            # `Razao` vazio nunca apaga um nome verdadeiro já digitado aqui —
+            # só o placeholder de importação é que é substituído.
+            if razao:
+                empresa.razao_social = razao[:255]
+            elif not precisa_completar_nome(empresa.razao_social, documento):
+                nomes_preservados += 1
+            empresa.uf, empresa.ativa = uf, ativa
             atualizadas += 1
         else:
             ignoradas += 1
     credencial.ultima_sincronizacao_em = datetime.now(timezone.utc)
-    auditoria.registrar(db, usuario, "acessorias_empresas_sincronizadas", entidade="integracao", detalhe=f"{criadas} criadas, {atualizadas} atualizadas, {invalidas} inválidas")
+    # Os nomes que a planilha de certificados deixou como "ICP-Brasil" são
+    # corrigidos aqui, porque o cadastro remoto é a fonte mais confiável.
+    auditoria.registrar(
+        db, usuario, "acessorias_empresas_sincronizadas", entidade="integracao",
+        detalhe=(
+            f"{criadas} criadas, {atualizadas} atualizadas, {invalidas} inválidas"
+            + (f", {nomes_preservados} nomes locais preservados" if nomes_preservados else "")
+        ),
+    )
     db.commit()
-    return {"recebidas": len(remotas), "criadas": criadas, "atualizadas": atualizadas, "ignoradas": ignoradas, "invalidas": invalidas}
+    limpar_cache()
+    return {
+        "recebidas": len(remotas),
+        "criadas": criadas,
+        "atualizadas": atualizadas,
+        "ignoradas": ignoradas,
+        "invalidas": invalidas,
+        "nomes_preservados": nomes_preservados,
+    }

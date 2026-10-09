@@ -9,6 +9,12 @@ senhas anexadas, senhas comuns ou senha informada pelo usuário.
 
 CSV ou Excel opcional (razao_social;cnpj_cpf;uf[;senha]) permite cadastrar empresas
 sem certificado e/ou informar senha individual por CNPJ.
+
+O subject de um A1 traz a marca da cadeia ("ICP-Brasil"), não o nome do titular,
+e a planilha do escritório costuma ter só CNPJ e senha. Quando falta nome — ou
+falta UF — o cadastro é resolvido pelo CNPJ em `app.services.cadastro`: primeiro
+no Acessórias do escritório, depois nas fontes públicas da Receita
+(ver docs/IMPORTACAO_CERTIFICADOS.md).
 """
 
 from __future__ import annotations
@@ -21,11 +27,13 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import escritorio_id_atual, requer_escrita
 from app.core.plural import contagem, plural
 from app.core.config import settings
 from app.core.documentos import eh_cnpj_numerico, normalizar_documento
+from app.core.nomes import nome_provisorio, nome_usavel, precisa_completar_nome
 from app.core.vault import cifrar_segredo
 from app.db.session import get_db
 from app.models import (
@@ -42,15 +50,24 @@ from app.models import (
 )
 from app.services import auditoria
 from app.schemas import (
+    CompletarCadastrosEntrada,
+    CompletarCadastrosResposta,
     ConsultaCNPJResposta,
     EmpresaAtualizar,
     EmpresaCriar,
     EmpresaResposta,
     EstadoSincronizacaoResposta,
+    ItemCadastroCorrigido,
     ItemLoteEmpresas,
     LoteEmpresasResposta,
 )
 from app.api.routers.importacoes import estados_do_escritorio
+from app.services import cadastro as cadastro_servico
+from app.services.cadastro import (
+    CadastroEmpresa,
+    acessorias_configurado,
+    consultar_cadastro,
+)
 from app.services.cnpj import consultar_cnpj
 from app.services.certificados import (
     abrir_pfx_tentando_senhas,
@@ -132,7 +149,52 @@ def _consulta_publica(cnpj_cpf: str):
     return consultar_cnpj(cnpj_cpf)
 
 
-def _completar_dados_empresa(dados: EmpresaCriar, existente: Empresa | None = None) -> dict:
+def _cadastro(
+    db: Session | None,
+    escritorio_id: int,
+    cnpj_cpf: str,
+    *,
+    forcar: bool = False,
+    buscar_ibge: bool = False,
+) -> CadastroEmpresa | None:
+    """Cadastro da empresa pelo CNPJ: Acessórias primeiro, fonte pública depois.
+
+    É a mesma chamada que entrega a UF, então um lookup resolve nome e estado —
+    e é por isso que ela acontece sempre que falta qualquer um dos dois.
+    `consultar_publica` é injetada para que os testes (e nenhuma rota)
+    dependam da internet.
+    """
+    return consultar_cadastro(
+        db,
+        escritorio_id,
+        cnpj_cpf,
+        consultar_publica=_consulta_publica,
+        forcar=forcar,
+        buscar_ibge=buscar_ibge,
+    )
+
+
+async def _cadastro_seguro(
+    db: Session | None,
+    escritorio_id: int,
+    cnpj_cpf: str,
+    *,
+    forcar: bool = False,
+    buscar_ibge: bool = False,
+) -> CadastroEmpresa | None:
+    """`_cadastro` fora da event loop: um lote com centenas de CNPJs espera HTTP, não o servidor todo."""
+    return await run_in_threadpool(
+        _cadastro, db, escritorio_id, cnpj_cpf, forcar=forcar, buscar_ibge=buscar_ibge
+    )
+
+
+def _completar_dados_empresa(
+    dados: EmpresaCriar,
+    existente: Empresa | None = None,
+    *,
+    db: Session | None = None,
+    escritorio_id: int = 0,
+) -> dict:
     """
     Aplica o preenchimento automático de UF/razão social pelo CNPJ.
 
@@ -142,22 +204,32 @@ def _completar_dados_empresa(dados: EmpresaCriar, existente: Empresa | None = No
     """
     documento = normalizar_documento(dados.cnpj_cpf)
     uf = _validar_uf_ou_vazio(dados.uf)
-    razao = (dados.razao_social or "").strip()
+    razao_digitada = (dados.razao_social or "").strip()
+    razao = nome_usavel(razao_digitada, documento=documento)
     codigo_ibge = dados.codigo_ibge
 
     # A consulta também entrega o IBGE municipal de sete dígitos. Buscar mesmo
     # quando razão/UF já vieram preenchidas elimina um bloqueio do cadastro
-    # consulta externa sem substituir dado manual informado pelo operador.
-    consulta = _consulta_publica(documento) if (eh_cnpj_numerico(documento) and (not uf or not razao or not codigo_ibge)) else None
-    if consulta is not None:
-        uf = uf or _validar_uf_ou_vazio(consulta.uf)
-        razao = razao or consulta.razao_social or consulta.nome_fantasia
-        codigo_ibge = codigo_ibge or consulta.codigo_ibge or None
+    # consulta externa sem substituir dado manual informado pelo operador. Um
+    # nome que era só ruído ("ICP-Brasil") conta como ausente: é o caso em que
+    # a consulta pública salva o cadastro.
+    precisa_consultar = not uf or not razao or not codigo_ibge or razao != razao_digitada
+    cadastro = (
+        _cadastro(db, escritorio_id, documento, buscar_ibge=True) if precisa_consultar else None
+    )
+    if cadastro is not None:
+        uf = uf or _validar_uf_ou_vazio(cadastro.uf)
+        razao = razao or cadastro.razao_social or cadastro.nome_fantasia
+        codigo_ibge = codigo_ibge or cadastro.codigo_ibge or None
 
     if existente is not None:
         uf = uf or _validar_uf_ou_vazio(existente.uf)
-        razao = razao or (existente.razao_social or "").strip()
+        razao = razao or nome_usavel(existente.razao_social, documento=documento)
         codigo_ibge = codigo_ibge or existente.codigo_ibge or None
+
+    if not razao:
+        # Nada encontrado: o que o operador escreveu é melhor que inventar.
+        razao = razao_digitada
 
     if not razao:
         raise HTTPException(
@@ -212,7 +284,9 @@ def criar_empresa(
         .filter(Empresa.escritorio_id == escritorio_id, Empresa.cnpj_cpf == documento)
         .first()
     )
-    dados_empresa = _completar_dados_empresa(dados, existente=ja_existe)
+    dados_empresa = _completar_dados_empresa(
+        dados, existente=ja_existe, db=db, escritorio_id=escritorio_id
+    )
     if ja_existe is not None:
         ja_existe.razao_social = dados_empresa["razao_social"]
         ja_existe.uf = dados_empresa["uf"]
@@ -247,37 +321,144 @@ def criar_empresa(
 @router.get("/consulta-cnpj/{cnpj}", response_model=ConsultaCNPJResposta)
 def consultar_cadastro_publico_cnpj(
     cnpj: str,
+    db: Session = Depends(get_db),
     escritorio_id: int = Depends(escritorio_id_atual),
 ):
-    """Pré-preenche razão social e UF pelo CNPJ para deixar o cadastro simples."""
-    del escritorio_id  # mantém o endpoint protegido pelo tenant/autenticação
+    """Pré-preenche razão social e UF pelo CNPJ para deixar o cadastro simples.
+
+    Começa pelo Acessórias — o cadastro do próprio escritório é a fonte mais
+    atual e a única que conhece um CNPJ alfanumérico — e só então consulta a
+    Receita. Assim a tela de empresa para de depender de o nome estar ou não
+    no certificado.
+    """
     try:
         documento = normalizar_documento(cnpj)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    cadastro = _cadastro(db, escritorio_id, documento, buscar_ibge=True)
+    if cadastro is not None:
+        return ConsultaCNPJResposta(
+            documento=documento,
+            encontrado=True,
+            razao_social=cadastro.razao_social,
+            nome_fantasia=cadastro.nome_fantasia,
+            uf=cadastro.uf,
+            municipio=cadastro.municipio,
+            codigo_ibge=cadastro.codigo_ibge,
+            fonte=cadastro.fonte,
+            mensagem="Dados encontrados automaticamente.",
+        )
     if not eh_cnpj_numerico(documento):
         return ConsultaCNPJResposta(
             documento=documento,
             encontrado=False,
-            mensagem="CNPJ alfanumérico: informe razão social e UF manualmente até a fonte pública confirmar suporte.",
-        )
-    dados = consultar_cnpj(documento)
-    if dados is None:
-        return ConsultaCNPJResposta(
-            documento=documento,
-            encontrado=False,
-            mensagem="Não foi possível consultar esse CNPJ agora. Preencha a UF manualmente.",
+            mensagem="CNPJ alfanumérico sem cadastro no Acessórias: informe razão social e UF manualmente.",
         )
     return ConsultaCNPJResposta(
         documento=documento,
-        encontrado=True,
-        razao_social=dados.razao_social,
-        nome_fantasia=dados.nome_fantasia,
-        uf=dados.uf,
-        municipio=dados.municipio,
-        codigo_ibge=dados.codigo_ibge,
-        fonte=dados.fonte,
-        mensagem="Dados encontrados automaticamente.",
+        encontrado=False,
+        mensagem="Não foi possível consultar esse CNPJ agora. Preencha a UF manualmente.",
+    )
+
+
+@router.post("/completar-cadastros", response_model=CompletarCadastrosResposta)
+async def completar_cadastros_pendentes(
+    dados: CompletarCadastrosEntrada,
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+    usuario: Usuario = Depends(requer_escrita),
+):
+    """Corrige razão social (e UF) das empresas importadas sem nome de verdade.
+
+    Um lote de certificados pode entrar com o nome da cadeia emissora no lugar
+    da razão social — `ICP-Brasil` em cada uma das linhas — quando a planilha
+    só traz CNPJ e senha. Esta rota repassa os CNPJs pendentes ao cadastro do
+    escritório no Acessórias e, para o que não está lá, às fontes públicas da
+    Receita. É a correção em lote sem exigir reenvio de nenhum `.pfx`.
+    """
+    consulta = db.query(Empresa).filter(Empresa.escritorio_id == escritorio_id)
+    empresas = consulta.order_by(Empresa.razao_social).all()
+    if dados.somente_pendentes:
+        empresas = [
+            empresa
+            for empresa in empresas
+            if precisa_completar_nome(empresa.razao_social, empresa.cnpj_cpf) or not empresa.uf
+        ]
+    empresas = empresas[: dados.limite]
+
+    # Uma credencial decifrada e um cliente por rodada — a rota pode percorrer
+    # centenas de CNPJs, e montar o cliente por empresa custaria uma consulta
+    # ao banco para cada um deles.
+    cliente, _motivo = cadastro_servico.cliente_acessorias(db, escritorio_id)
+    corrigidas = uf_completada = sem_fonte = 0
+    itens: list[ItemCadastroCorrigido] = []
+    for empresa in empresas:
+        # Mesmo `consultar_cadastro` da importação: um reparo e um lote não
+        # podem divergir sobre qual fonte manda no nome.
+        cadastro = await run_in_threadpool(
+            consultar_cadastro,
+            db,
+            escritorio_id,
+            empresa.cnpj_cpf,
+            consultar_publica=_consulta_publica,
+            forcar=dados.reconsultar,
+            buscar_ibge=True,
+            cliente=cliente,
+        )
+        if cadastro is None:
+            sem_fonte += 1
+            itens.append(
+                ItemCadastroCorrigido(
+                    empresa_id=empresa.id,
+                    cnpj_cpf=empresa.cnpj_cpf,
+                    razao_social=empresa.razao_social,
+                    uf=empresa.uf,
+                    status="sem_fonte",
+                )
+            )
+            continue
+        mudou_nome = False
+        novo_nome = nome_usavel(cadastro.razao_social or cadastro.nome_fantasia, documento=empresa.cnpj_cpf)
+        if novo_nome and precisa_completar_nome(empresa.razao_social, empresa.cnpj_cpf):
+            empresa.razao_social = novo_nome[:255]
+            mudou_nome = True
+        if cadastro.uf and empresa.uf not in _UFS_VALIDAS:
+            empresa.uf = cadastro.uf
+            uf_completada += 1
+        if cadastro.codigo_ibge and not empresa.codigo_ibge:
+            empresa.codigo_ibge = cadastro.codigo_ibge
+        itens.append(
+            ItemCadastroCorrigido(
+                empresa_id=empresa.id,
+                cnpj_cpf=empresa.cnpj_cpf,
+                razao_social=empresa.razao_social,
+                uf=empresa.uf,
+                fonte=cadastro.fonte,
+                status="corrigido" if mudou_nome else "uf",
+            )
+        )
+        if mudou_nome:
+            corrigidas += 1
+
+    if corrigidas or uf_completada:
+        auditoria.registrar(
+            db,
+            usuario,
+            "empresas_cadastros_completados",
+            detalhe=(
+                f"{corrigidas} {plural(corrigidas, 'razão social corrigida', 'razões sociais corrigidas')}"
+                + (f", {uf_completada} UF" if uf_completada else "")
+                + f", {sem_fonte} sem fonte disponível"
+            ),
+        )
+    db.commit()
+    return CompletarCadastrosResposta(
+        analisadas=len(empresas),
+        corrigidas=corrigidas,
+        uf_completada=uf_completada,
+        sem_fonte=sem_fonte,
+        acessorias_configurado=acessorias_configurado(db, escritorio_id),
+        itens=itens,
     )
 
 
@@ -492,19 +673,31 @@ async def importar_empresas_em_massa(
     for cnpj, linha in linhas_csv.items():
         if cnpj in usados:
             continue
-        resultados.append(_criar_empresa_de_linha(cnpj, linha, db, escritorio_id, vistos, uf_padrao))
+        resultados.append(
+            await _criar_empresa_de_linha(cnpj, linha, db, escritorio_id, vistos, uf_padrao)
+        )
 
     criadas = sum(1 for r in resultados if r.status == "criada")
     certificados = sum(1 for r in resultados if r.status == "certificado_atualizado")
     ja_existiam = sum(1 for r in resultados if r.status == "ja_existia")
     erros = sum(1 for r in resultados if r.status == "erro")
     substituidos = sum(1 for r in resultados if r.status == "substituido")
+    # Empresas que entraram sem nome de empresa (só o placeholder "Empresa
+    # <CNPJ>"): o número é a deixa para o reparo em um clique na tela.
+    sem_nome = sum(
+        1
+        for r in resultados
+        if r.cnpj_cpf
+        and r.status in {"criada", "certificado_atualizado", "ja_existia"}
+        and precisa_completar_nome(r.razao_social, r.cnpj_cpf)
+    )
     auditoria.registrar(
         db, usuario, "empresas_lote",
         detalhe=(
             f"{len(resultados)} itens: {criadas} criadas, {certificados} certificados, "
             f"{erros} erros"
             + (f", {substituidos} versões antigas descartadas" if substituidos else "")
+            + (f", {sem_nome} sem razão social" if sem_nome else "")
         ),
     )
     db.commit()
@@ -520,6 +713,7 @@ async def importar_empresas_em_massa(
         senhas_da_planilha=sum(
             1 for linha in lista_planilhas if (linha.get("senha") or "").strip()
         ),
+        empresas_sem_nome=sem_nome,
     )
 
 
@@ -559,11 +753,13 @@ async def _escolher_versoes(
         linha_csv = _linha_do_certificado(
             arquivos[indices[0]].filename or "", cnpj, linhas_csv, por_arquivo
         )
-        razao = linha_csv.get("razao_social") or ""
+        # Só um nome de empresa de verdade gera candidatos de senha: com
+        # "ICP-Brasil" a busca por nome acertaria a senha de outra linha.
+        razao = nome_usavel(linha_csv.get("razao_social"), documento=cnpj)
         if not razao and db is not None:
             emp = db.query(Empresa).filter(Empresa.escritorio_id == escritorio_id, Empresa.cnpj_cpf == cnpj).first()
             if emp:
-                razao = emp.razao_social
+                razao = nome_usavel(emp.razao_social, documento=cnpj)
 
         senhas_decl = list(linha_csv.get("senhas", []))
         if not senhas_decl and razao and lista_planilhas:
@@ -650,7 +846,11 @@ async def _processar_pfx(
 
     cnpj_nome = _cnpj_do_arquivo(nome, por_arquivo or {})
     linha_csv = _linha_do_certificado(nome, cnpj_nome, linhas_csv, por_arquivo or {})
-    razao_conhecida = linha_csv.get("razao_social") or ""
+    # A coluna de nome da planilha é a que pode trazer "ICP-Brasil" (a marca da
+    # cadeia, repetida em cada uma das 203 linhas). `nome_usavel` descarta isso
+    # e ainda limpa rótulos do tipo "Razão social: …".
+    razao_da_planilha = nome_usavel(linha_csv.get("razao_social"), documento=cnpj_nome)
+    razao_conhecida = razao_da_planilha
     uf_da_empresa = ""
     if cnpj_nome:
         empresa_existente = (
@@ -659,8 +859,20 @@ async def _processar_pfx(
             .first()
         )
         if empresa_existente:
-            razao_conhecida = razao_conhecida or empresa_existente.razao_social
+            # Um cadastro legado com o nome da cadeia não é "nome conhecido":
+            # tratá-lo como ausente é o que permite corrigir ao reimportar.
+            razao_conhecida = razao_conhecida or nome_usavel(
+                empresa_existente.razao_social, documento=cnpj_nome
+            )
             uf_da_empresa = empresa_existente.uf or ""
+
+    # Quando a UF também não é conhecida, a consulta pelo CNPJ ia acontecer de
+    # qualquer forma: ela passa a valer para o nome antes mesmo de as senhas
+    # serem tentadas (o nome da empresa é um dos padrões de senha mais comuns).
+    cadastro: CadastroEmpresa | None = None
+    if cnpj_nome and not razao_conhecida and not (uf_da_empresa or linha_csv.get("uf") or uf_padrao):
+        cadastro = await _cadastro_seguro(db, escritorio_id, cnpj_nome)
+        razao_conhecida = cadastro.razao_social if cadastro else ""
 
     senhas_declaradas = [s.strip() for s in linha_csv.get("senhas", []) if s.strip()]
     if senha.strip() and senha.strip() not in senhas_declaradas:
@@ -682,15 +894,19 @@ async def _processar_pfx(
         cnpj = identidade.documento
     except ValueError as exc_inicial:
         sucesso = False
-        if cnpj_nome and eh_cnpj_numerico(cnpj_nome) and not razao_conhecida:
+        # Um A1 que não abre ainda pode ser aberto com a senha-padrão derivada
+        # do nome — e o nome pode estar só no cadastro do escritório. Uma
+        # consulta por CNPJ, reaproveitando a que já foi feita acima.
+        if cnpj_nome and not razao_conhecida:
+            cadastro = cadastro or await _cadastro_seguro(db, escritorio_id, cnpj_nome)
+            nome_do_cadastro = cadastro.razao_social if cadastro else ""
             try:
-                publico = _consulta_publica(cnpj_nome)
-                if publico and publico.razao_social:
+                if nome_do_cadastro:
                     novas_candidatas = construir_candidatas_pfx(
                         nome_arquivo=nome,
                         cnpj=cnpj_nome,
-                        razao_social=publico.razao_social,
-                        senhas_declaradas=buscar_senhas_por_nome(publico.razao_social, lista_planilhas or []),
+                        razao_social=nome_do_cadastro,
+                        senhas_declaradas=buscar_senhas_por_nome(nome_do_cadastro, lista_planilhas or []),
                         senha_global=senha,
                         todas_senhas_planilha=todas_senhas,
                     )
@@ -715,6 +931,11 @@ async def _processar_pfx(
                 status="erro",
                 mensagem=msg_erro,
             )
+
+    if cadastro and cadastro.documento != cnpj:
+        # O CNPJ do nome do arquivo não é o do certificado: o cadastro achado
+        # vale para outra empresa e não pode ser usado aqui.
+        cadastro = None
 
     agora = datetime.now(timezone.utc)
     if identidade.validade_utc <= agora:
@@ -749,10 +970,22 @@ async def _processar_pfx(
         )
         uf_da_empresa = empresa_existente.uf if empresa_existente else ""
 
-    publico = None
-    if not (linha.get("uf") or uf_padrao or uf_da_empresa):
-        publico = _consulta_publica(cnpj)
-    uf = (linha.get("uf") or uf_padrao or uf_da_empresa or (publico.uf if publico else "")).upper()
+    uf_da_planilha = (linha.get("uf") or "").upper()
+    razao_do_certificado = identidade.razao_social if identidade.nome_no_certificado else ""
+    if not cadastro and (
+        not (uf_da_planilha or uf_padrao or uf_da_empresa)
+        or not (razao_da_planilha or razao_do_certificado or razao_conhecida)
+    ):
+        # Falta UF ou falta nome: a mesma consulta responde pelos dois. É o que
+        # impede um lote cujo .pfx só traz a marca da cadeia de gravar
+        # "ICP-Brasil" como razão social de trezentas empresas.
+        cadastro = await _cadastro_seguro(db, escritorio_id, cnpj)
+    uf = (
+        uf_da_planilha
+        or uf_padrao
+        or uf_da_empresa
+        or (cadastro.uf if cadastro else "")
+    ).upper()
 
     # A UF define o cUFAutor da consulta de NF-e/CT-e. Assumir SP aqui fazia
     # uma empresa de outro estado parecer cadastrada e só falhar na SEFAZ muito
@@ -767,13 +1000,18 @@ async def _processar_pfx(
             mensagem="UF não identificada automaticamente. Anexe uma planilha de apoio com as colunas CNPJ e UF e importe este certificado novamente.",
         )
 
+    # Ordem do nome: planilha (o dado que o escritório escolheu), cadastro
+    # (Acessórias/Receita), subject do certificado e, em último lugar, o
+    # placeholder "Empresa <CNPJ>" — que a rota /completar-cadastros corrige.
     razao = (
-        linha.get("razao_social")
-        or (publico.razao_social if publico else "")
-        or identidade.razao_social
+        nome_usavel(linha.get("razao_social"), documento=cnpj)
+        or (cadastro.razao_social if cadastro else "")
+        or nome_usavel(razao_do_certificado, documento=cnpj)
+        or nome_provisorio(cnpj)
     ).strip()
     empresa, criada_agora = _obter_ou_criar_empresa(
-        db, escritorio_id, cnpj, razao, uf, vistos
+        db, escritorio_id, cnpj, razao, uf, vistos,
+        cadastro=cadastro if cadastro and cadastro.documento == cnpj else None,
     )
 
     pasta = os.path.join(settings.dados_dir, "certificados", str(empresa.id))
@@ -847,6 +1085,8 @@ def _obter_ou_criar_empresa(
     razao_social: str,
     uf: str,
     vistos: set[str],
+    *,
+    cadastro: CadastroEmpresa | None = None,
 ) -> tuple[Empresa, bool]:
     """Retorna (empresa, criada_agora). Marca o CNPJ como visto no lote."""
     vistos.add(cnpj)
@@ -858,24 +1098,31 @@ def _obter_ou_criar_empresa(
     if empresa is not None:
         if not empresa.ativa:
             empresa.ativa = True
-        if not empresa.razao_social and razao_social:
+        # Nome ruído ("ICP-Brasil"), vazio ou placeholder "Empresa <CNPJ>" é
+        # corrigido no reimportar. Um nome verdadeiro nunca é substituído pelo
+        # que o certificado achou — só por um nome também verdadeiro.
+        if razao_social and precisa_completar_nome(empresa.razao_social, cnpj):
             empresa.razao_social = razao_social[:255]
         if not empresa.uf and uf:
             empresa.uf = uf
+        if cadastro is not None:
+            if not empresa.codigo_ibge and cadastro.codigo_ibge:
+                empresa.codigo_ibge = cadastro.codigo_ibge
         return empresa, False
 
     empresa = Empresa(
         escritorio_id=escritorio_id,
-        razao_social=(razao_social or f"Empresa {cnpj}")[:255],
+        razao_social=(razao_social or nome_provisorio(cnpj))[:255],
         cnpj_cpf=cnpj,
         uf=uf,
+        codigo_ibge=(cadastro.codigo_ibge if cadastro else "") or None,
     )
     db.add(empresa)
     db.flush()
     return empresa, True
 
 
-def _criar_empresa_de_linha(
+async def _criar_empresa_de_linha(
     cnpj: str,
     linha: dict,
     db: Session,
@@ -885,7 +1132,9 @@ def _criar_empresa_de_linha(
     origem: str | None = None,
 ) -> ItemLoteEmpresas:
     origem = origem or f"Linha {linha.get('linha_csv', '?')}"
-    razao = (linha.get("razao_social") or "").strip()
+    # "ICP-Brasil" na coluna de nome é a autoridade certificadora, não a
+    # empresa: vazia, a linha passa a valer pelo que o cadastro disser.
+    razao = nome_usavel(linha.get("razao_social"), documento=cnpj)
 
     existente = (
         db.query(Empresa)
@@ -894,16 +1143,19 @@ def _criar_empresa_de_linha(
     )
     if existente is not None:
         uf_existente = (existente.uf or linha.get("uf") or uf_padrao or "").upper()
-        if uf_existente not in _UFS_VALIDAS:
-            publico_existente = _consulta_publica(cnpj)
-            uf_existente = (publico_existente.uf if publico_existente else "").upper()
+        cadastro = None
+        if uf_existente not in _UFS_VALIDAS or precisa_completar_nome(existente.razao_social, cnpj):
+            cadastro = await _cadastro_seguro(db, escritorio_id, cnpj)
+            if uf_existente not in _UFS_VALIDAS and cadastro:
+                uf_existente = cadastro.uf.upper()
         empresa, _ = _obter_ou_criar_empresa(
             db,
             escritorio_id,
             cnpj,
-            razao,
+            razao or (cadastro.razao_social if cadastro else ""),
             uf_existente if uf_existente in _UFS_VALIDAS else "",
             vistos,
+            cadastro=cadastro,
         )
         return ItemLoteEmpresas(
             origem=origem,
@@ -914,18 +1166,25 @@ def _criar_empresa_de_linha(
             empresa_id=empresa.id,
         )
 
-    publico = None
-    if not (linha.get("uf") or uf_padrao):
-        publico = _consulta_publica(cnpj)
-    razao = razao or (publico.razao_social if publico else "") or (publico.nome_fantasia if publico else "")
-    uf = (linha.get("uf") or uf_padrao or (publico.uf if publico else "")).upper()
+    cadastro = None
+    if not (linha.get("uf") or uf_padrao) or not razao:
+        cadastro = await _cadastro_seguro(db, escritorio_id, cnpj)
+    razao = (
+        razao
+        or (cadastro.razao_social if cadastro else "")
+        or (cadastro.nome_fantasia if cadastro else "")
+    )
+    uf = (linha.get("uf") or uf_padrao or (cadastro.uf if cadastro else "")).upper()
 
     if not razao:
         return ItemLoteEmpresas(
             origem=origem,
             cnpj_cpf=cnpj,
             status="erro",
-            mensagem="Razão social não identificada. Informe no CSV.",
+            mensagem=(
+                "Razão social não identificada no CSV, no Acessórias nem na "
+                "Receita. Informe o nome na planilha."
+            ),
         )
     if uf not in _UFS_VALIDAS:
         return ItemLoteEmpresas(
@@ -937,7 +1196,7 @@ def _criar_empresa_de_linha(
         )
 
     empresa, _criada_agora = _obter_ou_criar_empresa(
-        db, escritorio_id, cnpj, razao, uf, vistos
+        db, escritorio_id, cnpj, razao, uf, vistos, cadastro=cadastro
     )
     return ItemLoteEmpresas(
         origem=origem,
