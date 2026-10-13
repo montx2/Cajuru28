@@ -361,7 +361,53 @@ export function estadoDoDocumento(documento: Pick<DocumentoFiscal, "status" | "l
   if (documento.leiaute === "metadados") {
     return { tom: "espera", rotulo: "Sem XML da fonte", icone: "documento" };
   }
-  return { tom: "neutro", rotulo: "Normal", icone: "verificar" };
+  return { tom: "ok", rotulo: "Autorizada", icone: "verificar-circulo" };
+}
+
+export interface AlertaDocumento {
+  quantidade: number;
+  motivos: string[];
+}
+
+/**
+ * Alertas de UMA nota — a coluna ALERTAS da lista.
+ *
+ * Conta o que impede a nota de ser escriturada hoje: resumo sem XML, recusa
+ * de manifestação (com destaque para o 596, que muda a saída) e cancelamento.
+ * Nota autorizada e completa tem zero — e zero não é link, é descanso.
+ */
+export function alertasDoDocumento(
+  documento: Pick<DocumentoFiscal, "status" | "leiaute" | "manifestacao_erro" | "manifestacao_cstat" | "manifestado_em">
+): AlertaDocumento {
+  const motivos: string[] = [];
+  if (documento.status === "cancelada") {
+    motivos.push("Nota cancelada pelo emitente");
+  }
+  if (documento.leiaute === "resumo") {
+    motivos.push("Só o resumo chegou — o XML completo ainda não foi capturado");
+  } else if (documento.leiaute === "metadados") {
+    motivos.push("A fonte não forneceu XML — só metadados");
+  }
+  if (documento.manifestacao_cstat === "596") {
+    motivos.push("Passou dos 10 dias da Ciência — precisa de manifestação conclusiva");
+  } else if (documento.manifestacao_erro) {
+    motivos.push("A SEFAZ recusou a manifestação desta nota");
+  } else if (documento.leiaute === "resumo" && !documento.manifestado_em) {
+    motivos.push("Aguardando Ciência da Operação para liberar o XML");
+  }
+  return { quantidade: motivos.length, motivos };
+}
+
+/** Entrada = tomada (recebida) · Saída = prestada (emitida). */
+export function operacaoDoDocumento(direcao: DocumentoFiscal["direcao"]): "Entrada" | "Saída" {
+  return direcao === "prestada" ? "Saída" : "Entrada";
+}
+
+/** Como a nota entrou: SEFAZ/ADN é captura automática, XML é envio manual. */
+export function origemDaImportacao(origem: string | null | undefined): "Automática" | "Manual" {
+  const bruto = (origem ?? "").trim().toLowerCase();
+  if (bruto === "xml" || bruto === "manual") return "Manual";
+  return "Automática";
 }
 
 /* ── Fechamento, backup e integrações ────────────────────────────────────── */

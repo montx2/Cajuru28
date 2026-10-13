@@ -158,11 +158,18 @@ def realinhar_cursor(
     mesmo CNPJ e o nosso cursor ficou para trás. Continuar de onde estávamos é
     "consultar fora da sequência" — regra de uso indevido. O ambiente mesmo diz
     qual é o certo; escutar é o que destrava o loop de 656.
+
+    O salto para frente NÃO apaga os NSUs do meio: cada um vira uma `LacunaNSU`
+    e é buscado depois pela consulta pontual (`consNSU`), que lê aquele NSU
+    específico sem mexer no cursor. Sem isso, rodar dois importadores no mesmo
+    CNPJ perdia nota em silêncio — o cursor avançava e ninguém lia o meio.
     """
     mudou = False
     novo = _para_inteiro(ultimo_nsu)
     atual = _para_inteiro(estado.ultimo_nsu)
     if novo is not None and novo != atual:
+        if novo is not None and atual is not None and novo > atual:
+            registrar_lacunas(db, estado, de_nsu=atual, ate_nsu=novo)
         estado.ultimo_nsu = str(novo)
         mudou = True
     novo_max = _para_inteiro(max_nsu)
@@ -170,6 +177,55 @@ def realinhar_cursor(
         estado.max_nsu = str(novo_max)
     estado.atualizado_em = _agora()
     return mudou
+
+
+# Teto de lacunas registradas num único salto. Um escritório recém-cadastrado
+# cujo CNPJ já era varrido por outro sistema pode pular milhares de NSUs de
+# uma vez; registrar tudo inundaria a fila pontual (20/h). O restante continua
+# recuperável pelo rebobinamento manual — mas o salto fica visível, nunca
+# silencioso.
+MAX_LACUNAS_POR_SALTO = 500
+
+
+def registrar_lacunas(
+    db: Session, estado: SincronizacaoDFe, *, de_nsu: int, ate_nsu: int
+) -> int:
+    """
+    Guarda os NSUs pulados (`de_nsu+1 .. ate_nsu`) para preenchimento pontual.
+
+    Idempotente: NSU já registrado (resolvido ou não) não duplica. Devolve
+    quantos registros novos foram criados.
+    """
+    from app.models import LacunaNSU
+
+    inicio = max(0, int(de_nsu)) + 1
+    fim = int(ate_nsu)
+    if fim < inicio:
+        return 0
+    if fim - inicio + 1 > MAX_LACUNAS_POR_SALTO:
+        # Guarda os MAIS RECENTES: são os que ainda estão na janela de
+        # distribuição e os que a competência aberta mais precisa.
+        inicio = fim - MAX_LACUNAS_POR_SALTO + 1
+    existentes = {
+        int(nsu)
+        for (nsu,) in db.query(LacunaNSU.nsu)
+        .filter(
+            LacunaNSU.empresa_id == estado.empresa_id,
+            LacunaNSU.tipo == estado.tipo,
+        )
+        .all()
+        if str(nsu).isdigit()
+    }
+    criados = 0
+    for numero in range(inicio, fim + 1):
+        if numero in existentes:
+            continue
+        db.add(LacunaNSU(empresa_id=estado.empresa_id, tipo=estado.tipo, nsu=str(numero)))
+        existentes.add(numero)
+        criados += 1
+    if criados:
+        db.flush()
+    return criados
 
 
 def marcar_sem_novidade(db: Session, estado: SincronizacaoDFe, *, agora: datetime | None = None) -> datetime:

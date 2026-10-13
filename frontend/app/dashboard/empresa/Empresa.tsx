@@ -561,7 +561,7 @@ const colunasDocumentos: Array<ColunaTabela<DocumentoFiscal>> = [
     cabecalho: "Situação",
     celula: (documento) => (
       <span className="flex flex-wrap items-center gap-1.5">
-        {documento.status === "cancelada" ? <Etiqueta tom="erro">Cancelada</Etiqueta> : <Etiqueta tom="ok">Normal</Etiqueta>}
+        {documento.status === "cancelada" ? <Etiqueta tom="erro">Cancelada</Etiqueta> : <Etiqueta tom="ok">Autorizada</Etiqueta>}
         {documento.leiaute === "resumo" ? <Etiqueta tom="espera">só resumo</Etiqueta> : documento.leiaute === "metadados" ? <Etiqueta tom="espera">sem XML da fonte</Etiqueta> : null}
       </span>
     ),

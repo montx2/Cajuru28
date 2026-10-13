@@ -8,8 +8,8 @@ import {
   filtrosParaBaixarSelecao,
   filtrosParaBaixarTudoDoFiltro,
 } from "@/lib/exportacao-documentos";
-import { bytesParaTexto, chaveEmGrupos, contagem, dataCurta, formatarCnpjCpf, mesAno, numero, plural } from "@/lib/format";
-import { estadoDoDocumento } from "@/lib/estados";
+import { bytesParaTexto, chaveEmGrupos, contagem, dataCurta, formatarCnpjCpf, horaCompleta, mesAno, numero, plural } from "@/lib/format";
+import { alertasDoDocumento, estadoDoDocumento, operacaoDoDocumento, origemDaImportacao } from "@/lib/estados";
 import { mensagemDoErro } from "@/lib/erros";
 import { MOTIVO_SOMENTE_LEITURA } from "@/lib/papel";
 import { intervaloDoMes, mesDoIntervalo, paraFiltro, periodoValido, rotuloPeriodo, sufixoArquivo, type Periodo } from "@/lib/periodo";
@@ -22,6 +22,7 @@ import { useRecurso } from "@/lib/useRecurso";
 import { useUrlEstado } from "@/lib/urlEstado";
 import { useSinalizarAtualizacao } from "@/components/shell/BarraAtualizacao";
 import { useSessao } from "@/components/shell/ProvedorSessao";
+import { ManifestacaoConclusivaLote } from "@/components/fiscal/ManifestacaoConclusivaLote";
 import { PainelDocumento } from "@/components/fiscal/PainelDocumento";
 import { CapturaEmAndamento } from "@/components/fiscal/CapturaEmAndamento";
 import { FiltrosAcervoDocumentos } from "@/components/fiscal/FiltrosAcervoDocumentos";
@@ -39,7 +40,6 @@ import { Etiqueta } from "@/components/ui/Etiqueta";
 import { Cnpj, ValorMoeda } from "@/components/ui/Formatadores";
 import { GradeKpis, type KpiProps } from "@/components/ui/Kpi";
 import { Icone } from "@/components/ui/Icone";
-import { IndicadorEstado } from "@/components/ui/IndicadorEstado";
 import { MenuSuspenso } from "@/components/ui/MenuSuspenso";
 import { Modal } from "@/components/ui/Modal";
 import { Paginacao } from "@/components/ui/Paginacao";
@@ -140,6 +140,17 @@ export function Documentos() {
   // A captura em andamento é do recorte da tela: filtrando por uma empresa, o
   // aviso fala dela; sem filtro, fala do escritório.
   const captura = useRecurso(() => api.capturaAoVivo(empresa ? [empresa] : undefined), [empresa]);
+  // Pendências de XML do mesmo recorte (período + empresa + tipo): é o que
+  // alimenta a faixa "faltam XMLs" com o botão de resolver em lote.
+  const chavePendencias = useMemo(
+    () => JSON.stringify({ ...paraFiltro(periodo), empresa_id: empresa ?? null, tipo: tipoDocumento }),
+    [periodo, empresa, tipoDocumento]
+  );
+  const pendencias = useRecurso(
+    () => api.pendenciasXml({ ...paraFiltro(periodo), empresa_id: empresa ?? undefined, tipo: tipoDocumento ?? undefined }),
+    [chavePendencias],
+    { automatico: pronto }
+  );
   const opcoesEmpresa = useMemo<OpcaoCombobox[]>(
     () => [
       { valor: "", rotulo: "Todas as empresas" },
@@ -165,7 +176,13 @@ export function Documentos() {
     documentos.atualizar();
     resumo.atualizar();
     captura.atualizar();
-  }, [captura, documentos, resumo]);
+    pendencias.atualizar();
+  }, [captura, documentos, pendencias, resumo]);
+
+  const ids596 = useMemo(
+    () => (pendencias.dados?.por_empresa ?? []).flatMap((item) => item.ids_596).slice(0, 100),
+    [pendencias.dados]
+  );
 
   // Enquanto a captura roda, a lista e a contagem andam sozinhas — é o que
   // evita o operador concluir que "já pegou tudo" (ou que "não veio nada") com
@@ -399,6 +416,19 @@ export function Documentos() {
     }
   }, [avisar]);
 
+  const completarUm = useCallback(async (documento: DocumentoFiscal) => {
+    try {
+      await api.completarXmlDocumento(documento.id);
+      avisar({ tom: "ok", titulo: "XML completo obtido da SEFAZ", descricao: documento.numero ? `Documento ${documento.numero}` : undefined });
+      documentos.atualizar();
+      resumo.atualizar();
+      pendencias.atualizar();
+    } catch (falha) {
+      avisar({ tom: "espera", titulo: "Buscando XML completo na SEFAZ", descricao: mensagemDoErro(falha, "buscar o XML completo") });
+      pendencias.atualizar();
+    }
+  }, [avisar, documentos, pendencias, resumo]);
+
   async function completarXmls() {
     setCompletandoXml(true);
     try {
@@ -410,6 +440,7 @@ export function Documentos() {
       });
       documentos.atualizar();
       resumo.atualizar();
+      pendencias.atualizar();
     } catch (falha) {
       avisar({ tom: "erro", titulo: "Não foi possível buscar os XMLs", descricao: mensagemDoErro(falha, "buscar os XMLs") });
     } finally {
@@ -422,9 +453,29 @@ export function Documentos() {
       {
         id: "emissao",
         cabecalho: "Emissão",
+        largura: "min-w-20",
+        ordenavel: true,
+        celula: (documento) => (
+          <span className="block leading-5">
+            <span className="nums block whitespace-nowrap text-tinta">{dataCurta(documento.data_emissao)}</span>
+            <span className="nums block whitespace-nowrap text-xs text-tinta-suave">{horaCompleta(documento.data_emissao)}</span>
+          </span>
+        ),
+      },
+      {
+        id: "importacao",
+        cabecalho: "Importação",
         largura: "min-w-24",
         ordenavel: true,
-        celula: (documento) => <span className="nums whitespace-nowrap text-tinta">{dataCurta(documento.data_emissao)}</span>,
+        dica: "Quando a nota entrou no acervo — captura automática (SEFAZ/ADN) ou envio manual de XML",
+        celula: (documento) => (
+          <span className="block leading-5">
+            <span className="nums block whitespace-nowrap text-tinta">{dataCurta(documento.importado_em)}</span>
+            <span className="mt-0.5 block">
+              <Etiqueta tom="neutro">{origemDaImportacao(documento.origem)}</Etiqueta>
+            </span>
+          </span>
+        ),
       },
       {
         id: "competencia",
@@ -441,46 +492,58 @@ export function Documentos() {
       {
         id: "tipo",
         cabecalho: "Tipo",
+        ocultaPorPadrao: true,
         ordenavel: true,
         celula: (documento) => <Etiqueta tom="neutro">{ROTULO_TIPO[documento.tipo] ?? documento.tipo}</Etiqueta>,
       },
       {
         id: "numero",
-        cabecalho: "Número",
-        largura: "min-w-24",
+        cabecalho: "NF-e",
+        dica: "Número da nota — o tipo aparece abaixo quando o filtro mistura documentos",
+        largura: "min-w-20",
         ordenavel: true,
         celula: (documento) => (
-          <span className="nums whitespace-nowrap text-tinta">
-            {documento.numero ?? "—"}
-            {documento.serie ? <span className="ml-1.5 text-xs text-tinta-suave">série {documento.serie}</span> : null}
+          <span className="block leading-5">
+            <span className="nums block whitespace-nowrap font-medium text-acento">
+              {documento.numero ?? "—"}
+            </span>
+            <span className="block text-xs uppercase tracking-rotulo text-tinta-fraca">
+              {ROTULO_TIPO[documento.tipo] ?? documento.tipo}
+            </span>
           </span>
         ),
       },
       {
-        id: "parte",
-        cabecalho: "Emitente / destinatário",
-        dica: "Emitente nas tomadas, destinatário nas prestadas",
-        // Nome truncado com `title` e detalhe por clique: 240 px de piso só
-        // empurravam a tabela para fora da tela.
-        largura: "min-w-36",
+        id: "serie",
+        cabecalho: "Série",
+        largura: "min-w-16",
         ordenavel: true,
-        celula: (documento) => {
-          const nome = documento.direcao === "tomada" ? documento.emitente_nome : documento.destinatario_nome;
-          const documentoDaParte = documento.direcao === "tomada" ? documento.emitente_documento : documento.destinatario_documento;
-          return (
-            <span className="block min-w-0">
-              <span className="block truncate text-tinta" title={nome ?? undefined}>
-                {nome ?? "Parte não informada"}
-              </span>
-              {documentoDaParte ? <Cnpj valor={documentoDaParte} copiar={false} className="text-xs text-tinta-suave" /> : null}
+        celula: (documento) => (
+          <span className="nums whitespace-nowrap text-tinta">{documento.serie ?? "—"}</span>
+        ),
+      },
+      {
+        id: "parte",
+        cabecalho: "Emitente",
+        dica: "Quem emitiu a nota — nas prestadas é a própria empresa",
+        largura: "min-w-32",
+        ordenavel: true,
+        celula: (documento) => (
+          <span className="block min-w-0 leading-5">
+            <span className="block truncate text-tinta" title={documento.emitente_nome ?? undefined}>
+              {documento.emitente_nome ?? "Emitente não informado"}
             </span>
-          );
-        },
+            {documento.emitente_documento ? (
+              <Cnpj valor={documento.emitente_documento} copiar={false} className="text-xs text-tinta-suave" />
+            ) : null}
+          </span>
+        ),
       },
       {
         id: "empresa",
         cabecalho: "Empresa",
         largura: "min-w-28",
+        ocultaPorPadrao: true,
         ordenavel: true,
         celula: (documento) => (
           <Link
@@ -498,21 +561,54 @@ export function Documentos() {
         cabecalho: "Valor",
         alinhamento: "direita",
         numerica: true,
-        largura: "min-w-32",
+        largura: "min-w-24",
         ordenavel: true,
         celula: (documento) => <ValorMoeda valor={documento.valor_total} cancelado={documento.status === "cancelada"} />,
       },
       {
+        id: "operacao",
+        cabecalho: "Operação",
+        largura: "min-w-16",
+        ordenavel: true,
+        dica: "Entrada = nota recebida · Saída = nota emitida pela empresa",
+        celula: (documento) => <span className="whitespace-nowrap text-tinta">{operacaoDoDocumento(documento.direcao)}</span>,
+      },
+      {
         id: "status",
         cabecalho: "Situação",
-        largura: "min-w-32",
+        largura: "min-w-20",
         ordenavel: true,
-        celula: (documento) => (
-          <IndicadorEstado
-            {...estadoDoDocumento(documento)}
-            titulo={documento.motivo_cancelamento ?? (documento.leiaute === "resumo" ? "Recebido em resumo — XML completo pendente" : documento.leiaute === "metadados" ? "NFS-e sem XML original; exporte o período para obter o JSON normalizado." : undefined)}
-          />
-        ),
+        celula: (documento) => {
+          const estado = estadoDoDocumento(documento);
+          return (
+            <Etiqueta
+              tom={estado.tom === "ok" ? "ok" : estado.tom === "erro" ? "erro" : estado.tom === "espera" ? "espera" : "neutro"}
+              titulo={documento.motivo_cancelamento ?? (documento.leiaute === "resumo" ? "Recebido em resumo — XML completo pendente" : documento.leiaute === "metadados" ? "NFS-e sem XML original; exporte o período para obter o JSON normalizado." : undefined)}
+            >
+              {estado.rotulo}
+            </Etiqueta>
+          );
+        },
+      },
+      {
+        id: "alertas",
+        cabecalho: "Alertas",
+        largura: "min-w-12",
+        alinhamento: "direita",
+        numerica: true,
+        dica: "O que impede a nota de ser escriturada hoje",
+        celula: (documento) => {
+          const alertas = alertasDoDocumento(documento);
+          if (alertas.quantidade === 0) return <span className="nums text-tinta-fraca">0</span>;
+          return (
+            <span
+              className="nums inline-flex min-h-6 min-w-6 cursor-help items-center justify-center rounded-full bg-espera px-1.5 text-xs font-semibold text-espera-contraste"
+              title={alertas.motivos.join(" · ")}
+            >
+              {numero(alertas.quantidade)}
+            </span>
+          );
+        },
       },
       {
         id: "chave",
@@ -543,32 +639,35 @@ export function Documentos() {
         id: "acoes",
         fixar: "direita",
         cabecalho: "Ações",
-        largura: "w-12 min-w-12",
+        largura: "w-24 min-w-24",
         alinhamento: "direita",
         fixa: true,
         celula: (documento) => (
           <MenuSuspenso
-            rotulo={`Ações do documento ${documento.numero ?? documento.id}`}
-            icone="mais"
-            dica="Ações do documento"
+            rotulo="Ações"
+            dica={`Ações do documento ${documento.numero ?? documento.id}`}
+            variante="primaria"
             tamanho="sm"
             itens={[
               { id: "detalhe", rotulo: "Abrir detalhe", icone: "ver", aoClicar: () => definir({ doc: documento.id }) },
-              { id: "copiar", rotulo: "Copiar chave", icone: "copiar", aoClicar: () => copiarChave(documento) },
+              ...(documento.leiaute === "resumo"
+                ? [{ id: "buscar-xml", rotulo: "Buscar XML completo", icone: "sincronizar" as const, aoClicar: () => completarUm(documento) }]
+                : []),
               { id: "baixar", rotulo: "Baixar XML", icone: "baixar", aoClicar: () => baixarDocumento(documento) },
+              { id: "copiar", rotulo: "Copiar chave", icone: "copiar", aoClicar: () => copiarChave(documento) },
               { id: "recibo", rotulo: "Ver recibo de captura", icone: "auditoria", aoClicar: () => definir({ doc: documento.id }) },
             ]}
           />
         ),
       },
     ],
-    [baixarDocumento, copiarChave, definir, razaoPorId]
+    [baixarDocumento, completarUm, copiarChave, definir, razaoPorId]
   );
 
   const indicadores: KpiProps[] = resumo.dados
     ? [
         { rotulo: "Documentos no recorte", valor: numero(resumo.dados.total), contexto: rotuloPeriodo(periodo), carregando: resumo.carregando, atualizando: resumo.atualizando },
-        { rotulo: "Normais", valor: numero(resumo.dados.normais), tom: "ok" },
+        { rotulo: "Autorizadas", valor: numero(resumo.dados.normais), tom: "ok" },
         {
           rotulo: "Canceladas",
           valor: numero(resumo.dados.canceladas),
@@ -658,6 +757,31 @@ export function Documentos() {
           escopo={empresaSelecionada?.razao_social ?? null}
           aoAtualizar={recarregarDoRecorte}
         />
+      ) : null}
+      {pronto && (pendencias.dados?.total_resumos ?? 0) > 0 ? (
+        <Aviso
+          tom="espera"
+          titulo={`${contagem(pendencias.dados?.total_resumos ?? 0, "nota chegou", "notas chegaram")} só em resumo neste recorte`}
+          acao={
+            <>
+              <Botao tamanho="sm" variante="primaria" carregando={completandoXml} onClick={completarXmls}>
+                Buscar XMLs completos
+              </Botao>
+              {ids596.length > 0 ? (
+                <ManifestacaoConclusivaLote ids={ids596} aoConcluir={recarregarDoRecorte} />
+              ) : null}
+            </>
+          }
+        >
+          O resumo não escritura — o Fluxa busca o XML completo na SEFAZ e manifesta ciência
+          automaticamente quando precisa.{" "}
+          {(pendencias.dados?.manifestados_sem_xml ?? 0) > 0
+            ? `${contagem(pendencias.dados?.manifestados_sem_xml ?? 0, "nota já está manifestada", "notas já estão manifestadas")} — um clique resolve. `
+            : null}
+          {(pendencias.dados?.com_erro_596 ?? 0) > 0
+            ? `${contagem(pendencias.dados?.com_erro_596 ?? 0, "nota precisa", "notas precisam")} de manifestação conclusiva antes da busca (erro 596 da SEFAZ).`
+            : null}
+        </Aviso>
       ) : null}
 
       <Tabela
@@ -1088,17 +1212,23 @@ function compararDocumentos(a: DocumentoFiscal, b: DocumentoFiscal, coluna: stri
     }
     case "tipo":
       return a.tipo.localeCompare(b.tipo);
+    case "importacao": {
+      const dataA = a.importado_em || a.data_emissao;
+      const dataB = b.importado_em || b.data_emissao;
+      return new Date(dataA).getTime() - new Date(dataB).getTime();
+    }
     case "numero":
       return Number(a.numero ?? 0) - Number(b.numero ?? 0);
-    case "parte": {
-      const nomeA = (a.direcao === "tomada" ? a.emitente_nome : a.destinatario_nome) ?? "";
-      const nomeB = (b.direcao === "tomada" ? b.emitente_nome : b.destinatario_nome) ?? "";
-      return nomeA.localeCompare(nomeB, "pt-BR");
-    }
+    case "serie":
+      return (a.serie ?? "").localeCompare(b.serie ?? "", "pt-BR", { numeric: true });
+    case "parte":
+      return (a.emitente_nome ?? "").localeCompare(b.emitente_nome ?? "", "pt-BR");
     case "empresa":
       return (razaoPorId.get(a.empresa_id) ?? "").localeCompare(razaoPorId.get(b.empresa_id) ?? "", "pt-BR");
     case "valor":
       return a.valor_total - b.valor_total;
+    case "operacao":
+      return a.direcao.localeCompare(b.direcao);
     case "status":
       return a.status.localeCompare(b.status);
     default:

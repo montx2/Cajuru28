@@ -158,6 +158,40 @@ class ImportadorNFeSEFAZ(ImportadorFiscal):
             return None
         return self._documento_integral(resposta, cnpj)
 
+    def buscar_lote_por_nsu(
+        self, cnpj: str, cert_path: str, key_path: str, nsu: str, uf: str | None = None
+    ) -> LoteImportado:
+        """`consNSU` devolvendo TUDO que aquele NSU tem: nota, resumo ou evento.
+
+        É a peça do preenchimento de lacunas: quando outro sistema avançou o
+        cursor, cada NSU pulado é lido aqui — inclusive `resNFe` (que entra no
+        acervo e na fila de complemento) e eventos de cancelamento (que são
+        aplicados). NSU inexistente volta como lote vazio, não como erro.
+        """
+        digitos = "".join(c for c in str(nsu) if c.isdigit()) or "0"
+        cuf_autor = self._cuf_autor(uf, "NFe")
+        envelope = montar_envelope(
+            cnpj,
+            cuf_autor,
+            self.tp_amb,
+            "0",
+            consulta_especifica=("consNSU", f"<NSU>{digitos.zfill(15)}</NSU>"),
+        )
+        resposta_bytes = chamar_com_retentativa(
+            envelope, self.url, cert_path, key_path, soap_action=NFE_SOAP_ACTION
+        )
+        resposta = interpretar_resposta(resposta_bytes, ambiente=self.ambiente_nome)
+        if resposta.inexistente or not resposta.documentos:
+            return LoteImportado(
+                documentos=[],
+                proximo_nsu=_nsu_inteiro(resposta.ultimo_nsu, digitos),
+                ha_mais_documentos=False,
+                max_nsu=_nsu_inteiro(resposta.max_nsu, resposta.ultimo_nsu),
+                sem_novidade=True,
+                resposta_bruta=resposta_bytes,
+            )
+        return self._interpretar(resposta_bytes, cnpj, digitos)
+
     # -- internals -----------------------------------------------------------
 
     def _documento_integral(self, resposta, cnpj: str) -> DocumentoBaixado | None:

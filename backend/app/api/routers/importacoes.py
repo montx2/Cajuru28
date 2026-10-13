@@ -52,8 +52,10 @@ from app.schemas import (
     ItemImportacaoLote,
     ItemImportacaoSelecionada,
     ItemRebobinarCursor,
+    LacunaNSUResposta,
     RebobinarCursor,
     ResultadoImportacaoSelecionada,
+    ResumoLacunasNSU,
     ResumoSincronizacao,
 )
 from app.services import fila, lotes_recebidos, sincronizacao
@@ -1439,6 +1441,91 @@ def captura_ao_vivo(
         fora_do_recorte=len(vivas) - len(no_recorte) if recorte is not None else 0,
         ultima=resposta_ultima,
     )
+
+
+@router.get("/lacunas", response_model=ResumoLacunasNSU)
+def listar_lacunas_nsu(
+    empresa_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+):
+    """
+    NSUs pulados por outro sistema no mesmo CNPJ — cada um pode ser uma nota.
+
+    Quando dois importadores varrem o mesmo certificado, o cursor local fica
+    para trás e o realinhamento pula NSUs. Eles ficam registrados aqui e são
+    buscados um a um pela consulta pontual (`consNSU`), sem mexer no cursor.
+    """
+    consulta = (
+        db.query(LacunaNSU, Empresa.razao_social)
+        .join(Empresa, Empresa.id == LacunaNSU.empresa_id)
+        .filter(
+            Empresa.escritorio_id == escritorio_id,
+            LacunaNSU.resolvida.is_(False),
+        )
+    )
+    if empresa_id is not None:
+        consulta = consulta.filter(LacunaNSU.empresa_id == empresa_id)
+    linhas = consulta.order_by(LacunaNSU.criado_em.desc()).limit(200).all()
+    total = consulta.count()
+    itens = [
+        LacunaNSUResposta(
+            empresa_id=lacuna.empresa_id,
+            empresa_razao_social=razao,
+            tipo=lacuna.tipo,
+            nsu=lacuna.nsu,
+            tentativas=lacuna.tentativas or 0,
+            erro=lacuna.erro,
+            criado_em=lacuna.criado_em,
+        )
+        for lacuna, razao in linhas
+    ]
+    return ResumoLacunasNSU(
+        total=total,
+        empresas=len({item.empresa_id for item in itens}),
+        por_empresa=itens,
+    )
+
+
+@router.post("/lacunas/preencher")
+def preencher_lacunas(
+    empresa_id: int | None = None,
+    limite: int = Query(default=40, le=100, ge=1),
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+    usuario: Usuario = Depends(requer_escrita),
+):
+    """
+    Manda o worker buscar os NSUs pulados pela consulta pontual (`consNSU`).
+
+    Respeita a cota oficial de 20 consultas/h por CNPJ e a janela de bloqueio:
+    o que não couber nesta rodada continua na fila para a próxima.
+    """
+    if empresa_id is not None:
+        existe = (
+            db.query(Empresa)
+            .filter(Empresa.id == empresa_id, Empresa.escritorio_id == escritorio_id)
+            .first()
+        )
+        if existe is None:
+            raise HTTPException(status_code=404, detail="Empresa não encontrada")
+    from app.worker.tasks import preencher_lacunas_nsu
+
+    auditoria.registrar(
+        db, usuario, "lacunas_preencher",
+        entidade="empresa" if empresa_id else None,
+        entidade_id=empresa_id,
+        detalhe=f"limite {limite}/rodada",
+    )
+    db.commit()
+    preencher_lacunas_nsu.delay(empresa_id=empresa_id, limite=limite)
+    return {
+        "disparado": True,
+        "aviso": (
+            "Busca dos NSUs pulados disparada "
+            "(respeitando o limite oficial de 20 consultas/h por CNPJ na SEFAZ)."
+        ),
+    }
 
 
 @router.get("", response_model=list[ExecucaoImportacaoResposta])

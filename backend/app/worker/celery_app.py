@@ -29,6 +29,11 @@ _TAREFAS_SEFAZ = {
         "schedule": timedelta(hours=max(1, int(settings.completar_xmls_a_cada_horas))),
         "options": {"expires": int(settings.completar_xmls_a_cada_horas * 3600)},
     },
+    "preencher-lacunas-nsu": {
+        "task": "preencher_lacunas_nsu",
+        "schedule": timedelta(hours=max(1, int(settings.completar_xmls_a_cada_horas))),
+        "options": {"expires": int(settings.completar_xmls_a_cada_horas * 3600)},
+    },
 }
 
 AGENDA = {

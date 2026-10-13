@@ -114,6 +114,44 @@ class ImportadorCTeSEFAZ(ImportadorFiscal):
                 return documento
         return None
 
+    def buscar_lote_por_nsu(
+        self, cnpj: str, cert_path: str, key_path: str, nsu: str, uf: str | None = None
+    ) -> LoteImportado:
+        """`consNSU` devolvendo TUDO que aquele NSU tem: documento, resumo ou evento.
+
+        Mesma peça do preenchimento de lacunas da NFe: o XSD do CT-e nem tem
+        consulta por chave, então o NSU pontual é o único caminho de volta para
+        o que foi pulado. NSU inexistente volta como lote vazio, não como erro.
+        """
+        digitos = "".join(c for c in str(nsu) if c.isdigit()) or "0"
+        cuf_autor = self._cuf_autor(uf, "CT-e")
+        envelope = montar_envelope(
+            cnpj,
+            cuf_autor,
+            self.tp_amb,
+            "0",
+            ns_wsdl=CTE_NS_WSDL,
+            ns_portal=CTE_NS_PORTAL,
+            operacao=CTE_OPERACAO,
+            dados_msg=CTE_DADOS_MSG,
+            versao=CTE_VERSAO_DIST,
+            consulta_especifica=("consNSU", f"<NSU>{digitos.zfill(15)}</NSU>"),
+        )
+        resposta_bytes = chamar_com_retentativa(
+            envelope, self.url, cert_path, key_path, soap_action=CTE_SOAP_ACTION
+        )
+        resposta = interpretar_resposta(resposta_bytes, ambiente=self.ambiente_nome)
+        if resposta.inexistente or not resposta.documentos:
+            return LoteImportado(
+                documentos=[],
+                proximo_nsu=_nsu_inteiro(resposta.ultimo_nsu, digitos),
+                ha_mais_documentos=False,
+                max_nsu=_nsu_inteiro(resposta.max_nsu, resposta.ultimo_nsu),
+                sem_novidade=True,
+                resposta_bruta=resposta_bytes,
+            )
+        return self._interpretar(resposta_bytes, cnpj, digitos)
+
     # -- internals -----------------------------------------------------------
 
     @staticmethod

@@ -354,6 +354,10 @@ class DocumentoFiscalResposta(BaseModel):
     # que a saída não é tentar de novo, e sim registrar a manifestação
     # conclusiva — o texto do motivo muda entre as SEFAZ, o código não.
     manifestacao_cstat: str | None = None
+    # Quando a nota entrou no acervo — a coluna IMPORTAÇÃO da lista (JetTax
+    # mostra emissão × importação lado a lado, e é assim que o contador
+    # confere se a competência veio completa).
+    importado_em: datetime | None = None
 
 
 class ManifestacaoConclusiva(BaseModel):
@@ -740,6 +744,54 @@ class ResumoDocumentos(BaseModel):
     normais: int
     canceladas: int
     por_tipo: dict[str, int]
+
+
+class LacunaNSUResposta(BaseModel):
+    """Um NSU pulado por outro sistema, aguardando preenchimento pontual."""
+
+    empresa_id: int
+    empresa_razao_social: str = ""
+    tipo: TipoDocumentoFiscal
+    nsu: str
+    tentativas: int = 0
+    erro: str | None = None
+    criado_em: datetime | None = None
+
+
+class ResumoLacunasNSU(BaseModel):
+    """Quantas notas podem estar faltando por cursor pulado — por empresa/tipo."""
+
+    total: int = 0
+    empresas: int = 0
+    por_empresa: list[LacunaNSUResposta] = []
+
+
+class PendenciaXmlEmpresa(BaseModel):
+    """Notas em resumo de UMA empresa: o que falta e qual é a saída."""
+
+    empresa_id: int
+    razao_social: str
+    resumos: int = 0
+    # Ainda sem Ciência registrada: o robô manifesta sozinho (quando ligado).
+    aguardando_manifestacao: int = 0
+    # Ciência ok, XML ainda não liberado: só aguardar as rodadas.
+    manifestados_sem_xml: int = 0
+    # Ciência recusada com 596 (passou dos 10 dias): só a conclusiva resolve.
+    com_erro_596: int = 0
+    outros_erros: int = 0
+    # Amostra de ids para a ação em lote da tela (no máximo 100).
+    ids_596: list[int] = []
+
+
+class PendenciasXmlResposta(BaseModel):
+    """Tudo que ainda não virou XML completo no recorte — para a tela agir."""
+
+    total_resumos: int = 0
+    aguardando_manifestacao: int = 0
+    manifestados_sem_xml: int = 0
+    com_erro_596: int = 0
+    outros_erros: int = 0
+    por_empresa: list[PendenciaXmlEmpresa] = []
 
 
 class ResetGeralResposta(BaseModel):
