@@ -135,6 +135,68 @@ export interface PendenciasXml {
   por_empresa: PendenciaXmlEmpresa[];
 }
 
+/** Um cruzamento do pente-fino: o que falta, o que destoa, o que trava o mês. */
+export type CodigoAchado =
+  | "salto_sequencia"
+  | "emitente_estreante"
+  | "valor_anomalo"
+  | "horario_atipico"
+  | "sem_xml"
+  | "erro_596"
+  | "emitente_sumido"
+  | "cancelada_no_mes";
+
+export type SeveridadeAchado = "alta" | "media" | "baixa";
+
+export interface AchadoPenteFino {
+  codigo: CodigoAchado;
+  severidade: SeveridadeAchado;
+  titulo: string;
+  detalhe: string;
+  documento_id: number | null;
+  documento_numero: string | null;
+  empresa_id: number | null;
+  empresa_razao: string | null;
+  emitente_nome: string | null;
+}
+
+export interface ItemChecklistFechamento {
+  codigo: string;
+  rotulo: string;
+  ok: boolean;
+  detalhe: string;
+}
+
+export interface PenteFinoResposta {
+  competencia: string;
+  empresa_id: number | null;
+  total_documentos: number;
+  pronta_para_fechar: boolean;
+  checklist: ItemChecklistFechamento[];
+  achados: AchadoPenteFino[];
+}
+
+export type EstadoTermometro = "sem_historico" | "abaixo" | "no_ritmo" | "acima";
+
+export interface TermometroTipo {
+  tipo: string;
+  capturadas: number;
+  esperadas_min: number;
+  esperadas_max: number;
+  mediana: number;
+  percentual: number;
+  estado: EstadoTermometro;
+}
+
+export interface TermometroResposta {
+  competencia: string;
+  empresa_id: number | null;
+  dia: number;
+  dias_no_mes: number;
+  tipos: TermometroTipo[];
+  total_capturadas: number;
+}
+
 /** Manifestações conclusivas: encerram a nota e liberam o XML completo. */
 export type TipoManifestacaoConclusiva = "confirmacao" | "desconhecimento" | "nao_realizada";
 

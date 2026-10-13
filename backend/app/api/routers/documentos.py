@@ -62,11 +62,15 @@ from app.schemas import (
     EstimativaExportacao,
     PendenciaXmlEmpresa,
     PendenciasXmlResposta,
+    PenteFinoResposta,
     ResumoDocumentos,
     ResultadoExclusaoDocumentos,
+    TermometroResposta,
 )
+from app.services.pente_fino import auditar_competencia, termometro
 from app.services.periodo import (
     PeriodoInvalido,
+    interpretar_competencia,
     interpretar_periodo,
     interpretar_periodo_obrigatorio,
 )
@@ -571,6 +575,52 @@ def pendencias_xml(
         outros_erros=sum(item.outros_erros for item in por_empresa),
         por_empresa=por_empresa,
     )
+
+
+@router.get("/pente-fino", response_model=PenteFinoResposta)
+def pente_fino(
+    competencia: str = Query(description=DESCRICAO_COMPETENCIA),
+    empresa_id: int | None = None,
+    empresa_ids: str | None = Query(default=None, description="1,2,3 — vazio = todas"),
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+):
+    """
+    Auditoria de 1 clique da competência: cruza o mês contra o histórico e
+    devolve checklist de fechamento + achados (saltos de numeração, valores
+    anômalos, horários atípicos, estreantes, sumidos, erros 596).
+    Leitura pura — não consulta a SEFAZ.
+    """
+    try:
+        periodo = interpretar_competencia(competencia)
+    except PeriodoInvalido as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    ids = _ids_empresas_do_escritorio(
+        db, escritorio_id=escritorio_id, empresa_id=empresa_id, empresa_ids=empresa_ids
+    )
+    return auditar_competencia(db, escritorio_id, periodo.inicio, ids)
+
+
+@router.get("/termometro", response_model=TermometroResposta)
+def termometro_fechamento(
+    competencia: str = Query(description=DESCRICAO_COMPETENCIA),
+    empresa_id: int | None = None,
+    empresa_ids: str | None = Query(default=None, description="1,2,3 — vazio = todas"),
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+):
+    """
+    “Quantas notas este mês deveria ter?” — mediana dos últimos 6 meses por
+    tipo, proporcional ao dia corrido quando o mês ainda está aberto.
+    """
+    try:
+        periodo = interpretar_competencia(competencia)
+    except PeriodoInvalido as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    ids = _ids_empresas_do_escritorio(
+        db, escritorio_id=escritorio_id, empresa_id=empresa_id, empresa_ids=empresa_ids
+    )
+    return termometro(db, escritorio_id, periodo.inicio, ids)
 
 
 @router.get("/exportar/estimativa", response_model=EstimativaExportacao)

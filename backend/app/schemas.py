@@ -1228,3 +1228,64 @@ class SaudeBackupResposta(BaseModel):
     total_registros: int = 0
     erros_recentes: int = 0
     tamanho_total_bytes: int = 0
+
+
+# ── Pente-fino da competência ────────────────────────────────────────────────
+# Auditoria de 1 clique: cruza o mês contra o histórico e aponta o que nenhum
+# relatório de captura aponta — salto de numeração por emitente, estreante,
+# valor anômalo, horário atípico e emitente recorrente que sumiu.
+
+class AchadoPenteFino(BaseModel):
+    codigo: Literal[
+        "salto_sequencia",
+        "emitente_estreante",
+        "valor_anomalo",
+        "horario_atipico",
+        "sem_xml",
+        "erro_596",
+        "emitente_sumido",
+        "cancelada_no_mes",
+    ]
+    severidade: Literal["alta", "media", "baixa"]
+    titulo: str
+    detalhe: str
+    documento_id: int | None = None
+    documento_numero: str | None = None
+    empresa_id: int | None = None
+    empresa_razao: str | None = None
+    emitente_nome: str | None = None
+
+
+class ItemChecklistFechamento(BaseModel):
+    codigo: str
+    rotulo: str
+    ok: bool
+    detalhe: str
+
+
+class PenteFinoResposta(BaseModel):
+    competencia: str
+    empresa_id: int | None = None
+    total_documentos: int = 0
+    pronta_para_fechar: bool = True
+    checklist: list[ItemChecklistFechamento] = []
+    achados: list[AchadoPenteFino] = []
+
+
+class TermometroTipo(BaseModel):
+    tipo: str
+    capturadas: int = 0
+    esperadas_min: int = 0
+    esperadas_max: int = 0
+    mediana: float = 0
+    percentual: float = 0
+    estado: Literal["sem_historico", "abaixo", "no_ritmo", "acima"] = "sem_historico"
+
+
+class TermometroResposta(BaseModel):
+    competencia: str
+    empresa_id: int | None = None
+    dia: int = 1
+    dias_no_mes: int = 30
+    tipos: list[TermometroTipo] = []
+    total_capturadas: int = 0

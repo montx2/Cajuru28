@@ -23,7 +23,9 @@ import { useUrlEstado } from "@/lib/urlEstado";
 import { useSinalizarAtualizacao } from "@/components/shell/BarraAtualizacao";
 import { useSessao } from "@/components/shell/ProvedorSessao";
 import { ManifestacaoConclusivaLote } from "@/components/fiscal/ManifestacaoConclusivaLote";
+import { ModalPenteFino } from "@/components/fiscal/PenteFino";
 import { PainelDocumento } from "@/components/fiscal/PainelDocumento";
+import { Termometro } from "@/components/fiscal/Termometro";
 import { CapturaEmAndamento } from "@/components/fiscal/CapturaEmAndamento";
 import { FiltrosAcervoDocumentos } from "@/components/fiscal/FiltrosAcervoDocumentos";
 import { SeletorCompetencia } from "@/components/fiscal/SeletorCompetencia";
@@ -151,6 +153,7 @@ export function Documentos() {
     [chavePendencias],
     { automatico: pronto }
   );
+  const [penteFinoAberto, setPenteFinoAberto] = useState(false);
   const opcoesEmpresa = useMemo<OpcaoCombobox[]>(
     () => [
       { valor: "", rotulo: "Todas as empresas" },
@@ -168,6 +171,15 @@ export function Documentos() {
   const mesDoPeriodo = mesDoIntervalo(periodo);
   const intervaloPersonalizado = mostrarIntervaloPersonalizado || (pronto && !mesDoPeriodo);
   const mesSelecionado = mesDoPeriodo || periodo.inicio.slice(0, 7);
+  // Auditoria e termômetro falam de COMPETÊNCIA (mês fechado). No intervalo
+  // personalizado vale o mês inicial — é onde o fechamento começa.
+  const competenciaAuditoria = mesSelecionado ? `${mesSelecionado.slice(5, 7)}/${mesSelecionado.slice(0, 4)}` : null;
+  const chaveTermometro = `${mesSelecionado}|${empresa ?? ""}`;
+  const termometro = useRecurso(
+    () => api.termometro(competenciaAuditoria ?? "01/2000", empresa ?? undefined),
+    [chaveTermometro],
+    { automatico: pronto && competenciaAuditoria !== null }
+  );
 
   useSinalizarAtualizacao(documentos.atualizando || resumo.atualizando);
 
@@ -177,7 +189,8 @@ export function Documentos() {
     resumo.atualizar();
     captura.atualizar();
     pendencias.atualizar();
-  }, [captura, documentos, pendencias, resumo]);
+    termometro.atualizar();
+  }, [captura, documentos, pendencias, resumo, termometro]);
 
   const ids596 = useMemo(
     () => (pendencias.dados?.por_empresa ?? []).flatMap((item) => item.ids_596).slice(0, 100),
@@ -705,6 +718,17 @@ export function Documentos() {
         kicker="Fiscal · Acervo"
         titulo="Documentos"
         descricao="Localize a nota, confira a chave e entregue XMLs ou a relação da competência escolhida."
+        acoes={
+          <Botao
+            variante="secundaria"
+            onClick={() => setPenteFinoAberto(true)}
+            disabled={!pronto || competenciaAuditoria === null}
+            title={pronto ? "Auditar a competência contra o histórico" : "Informe o período"}
+            iconeEsquerda={<Icone nome="verificar" className="h-4 w-4" />}
+          >
+            Pente-fino
+          </Botao>
+        }
       />
 
       <Cartao densidade="compacta" className="nao-imprimir">
@@ -766,6 +790,7 @@ export function Documentos() {
         ) : null}
       </Cartao>
       {resumo.dados ? <GradeKpis itens={indicadores} colunas={indicadores.length <= 3 ? 3 : indicadores.length <= 4 ? 4 : indicadores.length <= 5 ? 5 : 6} rotulo="Resumo do recorte" /> : null}
+      {termometro.dados ? <Termometro dados={termometro.dados} /> : null}
 
       {pronto ? (
         <CapturaEmAndamento
@@ -1063,6 +1088,20 @@ export function Documentos() {
           resumo.atualizar();
         }}
       />
+
+      {competenciaAuditoria ? (
+        <ModalPenteFino
+          aberto={penteFinoAberto}
+          aoFechar={() => setPenteFinoAberto(false)}
+          competencia={competenciaAuditoria}
+          empresaId={empresa ?? undefined}
+          aoAbrirDocumento={(id) => {
+            setPenteFinoAberto(false);
+            definir({ doc: id });
+          }}
+          aoBuscarXmls={completarXmls}
+        />
+      ) : null}
 
       <Modal
         aberto={colunasAbertas}

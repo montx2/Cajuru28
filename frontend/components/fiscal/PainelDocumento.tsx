@@ -20,6 +20,7 @@ import { MenuSuspenso } from "@/components/ui/MenuSuspenso";
 import { Painel } from "@/components/ui/Painel";
 import { useToast } from "@/components/ui/Toast";
 import { ManifestacaoConclusiva } from "@/components/fiscal/ManifestacaoConclusiva";
+import { JornadaDocumento } from "@/components/fiscal/JornadaDocumento";
 
 export interface PainelDocumentoProps {
   documentoId: number | null;
@@ -166,6 +167,15 @@ function ConteudoDocumento({ id, aoExcluir, somenteLeitura }: { id: number; aoEx
             genérico e resumo), cada um com o próprio botão, e a mesma ação
             aparecia duas vezes com dois nomes diferentes. */}
         {situacao ? <BlocoSituacao situacao={situacao} /> : null}
+      </section>
+
+      <section aria-labelledby="jornada-do-documento">
+        <h4 id="jornada-do-documento" className="text-xs font-medium uppercase tracking-rotulo text-tinta-suave">
+          Jornada
+        </h4>
+        <div className="mt-2">
+          <JornadaDocumento documento={documento} />
+        </div>
       </section>
 
       <section aria-labelledby="chave-do-documento">

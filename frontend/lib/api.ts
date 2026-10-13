@@ -25,7 +25,9 @@ import type {
   LoteEmpresasResposta,
   PainelOperacional,
   PendenciasXml,
+  PenteFinoResposta,
   CapturaAoVivo,
+  TermometroResposta,
   CentralExecucoes,
   RegistroAuditoria,
   ResetGeralResposta,
@@ -513,6 +515,18 @@ export const api = {
   /** NSUs pulados por outro sistema no mesmo CNPJ — cada um pode ser uma nota. */
   lacunasNsu: (empresaId?: number) =>
     chamar<ResumoLacunasNSU>(`/importacoes/lacunas${montarParams({ empresa_id: empresaId })}`),
+
+  /** Auditoria de 1 clique da competência — leitura pura, sem gastar cota. */
+  penteFino: (competencia: string, empresaId?: number) =>
+    chamar<PenteFinoResposta>(
+      `/documentos/pente-fino${montarParams({ competencia, empresa_id: empresaId })}`
+    ),
+
+  /** Quantas notas o mês deveria ter, pela mediana do histórico. */
+  termometro: (competencia: string, empresaId?: number) =>
+    chamar<TermometroResposta>(
+      `/documentos/termometro${montarParams({ competencia, empresa_id: empresaId })}`
+    ),
 
   /** Manda o worker ler os NSUs pulados pela consulta pontual (consNSU). */
   preencherLacunas: (empresaId?: number, limite = 40) =>
