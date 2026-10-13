@@ -465,12 +465,14 @@ export function Documentos() {
       {
         id: "importacao",
         cabecalho: "Importação",
-        largura: "min-w-24",
+        largura: "min-w-40",
         ordenavel: true,
         dica: "Quando a nota entrou no acervo — captura automática (SEFAZ/ADN) ou envio manual de XML",
         celula: (documento) => (
           <span className="block leading-5">
-            <span className="nums block whitespace-nowrap text-tinta">{dataCurta(documento.importado_em)}</span>
+            <span className="nums block whitespace-nowrap text-tinta">
+              {documento.importado_em ? `${dataCurta(documento.importado_em)} ${horaCompleta(documento.importado_em)}` : "—"}
+            </span>
             <span className="mt-0.5 block">
               <Etiqueta tom="neutro">{origemDaImportacao(documento.origem)}</Etiqueta>
             </span>
@@ -504,8 +506,22 @@ export function Documentos() {
         ordenavel: true,
         celula: (documento) => (
           <span className="block leading-5">
-            <span className="nums block whitespace-nowrap font-medium text-acento">
-              {documento.numero ?? "—"}
+            <span className="flex items-center gap-1">
+              <span className="nums whitespace-nowrap font-medium text-acento">
+                {documento.numero ?? "—"}
+              </span>
+              <button
+                type="button"
+                onClick={(evento) => {
+                  evento.stopPropagation();
+                  definir({ doc: documento.id });
+                }}
+                className="rounded-controle p-0.5 text-tinta-fraca transition-colors duration-120 hover:text-acento"
+                title="Abrir detalhe"
+                aria-label={`Abrir detalhe da nota ${documento.numero ?? documento.id}`}
+              >
+                <Icone nome="externo" className="h-3.5 w-3.5" />
+              </button>
             </span>
             <span className="block text-xs uppercase tracking-rotulo text-tinta-fraca">
               {ROTULO_TIPO[documento.tipo] ?? documento.tipo}
@@ -526,7 +542,7 @@ export function Documentos() {
         id: "parte",
         cabecalho: "Emitente",
         dica: "Quem emitiu a nota — nas prestadas é a própria empresa",
-        largura: "min-w-32",
+        largura: "min-w-28",
         ordenavel: true,
         celula: (documento) => (
           <span className="block min-w-0 leading-5">
@@ -561,14 +577,14 @@ export function Documentos() {
         cabecalho: "Valor",
         alinhamento: "direita",
         numerica: true,
-        largura: "min-w-24",
+        largura: "min-w-20",
         ordenavel: true,
         celula: (documento) => <ValorMoeda valor={documento.valor_total} cancelado={documento.status === "cancelada"} />,
       },
       {
         id: "operacao",
         cabecalho: "Operação",
-        largura: "min-w-16",
+        largura: "min-w-12",
         ordenavel: true,
         dica: "Entrada = nota recebida · Saída = nota emitida pela empresa",
         celula: (documento) => <span className="whitespace-nowrap text-tinta">{operacaoDoDocumento(documento.direcao)}</span>,
@@ -639,7 +655,7 @@ export function Documentos() {
         id: "acoes",
         fixar: "direita",
         cabecalho: "Ações",
-        largura: "w-24 min-w-24",
+        largura: "w-20 min-w-20",
         alinhamento: "direita",
         fixa: true,
         celula: (documento) => (
