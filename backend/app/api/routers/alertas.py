@@ -66,13 +66,6 @@ def _montar(
     )
 
 
-def _hora(iso: datetime | None) -> str:
-    if iso is None:
-        return "—"
-    valor = iso if iso.tzinfo else iso.replace(tzinfo=timezone.utc)
-    return valor.astimezone().strftime("%d/%m %H:%M")
-
-
 def computar_alertas(db: Session, escritorio_id: int) -> list[AlertaItem]:
     agora = datetime.now(timezone.utc)
     itens: list[AlertaItem] = []
@@ -164,6 +157,15 @@ def computar_alertas(db: Session, escritorio_id: int) -> list[AlertaItem]:
         )
 
     # ---- Janelas SEFAZ, cursor parado e risco de perda --------------------
+    # Janela de consumo é rotina automática, não emergência: um alerta por
+    # combinação ("NFe bloqueada até 14:30 — Empresa X") virou dezenas de
+    # notificações vermelhas para algo que se resolve sozinho. Agora a espera
+    # normal vira UM item informativo, e só a disputa real (3+ bloqueios
+    # seguidos = outro sistema consultando o CNPJ) pede atenção — também
+    # agregada num item só.
+    aguardando_janela = 0
+    disputas: list[tuple[str, int]] = []
+    paradas: list[tuple[str, int]] = []
     for estado in estados_do_escritorio(db, escritorio_id=escritorio_id):
         empresa = mapa.get(estado.empresa_id)
         if empresa is None:
@@ -186,50 +188,73 @@ def computar_alertas(db: Session, escritorio_id: int) -> list[AlertaItem]:
                 )
             )
         elif estado.bloqueado_ate:
-            itens.append(
-                _montar(
-                    f"bloqueio-{estado.empresa_id}-{estado.tipo}",
-                    "critico" if estado.bloqueios_seguidos >= 3 else "atencao",
-                    "sefaz",
-                    f"{rotulo} bloqueada até {_hora(estado.bloqueado_ate)} — {empresa.razao_social}",
-                    "Consumo indevido (cStat 656): a janela pertence ao CNPJ na SEFAZ, "
-                    "não a este sistema. Mesmo sendo a primeira consulta aqui, outro programa "
-                    "pode ter consultado antes. O sistema retoma sozinho na hora certa. "
-                    + (
-                        f"{estado.bloqueios_seguidos} bloqueios seguidos — outro "
-                        f"sistema pode estar consultando este CNPJ."
-                        if estado.bloqueios_seguidos >= 2
-                        else "Evite forçar antes da hora: isso zera o cronômetro."
-                    ),
-                    empresa_id=empresa.id,
-                    empresa_razao_social=empresa.razao_social,
-                    acao_rotulo="Acompanhar",
-                    acao_href="/dashboard/importacoes",
-                )
-            )
+            if estado.bloqueios_seguidos >= 3:
+                disputas.append((f"{empresa.razao_social} ({rotulo})", empresa.id))
+            else:
+                aguardando_janela += 1
         elif (
             estado.dias_sem_varrer is not None
             and estado.dias_sem_varrer >= 7
             and estado.pendencia > 0
         ):
-            itens.append(
-                _montar(
-                    f"parado-{estado.empresa_id}-{estado.tipo}",
-                    "atencao",
-                    "sincronismo",
-                    f"{estado.dias_sem_varrer} dias sem varrer — {empresa.razao_social} ({rotulo})",
-                    f"Faltam {contagem(estado.pendencia, 'documento', 'documentos')}. "
-                    + (
-                        "O sincronismo automático está desligado nesta empresa."
-                        if not estado.sincronizar_automaticamente
-                        else "Confira se o agendador está rodando."
-                    ),
-                    empresa_id=empresa.id,
-                    empresa_razao_social=empresa.razao_social,
-                    acao_rotulo="Ver sincronismo",
-                    acao_href=f"/dashboard/empresa?id={empresa.id}&aba=sincronismo",
-                )
+            paradas.append(
+                (f"{empresa.razao_social} ({rotulo}, {estado.dias_sem_varrer}d)", empresa.id)
             )
+    if aguardando_janela:
+        itens.append(
+            _montar(
+                "janela-sefaz",
+                "info",
+                "sefaz",
+                f"{contagem(aguardando_janela, 'combinação', 'combinações')} aguardando janela da SEFAZ",
+                "A janela de 1 hora pertence ao CNPJ na SEFAZ, não a este "
+                "sistema — a retomada é automática, sem ação. Evite forçar "
+                "antes da hora: isso zera o cronômetro.",
+                acao_rotulo="Ver importações",
+                acao_href="/dashboard/importacoes",
+            )
+        )
+    if disputas:
+        nomes = ", ".join(texto for texto, _id in disputas[:4])
+        resto = len(disputas) - 4
+        sozinha = len(disputas) == 1
+        itens.append(
+            _montar(
+                "janela-disputa",
+                "atencao",
+                "sefaz",
+                f"{contagem(len(disputas), 'janela disputada', 'janelas disputadas')} — outro sistema no mesmo CNPJ?",
+                f"{nomes}{' …' if resto > 0 else ''} — 3 ou mais bloqueios "
+                f"seguidos. Cada consulta fora de hora zera o cronômetro de "
+                f"todo mundo; vale descobrir quem mais consulta estes CNPJs.",
+                acao_rotulo="Ver sincronismo" if sozinha else "Ver importações",
+                acao_href=(
+                    f"/dashboard/empresa?id={disputas[0][1]}&aba=sincronismo"
+                    if sozinha
+                    else "/dashboard/importacoes"
+                ),
+            )
+        )
+    if paradas:
+        nomes = ", ".join(texto for texto, _id in paradas[:4])
+        resto = len(paradas) - 4
+        sozinha = len(paradas) == 1
+        itens.append(
+            _montar(
+                "sincronismo-parado",
+                "atencao",
+                "sincronismo",
+                f"{contagem(len(paradas), 'combinação há 7+ dias', 'combinações há 7+ dias')} sem varrer",
+                f"{nomes}{' …' if resto > 0 else ''} — com documento faltando. "
+                f"Confira o sincronismo automático ou o agendador.",
+                acao_rotulo="Ver sincronismo" if sozinha else "Ver importações",
+                acao_href=(
+                    f"/dashboard/empresa?id={paradas[0][1]}&aba=sincronismo"
+                    if sozinha
+                    else "/dashboard/importacoes"
+                ),
+            )
+        )
 
     # ---- XMLs que chegaram só em resumo -----------------------------------
     resumos = (

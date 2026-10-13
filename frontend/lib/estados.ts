@@ -1,5 +1,5 @@
 import type { NomeIcone } from "@/components/ui/Icone";
-import { contagem, contagemRegressiva, numero, tempoDecorrido, tempoRelativo } from "./format";
+import { contagem, numero, tempoDecorrido, tempoRelativo } from "./format";
 import type {
   DocumentoFiscal,
   EstadoSincronizacao,
@@ -310,11 +310,13 @@ export function estadoDaSincronizacao(estado: EstadoSincronizacao, agora = Date.
       absoluto: estado.motivo_bloqueio ?? undefined,
     };
   }
-  const liberacao = contagemRegressiva(estado.liberacao_em, agora);
-  if (estado.bloqueado_ate || liberacao) {
+  // Aguardar a janela é rotina automática — não um chamado. Por isso o selo é
+  // neutro e curto: o "quando" já mora na coluna de próxima consulta. Âmbar
+  // aqui, repetido por linha, virava uma parede de alerta para nada fazer.
+  if (estado.bloqueado_ate || estado.liberacao_em) {
     return {
-      tom: "espera",
-      rotulo: liberacao ? `Na janela · libera ${liberacao}` : estado.liberacao_rotulo || "Na janela da SEFAZ",
+      tom: "neutro",
+      rotulo: "Aguardando janela",
       icone: "ampulheta",
       absoluto: estado.liberacao_em ?? estado.bloqueado_ate ?? undefined,
     };

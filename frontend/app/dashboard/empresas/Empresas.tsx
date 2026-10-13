@@ -52,7 +52,7 @@ const SITUACOES: Array<{ valor: SituacaoFiltro; rotulo: string }> = [
   { valor: "certificado_vencido", rotulo: "Certificado vencido" },
   { valor: "certificado_vencendo", rotulo: "Certificado vencendo" },
   { valor: "com_pendencia", rotulo: "Com pendência na SEFAZ" },
-  { valor: "bloqueada", rotulo: "Bloqueada pela SEFAZ" },
+  { valor: "bloqueada", rotulo: "Aguardando janela" },
   { valor: "sem_documento_mes", rotulo: "Sem documento no mês" },
 ];
 

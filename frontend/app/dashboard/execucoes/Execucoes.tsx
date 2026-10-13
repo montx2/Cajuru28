@@ -354,12 +354,11 @@ export function Execucoes() {
                 {
                   id: "situacao",
                   cabecalho: "Situação",
-                  celula: (janela: JanelaProximaConsulta) =>
-                    janela.bloqueada ? (
-                      <IndicadorEstado tom="espera" rotulo="Janela SEFAZ" icone="ampulheta" />
-                    ) : (
-                      <IndicadorEstado tom="ok" rotulo="Liberada" icone="verificar-circulo" />
-                    ),
+                  celula: (janela: JanelaProximaConsulta) => (
+                    <span className="text-xs text-tinta-suave">
+                      {janela.bloqueada ? "aguardando janela" : "liberada"}
+                    </span>
+                  ),
                 },
               ]}
               estados={{
@@ -580,14 +579,14 @@ function DetalheExecucao({ execucao, agora }: { execucao: ExecucaoImportacao; ag
         <Dado rotulo="Eventos não reconhecidos" valor={<span className="nums">{numero(execucao.eventos_nao_reconhecidos)}</span>} />
         <Dado rotulo="Último NSU" valor={execucao.ultimo_nsu ? <span className="nums font-mono text-xs">{execucao.ultimo_nsu}</span> : "—"} />
         <Dado
-          rotulo="Bloqueado até"
+          rotulo="Aguarda janela até"
           valor={
             execucao.bloqueado_ate ? (
-              <span className="nums text-espera">
+              <span className="nums">
                 {contagemRegressiva(execucao.bloqueado_ate, agora) ?? dataCurta(execucao.bloqueado_ate)}
               </span>
             ) : (
-              "não bloqueada"
+              "liberada"
             )
           }
         />

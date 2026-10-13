@@ -178,7 +178,13 @@ export function Importacoes() {
         celula: (estado) => (
           <IndicadorEstado
             {...estadoDaSincronizacao(estado, agora)}
-            titulo={estado.motivo_bloqueio ?? (estado.em_andamento ? "consulta em curso" : undefined)}
+            titulo={
+              estado.motivo_bloqueio
+                ? `${estado.motivo_bloqueio} · ${contagem(estado.bloqueios_seguidos, "bloqueio seguido", "bloqueios seguidos")}`
+                : estado.em_andamento
+                  ? "consulta em curso"
+                  : undefined
+            }
           />
         ),
       },
@@ -207,31 +213,6 @@ export function Importacoes() {
         alinhamento: "direita",
         ocultaPorPadrao: true,
         celula: (estado) => <DataHora iso={estado.ultima_consulta_em} />,
-      },
-      {
-        id: "bloqueio",
-        cabecalho: "Bloqueio",
-        celula: (estado) =>
-          estado.bloqueado_ate ? (
-            <span className="text-espera" title={`Bloqueios seguidos: ${numero(estado.bloqueios_seguidos)}`}>
-              {estado.motivo_bloqueio ?? "janela SEFAZ"}
-            </span>
-          ) : (
-            <span className="text-tinta-fraca">—</span>
-          ),
-      },
-      {
-        id: "risco",
-        cabecalho: "Risco de perda",
-        dica: "Dias sem varrer acima do horizonte de distribuição da SEFAZ: documento pode ficar inacessível",
-        celula: (estado) =>
-          estado.risco_documento_fora_da_distribuicao ? (
-            <Etiqueta tom="erro" titulo={estado.dias_sem_varrer !== null ? `${numero(estado.dias_sem_varrer)} dias sem varrer` : undefined}>
-              fora da janela
-            </Etiqueta>
-          ) : (
-            <span className="text-tinta-fraca">—</span>
-          ),
       },
       {
         id: "cota",
@@ -376,9 +357,9 @@ export function Importacoes() {
     }
     if (dados.bloqueadas_sefaz > 0) {
       return {
-        tom: "espera" as const,
-        titulo: `${contagem(dados.bloqueadas_sefaz, "combinação bloqueada", "combinações bloqueadas")} pela SEFAZ`,
-        descricao: "A SEFAZ recusou a consulta (cota ou evento). A fila tenta de novo sozinha; dispare só o que é urgente.",
+        tom: "neutro" as const,
+        titulo: `${contagem(dados.bloqueadas_sefaz, "combinação aguardando", "combinações aguardando")} janela da SEFAZ`,
+        descricao: "Espera de 1 hora por CNPJ — a fila retoma sozinha. Só dispare manualmente o que é urgente.",
       };
     }
     if (dados.com_pendencia > 0) {
@@ -391,7 +372,7 @@ export function Importacoes() {
     return {
       tom: "ok" as const,
       titulo: "Captura em dia em todas as combinações",
-      descricao: "Nenhum NSU pendente e nenhuma janela bloqueada. Novos documentos entram na próxima varredura automática.",
+      descricao: "Nenhum NSU pendente e nenhuma janela em espera. Novos documentos entram na próxima varredura automática.",
     };
   }, [estados.dados, resumoSync.dados]);
 
@@ -501,7 +482,7 @@ export function Importacoes() {
                 <Dado destaque rotulo="Com pendência" valor={numero(resumoSync.dados.com_pendencia)} tom={resumoSync.dados.com_pendencia > 0 ? "espera" : undefined} />
                 <Dado destaque rotulo="Em andamento" valor={numero(resumoSync.dados.em_andamento)} />
                 <Dado destaque rotulo="Aguardando janela" valor={numero(resumoSync.dados.aguardando_janela)} tom={resumoSync.dados.aguardando_janela > 0 ? "espera" : undefined} />
-                <Dado destaque rotulo="Bloqueadas pela SEFAZ" valor={numero(resumoSync.dados.bloqueadas_sefaz)} tom={resumoSync.dados.bloqueadas_sefaz > 0 ? "erro" : undefined} />
+                <Dado destaque rotulo="Aguardando janela" valor={numero(resumoSync.dados.bloqueadas_sefaz)} />
                 <Dado destaque rotulo="Documentos no banco" valor={numero(resumoSync.dados.documentos_no_banco)} />
                 <Dado
                   destaque
@@ -592,7 +573,7 @@ export function Importacoes() {
 
       <Cartao
         titulo="Empresas"
-        descricao="Marque quem deve ser capturado. Sem certificado A1 válido a empresa fica bloqueada."
+        descricao="Marque quem deve ser capturado. Sem certificado A1 válido a empresa não entra na captura."
         acoes={
           selecionadas.size > 0 ? (
             <Botao
@@ -719,7 +700,7 @@ export function Importacoes() {
                 { valor: "", rotulo: "Todas as situações" },
                 { valor: "pendencia", rotulo: "Com pendência" },
                 { valor: "em_dia", rotulo: "Em dia" },
-                { valor: "bloqueada", rotulo: "Bloqueada pela SEFAZ" },
+                { valor: "bloqueada", rotulo: "Aguardando janela" },
                 { valor: "risco", rotulo: "Risco de perda" },
                 { valor: "manual", rotulo: "Sincronismo manual" },
               ]}
@@ -758,7 +739,7 @@ export function Importacoes() {
         }
         impacto={
           <span>
-            Cada consulta usa a janela de 1 hora da SEFAZ para a combinação empresa × tipo. Itens já em espera ou bloqueados voltam como
+            Cada consulta usa a janela de 1 hora da SEFAZ para a combinação empresa × tipo. Itens já em espera ou em janela voltam como
             “aguardando”, não como erro. Documentos já importados não são duplicados.
           </span>
         }

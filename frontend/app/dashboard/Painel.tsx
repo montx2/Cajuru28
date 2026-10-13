@@ -3,7 +3,6 @@
 import { useCallback, useEffect } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { cn } from "@/lib/cn";
 import { emQuanto, mesAtual, mesesAnteriores, rotulo as rotuloCompetencia } from "@/lib/competencia";
 import { contagem, contagemRegressiva, moeda, moedaCompacta, numero, percentual, plural, tempoRelativo } from "@/lib/format";
 import { estadoGeral, compararPorGravidade } from "@/lib/estados";
@@ -400,10 +399,10 @@ function ProximasJanelas({ janelas, agora }: { janelas: JanelaProximaConsulta[];
             <div className="min-w-0">
               <p className="truncate text-sm text-tinta">{janela.razao_social}</p>
               <p className="truncate text-xs text-tinta-suave">
-                {janela.tipo.toUpperCase()} · {janela.bloqueada ? "janela SEFAZ" : `${contagem(janela.pendencia, "pendente", "pendentes")}`}
+                {janela.tipo.toUpperCase()} · {janela.bloqueada ? "aguardando janela" : `${contagem(janela.pendencia, "pendente", "pendentes")}`}
               </p>
             </div>
-            <span className={cn("nums flex-none text-xs", janela.bloqueada ? "text-espera" : "text-tinta-suave")}>
+            <span className="nums flex-none text-xs text-tinta-suave">
               {contagemRegressiva(janela.proxima_consulta_em, agora) ?? emQuanto(janela.proxima_consulta_em, agora) ?? "—"}
             </span>
           </li>
