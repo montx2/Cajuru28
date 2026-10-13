@@ -198,7 +198,7 @@ cadastro aqui é reproduzir o defeito.
 
 | Sintoma na tela | O que está acontecendo | O que fazer |
 | --- | --- | --- |
-| "Aguardando a SEFAZ · bloqueada até HH:MM" | 656 real, janela em curso | Nada. Vai retomar sozinha. Se outro sistema (ex.: Jettax360) consulta o mesmo CNPJ/certificado, é isso — veja a seção 8. |
+| "Aguardando janela" (selo âmbar) | Janela de 1h em curso — cooldown normal ou 656 | Nada. Vai retomar sozinha no horário da "Próxima consulta". Se a mensagem diz "Outro sistema consultou este CNPJ", a janela está com outro capturador no mesmo CNPJ — veja a seção 8. |
 | `pendencia` alta que não cai | CNPJ com muito documento acumulado; o round-robin está distribuindo as horas | Espere os ciclos; ou suba `MAX_LOTES_POR_EXECUCAO`. |
 | "só resumo" em muitas NFe | **Falta a Ciência da Operação.** Enquanto o destinatário não se manifesta, o Ambiente Nacional só distribui o `resNFe` — e o `consChNFe` também volta vazio (NT 2014.002). Não é página seguinte nem cota. | Confira "Manifestação automática" da empresa (vem ligada por padrão). Depois da Ciência o `procNFe` chega pelo próprio fluxo de NSU e substitui o resumo. O detalhe do documento mostra se a Ciência foi registrada ou o motivo da recusa. |
 | "A Ciência da Operação não é mais aceita para esta nota" (cStat 596) | A nota passou dos **10 dias** da autorização: a Ciência não é mais aceita e não existe XML completo por essa via | Use **Manifestar operação** na ficha da nota e escolha o evento conclusivo (Confirmação da Operação, se a mercadoria foi recebida). É ato de negócio: o robô não decide. Depois do evento a busca do XML completo volta sozinha. |

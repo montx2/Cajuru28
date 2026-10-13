@@ -488,6 +488,12 @@ def tratar_consumo_indevido(
     2. o que já tinha baixado fica commitado (checkpoint por lote), então a
        retomada continua exatamente de onde parou.
     """
+    # "Primeira vez e já bloqueada" só acontece por um motivo: OUTRO sistema
+    # consumiu a hora deste CNPJ. A janela de 1h é por CNPJ, não por sistema —
+    # e como este estado nunca recebeu uma resposta (sem maxNSU), o 656 não
+    # pode ter sido causado por nós. Capturado ANTES do realinhamento, que
+    # pode adotar o maxNSU vindo na própria resposta do 656.
+    primeira_vez = sincronizacao.nunca_consultado(estado)
     quando = sincronizacao.marcar_consumo_indevido(
         db,
         estado,
@@ -503,10 +509,25 @@ def tratar_consumo_indevido(
     db.commit()
 
     execucao.ultimo_nsu = estado.ultimo_nsu
+    if primeira_vez:
+        causa = (
+            "Outro sistema consultou este CNPJ na última hora (cStat 656) — a "
+            "janela de 1h é por CNPJ, não por sistema, então até a primeira "
+            "consulta daqui cai dentro dela. "
+        )
+    elif (estado.bloqueios_seguidos or 0) >= 2:
+        causa = (
+            "A janela segue ocupada (cStat 656) — provavelmente outro sistema "
+            "disputa este CNPJ a cada hora. "
+        )
+    else:
+        causa = (
+            f"{erro.ambiente} respondeu consumo indevido (cStat {erro.cstat}): "
+            f"{erro.motivo} "
+        )
     mensagem = (
-        f"{erro.ambiente} bloqueou este CNPJ por consumo indevido (cStat {erro.cstat}): "
-        f"{erro.motivo} "
-        f"Nova tentativa automática em {quando:%d/%m/%Y às %H:%M}. "
+        causa
+        + f"Nova tentativa automática em {quando:%d/%m/%Y às %H:%M}. "
         "Nada foi perdido: o que já baixou está gravado e a retomada continua do checkpoint."
     )
     if erro.motivo and "ultNSU" in erro.motivo:

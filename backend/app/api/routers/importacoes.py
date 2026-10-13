@@ -653,7 +653,7 @@ def _prever(
         return (
             "em_cooldown",
             (
-                ("Bloqueado pela SEFAZ (consumo indevido). " if libertacao.bloqueado else "")
+                ("Aguardando a janela de 1h da SEFAZ. " if libertacao.bloqueado else "")
                 + f"Nova tentativa automática em {libertacao.quando:%d/%m/%Y %H:%M}."
                 + (f" ({libertacao.motivo})" if libertacao.motivo else "")
             ),

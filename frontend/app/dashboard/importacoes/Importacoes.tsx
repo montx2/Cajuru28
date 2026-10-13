@@ -180,7 +180,9 @@ export function Importacoes() {
             {...estadoDaSincronizacao(estado, agora)}
             titulo={
               estado.motivo_bloqueio
-                ? `${estado.motivo_bloqueio} · ${contagem(estado.bloqueios_seguidos, "bloqueio seguido", "bloqueios seguidos")}`
+                ? `${estado.motivo_bloqueio} · ${contagem(estado.bloqueios_seguidos, "bloqueio seguido", "bloqueios seguidos")}${
+                    estado.nunca_consultado ? " · a janela está com outro sistema" : ""
+                  }`
                 : estado.em_andamento
                   ? "consulta em curso"
                   : undefined

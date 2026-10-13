@@ -86,7 +86,11 @@ class Settings(BaseSettings):
 
     # ---------------- Consumo consciente (regras SEFAZ/ADN) ----------------
     cooldown_horas: int = 1
-    margem_cooldown_minutos: int = 6
+    # Margem sobre a hora oficial antes de voltar à janela. 2 minutos cobrem
+    # relógio dessincronizado e latência com folga (NTP erra milissegundos) e,
+    # principalmente, não entregam a janela a outro sistema: com 6 minutos o
+    # Fluxa chegava sistematicamente atrasado às disputas por CNPJ.
+    margem_cooldown_minutos: int = 2
     limite_consultas_pontuais_por_hora: int = 20
     espera_entre_lotes_segundos: float = 2.0
     max_lotes_por_execucao: int = 50
