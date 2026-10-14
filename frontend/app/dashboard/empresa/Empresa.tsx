@@ -12,7 +12,7 @@ import { mensagemDoErro } from "@/lib/erros";
 import { MOTIVO_SOMENTE_LEITURA } from "@/lib/papel";
 import { paraFiltro, rotuloPeriodo } from "@/lib/periodo";
 import { UFS } from "@/lib/uf";
-import { usePeriodoUrl } from "@/lib/usePeriodoUrl";
+import { useContextoGlobal } from "@/components/shell/ProvedorContexto";
 import { useRecurso } from "@/lib/useRecurso";
 import { useUrlEstado } from "@/lib/urlEstado";
 import { useAgora } from "@/components/shell/ProvedorAgora";
@@ -22,7 +22,7 @@ import { CartaoCertificado } from "@/components/fiscal/CartaoCertificado";
 import { ModalCertificado } from "@/components/fiscal/ModalCertificado";
 import { PainelDocumento } from "@/components/fiscal/PainelDocumento";
 import { ResumoNSU } from "@/components/fiscal/MedidorNSU";
-import { SeletorPeriodo } from "@/components/fiscal/SeletorPeriodo";
+
 import { Abas, PainelAbas, type Aba } from "@/components/ui/Abas";
 import { Alternador, Caixa, Entrada, Selecao } from "@/components/ui/Campo";
 import { Aviso } from "@/components/ui/Aviso";
@@ -74,7 +74,7 @@ export function Empresa() {
   const { somenteLeitura, ehAdmin } = useSessao();
   const { avisar } = useToast();
   const agora = useAgora();
-  const { periodo, aoMudar: aoMudarPeriodo, pronto } = usePeriodoUrl();
+  const { periodo, pronto } = useContextoGlobal();
 
   const id = lerNumero("id");
   const aba = ABAS.includes(ler("aba")) ? ler("aba") : "documentos";
@@ -381,11 +381,8 @@ export function Empresa() {
         {aba === "documentos" ? (
           <Cartao
             titulo={`Documentos · ${rotuloPeriodo(periodo)}`}
-            descricao="Acervo capturado desta empresa no período escolhido"
+            descricao="Acervo capturado desta empresa no mês global (barra acima)"
           >
-            <div className="mb-3">
-              <SeletorPeriodo periodo={periodo} aoMudar={aoMudarPeriodo} obrigatorio />
-            </div>
             <Tabela
               linhas={documentosNoPeriodo}
               colunas={colunasDocumentos}

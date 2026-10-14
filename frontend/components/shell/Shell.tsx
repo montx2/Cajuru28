@@ -5,8 +5,10 @@ import { usePreferencia } from "@/lib/usePreferencia";
 import { ProvedorAgora } from "./ProvedorAgora";
 import { ProvedorAlertas } from "./ProvedorAlertas";
 import { ProvedorComandos } from "./ProvedorComandos";
+import { ProvedorContexto } from "./ProvedorContexto";
 import { ProvedorProgresso } from "./BarraAtualizacao";
 import { ProvedorSessao } from "./ProvedorSessao";
+import { BarraContexto } from "./BarraContexto";
 import { Header } from "./Header";
 import { Sidebar } from "./Sidebar";
 import { ProvedorToast } from "@/components/ui/Toast";
@@ -46,9 +48,12 @@ export function Shell({ children }: { children: ReactNode }) {
 
                   <div className="flex min-w-0 flex-1 flex-col">
                     <Header aoAbrirMenu={() => setMenuAberto(true)} />
-                    <main id="conteudo" tabIndex={-1} className="min-w-0 flex-1 px-4 py-6 outline-none sm:px-6 sm:py-8 lg:px-8">
+                    <ProvedorContexto>
+                      <BarraContexto />
+                      <main id="conteudo" tabIndex={-1} className="min-w-0 flex-1 px-4 py-6 outline-none sm:px-6 sm:py-8 lg:px-8">
                       <div className="mx-auto w-full max-w-conteudo">{children}</div>
                     </main>
+                    </ProvedorContexto>
                   </div>
                 </div>
               </ProvedorComandos>

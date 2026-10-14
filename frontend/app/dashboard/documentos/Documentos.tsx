@@ -8,19 +8,20 @@ import {
   filtrosParaBaixarSelecao,
   filtrosParaBaixarTudoDoFiltro,
 } from "@/lib/exportacao-documentos";
-import { bytesParaTexto, chaveEmGrupos, contagem, dataCurta, formatarCnpjCpf, horaCompleta, mesAno, numero, plural } from "@/lib/format";
+import { bytesParaTexto, chaveEmGrupos, contagem, dataCurta, horaCompleta, mesAno, numero, plural } from "@/lib/format";
 import { alertasDoDocumento, estadoDoDocumento, operacaoDoDocumento, origemDaImportacao } from "@/lib/estados";
+import { rotulo as rotuloCompetencia } from "@/lib/competencia";
 import { mensagemDoErro } from "@/lib/erros";
 import { MOTIVO_SOMENTE_LEITURA } from "@/lib/papel";
-import { intervaloDoMes, mesDoIntervalo, paraFiltro, periodoValido, rotuloPeriodo, sufixoArquivo, type Periodo } from "@/lib/periodo";
+import { mesDoIntervalo, paraFiltro, periodoValido, rotuloPeriodo, sufixoArquivo, type Periodo } from "@/lib/periodo";
 import { hrefComEstado } from "@/lib/urlEstadoLink";
 import { useBuscaUrl } from "@/lib/useBuscaUrl";
 import { usePreferencia } from "@/lib/usePreferencia";
-import { usePeriodoUrl } from "@/lib/usePeriodoUrl";
 import { usePolling } from "@/lib/usePolling";
 import { useRecurso } from "@/lib/useRecurso";
 import { useUrlEstado } from "@/lib/urlEstado";
 import { useSinalizarAtualizacao } from "@/components/shell/BarraAtualizacao";
+import { useContextoGlobal } from "@/components/shell/ProvedorContexto";
 import { useSessao } from "@/components/shell/ProvedorSessao";
 import { ManifestacaoConclusivaLote } from "@/components/fiscal/ManifestacaoConclusivaLote";
 import { ModalPenteFino } from "@/components/fiscal/PenteFino";
@@ -28,14 +29,12 @@ import { PainelDocumento } from "@/components/fiscal/PainelDocumento";
 import { Termometro } from "@/components/fiscal/Termometro";
 import { CapturaEmAndamento } from "@/components/fiscal/CapturaEmAndamento";
 import { FiltrosAcervoDocumentos } from "@/components/fiscal/FiltrosAcervoDocumentos";
-import { SeletorCompetencia } from "@/components/fiscal/SeletorCompetencia";
 import { SeletorPeriodo } from "@/components/fiscal/SeletorPeriodo";
 import { ModalImportarXmls } from "@/app/dashboard/importacoes/ImportarXmls";
 import { Botao, BotaoLink } from "@/components/ui/Botao";
 import { Aviso } from "@/components/ui/Aviso";
 import { CabecalhoPagina, Cartao } from "@/components/ui/Cartao";
 import { Busca, Caixa, Entrada, Selecao } from "@/components/ui/Campo";
-import { Combobox, type OpcaoCombobox } from "@/components/ui/Combobox";
 import { Dado } from "@/components/ui/Dado";
 import { DialogoConfirmacao } from "@/components/ui/DialogoConfirmacao";
 import { Etiqueta } from "@/components/ui/Etiqueta";
@@ -71,7 +70,8 @@ const LEIAUTES: LeiauteDocumento[] = ["completo", "resumo", "metadados"];
  * Acervo de documentos: a tela de maior volume do produto.
  *
  * Três decisões que se explicam pelo uso real:
- *  1. o período é obrigatório (a API responde 422 sem ele) e vive na URL;
+ *  1. empresa e mês vêm do contexto global (a barra acima da tela) — o
+ *     intervalo personalizado, só desta tela, vive na URL e vence o mês;
  *  2. ordenação e seleção valem para as linhas **carregadas** — a API não ordena
  *     por parâmetro, e fingir que ordena o universo inteiro seria mentira;
  *  3. exclusão em massa exige digitar a palavra: é irreversível e apaga arquivo
@@ -79,11 +79,19 @@ const LEIAUTES: LeiauteDocumento[] = ["completo", "resumo", "metadados"];
  */
 export function Documentos() {
   const { definir, ler, lerNumero, parametros } = useUrlEstado();
-  const { periodo, pronto } = usePeriodoUrl();
+  const contexto = useContextoGlobal();
   const busca = useBuscaUrl();
   const { somenteLeitura } = useSessao();
   const { avisar } = useToast();
   const [mostrarIntervaloPersonalizado, setMostrarIntervaloPersonalizado] = useState(false);
+
+  // Intervalo personalizado (só desta tela, na URL) vence o mês global.
+  const personalizado = useMemo<Periodo | null>(() => {
+    const candidato = { inicio: ler("data_inicio"), fim: ler("data_fim") };
+    return periodoValido(candidato) ? candidato : null;
+  }, [ler]);
+  const periodo = personalizado ?? contexto.periodo;
+  const pronto = contexto.pronto && periodoValido(periodo);
 
   const tipo = ler("tipo");
   const direcao = ler("direcao");
@@ -93,7 +101,7 @@ export function Documentos() {
   const leiaute = ler("leiaute");
   const valorMin = ler("valor_min");
   const valorMax = ler("valor_max");
-  const empresa = lerNumero("empresa");
+  const empresa = contexto.empresaId ?? undefined;
   const documentoAberto = lerNumero("doc") ?? null;
 
   const [densidade, setDensidade] = usePreferencia<DensidadeTabela>("documentos-densidade", "compacta");
@@ -138,7 +146,8 @@ export function Documentos() {
 
   const documentos = useRecurso(() => api.listarDocumentos({ ...filtros, limit: PASSO, offset: 0 }), [chaveFiltros], { automatico: pronto });
   const resumo = useRecurso(() => api.resumoDocumentos(filtros), [chaveFiltros], { automatico: pronto });
-  const empresas = useRecurso(() => api.listarEmpresas(), []);
+  // Empresas vêm do contexto (lista única do shell): nada de buscar de novo.
+  const empresas = contexto.empresas;
   // A captura em andamento é do recorte da tela: filtrando por uma empresa, o
   // aviso fala dela; sem filtro, fala do escritório.
   const captura = useRecurso(() => api.capturaAoVivo(empresa ? [empresa] : undefined), [empresa]);
@@ -154,22 +163,10 @@ export function Documentos() {
     { automatico: pronto }
   );
   const [penteFinoAberto, setPenteFinoAberto] = useState(false);
-  const opcoesEmpresa = useMemo<OpcaoCombobox[]>(
-    () => [
-      { valor: "", rotulo: "Todas as empresas" },
-      ...(empresas.dados ?? []).map((item) => ({
-        valor: String(item.id),
-        rotulo: item.razao_social,
-        descricao: `${formatarCnpjCpf(item.cnpj_cpf)} · ${item.uf}`,
-        termosBusca: item.cnpj_cpf,
-      })),
-    ],
-    [empresas.dados]
-  );
-  const empresaSelecionada = (empresas.dados ?? []).find((item) => item.id === empresa) ?? null;
+  const empresaSelecionada = empresas.find((item) => item.id === empresa) ?? null;
   const escopoEmpresa = empresaSelecionada?.razao_social ?? "Todas as empresas";
   const mesDoPeriodo = mesDoIntervalo(periodo);
-  const intervaloPersonalizado = mostrarIntervaloPersonalizado || (pronto && !mesDoPeriodo);
+  const intervaloPersonalizado = mostrarIntervaloPersonalizado || personalizado !== null;
   const mesSelecionado = mesDoPeriodo || periodo.inicio.slice(0, 7);
   // Auditoria e termômetro falam de COMPETÊNCIA (mês fechado). No intervalo
   // personalizado vale o mês inicial — é onde o fechamento começa.
@@ -233,9 +230,9 @@ export function Documentos() {
 
   const razaoPorId = useMemo(() => {
     const mapa = new Map<number, string>();
-    for (const item of empresas.dados ?? []) mapa.set(item.id, item.razao_social);
+    for (const item of empresas) mapa.set(item.id, item.razao_social);
     return mapa;
-  }, [empresas.dados]);
+  }, [empresas]);
 
   const ordem = ler("ordem") || "emissao";
   const sentido = ler("sentido") === "asc" ? "asc" : "desc";
@@ -253,20 +250,18 @@ export function Documentos() {
   const total = resumo.dados?.total ?? null;
   const totalSelecionavel = resumo.dados?.normais ?? null;
   const quantidadeSelecionada = todasDoFiltro ? totalSelecionavel ?? 0 : idsSelecionados.length;
-  const filtroAtivo = Boolean(tipo || direcao || status || leiaute || valorMin || valorMax || empresa || busca.valor.trim());
+  const filtroAtivo = Boolean(tipo || direcao || status || leiaute || valorMin || valorMax || busca.valor.trim());
   // Tipo e operação são controles visíveis; o contador representa apenas os filtros do popover.
   const quantidadeFiltros = [status, leiaute, valorMin, valorMax].filter(Boolean).length;
 
   function hrefDoAcervo(mudancas: Record<string, string | null> = {}, remover: string[] = []) {
-    const temPeriodo = periodoValido(periodo);
+    // Só o personalizado viaja no link: mês e empresa globais já estão na URL.
     return hrefComEstado(
       "/dashboard/documentos",
       parametros.toString(),
       {
-        data_inicio: temPeriodo ? periodo.inicio : null,
-        data_fim: temPeriodo ? periodo.fim : null,
-        mes: null,
-        competencia: null,
+        data_inicio: personalizado ? periodo.inicio : null,
+        data_fim: personalizado ? periodo.fim : null,
         busca: busca.valor.trim() || null,
         ...mudancas,
       },
@@ -274,19 +269,19 @@ export function Documentos() {
     );
   }
 
-  function mudarPeriodo(proximo: Periodo) {
-    definir({
-      data_inicio: proximo.inicio,
-      data_fim: proximo.fim,
-      mes: null,
-      competencia: null,
-      pagina: null,
-      doc: null,
-    });
+  function aplicarPersonalizado(proximo: Periodo) {
+    definir({ data_inicio: proximo.inicio, data_fim: proximo.fim, pagina: null, doc: null });
+  }
+
+  function voltarAoMesGlobal() {
+    setMostrarIntervaloPersonalizado(false);
+    definir({ data_inicio: null, data_fim: null, pagina: null, doc: null });
   }
 
   function limparFiltros() {
-    definir({ tipo: null, direcao: null, status: null, leiaute: null, valor_min: null, valor_max: null, empresa: null, busca: null, ordem: null, sentido: null });
+    // Limpa os filtros DA TELA: o contexto global (empresa + mês) é de outro
+    // dono e ninguém espera perdê-lo por limpar uma lista.
+    definir({ tipo: null, direcao: null, status: null, leiaute: null, valor_min: null, valor_max: null, busca: null, ordem: null, sentido: null });
     busca.aoMudar("");
   }
 
@@ -732,44 +727,27 @@ export function Documentos() {
       />
 
       <Cartao densidade="compacta" className="nao-imprimir">
-        {!pronto ? (
-          <SeletorPeriodo periodo={periodo} aoMudar={mudarPeriodo} obrigatorio />
-        ) : intervaloPersonalizado ? (
+        {pronto && intervaloPersonalizado ? (
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-            <SeletorPeriodo periodo={periodo} aoMudar={mudarPeriodo} obrigatorio className="min-w-0 flex-1" />
-            <Botao
-              tamanho="sm"
-              variante="sutil"
-              className="mb-1 w-full sm:w-auto"
-              onClick={() => {
-                setMostrarIntervaloPersonalizado(false);
-                mudarPeriodo(intervaloDoMes(mesSelecionado));
-              }}
-            >
-              Voltar à competência mensal
+            <SeletorPeriodo periodo={periodo} aoMudar={aplicarPersonalizado} obrigatorio className="min-w-0 flex-1" />
+            <Botao tamanho="sm" variante="sutil" className="mb-1 w-full sm:w-auto" onClick={voltarAoMesGlobal}>
+              Voltar ao mês global
             </Botao>
           </div>
-        ) : (
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-            <SeletorCompetencia
-              className="min-w-0 flex-1"
-              mes={mesSelecionado}
-              aoMudar={(mes) => {
-                setMostrarIntervaloPersonalizado(false);
-                mudarPeriodo(intervaloDoMes(mes));
-              }}
-              descricao="O mês escolhido vale para a lista, a seleção e os downloads."
-            />
-            <Botao
-              tamanho="sm"
-              variante="sutil"
-              className="mb-1 w-full sm:w-auto"
-              onClick={() => setMostrarIntervaloPersonalizado(true)}
-            >
+        ) : pronto ? (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm text-tinta-suave">
+              Seguindo o recorte global:{" "}
+              <span className="font-medium text-tinta">{rotuloCompetencia(contexto.mes || null)}</span>
+              {" · "}
+              <span className="font-medium text-tinta">{escopoEmpresa}</span>
+              <span className="text-tinta-fraca"> — mude na barra acima, vale para a lista, a seleção e os downloads.</span>
+            </p>
+            <Botao tamanho="sm" variante="sutil" onClick={() => setMostrarIntervaloPersonalizado(true)}>
               Período personalizado
             </Botao>
           </div>
-        )}
+        ) : null}
         <FiltrosAcervoDocumentos
           tipo={tipoDocumento}
           direcao={direcaoDocumento}
@@ -911,8 +889,8 @@ export function Documentos() {
           aoTentarNovamente: documentos.atualizar,
           vazioTitulo: pronto ? "Nenhum documento neste recorte" : "Escolha a competência para consultar",
           vazioInstrucao: pronto
-            ? "Nenhuma nota foi capturada com esta combinação de competência, empresa e filtros. Se o recorte estiver certo, dispare a importação."
-            : "A consulta precisa de uma competência mensal ou de um intervalo com início e fim.",
+            ? "Nenhuma nota foi capturada para essa empresa, mês e filtros — confira a barra de contexto acima. Se o recorte estiver certo, dispare a importação."
+            : "Aguarde o recorte global carregar.",
           vazioAcao: pronto ? (
             <BotaoLink variante="secundaria" href="/dashboard/importacoes">
               Disparar importação
@@ -931,17 +909,6 @@ export function Documentos() {
               valor={busca.valor}
               aoMudar={busca.aoMudar}
               className="w-full sm:min-w-64 sm:flex-1"
-            />
-            <Combobox
-              rotulo="Empresa"
-              descricao="Digite o nome ou CNPJ. Lista e downloads ficam limitados à empresa escolhida."
-              placeholder="Todas as empresas"
-              valor={empresa ? String(empresa) : ""}
-              aoMudar={(valor) => definir({ empresa: valor || null, doc: null, pagina: null })}
-              opcoes={opcoesEmpresa}
-              carregando={empresas.carregando}
-              vazio="Nenhuma empresa encontrada pelo nome ou CNPJ."
-              className="w-full sm:w-64 sm:flex-none"
             />
             <Popover
               rotulo="Filtros"

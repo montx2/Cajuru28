@@ -6,7 +6,7 @@ import { api } from "@/lib/api";
 import { emQuanto, mesAtual, mesesAnteriores, rotulo as rotuloCompetencia } from "@/lib/competencia";
 import { contagem, contagemRegressiva, moeda, moedaCompacta, numero, percentual, plural, tempoRelativo } from "@/lib/format";
 import { estadoGeral, compararPorGravidade } from "@/lib/estados";
-import { useCompetenciaUrl } from "@/lib/usePeriodoUrl";
+import { useContextoGlobal } from "@/components/shell/ProvedorContexto";
 import { usePolling } from "@/lib/usePolling";
 import { useRecurso } from "@/lib/useRecurso";
 import { useAgora } from "@/components/shell/ProvedorAgora";
@@ -14,7 +14,6 @@ import { useSinalizarAtualizacao } from "@/components/shell/BarraAtualizacao";
 import { CartaoAlerta } from "@/components/fiscal/CartaoAlerta";
 import { GraficoBarras, GraficoDonut } from "@/components/fiscal/Graficos";
 import { LinhaExecucao } from "@/components/fiscal/LinhaExecucao";
-import { SeletorCompetencia } from "@/components/fiscal/SeletorCompetencia";
 import { BotaoIcone } from "@/components/ui/BotaoIcone";
 import { BotaoLink } from "@/components/ui/Botao";
 import { CabecalhoPagina, Cartao } from "@/components/ui/Cartao";
@@ -36,7 +35,7 @@ import type { AlertaItem, EmitenteTop, JanelaProximaConsulta } from "@/lib/types
  * e a recarga nunca apaga o que está na tela — só acende a barra no topo.
  */
 export function Painel() {
-  const { mes, competencia, aoMudar, pronto } = useCompetenciaUrl();
+  const { mes, competencia, pronto } = useContextoGlobal();
   const agora = useAgora();
 
   const painel = useRecurso(() => api.painelOperacional(), []);
@@ -290,16 +289,15 @@ export function Painel() {
       </div>
 
       <section aria-labelledby="titulo-numeros-mes" className="space-y-3">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h2 id="titulo-numeros-mes" className="text-md font-semibold tracking-tight text-tinta-forte">Números do mês</h2>
-            <p className="text-xs text-tinta-suave">
-              {mesEmAndamento
-                ? "Cada valor compara a competência anterior — o mês em andamento ainda está recebendo documentos."
-                : "Cada valor compara a competência anterior."}
-            </p>
-          </div>
-          <SeletorCompetencia mes={mes} aoMudar={aoMudar} atalhos={0} className="w-full sm:w-auto" />
+        <div>
+          <h2 id="titulo-numeros-mes" className="text-md font-semibold tracking-tight text-tinta-forte">
+            Números de {rotuloCompetencia(mes || null)}
+          </h2>
+          <p className="text-xs text-tinta-suave">
+            {mesEmAndamento
+              ? "Mês global (barra acima) — cada valor compara a competência anterior; o mês em andamento ainda está recebendo documentos."
+              : "Mês global (barra acima) — cada valor compara a competência anterior."}
+          </p>
         </div>
         <GradeKpis itens={itens} colunas={3} rotulo={`Indicadores de ${rotuloCompetencia(mes)}`} />
       </section>

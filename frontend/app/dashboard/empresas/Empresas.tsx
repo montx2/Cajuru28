@@ -15,7 +15,7 @@ import { MOTIVO_SOMENTE_LEITURA } from "@/lib/papel";
 import { paraFiltro, rotuloPeriodo } from "@/lib/periodo";
 import { UFS } from "@/lib/uf";
 import { useBuscaUrl } from "@/lib/useBuscaUrl";
-import { usePeriodoUrl } from "@/lib/usePeriodoUrl";
+import { useContextoGlobal } from "@/components/shell/ProvedorContexto";
 import { usePreferencia } from "@/lib/usePreferencia";
 import { useRecurso } from "@/lib/useRecurso";
 import { useUrlEstado } from "@/lib/urlEstado";
@@ -77,7 +77,7 @@ export function Empresas() {
   const router = useRouter();
   const { definir, ler } = useUrlEstado();
   const busca = useBuscaUrl();
-  const { periodo, pronto } = usePeriodoUrl();
+  const { periodo, pronto } = useContextoGlobal();
   const { somenteLeitura } = useSessao();
   const agora = useAgora();
 

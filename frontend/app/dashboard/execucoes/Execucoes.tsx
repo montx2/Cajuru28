@@ -14,6 +14,7 @@ import { useRecurso } from "@/lib/useRecurso";
 import { useUrlEstado } from "@/lib/urlEstado";
 import { useBuscaUrl } from "@/lib/useBuscaUrl";
 import { useAgora } from "@/components/shell/ProvedorAgora";
+import { useContextoGlobal } from "@/components/shell/ProvedorContexto";
 import { useSinalizarAtualizacao } from "@/components/shell/BarraAtualizacao";
 import { useSessao } from "@/components/shell/ProvedorSessao";
 import { LinhaExecucao } from "@/components/fiscal/LinhaExecucao";
@@ -56,7 +57,9 @@ export function Execucoes() {
   const busca = useBuscaUrl();
 
   const aba = (ABAS_VALIDAS.find((valor) => valor === ler("aba")) ?? "agora") as AbaExecucao;
-  const empresaFiltro = ler("empresa");
+  // Empresa global: a barra acima filtra esta e as outras telas de operação.
+  const { empresaId: empresaGlobal } = useContextoGlobal();
+  const empresaFiltro = empresaGlobal === null ? "" : String(empresaGlobal);
   const tipoFiltro = ler("tipo");
 
   const [densidade, setDensidade] = usePreferencia<DensidadeTabela>("execucoes-densidade", "confortavel");
@@ -72,7 +75,6 @@ export function Execucoes() {
     [empresaFiltro],
     { automatico: aba === "historico" }
   );
-  const empresas = useRecurso(() => api.listarEmpresas(), []);
 
   const aoVivo = central.dados?.agora.length ?? 0;
   useSinalizarAtualizacao(central.atualizando || historico.atualizando);
@@ -218,7 +220,8 @@ export function Execucoes() {
     [agora]
   );
 
-  const filtroAtivo = Boolean(empresaFiltro || tipoFiltro || busca.valor);
+  // Só os filtros da tela: a empresa global é contexto, não se limpa aqui.
+  const filtroAtivo = Boolean(tipoFiltro || busca.valor);
 
   const confirmarReprocessamento = useCallback(async () => {
     if (!reprocessar) return;
@@ -396,7 +399,7 @@ export function Execucoes() {
               vazioInstrucao:
                 aba === "erros"
                   ? "Nada falhou nas últimas execuções. Quando algo falhar, o motivo e o passo seguinte aparecem aqui."
-                  : "Ajuste empresa, tipo ou busca — ou dispare uma importação para gerar histórico.",
+                  : "Ajuste a empresa na barra acima, o tipo ou a busca — ou dispare uma importação para gerar histórico.",
               vazioAcao:
                 aba === "erros" ? undefined : (
                   <BotaoLink variante="secundaria" href="/dashboard/importacoes">
@@ -407,7 +410,7 @@ export function Execucoes() {
               filtroAtivo,
               aoLimparFiltro: filtroAtivo
                 ? () => {
-                    definir({ empresa: null, tipo: null, busca: null });
+                    definir({ tipo: null, busca: null });
                     busca.aoMudar("");
                   }
                 : undefined,
@@ -415,16 +418,6 @@ export function Execucoes() {
             ferramentas={
               <div className="flex flex-wrap items-end gap-2">
                 <Busca rotuloVisivel rotulo="Buscar execução" placeholder="Empresa, tipo ou mensagem de erro" valor={busca.valor} aoMudar={busca.aoMudar} className="min-w-56 flex-1" />
-                <Selecao
-                  rotulo="Empresa"
-                  className="w-56"
-                  value={empresaFiltro}
-                  onChange={(evento) => definir({ empresa: evento.target.value || null })}
-                  opcoes={[
-                    { valor: "", rotulo: "Todas as empresas" },
-                    ...(empresas.dados ?? []).map((empresa) => ({ valor: String(empresa.id), rotulo: empresa.razao_social })),
-                  ]}
-                />
                 <Selecao
                   rotulo="Tipo"
                   className="w-40"

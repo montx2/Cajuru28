@@ -10,6 +10,7 @@ import { useBuscaUrl } from "@/lib/useBuscaUrl";
 import { useUrlEstado } from "@/lib/urlEstado";
 import { useSinalizarAtualizacao } from "@/components/shell/BarraAtualizacao";
 import { useContagemAlertas } from "@/components/shell/ProvedorAlertas";
+import { useContextoGlobal } from "@/components/shell/ProvedorContexto";
 import { CartaoAlerta } from "@/components/fiscal/CartaoAlerta";
 import { Abas, type Aba } from "@/components/ui/Abas";
 import { Botao } from "@/components/ui/Botao";
@@ -44,12 +45,13 @@ export function Atencao() {
 
   const nivel = ler("nivel");
   const categoria = ler("categoria");
-  const empresa = ler("empresa");
+  // Empresa global: a barra acima filtra esta e as outras telas de operação.
+  const { empresaId: empresaGlobal } = useContextoGlobal();
+  const empresa = empresaGlobal === null ? "" : String(empresaGlobal);
   const busca = buscaCampo.valor;
   const mostrarLidas = lerBooleano("lidas", false);
 
   const alertas = useRecurso(() => api.alertas(), []);
-  const empresas = useRecurso(() => api.listarEmpresas(), []);
   useSinalizarAtualizacao(alertas.atualizando);
 
   const conjuntoLidas = useMemo(() => new Set(lidas), [lidas]);
@@ -98,7 +100,8 @@ export function Atencao() {
     })),
   ];
 
-  const filtroAtivo = Boolean(nivel || categoria || empresa || busca || mostrarLidas);
+  // Só os filtros da tela: a empresa global é contexto, não se limpa aqui.
+  const filtroAtivo = Boolean(nivel || categoria || busca || mostrarLidas);
 
   function marcarLida(alerta: AlertaItem) {
     setLidas((atual) => [alerta.id, ...atual.filter((id) => id !== alerta.id)].slice(0, LIMITE_LIDAS));
@@ -156,15 +159,6 @@ export function Atencao() {
             onChange={(evento) => definir({ categoria: evento.target.value || null })}
             opcoes={[{ valor: "", rotulo: "Todas as categorias" }, ...categorias]}
           />
-          <Selecao
-            rotulo="Empresa"
-            value={empresa}
-            onChange={(evento) => definir({ empresa: evento.target.value || null })}
-            opcoes={[
-              { valor: "", rotulo: "Todas as empresas" },
-              ...(empresas.dados ?? []).map((empresaItem) => ({ valor: String(empresaItem.id), rotulo: empresaItem.razao_social })),
-            ]}
-          />
           <Alternador
             rotulo="Mostrar alertas lidos"
             descricao="Estado salvo neste navegador"
@@ -185,12 +179,12 @@ export function Atencao() {
             instrucao={
               mostrarLidas
                 ? "Todos os itens deste recorte já foram marcados como lidos neste navegador."
-                : "Ajuste o nível, a categoria ou a busca para ver outros itens."
+                : "Ajuste o nível, a categoria, a empresa (barra acima) ou a busca para ver outros itens."
             }
             acao={
               <Botao
                 variante="secundaria"
-                onClick={() => definir({ nivel: null, categoria: null, empresa: null, busca: null, lidas: null })}
+                onClick={() => definir({ nivel: null, categoria: null, busca: null, lidas: null })}
                 iconeEsquerda={<Icone nome="remover" className="h-4 w-4" />}
               >
                 Limpar filtros
