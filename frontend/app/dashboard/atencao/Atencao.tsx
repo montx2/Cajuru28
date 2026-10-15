@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { api } from "@/lib/api";
-import { contagem } from "@/lib/format";
+import { contagem, formatarCnpjCpf } from "@/lib/format";
 import { compararPorGravidade, estadoDoNivel } from "@/lib/estados";
 import { usePreferencia } from "@/lib/usePreferencia";
 import { useRecurso } from "@/lib/useRecurso";
@@ -17,6 +17,7 @@ import { Botao } from "@/components/ui/Botao";
 import { BotaoIcone } from "@/components/ui/BotaoIcone";
 import { CabecalhoPagina, Cartao } from "@/components/ui/Cartao";
 import { Alternador, Busca, Selecao } from "@/components/ui/Campo";
+import { Combobox, type OpcaoCombobox } from "@/components/ui/Combobox";
 import { EsqueletoLista } from "@/components/ui/Esqueleto";
 import { EstadoErro } from "@/components/ui/EstadoErro";
 import { EstadoVazio } from "@/components/ui/EstadoVazio";
@@ -45,9 +46,11 @@ export function Atencao() {
 
   const nivel = ler("nivel");
   const categoria = ler("categoria");
-  // Empresa global: a barra acima filtra esta e as outras telas de operação.
-  const { empresaId: empresaGlobal } = useContextoGlobal();
-  const empresa = empresaGlobal === null ? "" : String(empresaGlobal);
+  // Empresa é filtro DESTA tela (`?empresa=` na URL), com busca por nome ou
+  // CNPJ no próprio campo. Só a lista de empresas vem do shell — uma
+  // requisição para o app inteiro em vez de uma por tela.
+  const { empresas: empresasDoEscritorio, carregandoEmpresas } = useContextoGlobal();
+  const empresa = /^\d+$/.test(ler("empresa")) ? ler("empresa") : "";
   const busca = buscaCampo.valor;
   const mostrarLidas = lerBooleano("lidas", false);
 
@@ -55,6 +58,19 @@ export function Atencao() {
   useSinalizarAtualizacao(alertas.atualizando);
 
   const conjuntoLidas = useMemo(() => new Set(lidas), [lidas]);
+
+  const opcoesEmpresa = useMemo<OpcaoCombobox[]>(
+    () => [
+      { valor: "", rotulo: "Todas as empresas" },
+      ...empresasDoEscritorio.map((item) => ({
+        valor: String(item.id),
+        rotulo: item.razao_social,
+        descricao: `${formatarCnpjCpf(item.cnpj_cpf)} · ${item.uf}`,
+        termosBusca: item.cnpj_cpf,
+      })),
+    ],
+    [empresasDoEscritorio]
+  );
 
   const filtrados = useMemo(() => {
     const itens = alertas.dados?.itens ?? [];
@@ -100,8 +116,7 @@ export function Atencao() {
     })),
   ];
 
-  // Só os filtros da tela: a empresa global é contexto, não se limpa aqui.
-  const filtroAtivo = Boolean(nivel || categoria || busca || mostrarLidas);
+  const filtroAtivo = Boolean(nivel || categoria || empresa || busca || mostrarLidas);
 
   function marcarLida(alerta: AlertaItem) {
     setLidas((atual) => [alerta.id, ...atual.filter((id) => id !== alerta.id)].slice(0, LIMITE_LIDAS));
@@ -159,6 +174,15 @@ export function Atencao() {
             onChange={(evento) => definir({ categoria: evento.target.value || null })}
             opcoes={[{ valor: "", rotulo: "Todas as categorias" }, ...categorias]}
           />
+          <Combobox
+            rotulo="Empresa"
+            placeholder="Todas as empresas"
+            valor={empresa}
+            aoMudar={(valor) => definir({ empresa: valor || null })}
+            opcoes={opcoesEmpresa}
+            carregando={carregandoEmpresas}
+            vazio="Nenhuma empresa com esse nome ou CNPJ."
+          />
           <Alternador
             rotulo="Mostrar alertas lidos"
             descricao="Estado salvo neste navegador"
@@ -179,12 +203,12 @@ export function Atencao() {
             instrucao={
               mostrarLidas
                 ? "Todos os itens deste recorte já foram marcados como lidos neste navegador."
-                : "Ajuste o nível, a categoria, a empresa (barra acima) ou a busca para ver outros itens."
+                : "Ajuste o nível, a categoria, a empresa ou a busca para ver outros itens."
             }
             acao={
               <Botao
                 variante="secundaria"
-                onClick={() => definir({ nivel: null, categoria: null, busca: null, lidas: null })}
+                onClick={() => definir({ nivel: null, categoria: null, empresa: null, busca: null, lidas: null })}
                 iconeEsquerda={<Icone nome="remover" className="h-4 w-4" />}
               >
                 Limpar filtros

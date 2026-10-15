@@ -8,10 +8,17 @@ type ValorParametro = string | number | boolean | null | undefined;
 /**
  * URL como fonte da verdade de todo filtro, aba, ordenação e página.
  *
- * Duas decisões moram aqui:
+ * Três decisões moram aqui:
  *  - `router.replace` (nunca `push`): digitar num filtro não pode empilhar 40
  *    entradas de histórico e tornar o "voltar" inútil;
- *  - `scroll: false`: atualizar filtro não joga o operador para o topo da tela.
+ *  - `scroll: false`: atualizar filtro não joga o operador para o topo da tela;
+ *  - a base da escrita é a URL **viva** do navegador, não o snapshot do render.
+ *    Dois controles que escrevem em sequência no mesmo commit (um filtro da
+ *    tela e a competência do cabeçalho, por exemplo) partiriam ambos do mesmo
+ *    `parametros` antigo — e o segundo apagaria a mudança do primeiro, que
+ *    reescreveria de volta. Isso é um laço: a tela pisca e os números trocam
+ *    sozinhos. Ler `window.location` a cada escrita elimina a corrida, e a
+ *    escrita que não muda nada simplesmente não acontece.
  */
 export function useUrlEstado() {
   const router = useRouter();
@@ -20,7 +27,10 @@ export function useUrlEstado() {
 
   const definir = useCallback(
     (mudancas: Record<string, ValorParametro>, opcoes?: { preservar?: string[] }) => {
-      const proximos = new URLSearchParams(parametros.toString());
+      const vivo =
+        typeof window !== "undefined" && window.location.pathname === caminho ? window.location.search.replace(/^\?/, "") : "";
+      const base = vivo || parametros.toString();
+      const proximos = new URLSearchParams(base);
       if (opcoes?.preservar) {
         for (const chave of Object.keys(mudancas)) {
           if (!opcoes.preservar.includes(chave)) proximos.delete(chave);
@@ -32,6 +42,7 @@ export function useUrlEstado() {
         else proximos.set(chave, String(valor));
       }
       const texto = proximos.toString();
+      if (texto === base) return;
       router.replace(texto ? `${caminho}?${texto}` : caminho, { scroll: false });
     },
     [caminho, parametros, router]

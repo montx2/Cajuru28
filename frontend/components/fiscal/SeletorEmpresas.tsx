@@ -30,6 +30,9 @@ export interface SeletorEmpresasProps {
   /** Motivo de bloqueio por empresa — ex.: "Sem certificado A1". */
   bloqueios?: Map<number, string>;
   altura?: number;
+  /** Nomeia a lista para leitores de tela. Na tela o cabeçalho do cartão já
+   * repete o nome da lista ("Empresas"), então imprimi-lo aqui de novo só
+   * poluía a linha de cima — o que o operador precisa ver é a contagem. */
   rotulo?: string;
   filtros?: boolean;
   desabilitadas?: Set<number>;
@@ -114,13 +117,11 @@ export function SeletorEmpresas({
   }
 
   return (
-    <div className={cn("superficie-plana min-w-0 rounded-cartao", className)}>
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-traco bg-fundo-afundado px-3 py-2">
-        <p className="text-xs font-medium text-tinta">
-          {rotulo}
-          <span className="nums ml-2 font-normal text-tinta-suave">
-            {numero(selecionadas.size)} de {numero(empresas.length)} marcadas
-          </span>
+    <div className={cn("superficie-plana min-w-0 overflow-hidden rounded-cartao", className)}>
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-traco bg-fundo-afundado px-3 py-2">
+        <p className="min-w-0 text-xs text-tinta">
+          <span className="sr-only">{rotulo}: </span>
+          <span className="nums">{`${numero(selecionadas.size)} de ${numero(empresas.length)} marcadas`}</span>
         </p>
         {filtros ? (
           <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Filtrar empresas por situação">
@@ -144,9 +145,9 @@ export function SeletorEmpresas({
         ) : null}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 border-b border-traco px-3 py-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-2 border-b border-traco px-3 py-2">
         <Busca
-          className="min-w-48 flex-1"
+          className="min-w-0 flex-1 basis-56"
           tamanho="sm"
           valor={busca}
           aoMudar={setBusca}
@@ -156,6 +157,7 @@ export function SeletorEmpresas({
         />
         <Caixa
           compacta
+          className="max-w-full flex-none"
           rotulo={`Selecionar todas as ${visiveis.length} visíveis`}
           checked={visiveis.length > 0 && selecionadasVisiveis === visiveis.length}
           indeterminado={selecionadasVisiveis > 0 && selecionadasVisiveis < visiveis.length}
@@ -167,7 +169,7 @@ export function SeletorEmpresas({
       <div
         ref={corpo}
         onScroll={(evento) => setDeslocamento(evento.currentTarget.scrollTop)}
-        className="rolagem-fina overflow-y-auto"
+        className="rolagem-fina overflow-x-hidden overflow-y-auto"
         style={{ height: altura }}
         role="group"
         aria-label={`${numero(visiveis.length)} empresas listadas`}
@@ -189,7 +191,7 @@ export function SeletorEmpresas({
                   key={empresa.id}
                   style={{ height: ALTURA_LINHA }}
                   className={cn(
-                    "flex items-center gap-2 border-b border-traco px-2 last:border-0",
+                    "flex min-w-0 items-center gap-2 border-b border-traco px-2 last:border-0",
                     selecionadas.has(empresa.id) && "bg-acento-tenue/60",
                     desabilitada && "bg-fundo-afundado"
                   )}
@@ -202,13 +204,16 @@ export function SeletorEmpresas({
                     checked={selecionadas.has(empresa.id)}
                     disabled={desabilitada}
                     title={bloqueio ?? (empresa.ativa ? undefined : "Empresa inativa")}
-                    onChange={() => alternar(empresa.id, indice)}
+                    /* O clique é o dono da decisão — é ele que conhece o Shift.
+                       O `change` que vem atrás é o mesmo gesto, então não pode
+                       marcar duas vezes. Nada de `preventDefault`: numa caixa
+                       controlada isso deixa o desenho da caixa fora de sincronia
+                       com a seleção (a linha marcada aparecia desmarcada). */
                     onClick={(evento) => {
-                      if (evento.shiftKey) {
-                        evento.preventDefault();
-                        alternar(empresa.id, indice, ultimaMarcada ?? indice);
-                      }
+                      if (evento.shiftKey) alternar(empresa.id, indice, ultimaMarcada ?? indice);
+                      else alternar(empresa.id, indice);
                     }}
+                    onChange={() => undefined}
                   />
                   <span className="min-w-0 flex-1 truncate text-sm text-tinta" title={empresa.razao_social}>
                     {empresa.razao_social}
@@ -220,7 +225,9 @@ export function SeletorEmpresas({
                       <span className="sr-only">{bloqueio}</span>
                     </span>
                   ) : null}
-                  {situacao ? <IndicadorEstado {...situacao} variante="texto" className="w-40 flex-none" /> : null}
+                  {situacao ? (
+                    <IndicadorEstado {...situacao} variante="texto" className="w-28 flex-none sm:w-36 lg:w-40" />
+                  ) : null}
                 </li>
               );
             })}

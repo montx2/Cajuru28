@@ -492,40 +492,63 @@ export interface AlternadorProps {
   pendente?: boolean;
 }
 
+/**
+ * Interruptor de duas posições, no ritmo de um campo.
+ *
+ * Duas correções em relação à versão anterior, ambas de uso real:
+ *  - o rótulo vive na **mesma linha de rótulo dos campos vizinhos** e o
+ *    interruptor numa faixa de 40 px, como qualquer controle do produto. Na
+ *    grade de filtros ele estava na altura do rótulo do lado, desalinhado de
+ *    todo o resto e parecendo fora do lugar;
+ *  - o estado não depende de sutileza: **desligado** é a calha escura com o
+ *    botão cinza à esquerda; **ligado** é a calha cheia na cor de ação com o
+ *    botão escuro à direita. O botão nunca sai da calha — o deslocamento é
+ *    calculado dentro dela (3 px de folga de cada lado), não "a olho".
+ */
 export function Alternador({ rotulo, descricao, ligado, aoMudar, desabilitado, motivoDesabilitado, className, pendente }: AlternadorProps) {
+  const id = useId();
+  const idRotulo = `${id}-rotulo`;
+  const idApoio = `${id}-apoio`;
+
   return (
-    <div className={cn("flex items-start justify-between gap-4", className)}>
-      <div className="min-w-0">
-        <p id={`${rotulo.replace(/\s+/g, "-").toLowerCase()}-rotulo`} className="text-sm font-medium text-tinta">
+    <div className={cn("min-w-0", className)}>
+      <div className="mb-2 flex min-h-[18px] items-baseline gap-3">
+        <span id={idRotulo} className="text-xs font-medium text-tinta">
           {rotulo}
-        </p>
-        {descricao ? <p className="mt-0.5 text-xs leading-5 text-tinta-suave">{descricao}</p> : null}
-        {desabilitado && motivoDesabilitado ? (
-          <p className="mt-0.5 text-xs leading-5 text-tinta-suave">{motivoDesabilitado}</p>
+        </span>
+      </div>
+      <div className="flex min-h-[40px] items-center gap-3">
+        <button
+          type="button"
+          role="switch"
+          aria-checked={ligado}
+          aria-labelledby={idRotulo}
+          aria-describedby={descricao || motivoDesabilitado ? idApoio : undefined}
+          disabled={desabilitado}
+          onClick={() => aoMudar(!ligado)}
+          className={cn(
+            "relative h-6 w-11 flex-none rounded-full border transition-colors duration-120 ease-produto",
+            "disabled:cursor-not-allowed disabled:opacity-50",
+            ligado ? "border-acento bg-acento" : "border-traco-forte bg-fundo-afundado"
+          )}
+        >
+          <span
+            aria-hidden="true"
+            className={cn(
+              "absolute left-[3px] top-[3px] h-4 w-4 rounded-full transition-[transform,background-color] duration-120 ease-produto",
+              ligado ? "translate-x-5 bg-acento-contraste" : "translate-x-0 bg-tinta-suave"
+            )}
+          />
+          {pendente ? <span aria-hidden="true" className="absolute inset-0 animate-pulso rounded-full" /> : null}
+        </button>
+        {descricao || (desabilitado && motivoDesabilitado) ? (
+          <div id={idApoio} className="min-w-0 space-y-0.5">
+            {descricao ? <p className="text-xs leading-5 text-tinta-suave">{descricao}</p> : null}
+            {desabilitado && motivoDesabilitado ? <p className="text-xs leading-5 text-tinta-suave">{motivoDesabilitado}</p> : null}
+          </div>
         ) : null}
       </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={ligado}
-        aria-label={rotulo}
-        disabled={desabilitado}
-        onClick={() => aoMudar(!ligado)}
-        className={cn(
-          "relative mt-0.5 h-6 w-11 flex-none rounded-full border transition-colors duration-120 ease-produto",
-          "disabled:cursor-not-allowed disabled:opacity-50",
-          ligado ? "border-acento bg-acento" : "border-borda-controle bg-fundo-afundado"
-        )}
-      >
-        <span
-          aria-hidden="true"
-          className={cn(
-            "absolute top-1/2 h-4 w-4 -translate-y-1/2 rounded-full bg-superficie shadow-nivel1 transition-transform duration-120 ease-produto",
-            ligado ? "translate-x-6" : "translate-x-1"
-          )}
-        />
-        {pendente ? <span aria-hidden="true" className="absolute inset-0 animate-pulso rounded-full" /> : null}
-      </button>
     </div>
   );
 }
+

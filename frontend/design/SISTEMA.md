@@ -73,7 +73,7 @@ Cookie HttpOnly definido pela API. Zero token em JavaScript: nada em `localStora
 
 | Estado | Onde vive | Exemplo |
 |---|---|---|
-| Filtro, ordenação, aba, página, seleção de competência | **URL** (query) | `/dashboard/documentos?de=…&ate=…&tipo=55&ordem=valor&sentido=desc` |
+| Filtro, ordenação, aba, página, seleção de competência | **URL** (query) | `/dashboard/documentos?empresa=42&tipo=55&ordem=valor&sentido=desc` |
 | Busca textual | URL, com debounce de 300 ms | `?busca=padaria` |
 | Tema, densidade da tabela, colunas visíveis, sidebar colapsada | `localStorage`, prefixo `notasflow:` | preferência de trabalho, nunca credencial |
 | Dados do servidor | `useRecurso` | cache por tela, sem camada global |
@@ -204,11 +204,11 @@ Vazio com filtro ativo é outro estado: `filtroAtivo` + `aoLimparFiltro` oferece
 
 ### 7.2 `components/fiscal/` (domínio)
 
-`SeletorPeriodo` (com atalhos: mês atual, mês passado, últimos 3/6/12 — hoje só no disparo da Importação e no intervalo personalizado do Documentos) · `SeletorMes` (grade de meses, usado pela barra de contexto) · `SeletorEmpresas` · `MedidorNSU`/`ResumoNSU` · `CartaoAlerta` (com `destinoDoAlerta` e `rotuloDaAcao`) · `LinhaExecucao` · `CartaoCertificado` · `PainelDocumento` (detalhe, XML, download) · `ResumoImportacao` · `Graficos` (`GraficoBarras`, `GraficoDonut`, `Sparkline` — SVG puro, sem biblioteca). O antigo `SeletorCompetencia` foi removido: mês e empresa agora vivem na barra de contexto global (`ProvedorContexto` + `BarraContexto`, regras puras em `lib/contexto.ts`).
+`SeletorPeriodo` (com atalhos: mês atual, mês passado, últimos 3/6/12 — hoje só no disparo da Importação e no intervalo personalizado do Documentos) · `SeletorMes` (grade de meses; o modo `compacto` é o da competência no cabeçalho) · `SeletorEmpresas` · `MedidorNSU`/`ResumoNSU` · `CartaoAlerta` (com `destinoDoAlerta` e `rotuloDaAcao`) · `LinhaExecucao` · `CartaoCertificado` · `PainelDocumento` (detalhe, XML, download) · `ResumoImportacao` · `Graficos` (`GraficoBarras`, `GraficoDonut`, `Sparkline` — SVG puro, sem biblioteca). A **competência** (o mês de trabalho) é o único contexto global: vive no cabeçalho (`SeletorCompetencia` → `SeletorMes compacto`), no `ProvedorContexto` e nas regras puras de `lib/contexto.ts`. Empresa é filtro de tela — `?empresa=` em Documentos, Execuções e Atenção, com busca por nome/CNPJ no próprio campo — porque "qual empresa" muda de tela para tela e um seletor único no topo virava filtro invisível.
 
 ### 7.3 `components/shell/`
 
-`Shell` compõe a árvore de provedores nesta ordem: `ProvedorSessao` → `ProvedorAlertas` → `Toast` → `ProvedorAgora` → `ProvedorProgresso` → `ProvedorComandos`, e `ProvedorContexto` por dentro, envolvendo `BarraContexto` + conteúdo. Depois `Sidebar`, `Header`, `PaletaComandos`, `AtalhosTeclado`, `SeletorTema`, `BarraAtualizacao`. A ordem importa: sessão alimenta o menu, alertas alimentam o sino, e `ProvedorComandos` precisa estar por último para enxergar todos os contextos. O layout do dashboard é `force-dynamic`: shell autenticado com dados no cliente, sem pré-render.
+`Shell` compõe a árvore de provedores nesta ordem: `ProvedorSessao` → `ProvedorAlertas` → `Toast` → `ProvedorAgora` → `ProvedorProgresso` → `ProvedorComandos`, e `ProvedorContexto` por dentro, envolvendo **`Header` + conteúdo** (a competência é mostrada no cabeçalho e consumida pelas telas). Depois `Sidebar`, `Header`, `PaletaComandos`, `AtalhosTeclado`, `SeletorTema`, `BarraAtualizacao`. A ordem importa: sessão alimenta o menu, alertas alimentam o sino, e `ProvedorComandos` precisa estar por último para enxergar todos os contextos. O layout do dashboard é `force-dynamic`: shell autenticado com dados no cliente, sem pré-render.
 
 ### 7.4 Faça / não faça
 

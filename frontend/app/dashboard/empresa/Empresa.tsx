@@ -381,7 +381,7 @@ export function Empresa() {
         {aba === "documentos" ? (
           <Cartao
             titulo={`Documentos · ${rotuloPeriodo(periodo)}`}
-            descricao="Acervo capturado desta empresa no mês global (barra acima)"
+            descricao="Acervo capturado desta empresa na competência do cabeçalho"
           >
             <Tabela
               linhas={documentosNoPeriodo}

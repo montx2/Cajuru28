@@ -4,7 +4,7 @@ import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { contagem, contagemRegressiva, dataCurta, numero, tempoRelativo } from "@/lib/format";
+import { contagem, contagemRegressiva, dataCurta, formatarCnpjCpf, numero, tempoRelativo } from "@/lib/format";
 import { estadoDaExecucao, duracaoDaExecucao, execucaoEmAberto, orientacaoDaExecucao, SEM_FIM_REGISTRADO } from "@/lib/estados";
 import { MOTIVO_SOMENTE_LEITURA } from "@/lib/papel";
 import { ultimosMeses } from "@/lib/periodo";
@@ -24,6 +24,7 @@ import { Botao, BotaoLink } from "@/components/ui/Botao";
 import { BotaoIcone } from "@/components/ui/BotaoIcone";
 import { CabecalhoPagina } from "@/components/ui/Cartao";
 import { Busca, Selecao } from "@/components/ui/Campo";
+import { Combobox, type OpcaoCombobox } from "@/components/ui/Combobox";
 import { Dado } from "@/components/ui/Dado";
 import { DialogoConfirmacao } from "@/components/ui/DialogoConfirmacao";
 import { EsqueletoLista } from "@/components/ui/Esqueleto";
@@ -57,9 +58,10 @@ export function Execucoes() {
   const busca = useBuscaUrl();
 
   const aba = (ABAS_VALIDAS.find((valor) => valor === ler("aba")) ?? "agora") as AbaExecucao;
-  // Empresa global: a barra acima filtra esta e as outras telas de operação.
-  const { empresaId: empresaGlobal } = useContextoGlobal();
-  const empresaFiltro = empresaGlobal === null ? "" : String(empresaGlobal);
+  // Empresa é filtro desta tela (`?empresa=` na URL), com busca por nome ou
+  // CNPJ. A lista vem do shell, que já a busca uma vez para o app inteiro.
+  const { empresas: empresasDoEscritorio, carregandoEmpresas } = useContextoGlobal();
+  const empresaFiltro = /^\d+$/.test(ler("empresa")) ? ler("empresa") : "";
   const tipoFiltro = ler("tipo");
 
   const [densidade, setDensidade] = usePreferencia<DensidadeTabela>("execucoes-densidade", "confortavel");
@@ -84,6 +86,19 @@ export function Execucoes() {
       if (aba === "historico") historico.atualizar();
     },
     aoVivo > 0 ? 5_000 : 30_000
+  );
+
+  const opcoesEmpresa = useMemo<OpcaoCombobox[]>(
+    () => [
+      { valor: "", rotulo: "Todas as empresas" },
+      ...empresasDoEscritorio.map((item) => ({
+        valor: String(item.id),
+        rotulo: item.razao_social,
+        descricao: `${formatarCnpjCpf(item.cnpj_cpf)} · ${item.uf}`,
+        termosBusca: item.cnpj_cpf,
+      })),
+    ],
+    [empresasDoEscritorio]
   );
 
   const ordenacao: OrdenacaoTabela | null = useMemo(() => {
@@ -220,8 +235,7 @@ export function Execucoes() {
     [agora]
   );
 
-  // Só os filtros da tela: a empresa global é contexto, não se limpa aqui.
-  const filtroAtivo = Boolean(tipoFiltro || busca.valor);
+  const filtroAtivo = Boolean(tipoFiltro || empresaFiltro || busca.valor);
 
   const confirmarReprocessamento = useCallback(async () => {
     if (!reprocessar) return;
@@ -399,7 +413,7 @@ export function Execucoes() {
               vazioInstrucao:
                 aba === "erros"
                   ? "Nada falhou nas últimas execuções. Quando algo falhar, o motivo e o passo seguinte aparecem aqui."
-                  : "Ajuste a empresa na barra acima, o tipo ou a busca — ou dispare uma importação para gerar histórico.",
+                  : "Ajuste a empresa, o tipo ou a busca — ou dispare uma importação para gerar histórico.",
               vazioAcao:
                 aba === "erros" ? undefined : (
                   <BotaoLink variante="secundaria" href="/dashboard/importacoes">
@@ -410,7 +424,7 @@ export function Execucoes() {
               filtroAtivo,
               aoLimparFiltro: filtroAtivo
                 ? () => {
-                    definir({ tipo: null, busca: null });
+                    definir({ tipo: null, empresa: null, busca: null });
                     busca.aoMudar("");
                   }
                 : undefined,
@@ -418,6 +432,16 @@ export function Execucoes() {
             ferramentas={
               <div className="flex flex-wrap items-end gap-2">
                 <Busca rotuloVisivel rotulo="Buscar execução" placeholder="Empresa, tipo ou mensagem de erro" valor={busca.valor} aoMudar={busca.aoMudar} className="min-w-56 flex-1" />
+                <Combobox
+                  rotulo="Empresa"
+                  className="min-w-56 flex-1"
+                  placeholder="Todas as empresas"
+                  valor={empresaFiltro}
+                  aoMudar={(valor) => definir({ empresa: valor || null })}
+                  opcoes={opcoesEmpresa}
+                  carregando={carregandoEmpresas}
+                  vazio="Nenhuma empresa com esse nome ou CNPJ."
+                />
                 <Selecao
                   rotulo="Tipo"
                   className="w-40"

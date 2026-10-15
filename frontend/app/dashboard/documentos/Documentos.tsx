@@ -8,7 +8,7 @@ import {
   filtrosParaBaixarSelecao,
   filtrosParaBaixarTudoDoFiltro,
 } from "@/lib/exportacao-documentos";
-import { bytesParaTexto, chaveEmGrupos, contagem, dataCurta, horaCompleta, mesAno, numero, plural } from "@/lib/format";
+import { bytesParaTexto, chaveEmGrupos, contagem, dataCurta, formatarCnpjCpf, horaCompleta, mesAno, numero, plural } from "@/lib/format";
 import { alertasDoDocumento, estadoDoDocumento, operacaoDoDocumento, origemDaImportacao } from "@/lib/estados";
 import { rotulo as rotuloCompetencia } from "@/lib/competencia";
 import { mensagemDoErro } from "@/lib/erros";
@@ -35,6 +35,7 @@ import { Botao, BotaoLink } from "@/components/ui/Botao";
 import { Aviso } from "@/components/ui/Aviso";
 import { CabecalhoPagina, Cartao } from "@/components/ui/Cartao";
 import { Busca, Caixa, Entrada, Selecao } from "@/components/ui/Campo";
+import { Combobox, type OpcaoCombobox } from "@/components/ui/Combobox";
 import { Dado } from "@/components/ui/Dado";
 import { DialogoConfirmacao } from "@/components/ui/DialogoConfirmacao";
 import { Etiqueta } from "@/components/ui/Etiqueta";
@@ -70,8 +71,10 @@ const LEIAUTES: LeiauteDocumento[] = ["completo", "resumo", "metadados"];
  * Acervo de documentos: a tela de maior volume do produto.
  *
  * Três decisões que se explicam pelo uso real:
- *  1. empresa e mês vêm do contexto global (a barra acima da tela) — o
- *     intervalo personalizado, só desta tela, vive na URL e vence o mês;
+ *  1. o mês vem do contexto global (a competência no cabeçalho); a empresa e o
+ *     intervalo personalizado são filtros **desta tela**, na URL — o intervalo
+ *     vence o mês, e a empresa restringe o recorte inteiro (lista, seleção e
+ *     downloads);
  *  2. ordenação e seleção valem para as linhas **carregadas** — a API não ordena
  *     por parâmetro, e fingir que ordena o universo inteiro seria mentira;
  *  3. exclusão em massa exige digitar a palavra: é irreversível e apaga arquivo
@@ -101,7 +104,11 @@ export function Documentos() {
   const leiaute = ler("leiaute");
   const valorMin = ler("valor_min");
   const valorMax = ler("valor_max");
-  const empresa = contexto.empresaId ?? undefined;
+  // Empresa: filtro desta tela, com busca por nome ou CNPJ. Continua na URL
+  // (`?empresa=`) porque é assim que "ver os documentos desta empresa" chega
+  // aqui a partir da ficha e das execuções.
+  const empresaParametro = ler("empresa");
+  const empresa = /^\d+$/.test(empresaParametro) ? Number(empresaParametro) : undefined;
   const documentoAberto = lerNumero("doc") ?? null;
 
   const [densidade, setDensidade] = usePreferencia<DensidadeTabela>("documentos-densidade", "compacta");
@@ -148,6 +155,18 @@ export function Documentos() {
   const resumo = useRecurso(() => api.resumoDocumentos(filtros), [chaveFiltros], { automatico: pronto });
   // Empresas vêm do contexto (lista única do shell): nada de buscar de novo.
   const empresas = contexto.empresas;
+  const opcoesEmpresa = useMemo<OpcaoCombobox[]>(
+    () => [
+      { valor: "", rotulo: "Todas as empresas" },
+      ...empresas.map((item) => ({
+        valor: String(item.id),
+        rotulo: item.razao_social,
+        descricao: `${formatarCnpjCpf(item.cnpj_cpf)} · ${item.uf}`,
+        termosBusca: item.cnpj_cpf,
+      })),
+    ],
+    [empresas]
+  );
   // A captura em andamento é do recorte da tela: filtrando por uma empresa, o
   // aviso fala dela; sem filtro, fala do escritório.
   const captura = useRecurso(() => api.capturaAoVivo(empresa ? [empresa] : undefined), [empresa]);
@@ -250,12 +269,12 @@ export function Documentos() {
   const total = resumo.dados?.total ?? null;
   const totalSelecionavel = resumo.dados?.normais ?? null;
   const quantidadeSelecionada = todasDoFiltro ? totalSelecionavel ?? 0 : idsSelecionados.length;
-  const filtroAtivo = Boolean(tipo || direcao || status || leiaute || valorMin || valorMax || busca.valor.trim());
+  const filtroAtivo = Boolean(tipo || direcao || status || leiaute || valorMin || valorMax || busca.valor.trim() || empresa);
   // Tipo e operação são controles visíveis; o contador representa apenas os filtros do popover.
   const quantidadeFiltros = [status, leiaute, valorMin, valorMax].filter(Boolean).length;
 
   function hrefDoAcervo(mudancas: Record<string, string | null> = {}, remover: string[] = []) {
-    // Só o personalizado viaja no link: mês e empresa globais já estão na URL.
+    // Só o personalizado viaja no link: competência e empresa já estão na URL.
     return hrefComEstado(
       "/dashboard/documentos",
       parametros.toString(),
@@ -279,9 +298,9 @@ export function Documentos() {
   }
 
   function limparFiltros() {
-    // Limpa os filtros DA TELA: o contexto global (empresa + mês) é de outro
-    // dono e ninguém espera perdê-lo por limpar uma lista.
-    definir({ tipo: null, direcao: null, status: null, leiaute: null, valor_min: null, valor_max: null, busca: null, ordem: null, sentido: null });
+    // A competência é do cabeçalho e ninguém espera perdê-la por limpar uma
+    // lista; empresa e o resto são filtros desta tela e saem junto.
+    definir({ tipo: null, direcao: null, status: null, leiaute: null, valor_min: null, valor_max: null, empresa: null, busca: null, ordem: null, sentido: null });
     busca.aoMudar("");
   }
 
@@ -737,11 +756,9 @@ export function Documentos() {
         ) : pronto ? (
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm text-tinta-suave">
-              Seguindo o recorte global:{" "}
+              Competência:{" "}
               <span className="font-medium text-tinta">{rotuloCompetencia(contexto.mes || null)}</span>
-              {" · "}
-              <span className="font-medium text-tinta">{escopoEmpresa}</span>
-              <span className="text-tinta-fraca"> — mude na barra acima, vale para a lista, a seleção e os downloads.</span>
+              <span className="text-tinta-fraca"> — muda no cabeçalho e vale para a lista, a seleção e os downloads.</span>
             </p>
             <Botao tamanho="sm" variante="sutil" onClick={() => setMostrarIntervaloPersonalizado(true)}>
               Período personalizado
@@ -889,8 +906,8 @@ export function Documentos() {
           aoTentarNovamente: documentos.atualizar,
           vazioTitulo: pronto ? "Nenhum documento neste recorte" : "Escolha a competência para consultar",
           vazioInstrucao: pronto
-            ? "Nenhuma nota foi capturada para essa empresa, mês e filtros — confira a barra de contexto acima. Se o recorte estiver certo, dispare a importação."
-            : "Aguarde o recorte global carregar.",
+            ? "Nenhuma nota foi capturada para essa empresa, competência e filtros — ajuste a empresa acima. Se o recorte estiver certo, dispare a importação."
+            : "Aguarde a competência carregar.",
           vazioAcao: pronto ? (
             <BotaoLink variante="secundaria" href="/dashboard/importacoes">
               Disparar importação
@@ -909,6 +926,16 @@ export function Documentos() {
               valor={busca.valor}
               aoMudar={busca.aoMudar}
               className="w-full sm:min-w-64 sm:flex-1"
+            />
+            <Combobox
+              rotulo="Empresa"
+              placeholder="Todas as empresas"
+              valor={empresa ? String(empresa) : ""}
+              aoMudar={(valor) => definir({ empresa: valor || null, doc: null, pagina: null })}
+              opcoes={opcoesEmpresa}
+              carregando={contexto.carregandoEmpresas}
+              vazio="Nenhuma empresa com esse nome ou CNPJ."
+              className="w-full sm:min-w-56 sm:max-w-72 sm:flex-1"
             />
             <Popover
               rotulo="Filtros"
