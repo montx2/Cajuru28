@@ -150,8 +150,8 @@ export function Relatorios() {
 
       <div className="superficie-plana nao-imprimir flex flex-wrap items-center justify-between gap-3 rounded-cartao p-3">
         <p className="text-sm text-tinta-suave">
-          Competência global: <span className="font-medium text-tinta">{rotuloCompetencia(mes || null)}</span>
-          <span className="text-tinta-fraca"> — mude na barra acima.</span>
+          Competência: <span className="font-medium text-tinta">{rotuloCompetencia(mes || null)}</span>
+          <span className="text-tinta-fraca"> — mude no cabeçalho, ao lado da busca.</span>
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <Botao

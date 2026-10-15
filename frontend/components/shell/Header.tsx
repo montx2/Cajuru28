@@ -17,6 +17,7 @@ import { Popover, PopoverCabecalho } from "@/components/ui/Popover";
 import { Spinner } from "@/components/ui/Spinner";
 import { EstadoErro } from "@/components/ui/EstadoErro";
 import { SeletorTema } from "./SeletorTema";
+import { SeletorCompetencia } from "./SeletorCompetencia";
 import { useProgresso } from "./BarraAtualizacao";
 import { useAgora } from "./ProvedorAgora";
 import { useComandos } from "./ProvedorComandos";
@@ -24,11 +25,16 @@ import { useContagemAlertas } from "./ProvedorAlertas";
 import { useSessao } from "./ProvedorSessao";
 
 /**
- * Cabeçalho de 72 px: trilha, busca global, tema, alertas e usuário.
+ * Cabeçalho de 72 px: trilha, busca global, competência, tema, alertas e usuário.
  *
  * A "caixa de busca" abre a paleta em vez de ser um input solto: um campo que
  * não filtra nada ali seria controle morto, e a paleta já busca tela, empresa e
  * documento com o mesmo gesto (`Ctrl/⌘K`).
+ *
+ * A competência (o mês de trabalho) mora aqui, e não numa faixa própria abaixo
+ * do cabeçalho: é o único recorte que vale para o sistema inteiro, então fica à
+ * vista em todas as telas sem custar uma faixa inteira de altura em cada uma.
+ * Empresa não subiu junto — quem precisa dela tem o seu próprio filtro na tela.
  */
 export function Header({ aoAbrirMenu }: { aoAbrirMenu: () => void }) {
   const caminho = usePathname();
@@ -67,6 +73,8 @@ export function Header({ aoAbrirMenu }: { aoAbrirMenu: () => void }) {
       </button>
 
       <div className="ml-auto flex flex-none items-center gap-1 sm:gap-2">
+        <SeletorCompetencia />
+        <span aria-hidden="true" className="mx-0.5 hidden h-6 w-px flex-none bg-traco sm:block" />
         <span className="nums mr-2 hidden whitespace-nowrap text-xs text-tinta-suave 2xl:inline" title={ultimaAtualizacao ? new Date(ultimaAtualizacao).toLocaleString("pt-BR") : undefined}>
           {ultimaAtualizacao ? `Atualizado ${tempoRelativo(isoAtualizacao, agora)}` : ""}
         </span>

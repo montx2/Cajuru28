@@ -8,7 +8,6 @@ import { ProvedorComandos } from "./ProvedorComandos";
 import { ProvedorContexto } from "./ProvedorContexto";
 import { ProvedorProgresso } from "./BarraAtualizacao";
 import { ProvedorSessao } from "./ProvedorSessao";
-import { BarraContexto } from "./BarraContexto";
 import { Header } from "./Header";
 import { Sidebar } from "./Sidebar";
 import { ProvedorToast } from "@/components/ui/Toast";
@@ -19,6 +18,8 @@ import { ProvedorToast } from "@/components/ui/Toast";
  *
  * A ordem importa. `ProvedorComandos` lê o papel de `ProvedorSessao` para
  * decidir se `g u` (Equipe) existe para quem não é admin — por isso vem depois.
+ * `ProvedorContexto` fica por dentro e envolve cabeçalho + conteúdo: a
+ * competência é mostrada no cabeçalho e consumida pelas telas.
  */
 export function Shell({ children }: { children: ReactNode }) {
   const [menuAberto, setMenuAberto] = useState(false);
@@ -47,12 +48,13 @@ export function Shell({ children }: { children: ReactNode }) {
                   />
 
                   <div className="flex min-w-0 flex-1 flex-col">
-                    <Header aoAbrirMenu={() => setMenuAberto(true)} />
+                    {/* A competência vive no cabeçalho, então o provedor precisa
+                        envolver o `Header` — e não só o conteúdo. */}
                     <ProvedorContexto>
-                      <BarraContexto />
+                      <Header aoAbrirMenu={() => setMenuAberto(true)} />
                       <main id="conteudo" tabIndex={-1} className="min-w-0 flex-1 px-4 py-6 outline-none sm:px-6 sm:py-8 lg:px-8">
-                      <div className="mx-auto w-full max-w-conteudo">{children}</div>
-                    </main>
+                        <div className="mx-auto w-full max-w-conteudo">{children}</div>
+                      </main>
                     </ProvedorContexto>
                   </div>
                 </div>

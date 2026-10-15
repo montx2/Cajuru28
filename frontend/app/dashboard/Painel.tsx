@@ -295,8 +295,8 @@ export function Painel() {
           </h2>
           <p className="text-xs text-tinta-suave">
             {mesEmAndamento
-              ? "Mês global (barra acima) — cada valor compara a competência anterior; o mês em andamento ainda está recebendo documentos."
-              : "Mês global (barra acima) — cada valor compara a competência anterior."}
+              ? "Mês de trabalho (no cabeçalho) — cada valor compara a competência anterior; o mês em andamento ainda está recebendo documentos."
+              : "Mês de trabalho (no cabeçalho) — cada valor compara a competência anterior."}
           </p>
         </div>
         <GradeKpis itens={itens} colunas={3} rotulo={`Indicadores de ${rotuloCompetencia(mes)}`} />

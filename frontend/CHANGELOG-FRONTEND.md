@@ -1,5 +1,16 @@
 # Changelog do front-end
 
+## Competência no cabeçalho e empresa na tela — 15/10/2026
+
+- **A barra de contexto fixa saiu.** A empresa no topo não se sustentava: ela era um filtro global, invisível no conteúdo, disputando espaço com os seletores que cada tela já tem (Empresas, Certificados, Importações) — e o operador não conseguia relacionar "empresa do topo" com o que estava vendo.
+- **A competência (mês de trabalho) subiu para o cabeçalho**, ao lado da busca, visível em todas as telas e sem custar uma faixa inteira de altura. Mesmo componente da grade de meses (`SeletorMes compacto`), agora com atalhos "Mês anterior" e "Mês atual" dentro da camada.
+- **Empresa virou filtro de tela**, com busca por nome ou CNPJ: `?empresa=` em Documentos, Execuções e Atenção. Os links que já existiam (`/dashboard/documentos?empresa=42`, `/dashboard/execucoes?empresa=42`) continuam funcionando, e a Importação segue com a seleção própria (`?empresa_ids=`).
+- **Bug do laço corrigido na raiz.** Havia dois donos para a mesma URL: o provedor espelhava o estado de volta para `?empresa=`/`?mes=` enquanto as telas escreviam os mesmos parâmetros com outra intenção — cada um desfazia o outro, e a tela piscava trocando os números. Agora o provedor só **lê** a URL (a escrita é ato do operador) e toda escrita parte da URL viva do navegador, não do snapshot do render. Dois testes de regressão cobrem os dois mecanismos.
+- **Interruptor corrigido.** O botão saía da calha quando ligado e o desenho desligado se confundia com o ligado. Agora desligado é calha neutra com botão cinza à esquerda e ligado é calha cheia na cor de ação com botão escuro à direita, sempre dentro da calha — e o controle passou a ter a mesma linha de rótulo (18 px) e a mesma faixa de 40 px dos campos vizinhos, o que conserta o alinhamento nas grades de filtro.
+- **Seletor de empresas (Importações) não vaza mais pela borda.** A linha de situação ganhou largura responsiva (128 px, 144 px em `sm`, 160 px em `lg`) e o cartão passa a recortar no raio (`overflow-hidden`): a busca pode encolher (`flex-1 basis-56`, sem `min-width` fixa), a lista nunca abre rolagem horizontal e o realce da linha não quadra mais o canto do cartão. A contagem da lista virou uma linha só — "1 de 207 marcadas" — porque o nome "Empresas" já está no cabeçalho do cartão logo acima.
+- **Bug do Shift corrigido**: marcar um intervalo com Shift deixava a caixa da linha clicada desenhada como desmarcada. O `preventDefault` no clique de uma caixa controlada brigava com o React; o clique passou a ser o dono da decisão (ele é quem conhece o Shift) e o `change` que vem atrás não marca duas vezes.
+- Validação: 36 suítes / 241 testes frontend passaram; TypeScript e build de produção passaram.
+
 ## Contexto global — 13/10/2026
 
 - Nova barra de contexto fixa abaixo do cabeçalho: empresa (com busca por nome/CNPJ) e mês com navegação ‹ › valem para o sistema inteiro até o operador mudar ali. O recorte persiste no navegador, viaja na URL (`?empresa=&mes=`) e links com esses parâmetros adotam o recorte ao abrir.

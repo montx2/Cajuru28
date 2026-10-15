@@ -236,7 +236,7 @@ export function Importacoes() {
             disabled={somenteLeitura || desabilitadas.has(estado.empresa_id)}
             title={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : desabilitadas.has(estado.empresa_id) ? bloqueios.get(estado.empresa_id) : "Selecionar só esta empresa"}
             onClick={() => {
-              definir({ empresa_ids: String(estado.empresa_id), empresa_id: null, empresa: null });
+              definir({ empresa_ids: String(estado.empresa_id), empresa_id: null });
               topo.current?.scrollIntoView({ behavior: "smooth", block: "start" });
             }}
           >
