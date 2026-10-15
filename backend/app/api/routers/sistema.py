@@ -16,6 +16,8 @@ from app.core.plural import contagem
 from app.core.config import settings
 from app.models import (
     AcessoriasCredencial,
+    JettaxCredencial,
+    JettaxExecucao,
     BackupRegistro,
     Certificado,
     DocumentoFiscal,
@@ -255,7 +257,10 @@ def reset_geral(
             )
             .first()
         )
-        if em_andamento:
+        if em_andamento or db.query(JettaxExecucao.id).filter(
+            JettaxExecucao.escritorio_id == escritorio_id,
+            JettaxExecucao.status.in_(("pendente", "em_andamento")),
+        ).first():
             raise HTTPException(
                 status_code=409,
                 detail="Há importação em andamento. Aguarde terminar ou repita com forcar=true para zerar mesmo assim.",
@@ -276,6 +281,7 @@ def reset_geral(
 
     if empresa_ids:
         ids_documentos = select(DocumentoFiscal.id).where(DocumentoFiscal.empresa_id.in_(empresa_ids))
+        db.query(JettaxExecucao).filter(JettaxExecucao.empresa_id.in_(empresa_ids), JettaxExecucao.escritorio_id == escritorio_id).delete(synchronize_session=False)
         db.query(EventoFiscalPendente).filter(EventoFiscalPendente.empresa_id.in_(empresa_ids)).delete(synchronize_session=False)
         db.query(DocumentoFiscalFonte).filter(DocumentoFiscalFonte.documento_id.in_(ids_documentos)).delete(synchronize_session=False)
         db.query(DocumentoFiscal).filter(DocumentoFiscal.empresa_id.in_(empresa_ids)).delete(synchronize_session=False)
@@ -286,6 +292,7 @@ def reset_geral(
 
     integracoes = 0
     if remover_integracoes:
+        integracoes += db.query(JettaxCredencial).filter_by(escritorio_id=escritorio_id).delete(synchronize_session=False)
         integracoes += db.query(AcessoriasCredencial).filter(AcessoriasCredencial.escritorio_id == escritorio_id).delete(synchronize_session=False)
         integracoes += db.query(CredencialIntegracao).filter(CredencialIntegracao.escritorio_id == escritorio_id).delete(synchronize_session=False)
 

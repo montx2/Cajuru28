@@ -79,6 +79,13 @@ class Settings(BaseSettings):
     # Ambiente fiscal dos importadores: "producao" | "homologacao"
     ambiente_fiscal: str = "producao"
 
+    # ---------------- Integração Jettax Morfeu 360 ----------------
+    # URL base oficial da API (host fixo validado pelo cliente).
+    jettax_base_url: str = "https://morfeu.jettax360.com.br"
+    jettax_timeout_segundos: float = 30.0
+    jettax_intervalo_segundos: float = 2.0
+    jettax_max_paginas: int = 500
+
     # Observabilidade: produção usa JSON para permitir correlação entre API,
     # worker e proxy sem precisar acessar o banco manualmente.
     log_level: str = "INFO"

@@ -1,5 +1,6 @@
 "use client";
 
+import { JettaxIntegracao } from "./JettaxIntegracao";
 import { useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
@@ -215,6 +216,8 @@ function AbaIntegracoes({
           {motivoBloqueio} Os status abaixo refletem o que está configurado no servidor.
         </Aviso>
       ) : null}
+
+      <JettaxIntegracao admin={admin} somenteLeitura={somenteLeitura} />
 
       <Cartao
         titulo="Acessórias"

@@ -162,7 +162,8 @@ def _para_datetime(valor: str) -> datetime | None:
 
 
 def gravar_documento(
-    db: Session, empresa: Empresa, tipo: TipoDocumentoFiscal, doc: DocumentoBaixado, nome_arquivo: str
+    db: Session, empresa: Empresa, tipo: TipoDocumentoFiscal, doc: DocumentoBaixado, nome_arquivo: str,
+    *, origem: str = "xml"
 ) -> str:
     """importado | completada | duplicada | sem_chave | sem_data.
 
@@ -178,7 +179,7 @@ def gravar_documento(
         DocumentoFiscal.empresa_id == empresa.id, DocumentoFiscal.chave_acesso == chave,
     ).with_for_update().first()
     if existente is not None:
-        registrar_proveniencia(db, existente.id, "xml", nome_arquivo)
+        registrar_proveniencia(db, existente.id, origem, nome_arquivo)
         if existente.tipo == tipo and existente.leiaute == "resumo" and doc.leiaute == "completo":
             # `_sobrescrever_xml` recusa payload que não seja a nota inteira
             # (ex.: um resNFe rotulado como completo): nesse caso a nota segue
@@ -196,7 +197,7 @@ def gravar_documento(
         return "sem_data"
     doc = replace(doc, chave_acesso=chave, data_emissao=data_emissao)
     criado = _gravar_documento(db, empresa.id, tipo, doc,
-        origem="xml", identificador_externo=nome_arquivo, nsu_registro="manual")
+        origem=origem, identificador_externo=nome_arquivo, nsu_registro="manual" if origem == "xml" else origem)
     if criado:
         _aplicar_eventos_pendentes(db, empresa.id, tipo, chave)
         return "importado"
