@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { mesAtual, paraAPI } from "./competencia";
 import { PERIODO_VAZIO, intervaloDoMes, periodoPadrao, periodoValido, type Periodo } from "./periodo";
 import { useUrlEstado } from "./urlEstado";
 
@@ -77,38 +76,3 @@ export function usePeriodoUrl(padrao: () => Periodo = periodoPadrao): PeriodoUrl
   return { periodo, aoMudar, pronto: periodoValido(periodo) };
 }
 
-export interface CompetenciaUrl {
-  /** Formato interno `AAAA-MM` — a mesma língua do seletor de competência. */
-  mes: string;
-  /** Formato da API: `MM/AAAA`. */
-  competencia: string | undefined;
-  aoMudar: (mes: string) => void;
-  pronto: boolean;
-}
-
-/** Competência vivida na URL (`?mes=AAAA-MM`), com tradução para `MM/AAAA`. */
-export function useCompetenciaUrl(): CompetenciaUrl {
-  const { parametros, assinatura, definir } = useUrlEstado();
-  const [montado, setMontado] = useState(false);
-
-  useEffect(() => {
-    setMontado(true);
-  }, []);
-
-  const daUrl = useMemo(() => {
-    const valor = parametros.get("mes") ?? "";
-    return /^\d{4}-\d{2}$/.test(valor) ? valor : "";
-  }, [assinatura, parametros]);
-
-  useEffect(() => {
-    if (montado && !daUrl) definir({ mes: mesAtual() });
-  }, [daUrl, definir, montado]);
-
-  const mes = daUrl || (montado ? mesAtual() : "");
-  return {
-    mes,
-    competencia: paraAPI(mes || null),
-    aoMudar: useCallback((proximo: string) => definir({ mes: proximo, pagina: null }), [definir]),
-    pronto: mes !== "",
-  };
-}

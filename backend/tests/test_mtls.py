@@ -8,7 +8,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.x509.oid import NameOID
 
-from app.services.mtls import obter_cnpj_do_certificado, obter_validade_certificado, sessao_mtls
+from app.services.mtls import sessao_mtls
 
 SENHA_TESTE = "senha-do-certificado-fake"
 
@@ -42,16 +42,6 @@ def pfx_fake() -> bytes:
         cas=None,
         encryption_algorithm=serialization.BestAvailableEncryption(SENHA_TESTE.encode()),
     )
-
-
-def test_obter_validade_le_a_data_correta_do_certificado(pfx_fake):
-    validade = obter_validade_certificado(pfx_fake, SENHA_TESTE)
-    dias_restantes = (validade - datetime.now(timezone.utc)).days
-    assert 360 <= dias_restantes <= 366
-
-
-def test_obter_cnpj_do_certificado_usa_parser_de_identidade(pfx_fake):
-    assert obter_cnpj_do_certificado(pfx_fake, SENHA_TESTE) == "12345678000195"
 
 
 def test_sessao_mtls_gera_e_depois_remove_os_arquivos_temporarios(pfx_fake):

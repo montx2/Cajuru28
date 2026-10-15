@@ -16,7 +16,6 @@ import stat
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
 
 from cryptography.hazmat.primitives.serialization import (
     Encoding,
@@ -24,31 +23,6 @@ from cryptography.hazmat.primitives.serialization import (
     PrivateFormat,
     pkcs12,
 )
-
-
-def obter_validade_certificado(pfx_bytes: bytes, senha: str) -> datetime:
-    """Lê a data de validade (notAfter) direto do X.509 dentro do .pfx."""
-    _, cert, _ = pkcs12.load_key_and_certificates(pfx_bytes, senha.encode())
-    if cert is None:
-        raise ValueError("Certificado não encontrado dentro do .pfx — arquivo inválido?")
-    return cert.not_valid_after_utc if hasattr(cert, "not_valid_after_utc") else cert.not_valid_after.replace(
-        tzinfo=timezone.utc
-    )
-
-
-def obter_cnpj_do_certificado(pfx_bytes: bytes, senha: str) -> str:
-    """Lê CNPJ do A1 sem remover letras de identificadores alfanuméricos.
-
-    O parser de identidade conhece os OIDs ICP-Brasil e somente devolve um
-    CNPJ validado. CPF é um certificado válido para outros usos, mas não é
-    um CNPJ utilizável nas integrações fiscais desta função.
-    """
-    # Import tardio evita acoplamento no caminho quente de criação do contexto
-    # mTLS e mantém um único parser da identidade do certificado.
-    from app.services.certificados import extrair_identidade
-
-    identidade = extrair_identidade(pfx_bytes, senha)
-    return identidade.documento if len(identidade.documento) == 14 else ""
 
 
 @contextmanager

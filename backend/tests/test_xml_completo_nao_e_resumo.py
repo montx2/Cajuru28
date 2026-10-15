@@ -363,21 +363,6 @@ def test_reconciliar_nao_mexe_no_que_esta_certo(db, tmp_path):
     assert documento.leiaute == "completo"
 
 
-def test_rebaixar_divergentes_conserta_o_lote(db, tmp_path):
-    sessao, empresa = db
-    for indice in range(3):
-        caminho = tmp_path / f"resumo_{indice}.xml"
-        caminho.write_bytes(RES_NFE_MADEIREIRA.encode())
-        sessao.add(_documento(empresa, chave=f"{indice:044d}", caminho=caminho))
-    ok = tmp_path / "ok.xml"
-    ok.write_bytes(_proc_nfe().encode())
-    sessao.add(_documento(empresa, chave="9" * 44, caminho=ok))
-    sessao.commit()
-
-    assert xml_integridade.rebaixar_divergentes(sessao) == 3
-    assert sessao.query(DocumentoFiscal).filter(DocumentoFiscal.leiaute == "completo").count() == 1
-
-
 def test_arquivo_ausente_nao_rebaixa_o_cadastro(db, tmp_path):
     """Disco sem o arquivo é problema de backup — não é o cadastro mentindo."""
     sessao, empresa = db

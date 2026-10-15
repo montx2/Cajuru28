@@ -1,5 +1,13 @@
 # Changelog do front-end
 
+## Contexto global — 13/10/2026
+
+- Nova barra de contexto fixa abaixo do cabeçalho: empresa (com busca por nome/CNPJ) e mês com navegação ‹ › valem para o sistema inteiro até o operador mudar ali. O recorte persiste no navegador, viaja na URL (`?empresa=&mes=`) e links com esses parâmetros adotam o recorte ao abrir.
+- Documentos, Painel, Fechamento, Empresas, Empresa, Execuções e Atenção leem o contexto; os seletores locais duplicados foram removidos. O intervalo personalizado do Documentos continua local e vence o mês global só naquela tela; o período do disparo da Importação também segue local (é parâmetro de ação, não filtro de visão).
+- Na ficha da empresa o seletor vira navegação ("ver outra empresa") em vez de filtro. "Limpar filtros" das telas não apaga mais o contexto global.
+- Removidos `SeletorCompetencia` e `useCompetenciaUrl` (mortos após a migração); layout do dashboard virou `force-dynamic`.
+- Validação: TypeScript e build de produção passaram; 32 suítes / 225 testes frontend passaram (11 novos do contexto global).
+
 ## Acervo fiscal — 07/10/2026
 
 - Filtros de tipo e operação agora ficam sempre visíveis e podem ser combinados: NF-e, NFS-e/serviço, CT-e, entrada/tomada e saída/prestada. A seleção continua na URL e vale para resumo, lista e exportação.

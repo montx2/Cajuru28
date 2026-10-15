@@ -237,7 +237,7 @@ def test_656_vira_aguardando_e_reagenda_para_depois_da_janela(ambiente):
 
     assert execucao.status == StatusExecucao.AGUARDANDO
     assert rota.call_count == 1
-    assert "Consumo Indevido" in (execucao.mensagem_erro or "")
+    assert "656" in (execucao.mensagem_erro or "")
     # agendado para ~1h à frente (e não para "agora", que renovaria o bloqueio)
     assert len(ambiente["reagendamentos"]) == 1
     quando = ambiente["reagendamentos"][0][1]
@@ -348,6 +348,73 @@ def test_paginacao_ate_maxnsu_guarda_todas_as_notas_e_fica_em_dia(ambiente):
     assert sessao.query(DocumentoFiscal).count() == 2
     # em dia ⇒ a janela de 1h entra sozinha, sem o operador pensar nisso
     assert estado.proxima_consulta_em is not None
+
+
+@respx.mock
+def test_656_na_primeira_vez_explica_que_a_janela_e_de_outro_sistema(ambiente):
+    """A janela de 1h é por CNPJ, não por sistema: 656 sem nunca termos
+    consultado só pode ser consumo alheio — e a mensagem diz isso."""
+    sessao = ambiente["sessao"]
+    respx.post(URL_NFE).mock(
+        return_value=httpx.Response(
+            200,
+            content=_soap(
+                "656",
+                "Rejeicao: Consumo Indevido (Deve ser aguardado 1 hora para efetuar nova solicitacao)",
+                "000000000000777",
+                "000000000000800",
+            ),
+        )
+    )
+
+    tasks.importar_documentos(
+        empresa_id=ambiente["empresa_id"], tipo="nfe", execucao_id=ambiente["execucao_id"]
+    )
+    sessao.expire_all()
+
+    execucao = sessao.get(ExecucaoImportacao, ambiente["execucao_id"])
+    mensagem = execucao.mensagem_erro or ""
+    assert execucao.status == StatusExecucao.AGUARDANDO
+    assert "Outro sistema consultou este CNPJ" in mensagem
+    assert "por CNPJ, não por sistema" in mensagem
+
+
+@respx.mock
+def test_656_repetido_aponta_disputa_de_janela(ambiente):
+    """Segundo 656 seguido: a mensagem muda de 'culpa genérica' para disputa."""
+    sessao = ambiente["sessao"]
+    estado = sincronizacao.obter_estado(sessao, ambiente["empresa_id"], TipoDocumentoFiscal.NFE)
+    estado.max_nsu = "800"  # já consultamos antes: não é "primeira vez"
+    estado.bloqueios_seguidos = 1
+    sessao.commit()
+    respx.post(URL_NFE).mock(
+        return_value=httpx.Response(
+            200,
+            content=_soap(
+                "656",
+                "Rejeicao: Consumo Indevido (Deve ser aguardado 1 hora para efetuar nova solicitacao)",
+                "000000000000777",
+                "000000000000800",
+            ),
+        )
+    )
+
+    tasks.importar_documentos(
+        empresa_id=ambiente["empresa_id"], tipo="nfe", execucao_id=ambiente["execucao_id"]
+    )
+    sessao.expire_all()
+
+    execucao = sessao.get(ExecucaoImportacao, ambiente["execucao_id"])
+    assert execucao.status == StatusExecucao.AGUARDANDO
+    assert "janela segue ocupada" in (execucao.mensagem_erro or "")
+
+
+def test_margem_padrao_e_curta_para_disputar_cada_janela():
+    """A margem sobre a hora oficial é pequena de propósito: com margem longa
+    o Fluxa chegava sistematicamente atrasado às janelas disputadas com outro
+    sistema no mesmo CNPJ — e cada atraso vira um 656 a mais."""
+    assert config.settings.margem_cooldown_minutos <= 2
+    assert sincronizacao.cooldown_oficial() == timedelta(hours=1, minutes=2)
 
 
 @respx.mock

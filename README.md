@@ -76,13 +76,7 @@ Depois, use:
 - `PARAR.bat` para parar;
 - `ATUALIZAR.bat` para atualizar e reconstruir.
 
-### Linux/macOS
-
-```bash
-./INSTALAR_TUDO.sh
-```
-
-Ou manualmente:
+### Instalação manual (qualquer SO com Docker)
 
 ```bash
 cp backend/.env.example backend/.env
@@ -107,13 +101,15 @@ Acesse:
 ## Comandos úteis
 
 ```bash
-make up       # constrói e inicia
-make down     # para os serviços
-make logs     # acompanha logs
-make user     # cria o usuário inicial
-make test     # executa os testes dentro do contêiner da API
-make build    # constrói as imagens
+docker compose up --build -d              # constrói e inicia
+docker compose down                       # para os serviços
+docker compose logs -f api worker frontend  # acompanha logs
+docker compose exec api pytest -q         # testes dentro do contêiner da API
+docker compose build                      # constrói as imagens
 ```
+
+(O usuário inicial é criado automaticamente na primeira subida — veja
+`BOOTSTRAP_*` em `scripts/instalar_windows.ps1`.)
 
 ## Serviços e dados
 

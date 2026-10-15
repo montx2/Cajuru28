@@ -1,6 +1,10 @@
 import type { ReactNode } from "react";
 import { Shell } from "@/components/shell/Shell";
 
+/* Shell autenticado com dados 100% no cliente: pré-renderizar a casca não compra
+   nada e a barra de contexto lê a URL (`useSearchParams`) já no layout. */
+export const dynamic = "force-dynamic";
+
 /**
  * Layout do workspace.
  *

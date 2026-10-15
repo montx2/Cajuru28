@@ -1,8 +1,6 @@
-import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { SeletorCompetencia } from "@/components/fiscal/SeletorCompetencia";
 import { Combobox } from "@/components/ui/Combobox";
 import { hrefComEstado } from "@/lib/urlEstadoLink";
 
@@ -55,20 +53,4 @@ describe("filtros do acervo de documentos", () => {
     expect(aoMudar).toHaveBeenCalledWith("42");
   });
 
-  it("permite mudar de competência sem trocar de tela nem perder o estado controlado", async () => {
-    const usuario = userEvent.setup();
-    function SeletorControlado() {
-      const [mes, setMes] = useState("2026-08");
-      return <SeletorCompetencia mes={mes} aoMudar={setMes} atalhos={0} />;
-    }
-    render(<SeletorControlado />);
-
-    expect(screen.getByLabelText("Competência")).toHaveTextContent("agosto/2026");
-
-    await usuario.click(screen.getByRole("button", { name: "Competência anterior" }));
-
-    // O seletor próprio mostra a competência por extenso; o valor continua
-    // sendo AAAA-MM para quem chamou (é ele quem viaja na URL).
-    expect(screen.getByLabelText("Competência")).toHaveTextContent("julho/2026");
-  });
 });

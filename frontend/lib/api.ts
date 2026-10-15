@@ -24,7 +24,10 @@ import type {
   KpisDashboard,
   LoteEmpresasResposta,
   PainelOperacional,
+  PendenciasXml,
+  PenteFinoResposta,
   CapturaAoVivo,
+  TermometroResposta,
   CentralExecucoes,
   RegistroAuditoria,
   ResetGeralResposta,
@@ -35,6 +38,7 @@ import type {
   ImportacaoXmlResposta,
   ResumoCertificado,
   ResumoDocumentos,
+  ResumoLacunasNSU,
   ResumoSincronizacao,
   StatusDocumentoFiscal,
   TipoBreakdown,
@@ -495,6 +499,39 @@ export const api = {
   completarXmls: (empresaId?: number, limite = 20) =>
     chamar<{ disparado: boolean; aviso: string }>(
       `/documentos/completar-xmls${montarParams({ empresa_id: empresaId, limite })}`,
+      { method: "POST" }
+    ),
+
+  /** Tudo que ainda não virou XML completo no recorte — e a saída de cada grupo. */
+  pendenciasXml: (filtros: {
+    empresa_id?: number;
+    empresa_ids?: string;
+    tipo?: TipoDocumentoFiscal;
+    competencia?: string;
+    data_inicio?: string;
+    data_fim?: string;
+  } = {}) => chamar<PendenciasXml>(`/documentos/pendencias-xml${montarParams(filtros)}`),
+
+  /** NSUs pulados por outro sistema no mesmo CNPJ — cada um pode ser uma nota. */
+  lacunasNsu: (empresaId?: number) =>
+    chamar<ResumoLacunasNSU>(`/importacoes/lacunas${montarParams({ empresa_id: empresaId })}`),
+
+  /** Auditoria de 1 clique da competência — leitura pura, sem gastar cota. */
+  penteFino: (competencia: string, empresaId?: number) =>
+    chamar<PenteFinoResposta>(
+      `/documentos/pente-fino${montarParams({ competencia, empresa_id: empresaId })}`
+    ),
+
+  /** Quantas notas o mês deveria ter, pela mediana do histórico. */
+  termometro: (competencia: string, empresaId?: number) =>
+    chamar<TermometroResposta>(
+      `/documentos/termometro${montarParams({ competencia, empresa_id: empresaId })}`
+    ),
+
+  /** Manda o worker ler os NSUs pulados pela consulta pontual (consNSU). */
+  preencherLacunas: (empresaId?: number, limite = 40) =>
+    chamar<{ disparado: boolean; aviso: string }>(
+      `/importacoes/lacunas/preencher${montarParams({ empresa_id: empresaId, limite })}`,
       { method: "POST" }
     ),
 

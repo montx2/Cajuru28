@@ -17,7 +17,7 @@ import datetime
 import io
 import re
 import unicodedata
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from rapidfuzz import fuzz
 
@@ -26,9 +26,6 @@ from app.core.documentos import (
     validar_documento,
 )
 from app.core.nomes import AUTORIDADES_CERTIFICADORAS, nome_usavel
-
-if TYPE_CHECKING:
-    from app.services.certificados import IdentidadeCertificado
 
 LEGAL_SUFFIXES = {
     "LTDA", "ME", "EPP", "EIRELI", "MEI", "SA", "S A", "SS", "SLU",
@@ -940,17 +937,11 @@ def ler_planilha_csv(
     )
 
 
-def ler_planilha(conteudo: bytes, nome_arquivo: str = "") -> dict[str, dict]:
-    """Detecta automaticamente formato Excel ou CSV e devolve dicionário por CNPJ."""
-    por_cnpj, _ = ler_planilha_linhas(conteudo, nome_arquivo)
-    return por_cnpj
-
-
 def ler_planilha_linhas(
     conteudo: bytes,
     nome_arquivo: str = "",
 ) -> tuple[dict[str, dict], list[dict]]:
-    """Como `ler_planilha`, mais as linhas que têm senha mas nenhum documento.
+    """Lê a planilha e devolve (por_cnpj, linhas sem documento).
 
     Essas linhas não criam empresa — só servem para abrir o .pfx cujo nome foi
     escrito na planilha (`certificado-novo.pfx;MinhaSenha@2026`).

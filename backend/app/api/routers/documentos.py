@@ -60,11 +60,17 @@ from app.schemas import (
     ResultadoManifestacaoConclusiva,
     EmpresaResumoDocumentos,
     EstimativaExportacao,
+    PendenciaXmlEmpresa,
+    PendenciasXmlResposta,
+    PenteFinoResposta,
     ResumoDocumentos,
     ResultadoExclusaoDocumentos,
+    TermometroResposta,
 )
+from app.services.pente_fino import auditar_competencia, termometro
 from app.services.periodo import (
     PeriodoInvalido,
+    interpretar_competencia,
     interpretar_periodo,
     interpretar_periodo_obrigatorio,
 )
@@ -477,6 +483,145 @@ def resumo_por_empresa(
             )
         )
     return saida
+
+@router.get("/pendencias-xml", response_model=PendenciasXmlResposta)
+def pendencias_xml(
+    empresa_id: int | None = None,
+    empresa_ids: str | None = Query(default=None, description="1,2,3 — vazio = todas"),
+    tipo: TipoDocumentoFiscal | None = None,
+    competencia: str | None = Query(default=None, description=DESCRICAO_COMPETENCIA),
+    data_inicio: str | None = Query(default=None, description="Data inicial — 01/08/2026 ou 2026-08-01"),
+    data_fim: str | None = Query(default=None, description="Data final — 31/08/2026 ou 2026-08-31"),
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+):
+    """
+    Tudo que ainda não virou XML completo — e qual é a saída de cada grupo.
+
+    O período aqui é OPCIONAL (sem ele, vale tudo que está pendente): resumo
+    não vence, e a tela de importações precisa do número total para o botão
+    "buscar XMLs completos". Quando o mês vem, o recorte é o mesmo da listagem.
+    """
+    try:
+        periodo = interpretar_periodo(competencia, data_inicio, data_fim)
+    except PeriodoInvalido as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    ids = _ids_empresas_do_escritorio(
+        db, escritorio_id=escritorio_id, empresa_id=empresa_id, empresa_ids=empresa_ids
+    )
+    vazio = PendenciasXmlResposta()
+    if not ids:
+        return vazio
+    inicio = periodo.inicio if periodo.definido else None
+    fim = periodo.fim if periodo.definido else None
+    base = _filtrar(
+        db.query(DocumentoFiscal).join(Empresa).filter(Empresa.escritorio_id == escritorio_id),
+        ids=ids,
+        tipo=tipo,
+        leiaute="resumo",
+        inicio=inicio,
+        fim=fim,
+    )
+    sem_ciencia = (DocumentoFiscal.manifestado_em.is_(None)) & (DocumentoFiscal.manifestacao_erro.is_(None))
+    erro_outro = (DocumentoFiscal.manifestacao_erro.isnot(None)) & (DocumentoFiscal.manifestacao_cstat != "596")
+    linhas = (
+        base.with_entities(
+            DocumentoFiscal.empresa_id,
+            func.count(DocumentoFiscal.id),
+            func.sum(case((sem_ciencia, 1), else_=0)),
+            func.sum(case((DocumentoFiscal.manifestado_em.isnot(None), 1), else_=0)),
+            func.sum(case((DocumentoFiscal.manifestacao_cstat == "596", 1), else_=0)),
+            func.sum(case((erro_outro, 1), else_=0)),
+        )
+        .group_by(DocumentoFiscal.empresa_id)
+        .all()
+    )
+    if not linhas:
+        return vazio
+
+    nomes = {
+        empresa.id: empresa.razao_social
+        for empresa in db.query(Empresa).filter(Empresa.id.in_([linha[0] for linha in linhas])).all()
+    }
+    ids_por_empresa: dict[int, list[int]] = {}
+    for doc_id, emp_id in (
+        base.with_entities(DocumentoFiscal.id, DocumentoFiscal.empresa_id)
+        .filter(DocumentoFiscal.manifestacao_cstat == "596")
+        .order_by(DocumentoFiscal.data_emissao.asc())
+        .limit(100)
+        .all()
+    ):
+        ids_por_empresa.setdefault(emp_id, []).append(doc_id)
+
+    por_empresa = [
+        PendenciaXmlEmpresa(
+            empresa_id=emp_id,
+            razao_social=nomes.get(emp_id, f"Empresa {emp_id}"),
+            resumos=total or 0,
+            aguardando_manifestacao=aguard or 0,
+            manifestados_sem_xml=manif or 0,
+            com_erro_596=erro596 or 0,
+            outros_erros=outros or 0,
+            ids_596=ids_por_empresa.get(emp_id, []),
+        )
+        for emp_id, total, aguard, manif, erro596, outros in linhas
+    ]
+    por_empresa.sort(key=lambda item: (-item.resumos, item.razao_social))
+    return PendenciasXmlResposta(
+        total_resumos=sum(item.resumos for item in por_empresa),
+        aguardando_manifestacao=sum(item.aguardando_manifestacao for item in por_empresa),
+        manifestados_sem_xml=sum(item.manifestados_sem_xml for item in por_empresa),
+        com_erro_596=sum(item.com_erro_596 for item in por_empresa),
+        outros_erros=sum(item.outros_erros for item in por_empresa),
+        por_empresa=por_empresa,
+    )
+
+
+@router.get("/pente-fino", response_model=PenteFinoResposta)
+def pente_fino(
+    competencia: str = Query(description=DESCRICAO_COMPETENCIA),
+    empresa_id: int | None = None,
+    empresa_ids: str | None = Query(default=None, description="1,2,3 — vazio = todas"),
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+):
+    """
+    Auditoria de 1 clique da competência: cruza o mês contra o histórico e
+    devolve checklist de fechamento + achados (saltos de numeração, valores
+    anômalos, horários atípicos, estreantes, sumidos, erros 596).
+    Leitura pura — não consulta a SEFAZ.
+    """
+    try:
+        periodo = interpretar_competencia(competencia)
+    except PeriodoInvalido as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    ids = _ids_empresas_do_escritorio(
+        db, escritorio_id=escritorio_id, empresa_id=empresa_id, empresa_ids=empresa_ids
+    )
+    return auditar_competencia(db, escritorio_id, periodo.inicio, ids)
+
+
+@router.get("/termometro", response_model=TermometroResposta)
+def termometro_fechamento(
+    competencia: str = Query(description=DESCRICAO_COMPETENCIA),
+    empresa_id: int | None = None,
+    empresa_ids: str | None = Query(default=None, description="1,2,3 — vazio = todas"),
+    db: Session = Depends(get_db),
+    escritorio_id: int = Depends(escritorio_id_atual),
+):
+    """
+    “Quantas notas este mês deveria ter?” — mediana dos últimos 6 meses por
+    tipo, proporcional ao dia corrido quando o mês ainda está aberto.
+    """
+    try:
+        periodo = interpretar_competencia(competencia)
+    except PeriodoInvalido as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    ids = _ids_empresas_do_escritorio(
+        db, escritorio_id=escritorio_id, empresa_id=empresa_id, empresa_ids=empresa_ids
+    )
+    return termometro(db, escritorio_id, periodo.inicio, ids)
+
 
 @router.get("/exportar/estimativa", response_model=EstimativaExportacao)
 def estimativa_exportacao(
@@ -1761,9 +1906,8 @@ def detalhe_documento(
         **DocumentoFiscalResposta.model_validate(documento).model_dump(),
         empresa_razao_social=empresa.razao_social if empresa else "",
         empresa_cnpj=empresa.cnpj_cpf if empresa else "",
-        empresa_uf=empresa.uf if empresa else "",
-        importado_em=documento.importado_em,
-        xml_disponivel=xml_disponivel,
+            empresa_uf=empresa.uf if empresa else "",
+            xml_disponivel=xml_disponivel,
         xml_bytes=tamanho,
         execucao_id=execucao.id if execucao else None,
         fontes=[DocumentoFonteResposta.model_validate(fonte) for fonte in fontes],

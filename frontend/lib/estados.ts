@@ -1,5 +1,5 @@
 import type { NomeIcone } from "@/components/ui/Icone";
-import { contagem, contagemRegressiva, numero, tempoDecorrido, tempoRelativo } from "./format";
+import { contagem, numero, tempoDecorrido, tempoRelativo } from "./format";
 import type {
   DocumentoFiscal,
   EstadoSincronizacao,
@@ -310,11 +310,13 @@ export function estadoDaSincronizacao(estado: EstadoSincronizacao, agora = Date.
       absoluto: estado.motivo_bloqueio ?? undefined,
     };
   }
-  const liberacao = contagemRegressiva(estado.liberacao_em, agora);
-  if (estado.bloqueado_ate || liberacao) {
+  // Aguardar a janela é rotina automática — não um chamado. Por isso o selo é
+  // neutro e curto: o "quando" já mora na coluna de próxima consulta. Âmbar
+  // aqui, repetido por linha, virava uma parede de alerta para nada fazer.
+  if (estado.bloqueado_ate || estado.liberacao_em) {
     return {
-      tom: "espera",
-      rotulo: liberacao ? `Na janela · libera ${liberacao}` : estado.liberacao_rotulo || "Na janela da SEFAZ",
+      tom: "neutro",
+      rotulo: "Aguardando janela",
       icone: "ampulheta",
       absoluto: estado.liberacao_em ?? estado.bloqueado_ate ?? undefined,
     };
@@ -361,7 +363,53 @@ export function estadoDoDocumento(documento: Pick<DocumentoFiscal, "status" | "l
   if (documento.leiaute === "metadados") {
     return { tom: "espera", rotulo: "Sem XML da fonte", icone: "documento" };
   }
-  return { tom: "neutro", rotulo: "Normal", icone: "verificar" };
+  return { tom: "ok", rotulo: "Autorizada", icone: "verificar-circulo" };
+}
+
+export interface AlertaDocumento {
+  quantidade: number;
+  motivos: string[];
+}
+
+/**
+ * Alertas de UMA nota — a coluna ALERTAS da lista.
+ *
+ * Conta o que impede a nota de ser escriturada hoje: resumo sem XML, recusa
+ * de manifestação (com destaque para o 596, que muda a saída) e cancelamento.
+ * Nota autorizada e completa tem zero — e zero não é link, é descanso.
+ */
+export function alertasDoDocumento(
+  documento: Pick<DocumentoFiscal, "status" | "leiaute" | "manifestacao_erro" | "manifestacao_cstat" | "manifestado_em">
+): AlertaDocumento {
+  const motivos: string[] = [];
+  if (documento.status === "cancelada") {
+    motivos.push("Nota cancelada pelo emitente");
+  }
+  if (documento.leiaute === "resumo") {
+    motivos.push("Só o resumo chegou — o XML completo ainda não foi capturado");
+  } else if (documento.leiaute === "metadados") {
+    motivos.push("A fonte não forneceu XML — só metadados");
+  }
+  if (documento.manifestacao_cstat === "596") {
+    motivos.push("Passou dos 10 dias da Ciência — precisa de manifestação conclusiva");
+  } else if (documento.manifestacao_erro) {
+    motivos.push("A SEFAZ recusou a manifestação desta nota");
+  } else if (documento.leiaute === "resumo" && !documento.manifestado_em) {
+    motivos.push("Aguardando Ciência da Operação para liberar o XML");
+  }
+  return { quantidade: motivos.length, motivos };
+}
+
+/** Entrada = tomada (recebida) · Saída = prestada (emitida). */
+export function operacaoDoDocumento(direcao: DocumentoFiscal["direcao"]): "Entrada" | "Saída" {
+  return direcao === "prestada" ? "Saída" : "Entrada";
+}
+
+/** Como a nota entrou: SEFAZ/ADN é captura automática, XML é envio manual. */
+export function origemDaImportacao(origem: string | null | undefined): "Automática" | "Manual" {
+  const bruto = (origem ?? "").trim().toLowerCase();
+  if (bruto === "xml" || bruto === "manual") return "Manual";
+  return "Automática";
 }
 
 /* ── Fechamento, backup e integrações ────────────────────────────────────── */
@@ -408,4 +456,95 @@ export function estadoDeIntegracao(status: string | null | undefined): EstadoVis
     return { tom: "espera", rotulo: status as string, icone: "ampulheta" };
   }
   return { tom: "neutro", rotulo: status as string, icone: "info" };
+}
+
+/* ── Jornada da nota ─────────────────────────────────────────────────────── */
+
+export type EstadoEtapaJornada = "feita" | "pendente" | "falha";
+
+export interface EtapaJornada {
+  codigo: "emissao" | "captura" | "ciencia" | "xml" | "cancelamento";
+  rotulo: string;
+  quando: string | null;
+  estado: EstadoEtapaJornada;
+  detalhe?: string;
+}
+
+export interface EntradaJornada {
+  data_emissao: string;
+  direcao?: string | null;
+  importado_em?: string | null;
+  manifestado_em?: string | null;
+  manifestacao_erro?: string | null;
+  leiaute?: string | null;
+  status?: string | null;
+  cancelado_em?: string | null;
+  motivo_cancelamento?: string | null;
+}
+
+/**
+ * Linha do tempo da nota: emissão → captura → ciência → XML (→ cancelamento).
+ * Nas prestadas a Ciência não existe (a empresa é o emitente) e a etapa sai.
+ */
+export function jornadaDoDocumento(doc: EntradaJornada): EtapaJornada[] {
+  const etapas: EtapaJornada[] = [
+    { codigo: "emissao", rotulo: "Emitida", quando: doc.data_emissao, estado: "feita" },
+    {
+      codigo: "captura",
+      rotulo: "Capturada",
+      quando: doc.importado_em ?? null,
+      estado: doc.importado_em ? "feita" : "pendente",
+      detalhe: doc.importado_em ? undefined : "Ainda não entrou no acervo",
+    },
+  ];
+  if ((doc.direcao ?? "tomada") === "tomada") {
+    etapas.push({
+      codigo: "ciencia",
+      rotulo: "Ciência da operação",
+      quando: doc.manifestado_em ?? null,
+      estado: doc.manifestado_em ? "feita" : doc.manifestacao_erro ? "falha" : "pendente",
+      detalhe: doc.manifestado_em
+        ? undefined
+        : doc.manifestacao_erro
+          ? "A SEFAZ recusou — ver detalhe"
+          : "Libera o XML completo na SEFAZ",
+    });
+  }
+  const completo = (doc.leiaute ?? "completo") === "completo";
+  etapas.push({
+    codigo: "xml",
+    rotulo: "XML completo",
+    quando: completo ? (doc.importado_em ?? null) : null,
+    estado: completo ? "feita" : "pendente",
+    detalhe: completo ? undefined : "Só o resumo chegou até agora",
+  });
+  if ((doc.status ?? "") === "cancelada") {
+    etapas.push({
+      codigo: "cancelamento",
+      rotulo: "Cancelada",
+      quando: doc.cancelado_em ?? null,
+      estado: "feita",
+      detalhe: doc.motivo_cancelamento ?? undefined,
+    });
+  }
+  return etapas;
+}
+
+export interface JanelaCancelamento {
+  /** Fim da janela de 24 h em ms. */
+  ate: number;
+  aberta: boolean;
+  /** Quanto falta (0 se encerrada), em ms. */
+  restaMs: number;
+}
+
+/**
+ * A NF-e pode ser cancelada pelo emitente em até 24 h da autorização. Dentro
+ * da janela, escriturar é arriscado — a nota pode sumir; fora dela, é pedra.
+ */
+export function janelaDeCancelamento(dataEmissaoIso: string, agoraMs: number): JanelaCancelamento {
+  const emissaoMs = new Date(dataEmissaoIso).getTime();
+  const ate = emissaoMs + 24 * 3_600_000;
+  const restaMs = Math.max(0, ate - agoraMs);
+  return { ate, aberta: restaMs > 0, restaMs };
 }

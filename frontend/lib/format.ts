@@ -111,6 +111,15 @@ export function horaMinuto(iso: string | null | undefined): string {
   return `${String(data.getHours()).padStart(2, "0")}:${String(data.getMinutes()).padStart(2, "0")}`;
 }
 
+/** Só a hora, com segundos: 14:32:07 — a segunda linha das colunas de data. */
+export function horaCompleta(iso: string | null | undefined): string {
+  const data = normalizarData(iso);
+  if (!data) return AUSENTE;
+  return `${String(data.getHours()).padStart(2, "0")}:${String(data.getMinutes()).padStart(2, "0")}:${String(
+    data.getSeconds()
+  ).padStart(2, "0")}`;
+}
+
 /**
  * Instante a partir de ISO vindo da API.
  *

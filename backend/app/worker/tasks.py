@@ -68,6 +68,7 @@ from app.models import (
     Empresa,
     EventoFiscalPendente,
     ExecucaoImportacao,
+    LacunaNSU,
     StatusDocumentoFiscal,
     StatusExecucao,
     TipoDocumentoFiscal,
@@ -487,6 +488,12 @@ def tratar_consumo_indevido(
     2. o que já tinha baixado fica commitado (checkpoint por lote), então a
        retomada continua exatamente de onde parou.
     """
+    # "Primeira vez e já bloqueada" só acontece por um motivo: OUTRO sistema
+    # consumiu a hora deste CNPJ. A janela de 1h é por CNPJ, não por sistema —
+    # e como este estado nunca recebeu uma resposta (sem maxNSU), o 656 não
+    # pode ter sido causado por nós. Capturado ANTES do realinhamento, que
+    # pode adotar o maxNSU vindo na própria resposta do 656.
+    primeira_vez = sincronizacao.nunca_consultado(estado)
     quando = sincronizacao.marcar_consumo_indevido(
         db,
         estado,
@@ -502,16 +509,41 @@ def tratar_consumo_indevido(
     db.commit()
 
     execucao.ultimo_nsu = estado.ultimo_nsu
+    if primeira_vez:
+        causa = (
+            "Outro sistema consultou este CNPJ na última hora (cStat 656) — a "
+            "janela de 1h é por CNPJ, não por sistema, então até a primeira "
+            "consulta daqui cai dentro dela. "
+        )
+    elif (estado.bloqueios_seguidos or 0) >= 2:
+        causa = (
+            "A janela segue ocupada (cStat 656) — provavelmente outro sistema "
+            "disputa este CNPJ a cada hora. "
+        )
+    else:
+        causa = (
+            f"{erro.ambiente} respondeu consumo indevido (cStat {erro.cstat}): "
+            f"{erro.motivo} "
+        )
     mensagem = (
-        f"{erro.ambiente} bloqueou este CNPJ por consumo indevido (cStat {erro.cstat}): "
-        f"{erro.motivo} "
-        f"Nova tentativa automática em {quando:%d/%m/%Y às %H:%M}. "
+        causa
+        + f"Nova tentativa automática em {quando:%d/%m/%Y às %H:%M}. "
         "Nada foi perdido: o que já baixou está gravado e a retomada continua do checkpoint."
     )
     if erro.motivo and "ultNSU" in erro.motivo:
         mensagem += " O cursor foi realinhado com o NSU informado pelo próprio ambiente."
     _marcar_aguardando(db, execucao, mensagem, quando)
     fila_reagendar(db, execucao, quando, motivo=mensagem)
+    # O realinhamento pode ter pulado NSUs (outro sistema no mesmo CNPJ). Os
+    # pulos viraram lacunas registradas — agenda o preenchimento pontual para
+    # quando a janela abrir, junto com a retomada da varredura.
+    try:
+        atraso = max(60, int((quando - _agora()).total_seconds()))
+        preencher_lacunas_nsu.apply_async(
+            kwargs={"empresa_id": execucao.empresa_id}, countdown=atraso
+        )
+    except Exception:  # noqa: BLE001 — sem broker o Beat assume no próximo tick
+        pass
 
 
 def tratar_ambiente_indisponivel(
@@ -1072,6 +1104,16 @@ def sincronizar_tudo(self) -> dict:
                 completar_xmls_pendentes.delay()
             except Exception:  # noqa: BLE001
                 pass
+        if (
+            db.query(LacunaNSU.id)
+            .filter(LacunaNSU.resolvida.is_(False), LacunaNSU.tentativas < 10)
+            .first()
+            is not None
+        ):
+            try:
+                preencher_lacunas_nsu.delay()
+            except Exception:  # noqa: BLE001
+                pass
         return resumo
     except Exception as exc:  # noqa: BLE001 — o tick do agendador nunca derruba o beat
         log.exception("Agendador falhou: %s", exc)
@@ -1095,14 +1137,22 @@ def _hora_de_tentar_completar(documento: DocumentoFiscal, *, agora: datetime | N
     A consulta pontual por chave é limitada por CNPJ, não por nota. Sem espaçar,
     as mesmas notas tentadas na rodada anterior consomem a cota inteira e as
     notas novas — as que ainda estão dentro do prazo de 10 dias da Ciência —
-    nunca chegam a ser manifestadas. O intervalo dobra a cada tentativa, até 24h.
+    nunca chegam a ser manifestadas.
+
+    Depois da Ciência registrada o XML costuma liberar em minutos/horas: o teto
+    aqui é 4h para a nota manifestada (era 24h — e era essa espera que mandava o
+    operador baixar a nota à mão em outro sistema) e 6h para a ainda não
+    manifestada.
     """
     tentativas = int(documento.tentativas_completar or 0)
     ultima = _consciente(documento.ultima_tentativa_completar_em)
     if tentativas <= 0 or ultima is None:
         return True
     agora = agora or _agora()
-    horas = min(2 ** (tentativas - 1), 24)
+    if documento.manifestado_em is not None:
+        horas = min(max(tentativas, 1), 4)
+    else:
+        horas = min(2 ** (tentativas - 1), 6)
     return agora - ultima >= timedelta(hours=horas)
 
 
@@ -1337,6 +1387,162 @@ def completar_xmls_pendentes(self, empresa_id: int | None = None, limite: int | 
     except Exception as exc:  # noqa: BLE001
         db.rollback()
         log.exception("completar_xmls_pendentes falhou: %s", exc)
+        return {"erro": str(exc)[:500], **resultado}
+    finally:
+        db.close()
+
+
+@celery_app.task(name="preencher_lacunas_nsu", bind=True, max_retries=0)
+def preencher_lacunas_nsu(self, empresa_id: int | None = None, limite: int | None = None) -> dict:
+    """
+    Lê os NSUs que foram pulados por outro sistema no mesmo CNPJ.
+
+    Quando dois importadores varrem o mesmo certificado (ex.: este sistema e o
+    JetTax), o cursor local fica para trás e o realinhamento pula NSUs — cada
+    um pode ser uma nota da competência. Esta task busca cada NSU pulado pela
+    consulta pontual (`consNSU`, cota oficial de 20/h por CNPJ), que lê aquele
+    NSU específico sem mexer no cursor da varredura normal.
+
+    Roda sozinha no agendador; o botão "buscar notas puladas" da tela chama a
+    mesma task para uma empresa só.
+    """
+    db = SessionLocal()
+    resultado = {
+        "preenchidas": 0,
+        "documentos": 0,
+        "eventos": 0,
+        "sem_cota": 0,
+        "aguardando_janela": 0,
+        "empresas": 0,
+        "erros": [],
+    }
+    limite_total = max(1, min(100, int(limite or 40)))
+    try:
+        batimento.registrar(db, "worker", "preencher_lacunas_nsu")
+        consulta = db.query(LacunaNSU).filter(
+            LacunaNSU.resolvida.is_(False),
+            LacunaNSU.tentativas < 10,
+        )
+        if empresa_id is not None:
+            consulta = consulta.filter(LacunaNSU.empresa_id == empresa_id)
+        pendentes = (
+            consulta.order_by(LacunaNSU.empresa_id, LacunaNSU.tipo, LacunaNSU.nsu)
+            .limit(limite_total * 3)
+            .all()
+        )
+        if not pendentes:
+            return resultado
+
+        por_empresa_tipo: dict[tuple[int, TipoDocumentoFiscal], list[LacunaNSU]] = {}
+        for lacuna in pendentes:
+            por_empresa_tipo.setdefault((lacuna.empresa_id, lacuna.tipo), []).append(lacuna)
+
+        for (id_empresa, tipo_doc), lacunas in por_empresa_tipo.items():
+            if resultado["preenchidas"] + resultado["sem_cota"] >= limite_total:
+                break
+            empresa = db.get(Empresa, id_empresa)
+            if empresa is None or not empresa.ativa:
+                continue
+            certificado = (
+                db.query(Certificado)
+                .filter(Certificado.empresa_id == id_empresa, Certificado.ativo.is_(True))
+                .first()
+            )
+            if certificado is None:
+                continue
+            estado = sincronizacao.obter_estado(db, id_empresa, tipo_doc)
+            if estado is None:
+                continue
+            liberacao = sincronizacao.liberacao_para(db, id_empresa, tipo_doc)
+            if liberacao.bloqueado:
+                # 656 real: qualquer consulta ao CNPJ renova o bloqueio.
+                resultado["aguardando_janela"] += len(lacunas)
+                continue
+            if not sincronizacao.travar(db, estado):
+                db.commit()
+                continue
+            resultado["empresas"] += 1
+            try:
+                db.commit()
+                importador = obter_importador(tipo_doc)
+                senha = decifrar_segredo(certificado.senha_cifrada)
+                pfx_bytes = ler_pfx_protegido(certificado.arquivo_path)
+                with sessao_mtls(pfx_bytes, senha) as (cert_path, key_path):
+                    for lacuna in lacunas:
+                        if resultado["preenchidas"] + resultado["sem_cota"] >= limite_total:
+                            break
+                        if sincronizacao.cota_pontual_disponivel(db, estado) <= 0:
+                            resultado["sem_cota"] += 1
+                            continue
+                        lacuna.tentativas = (lacuna.tentativas or 0) + 1
+                        try:
+                            if tipo_doc == TipoDocumentoFiscal.NFSE:
+                                doc = importador.buscar_por_nsu(
+                                    cnpj=empresa.cnpj_cpf,
+                                    cert_path=cert_path,
+                                    key_path=key_path,
+                                    nsu=lacuna.nsu,
+                                    uf=empresa.uf,
+                                )
+                                if doc is not None:
+                                    if not _promover_resumo(db, id_empresa, tipo_doc, doc):
+                                        if _gravar_documento(db, id_empresa, tipo_doc, doc):
+                                            resultado["documentos"] += 1
+                                            _aplicar_eventos_pendentes(db, id_empresa, tipo_doc, doc.chave_acesso)
+                            else:
+                                lote = importador.buscar_lote_por_nsu(
+                                    cnpj=empresa.cnpj_cpf,
+                                    cert_path=cert_path,
+                                    key_path=key_path,
+                                    nsu=lacuna.nsu,
+                                    uf=empresa.uf,
+                                )
+                                for doc in lote.documentos:
+                                    if _promover_resumo(db, id_empresa, tipo_doc, doc):
+                                        continue
+                                    if _gravar_documento(db, id_empresa, tipo_doc, doc):
+                                        resultado["documentos"] += 1
+                                        _aplicar_eventos_pendentes(db, id_empresa, tipo_doc, doc.chave_acesso)
+                                for evento in lote.eventos:
+                                    if _processar_evento(db, id_empresa, tipo_doc, evento) == "aplicado":
+                                        resultado["eventos"] += 1
+                        except ConsumoIndevido as exc:
+                            sincronizacao.consumir_cota_pontual(db, estado)
+                            if exc.ultimo_nsu:
+                                sincronizacao.realinhar_cursor(
+                                    db, estado, ultimo_nsu=exc.ultimo_nsu, max_nsu=exc.max_nsu
+                                )
+                            sincronizacao.marcar_consumo_indevido(
+                                db, estado, motivo=f"consNSU: {exc.motivo}",
+                                bloqueio=getattr(exc, "bloqueio", None),
+                            )
+                            db.commit()
+                            break
+                        except AmbienteIndisponivel as exc:
+                            lacuna.erro = f"Ambiente indisponível: {str(exc)[:200]}"
+                            db.commit()
+                            break
+                        except Exception as exc:  # noqa: BLE001 — um NSU ruim não trava a fila
+                            lacuna.erro = str(exc)[:500]
+                            resultado["erros"].append(f"NSU {lacuna.nsu}: {str(exc)[:150]}")
+                            db.commit()
+                            continue
+
+                        sincronizacao.consumir_cota_pontual(db, estado)
+                        lacuna.resolvida = True
+                        lacuna.resolvida_em = _agora()
+                        lacuna.erro = None
+                        resultado["preenchidas"] += 1
+                        db.commit()
+                        time.sleep(ESPERA_ENTRE_LOTES)
+            finally:
+                sincronizacao.liberar(db, estado)
+                db.commit()
+
+        return resultado
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        log.exception("preencher_lacunas_nsu falhou: %s", exc)
         return {"erro": str(exc)[:500], **resultado}
     finally:
         db.close()

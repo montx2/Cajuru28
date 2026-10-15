@@ -6,8 +6,6 @@
 ATUALIZAR.bat
 ```
 
-No Linux/macOS: `./ATUALIZAR.sh`
-
 Leva 1–3 minutos. Você **não** precisa rodar `INSTALAR_TUDO.bat` de novo —
 esse é só para a primeira vez, num PC que ainda não tem Docker e Python.
 

@@ -92,6 +92,109 @@ export interface DocumentoFiscal {
    * `resNFe` só destrava com uma manifestação CONCLUSIVA (210200/210220/210240).
    */
   manifestacao_cstat?: string | null;
+  /** Quando a nota entrou no acervo — a coluna IMPORTAÇÃO da lista. */
+  importado_em?: string | null;
+}
+
+/** Um NSU pulado por outro sistema no mesmo CNPJ, aguardando leitura pontual. */
+export interface LacunaNSU {
+  empresa_id: number;
+  empresa_razao_social: string;
+  tipo: TipoDocumentoFiscal;
+  nsu: string;
+  tentativas: number;
+  erro: string | null;
+  criado_em: string | null;
+}
+
+export interface ResumoLacunasNSU {
+  total: number;
+  empresas: number;
+  por_empresa: LacunaNSU[];
+}
+
+/** Notas em resumo de UMA empresa: o que falta e qual é a saída. */
+export interface PendenciaXmlEmpresa {
+  empresa_id: number;
+  razao_social: string;
+  resumos: number;
+  aguardando_manifestacao: number;
+  manifestados_sem_xml: number;
+  com_erro_596: number;
+  outros_erros: number;
+  /** Amostra de ids com 596 para a ação em lote (no máximo 100). */
+  ids_596: number[];
+}
+
+export interface PendenciasXml {
+  total_resumos: number;
+  aguardando_manifestacao: number;
+  manifestados_sem_xml: number;
+  com_erro_596: number;
+  outros_erros: number;
+  por_empresa: PendenciaXmlEmpresa[];
+}
+
+/** Um cruzamento do pente-fino: o que falta, o que destoa, o que trava o mês. */
+export type CodigoAchado =
+  | "salto_sequencia"
+  | "emitente_estreante"
+  | "valor_anomalo"
+  | "horario_atipico"
+  | "sem_xml"
+  | "erro_596"
+  | "emitente_sumido"
+  | "cancelada_no_mes";
+
+export type SeveridadeAchado = "alta" | "media" | "baixa";
+
+export interface AchadoPenteFino {
+  codigo: CodigoAchado;
+  severidade: SeveridadeAchado;
+  titulo: string;
+  detalhe: string;
+  documento_id: number | null;
+  documento_numero: string | null;
+  empresa_id: number | null;
+  empresa_razao: string | null;
+  emitente_nome: string | null;
+}
+
+export interface ItemChecklistFechamento {
+  codigo: string;
+  rotulo: string;
+  ok: boolean;
+  detalhe: string;
+}
+
+export interface PenteFinoResposta {
+  competencia: string;
+  empresa_id: number | null;
+  total_documentos: number;
+  pronta_para_fechar: boolean;
+  checklist: ItemChecklistFechamento[];
+  achados: AchadoPenteFino[];
+}
+
+export type EstadoTermometro = "sem_historico" | "abaixo" | "no_ritmo" | "acima";
+
+export interface TermometroTipo {
+  tipo: string;
+  capturadas: number;
+  esperadas_min: number;
+  esperadas_max: number;
+  mediana: number;
+  percentual: number;
+  estado: EstadoTermometro;
+}
+
+export interface TermometroResposta {
+  competencia: string;
+  empresa_id: number | null;
+  dia: number;
+  dias_no_mes: number;
+  tipos: TermometroTipo[];
+  total_capturadas: number;
 }
 
 /** Manifestações conclusivas: encerram a nota e liberam o XML completo. */

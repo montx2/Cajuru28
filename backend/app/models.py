@@ -400,6 +400,41 @@ class EventoFiscalPendente(Base):
     documento: Mapped[Optional["DocumentoFiscal"]] = relationship()
 
 
+class LacunaNSU(Base):
+    """
+    NSU pulado que ainda não foi lido — a prova de que falta nota.
+
+    Acontece quando outro sistema (ou outra janela) consulta o mesmo CNPJ: o
+    cursor local fica para trás e, ao realinhar com o `ultNSU` que o ambiente
+    devolveu, os NSUs do meio seriam perdidos para sempre — a SEFAZ não
+    reapresenta NSU já entregue no fluxo normal. Cada lacuna é preenchida pela
+    consulta pontual (`consNSU`), que busca aquele NSU específico sem mexer no
+    cursor, respeitando a cota oficial.
+    """
+
+    __tablename__ = "lacunas_nsu"
+    __table_args__ = (
+        UniqueConstraint(
+            "empresa_id",
+            "tipo",
+            "nsu",
+            name="uq_lacuna_nsu_por_empresa",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id"), index=True)
+    tipo: Mapped[TipoDocumentoFiscal] = mapped_column(Enum(TipoDocumentoFiscal))
+    nsu: Mapped[str] = mapped_column(String(20), index=True)
+    tentativas: Mapped[int] = mapped_column(Integer, default=0)
+    resolvida: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    erro: Mapped[str | None] = mapped_column(Text, nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    resolvida_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    empresa: Mapped["Empresa"] = relationship()
+
+
 class RegistroAuditoria(Base):
     """
     Trilha de auditoria: quem fez o quê, quando.

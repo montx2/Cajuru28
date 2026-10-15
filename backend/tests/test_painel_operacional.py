@@ -458,7 +458,7 @@ def test_acao_do_alerta_abre_o_lugar_que_resolve(cliente):
     )
     assert itens["cert-vencendo"]["acao_href"].endswith("/dashboard/certificados?filtro=vencendo")
     assert itens["cert-ausente"]["acao_href"].endswith("/dashboard/certificados")
-    assert itens[f"parado-{parada.id}-nfe"]["acao_href"].endswith(
+    assert itens["sincronismo-parado"]["acao_href"].endswith(
         f"/dashboard/empresa?id={parada.id}&aba=sincronismo"
     )
     assert itens["resumos-pendentes"]["acao_href"].endswith("/dashboard/documentos?leiaute=resumo")

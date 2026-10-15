@@ -36,6 +36,7 @@ import { DataHora } from "@/components/ui/Formatadores";
 import { Icone } from "@/components/ui/Icone";
 import { IndicadorEstado } from "@/components/ui/IndicadorEstado";
 import { MenuSuspenso } from "@/components/ui/MenuSuspenso";
+import { Medidor } from "@/components/ui/Progresso";
 import { Tabela, type ColunaTabela } from "@/components/ui/Tabela";
 import { useToast } from "@/components/ui/Toast";
 import {
@@ -95,12 +96,17 @@ export function Importacoes() {
   const estados = useRecurso(() => api.estadoSincronizacao(), []);
   const resumoSync = useRecurso(() => api.resumoSincronizacao(), []);
   const certificados = useRecurso(() => api.resumoCertificados(), []);
+  // NSUs que outro sistema pulou na frente: cada lacuna pode esconder notas
+  // que o cursor nunca vai revisitar sozinho.
+  const lacunas = useRecurso(() => api.lacunasNsu(), []);
+  const [preenchendoLacunas, setPreenchendoLacunas] = useState(false);
 
   useSinalizarAtualizacao(estados.atualizando || resumoSync.atualizando);
   // Janelas e bloqueios mudam sozinhos: 60 s mantém a tela honesta sem martelar.
   usePolling(() => {
     estados.atualizar();
     resumoSync.atualizar();
+    lacunas.atualizar();
   }, 60_000);
 
   // Prévia/resultado de um disparo anterior não sobrevive a mudança de filtro.
@@ -172,7 +178,15 @@ export function Importacoes() {
         celula: (estado) => (
           <IndicadorEstado
             {...estadoDaSincronizacao(estado, agora)}
-            titulo={estado.motivo_bloqueio ?? (estado.em_andamento ? "consulta em curso" : undefined)}
+            titulo={
+              estado.motivo_bloqueio
+                ? `${estado.motivo_bloqueio} · ${contagem(estado.bloqueios_seguidos, "bloqueio seguido", "bloqueios seguidos")}${
+                    estado.nunca_consultado ? " · a janela está com outro sistema" : ""
+                  }`
+                : estado.em_andamento
+                  ? "consulta em curso"
+                  : undefined
+            }
           />
         ),
       },
@@ -201,31 +215,6 @@ export function Importacoes() {
         alinhamento: "direita",
         ocultaPorPadrao: true,
         celula: (estado) => <DataHora iso={estado.ultima_consulta_em} />,
-      },
-      {
-        id: "bloqueio",
-        cabecalho: "Bloqueio",
-        celula: (estado) =>
-          estado.bloqueado_ate ? (
-            <span className="text-espera" title={`Bloqueios seguidos: ${numero(estado.bloqueios_seguidos)}`}>
-              {estado.motivo_bloqueio ?? "janela SEFAZ"}
-            </span>
-          ) : (
-            <span className="text-tinta-fraca">—</span>
-          ),
-      },
-      {
-        id: "risco",
-        cabecalho: "Risco de perda",
-        dica: "Dias sem varrer acima do horizonte de distribuição da SEFAZ: documento pode ficar inacessível",
-        celula: (estado) =>
-          estado.risco_documento_fora_da_distribuicao ? (
-            <Etiqueta tom="erro" titulo={estado.dias_sem_varrer !== null ? `${numero(estado.dias_sem_varrer)} dias sem varrer` : undefined}>
-              fora da janela
-            </Etiqueta>
-          ) : (
-            <span className="text-tinta-fraca">—</span>
-          ),
       },
       {
         id: "cota",
@@ -333,12 +322,68 @@ export function Importacoes() {
     }
   }
 
+  // Busca pontual por NSU: recupera as notas puladas sem mexer no cursor e
+  // sem gastar a janela de 1 h da captura normal.
+  async function preencherLacunas() {
+    setPreenchendoLacunas(true);
+    try {
+      const resultado = await api.preencherLacunas();
+      avisar({
+        tom: resultado.disparado ? "ok" : "espera",
+        titulo: resultado.disparado ? "Busca dos NSUs pulados disparada" : "Nada a buscar agora",
+        descricao: resultado.aviso,
+      });
+      lacunas.atualizar();
+      estados.atualizar();
+      resumoSync.atualizar();
+      atualizarAlertas();
+    } catch (falha) {
+      avisar({ tom: "erro", titulo: "Não foi possível buscar os NSUs pulados", descricao: mensagemDoErro(falha, "buscar os NSUs pulados") });
+    } finally {
+      setPreenchendoLacunas(false);
+    }
+  }
+
+  // O veredito da captura em uma frase: em dia, aguardando janela ou com
+  // risco de perda. O detalhe por empresa continua na tabela abaixo.
+  const saudeCaptura = useMemo(() => {
+    const dados = resumoSync.dados;
+    if (!dados) return null;
+    const foraDaJanela = (estados.dados ?? []).filter((estado) => estado.risco_documento_fora_da_distribuicao).length;
+    if (foraDaJanela > 0) {
+      return {
+        tom: "erro" as const,
+        titulo: `${contagem(foraDaJanela, "combinação saiu", "combinações saíram")} da janela de distribuição`,
+        descricao: "Documentos antigos podem ficar inacessíveis na SEFAZ — dispare a captura para estas empresas hoje.",
+      };
+    }
+    if (dados.bloqueadas_sefaz > 0) {
+      return {
+        tom: "neutro" as const,
+        titulo: `${contagem(dados.bloqueadas_sefaz, "combinação aguardando", "combinações aguardando")} janela da SEFAZ`,
+        descricao: "Espera de 1 hora por CNPJ — a fila retoma sozinha. Só dispare manualmente o que é urgente.",
+      };
+    }
+    if (dados.com_pendencia > 0) {
+      return {
+        tom: "espera" as const,
+        titulo: `${contagem(dados.com_pendencia, "combinação com NSUs a buscar", "combinações com NSUs a buscar")}`,
+        descricao: "Há documentos novos na SEFAZ aguardando janela — a varredura automática recolhe sem disparo.",
+      };
+    }
+    return {
+      tom: "ok" as const,
+      titulo: "Captura em dia em todas as combinações",
+      descricao: "Nenhum NSU pendente e nenhuma janela em espera. Novos documentos entram na próxima varredura automática.",
+    };
+  }, [estados.dados, resumoSync.dados]);
+
   return (
     <div className="space-y-5" ref={topo}>
       <CabecalhoPagina
         kicker="Fiscal · Captura"
         titulo="Importações"
-        descricao="A captura automática mostra o que está em dia, o que aguarda janela e o que precisa ser disparado."
+        descricao="Saúde da captura automática, disparo por empresa e reconciliação dos NSUs pulados por outros sistemas."
         acoes={
           <div className="flex flex-wrap items-center gap-2">
             <Botao
@@ -417,13 +462,29 @@ export function Importacoes() {
             <EstadoErro erro={resumoSync.erro} aoTentarNovamente={resumoSync.atualizar} contexto="carregar o resumo do sincronismo" />
           ) : resumoSync.dados ? (
             <>
+              {saudeCaptura ? (
+                <Aviso tom={saudeCaptura.tom} titulo={saudeCaptura.titulo} compacto className="mb-4">
+                  {saudeCaptura.descricao}
+                </Aviso>
+              ) : null}
+              {resumoSync.dados.combinacoes > 0 ? (
+                <Medidor
+                  rotulo="Combinações empresa × tipo em dia"
+                  valor={resumoSync.dados.em_dia}
+                  maximo={resumoSync.dados.combinacoes}
+                  tom={resumoSync.dados.em_dia === resumoSync.dados.combinacoes ? "ok" : "espera"}
+                  esquerda={`${numero(resumoSync.dados.em_dia)} em dia`}
+                  direita={`${numero(resumoSync.dados.combinacoes - resumoSync.dados.em_dia)} pendentes`}
+                  className="mb-4"
+                />
+              ) : null}
               <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-3">
                 <Dado destaque rotulo="Empresas" valor={numero(resumoSync.dados.empresas)} />
                 <Dado destaque rotulo="Combinações" valor={`${numero(resumoSync.dados.em_dia)}/${numero(resumoSync.dados.combinacoes)}`} contexto="em dia" />
                 <Dado destaque rotulo="Com pendência" valor={numero(resumoSync.dados.com_pendencia)} tom={resumoSync.dados.com_pendencia > 0 ? "espera" : undefined} />
                 <Dado destaque rotulo="Em andamento" valor={numero(resumoSync.dados.em_andamento)} />
                 <Dado destaque rotulo="Aguardando janela" valor={numero(resumoSync.dados.aguardando_janela)} tom={resumoSync.dados.aguardando_janela > 0 ? "espera" : undefined} />
-                <Dado destaque rotulo="Bloqueadas pela SEFAZ" valor={numero(resumoSync.dados.bloqueadas_sefaz)} tom={resumoSync.dados.bloqueadas_sefaz > 0 ? "erro" : undefined} />
+                <Dado destaque rotulo="Aguardando janela" valor={numero(resumoSync.dados.bloqueadas_sefaz)} />
                 <Dado destaque rotulo="Documentos no banco" valor={numero(resumoSync.dados.documentos_no_banco)} />
                 <Dado
                   destaque
@@ -441,6 +502,23 @@ export function Importacoes() {
                   )}
                 />
               </dl>
+              {(lacunas.dados?.total ?? 0) > 0 ? (
+                <Aviso
+                  tom="espera"
+                  titulo={`${contagem(lacunas.dados?.total ?? 0, "NSU foi pulado", "NSUs foram pulados")} por outro sistema`}
+                  acao={
+                    <Botao tamanho="sm" variante="secundaria" carregando={preenchendoLacunas} disabled={somenteLeitura} title={somenteLeitura ? MOTIVO_SOMENTE_LEITURA : undefined} onClick={preencherLacunas}>
+                      Buscar notas dos NSUs pulados
+                    </Botao>
+                  }
+                  compacto
+                  className="mt-4"
+                >
+                  O cursor andou fora do Fluxa (outro sistema no mesmo CNPJ) e estes NSUs nunca serão
+                  revisitados pela varredura normal. A busca é pontual: recupera as notas sem gastar a
+                  janela de 1 hora.
+                </Aviso>
+              ) : null}
               {certificados.dados && certificados.dados.some((certificado) => !certificado.tem_certificado || certificado.vencido) ? (
                 <p className="mt-4 border-t border-traco pt-3 text-sm text-espera">
                   {numero(certificados.dados.filter((certificado) => !certificado.tem_certificado).length)} empresas sem certificado e{" "}
@@ -497,7 +575,7 @@ export function Importacoes() {
 
       <Cartao
         titulo="Empresas"
-        descricao="Marque quem deve ser capturado. Sem certificado A1 válido a empresa fica bloqueada."
+        descricao="Marque quem deve ser capturado. Sem certificado A1 válido a empresa não entra na captura."
         acoes={
           selecionadas.size > 0 ? (
             <Botao
@@ -624,7 +702,7 @@ export function Importacoes() {
                 { valor: "", rotulo: "Todas as situações" },
                 { valor: "pendencia", rotulo: "Com pendência" },
                 { valor: "em_dia", rotulo: "Em dia" },
-                { valor: "bloqueada", rotulo: "Bloqueada pela SEFAZ" },
+                { valor: "bloqueada", rotulo: "Aguardando janela" },
                 { valor: "risco", rotulo: "Risco de perda" },
                 { valor: "manual", rotulo: "Sincronismo manual" },
               ]}
@@ -663,7 +741,7 @@ export function Importacoes() {
         }
         impacto={
           <span>
-            Cada consulta usa a janela de 1 hora da SEFAZ para a combinação empresa × tipo. Itens já em espera ou bloqueados voltam como
+            Cada consulta usa a janela de 1 hora da SEFAZ para a combinação empresa × tipo. Itens já em espera ou em janela voltam como
             “aguardando”, não como erro. Documentos já importados não são duplicados.
           </span>
         }

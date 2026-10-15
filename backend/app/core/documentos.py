@@ -49,14 +49,6 @@ def normalizar_documento(valor: str | None) -> str:
     raise ValueError("Informe CPF de 11 dígitos ou CNPJ de 14 caracteres.")
 
 
-def eh_cnpj(valor: str | None) -> bool:
-    try:
-        normalizar_cnpj(valor)
-        return True
-    except ValueError:
-        return False
-
-
 def eh_cnpj_numerico(valor: str | None) -> bool:
     try:
         return normalizar_cnpj(valor).isdigit()

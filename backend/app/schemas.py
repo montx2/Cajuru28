@@ -2,9 +2,9 @@ from datetime import date, datetime
 import re
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
-from app.core.documentos import normalizar_cnpj, normalizar_documento, validar_documento
+from app.core.documentos import normalizar_documento, validar_documento
 from app.models import (
     DirecaoDocumento,
     StatusDocumentoFiscal,
@@ -278,12 +278,8 @@ class LoteEmpresasResposta(BaseModel):
 
 
 # ---------- Certificado ----------
-# A senha entra em texto puro só nesta requisição (via HTTPS) e é cifrada
+# A senha entra em texto puro só na requisição de envio (via HTTPS) e é cifrada
 # imediatamente no endpoint antes de tocar o banco — nunca é devolvida.
-
-class CertificadoCriar(BaseModel):
-    empresa_id: int
-    senha: str
 
 
 class CertificadoResposta(BaseModel):
@@ -354,6 +350,10 @@ class DocumentoFiscalResposta(BaseModel):
     # que a saída não é tentar de novo, e sim registrar a manifestação
     # conclusiva — o texto do motivo muda entre as SEFAZ, o código não.
     manifestacao_cstat: str | None = None
+    # Quando a nota entrou no acervo — a coluna IMPORTAÇÃO da lista (JetTax
+    # mostra emissão × importação lado a lado, e é assim que o contador
+    # confere se a competência veio completa).
+    importado_em: datetime | None = None
 
 
 class ManifestacaoConclusiva(BaseModel):
@@ -740,6 +740,54 @@ class ResumoDocumentos(BaseModel):
     normais: int
     canceladas: int
     por_tipo: dict[str, int]
+
+
+class LacunaNSUResposta(BaseModel):
+    """Um NSU pulado por outro sistema, aguardando preenchimento pontual."""
+
+    empresa_id: int
+    empresa_razao_social: str = ""
+    tipo: TipoDocumentoFiscal
+    nsu: str
+    tentativas: int = 0
+    erro: str | None = None
+    criado_em: datetime | None = None
+
+
+class ResumoLacunasNSU(BaseModel):
+    """Quantas notas podem estar faltando por cursor pulado — por empresa/tipo."""
+
+    total: int = 0
+    empresas: int = 0
+    por_empresa: list[LacunaNSUResposta] = []
+
+
+class PendenciaXmlEmpresa(BaseModel):
+    """Notas em resumo de UMA empresa: o que falta e qual é a saída."""
+
+    empresa_id: int
+    razao_social: str
+    resumos: int = 0
+    # Ainda sem Ciência registrada: o robô manifesta sozinho (quando ligado).
+    aguardando_manifestacao: int = 0
+    # Ciência ok, XML ainda não liberado: só aguardar as rodadas.
+    manifestados_sem_xml: int = 0
+    # Ciência recusada com 596 (passou dos 10 dias): só a conclusiva resolve.
+    com_erro_596: int = 0
+    outros_erros: int = 0
+    # Amostra de ids para a ação em lote da tela (no máximo 100).
+    ids_596: list[int] = []
+
+
+class PendenciasXmlResposta(BaseModel):
+    """Tudo que ainda não virou XML completo no recorte — para a tela agir."""
+
+    total_resumos: int = 0
+    aguardando_manifestacao: int = 0
+    manifestados_sem_xml: int = 0
+    com_erro_596: int = 0
+    outros_erros: int = 0
+    por_empresa: list[PendenciaXmlEmpresa] = []
 
 
 class ResetGeralResposta(BaseModel):
@@ -1176,3 +1224,64 @@ class SaudeBackupResposta(BaseModel):
     total_registros: int = 0
     erros_recentes: int = 0
     tamanho_total_bytes: int = 0
+
+
+# ── Pente-fino da competência ────────────────────────────────────────────────
+# Auditoria de 1 clique: cruza o mês contra o histórico e aponta o que nenhum
+# relatório de captura aponta — salto de numeração por emitente, estreante,
+# valor anômalo, horário atípico e emitente recorrente que sumiu.
+
+class AchadoPenteFino(BaseModel):
+    codigo: Literal[
+        "salto_sequencia",
+        "emitente_estreante",
+        "valor_anomalo",
+        "horario_atipico",
+        "sem_xml",
+        "erro_596",
+        "emitente_sumido",
+        "cancelada_no_mes",
+    ]
+    severidade: Literal["alta", "media", "baixa"]
+    titulo: str
+    detalhe: str
+    documento_id: int | None = None
+    documento_numero: str | None = None
+    empresa_id: int | None = None
+    empresa_razao: str | None = None
+    emitente_nome: str | None = None
+
+
+class ItemChecklistFechamento(BaseModel):
+    codigo: str
+    rotulo: str
+    ok: bool
+    detalhe: str
+
+
+class PenteFinoResposta(BaseModel):
+    competencia: str
+    empresa_id: int | None = None
+    total_documentos: int = 0
+    pronta_para_fechar: bool = True
+    checklist: list[ItemChecklistFechamento] = []
+    achados: list[AchadoPenteFino] = []
+
+
+class TermometroTipo(BaseModel):
+    tipo: str
+    capturadas: int = 0
+    esperadas_min: int = 0
+    esperadas_max: int = 0
+    mediana: float = 0
+    percentual: float = 0
+    estado: Literal["sem_historico", "abaixo", "no_ritmo", "acima"] = "sem_historico"
+
+
+class TermometroResposta(BaseModel):
+    competencia: str
+    empresa_id: int | None = None
+    dia: int = 1
+    dias_no_mes: int = 30
+    tipos: list[TermometroTipo] = []
+    total_capturadas: int = 0

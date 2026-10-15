@@ -8,11 +8,11 @@ import { estadoDaConferencia } from "@/lib/estados";
 import { mensagemDoErro } from "@/lib/erros";
 import { rotulo as rotuloCompetencia } from "@/lib/competencia";
 import { intervaloDoMes } from "@/lib/periodo";
-import { useCompetenciaUrl } from "@/lib/usePeriodoUrl";
+import { useContextoGlobal } from "@/components/shell/ProvedorContexto";
 import { useRecurso } from "@/lib/useRecurso";
 import { useAgora } from "@/components/shell/ProvedorAgora";
 import { useSinalizarAtualizacao } from "@/components/shell/BarraAtualizacao";
-import { SeletorCompetencia } from "@/components/fiscal/SeletorCompetencia";
+
 import { GraficoBarras, GraficoDonut } from "@/components/fiscal/Graficos";
 import { Aviso } from "@/components/ui/Aviso";
 import { Botao, BotaoLink } from "@/components/ui/Botao";
@@ -39,7 +39,7 @@ import { ROTULO_TIPO, TIPOS, type FechamentoEmpresa, type ItemConferenciaCompete
  */
 export function Relatorios() {
   const agora = useAgora();
-  const { mes, competencia, aoMudar, pronto } = useCompetenciaUrl();
+  const { mes, competencia, pronto } = useContextoGlobal();
   const { avisar } = useToast();
   const [baixando, setBaixando] = useState(false);
 
@@ -148,8 +148,11 @@ export function Relatorios() {
         descricao="Conferência do mês por empresa e tipo, com a folha pronta para o dossiê do cliente."
       />
 
-      <div className="superficie-plana nao-imprimir flex flex-wrap items-end justify-between gap-3 rounded-cartao p-3">
-        <SeletorCompetencia mes={mes} aoMudar={aoMudar} descricao="Mês de competência dos documentos" />
+      <div className="superficie-plana nao-imprimir flex flex-wrap items-center justify-between gap-3 rounded-cartao p-3">
+        <p className="text-sm text-tinta-suave">
+          Competência global: <span className="font-medium text-tinta">{rotuloCompetencia(mes || null)}</span>
+          <span className="text-tinta-fraca"> — mude na barra acima.</span>
+        </p>
         <div className="flex flex-wrap items-center gap-2">
           <Botao
             variante="secundaria"
