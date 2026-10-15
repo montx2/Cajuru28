@@ -899,3 +899,25 @@ export interface BackupsResposta {
   saude: SaudeBackup;
   registros: BackupRegistro[];
 }
+
+
+export interface JettaxExecucao {
+  id: number;
+  empresa_id: number;
+  empresa_nome: string;
+  competencia: string;
+  status: "pendente" | "em_andamento" | "concluida" | "parcial" | "erro" | "ignorada";
+  resultado: {
+    recebidos?: number;
+    importados?: number;
+    duplicados?: number;
+    cancelados?: number;
+    erros?: number;
+    sem_empresa?: number;
+    consulta_completa?: boolean;
+    motivos_erros?: Record<string, number>;
+  };
+  mensagem: string | null;
+  criado_em: string;
+  finalizado_em: string | null;
+}

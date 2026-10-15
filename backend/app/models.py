@@ -17,6 +17,7 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     Integer,
+    JSON,
     Numeric,
     String,
     Text,
@@ -39,6 +40,37 @@ class Escritorio(Base):
 
     usuarios: Mapped[list["Usuario"]] = relationship(back_populates="escritorio")
     empresas: Mapped[list["Empresa"]] = relationship(back_populates="escritorio")
+
+
+class JettaxCredencial(Base):
+    """Token da API Jettax Morfeu 360, isolado por escritório e cifrado no cofre."""
+
+    __tablename__ = "jettax_credenciais"
+    __table_args__ = (UniqueConstraint("escritorio_id", name="uq_jettax_credencial_escritorio"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    escritorio_id: Mapped[int] = mapped_column(ForeignKey("escritorios.id"), index=True)
+    base_url: Mapped[str] = mapped_column(String(500), default="https://morfeu.jettax360.com.br")
+    token_cifrado: Mapped[str] = mapped_column(Text)
+    ultima_sincronizacao_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    atualizado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class JettaxExecucao(Base):
+    """Fila separada: recuperação do coletor oficial nunca deve disparar SEFAZ por engano."""
+
+    __tablename__ = "jettax_execucoes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    escritorio_id: Mapped[int] = mapped_column(ForeignKey("escritorios.id"), index=True)
+    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id"), index=True)
+    competencia: Mapped[str] = mapped_column(String(7))  # MM-AAAA
+    status: Mapped[str] = mapped_column(String(20), default="pendente")
+    resultado: Mapped[dict] = mapped_column(JSON, default=dict)
+    mensagem: Mapped[str | None] = mapped_column(Text, nullable=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    iniciado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finalizado_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class AcessoriasCredencial(Base):

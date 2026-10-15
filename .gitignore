@@ -56,3 +56,6 @@ backend/.env.dev-preview
 backend/preview.db*
 backend/dados_preview/
 backend/tmp_check.db
+
+# Relatório local do diagnóstico Jettax (não precisa ser versionado)
+relatorio_jettax_seguro.json

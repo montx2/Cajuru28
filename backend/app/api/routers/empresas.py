@@ -41,6 +41,7 @@ from app.models import (
     DocumentoFiscal,
     DocumentoFiscalFonte,
     Empresa,
+    JettaxExecucao,
     EventoFiscalPendente,
     ExecucaoImportacao,
     SincronizacaoDFe,
@@ -543,8 +544,10 @@ def excluir_empresa(
     caminhos_lotes = [str(arquivo) for tipo in TipoDocumentoFiscal for arquivo in lotes_recebidos.arquivos_pendentes(empresa.id, tipo)]
     caminhos = [c.arquivo_path for c in db.query(Certificado).filter_by(empresa_id=empresa.id)]
     caminhos += [d.xml_path for d in db.query(DocumentoFiscal).filter_by(empresa_id=empresa.id) if d.xml_path]
-    caminhos += [f.xml_path for f in db.query(DocumentoFiscalFonte).join(DocumentoFiscal, DocumentoFiscal.id == DocumentoFiscalFonte.documento_id).filter(DocumentoFiscal.empresa_id == empresa.id) if f.xml_path]
 
+    if db.query(JettaxExecucao.id).filter(JettaxExecucao.empresa_id == empresa.id, JettaxExecucao.status.in_(("pendente", "em_andamento"))).first():
+        raise HTTPException(status_code=409, detail="Aguarde a importação Jettax terminar antes de excluir a empresa.")
+    db.query(JettaxExecucao).filter_by(empresa_id=empresa.id, escritorio_id=escritorio_id).delete()
     db.query(EventoFiscalPendente).filter(EventoFiscalPendente.empresa_id == empresa.id).delete()
     db.query(SincronizacaoDFe).filter(SincronizacaoDFe.empresa_id == empresa.id).delete()
     db.query(ExecucaoImportacao).filter(ExecucaoImportacao.empresa_id == empresa.id).delete()

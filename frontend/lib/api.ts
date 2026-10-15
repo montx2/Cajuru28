@@ -1,5 +1,6 @@
 import type {
   AlertasResposta,
+  JettaxExecucao,
   BackupsResposta,
   BackupRegistro,
   Certificado,
@@ -654,6 +655,13 @@ export const api = {
   acoesAuditoria: () => chamar<string[]>("/auditoria/acoes"),
 
   // Integração Acessórias: credencial cifrada e cadastro por CNPJ.
+  statusJettax: () => chamar<{ configurado: boolean; base_url: string; ultima_sincronizacao_em: string | null }>("/integracoes/jettax"),
+  salvarCredencialJettax: (token: string) => chamar<{ configurado: boolean }>("/integracoes/jettax/credencial", { method: "PUT", body: JSON.stringify({ token }) }),
+  removerCredencialJettax: () => chamar<void>("/integracoes/jettax/credencial", { method: "DELETE" }),
+  testarJettax: () => chamar<{ ok: boolean; mensagem: string }>("/integracoes/jettax/testar", { method: "POST" }),
+  importarJettax: (empresa_ids: number[], competencia: string) => chamar<JettaxExecucao[]>("/integracoes/jettax/importar", { method: "POST", body: JSON.stringify({ empresa_ids, competencia }) }),
+  execucoesJettax: () => chamar<JettaxExecucao[]>("/integracoes/jettax/execucoes"),
+
   statusAcessorias: () => chamar<{ configurado: boolean; base_url: string; ultima_sincronizacao_em: string | null }>("/integracoes/acessorias"),
   salvarCredencialAcessorias: (token: string, base_url: string) => chamar<{ configurado: boolean }>("/integracoes/acessorias/credencial", { method: "PUT", body: JSON.stringify({ token, base_url }) }),
   testarAcessorias: () => chamar<{ ok: boolean; mensagem: string }>("/integracoes/acessorias/testar", { method: "POST" }),

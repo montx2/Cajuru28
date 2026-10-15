@@ -57,7 +57,7 @@ celery_app = Celery(
     "notasflow",
     broker=settings.redis_url,
     backend=settings.redis_url,
-    include=["app.worker.tasks"],
+    include=["app.worker.tasks", "app.worker.jettax"],
 )
 celery_app.conf.update(
     task_track_started=True,

@@ -20,6 +20,7 @@ from app.api.routers import (
     documentos,
     empresas,
     importacoes,
+    jettax,
     metricas,
     painel,
     relatorios,
@@ -154,6 +155,7 @@ app.include_router(empresas.router)
 app.include_router(certificados.router)
 app.include_router(documentos.router)
 app.include_router(importacoes.router)
+app.include_router(jettax.router)
 app.include_router(dashboard.router)
 app.include_router(painel.router)
 app.include_router(alertas.router)

@@ -121,3 +121,32 @@ segredos fortes e um volume dedicado de backup. Veja
 [`docs/DEPLOY_PRODUCAO.md`](docs/DEPLOY_PRODUCAO.md).
 
 Consulte `docs/ARQUITETURA.md` e `docs/SINCRONIZACAO.md` para detalhes técnicos.
+
+## Jettax Morfeu 360 — NFS-e
+
+Em **Configurações → Integrações → Jettax Morfeu 360**, o administrador salva
+um token cifrado por escritório. Operadores podem importar NFS-e de uma ou
+até 30 empresas por competência; cada empresa tem tarefa Celery e resultado
+próprios. O pipeline de XML existente evita duplicatas e registra origem
+`jettax`. PDFs são opcionais e não são baixados; links temporários não são
+armazenados. Apenas GETs são enviados ao Jettax.
+
+Depois de aplicar esta versão, na raiz do projeto (Docker Compose local):
+
+```sh
+docker compose up -d --build api worker beat frontend
+docker compose restart api worker
+```
+
+Comece por uma empresa/competência conhecida e repita o pedido após terminar:
+a segunda consulta deve contar duplicatas, sem criar cópias extras. Veja
+[`docs/JETTAX.md`](docs/JETTAX.md) para configuração, resultados, testes,
+arquivos envolvidos, limitações, produção e como desfazer.
+
+**NFe/CT-e e fallback não fazem parte desta etapa.** Nunca deixe os dois
+coletores consultando a SEFAZ com o mesmo certificado: há risco de **cStat
+656** e bloqueio de aproximadamente uma hora. A configuração oficial
+existente não é alterada por salvar o token ou importar NFS-e.
+
+O diagnóstico independente permanece em `diagnostico_jettax.py` e está
+explicado em [`docs/DIAGNOSTICO_JETTAX.md`](docs/DIAGNOSTICO_JETTAX.md).
