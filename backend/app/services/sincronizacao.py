@@ -286,15 +286,6 @@ def marcar_consumo_indevido(
     return quando
 
 
-def limpar_bloqueio(db: Session, estado: SincronizacaoDFe, *, agora: datetime | None = None) -> None:
-    agora = agora or _agora()
-    estado.bloqueado_ate = None
-    estado.motivo_bloqueio = None
-    estado.bloqueios_seguidos = 0
-    estado.proxima_consulta_em = None
-    estado.atualizado_em = agora
-
-
 # ---------------------------------------------------------------------------
 # Cota de consultas pontuais (consChNFe / consNSU): 20 por hora por CNPJ
 # ---------------------------------------------------------------------------

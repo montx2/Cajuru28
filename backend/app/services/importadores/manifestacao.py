@@ -68,7 +68,6 @@ from lxml import etree
 
 from app.core.documentos import normalizar_documento
 from app.services.importadores._distribuicao_dfe import (
-    CODIGO_IBGE_POR_UF,
     buscar,
     chamar_com_retentativa,
     texto,
@@ -132,7 +131,6 @@ PRAZO_CIENCIA_DIAS = 10
 # resultado é idêntico ao sucesso, e repetir não adianta.
 CSTAT_EVENTO_REGISTRADO = {"135", "136"}
 CSTAT_EVENTO_DUPLICADO = {"573"}
-CSTAT_LOTE_PROCESSADO = {"128"}
 # "Evento apresentado fora do prazo" — no caso da Ciência, chegou depois dos
 # 10 dias contados da autorização da NF-e. Não adianta repetir: o caminho passa
 # a ser uma manifestação conclusiva.

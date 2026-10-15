@@ -24,12 +24,18 @@ from app.services.senhas import (
     construir_candidatas_pfx,
     fundir_planilhas_dados,
     gerar_senhas_padrao,
-    ler_planilha,
+    ler_planilha_linhas,
     stems_de_nome_arquivo,
     stems_de_texto,
 )
 
 OID_CNPJ = ObjectIdentifier("2.16.76.1.3.3")
+
+
+def ler_planilha(conteudo: bytes, nome_arquivo: str = "") -> dict:
+    """Atalho local: os testes abaixo só olham o dicionário por CNPJ."""
+    por_cnpj, _ = ler_planilha_linhas(conteudo, nome_arquivo)
+    return por_cnpj
 CNPJ_1 = "12345678000195"
 CNPJ_2 = "11444777000161"
 CNPJ_3 = "65375901000103"

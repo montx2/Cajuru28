@@ -45,10 +45,6 @@ COOLDOWN_SEM_NOVIDADE = timedelta(hours=1)
 # nunca batem exatamente, e chegar 2 minutos adiantado vale um novo bloqueio.
 MARGEM_SEGURANCA = timedelta(minutes=6)
 
-# Limite oficial de consultas pontuais (consChNFe / consNSU) por CNPJ.
-LIMITE_CONSULTAS_PONTUAIS_POR_HORA = 20
-
-
 class ErroFiscal(ConnectionError):
     """
     Base dos erros que o importador sabe explicar para o operador.

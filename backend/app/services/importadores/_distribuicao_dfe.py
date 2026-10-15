@@ -84,11 +84,6 @@ CTE_OPERACAO = "cteDistDFeInteresse"
 CTE_DADOS_MSG = "cteDadosMsg"
 CTE_VERSAO_DIST = "1.00"
 
-# Aliases legados (nfe_sefaz.py antigo)
-DISTRIBUICAO_DFE_URL_PRODUCAO = NFE_DISTRIBUICAO_URL_PRODUCAO
-DISTRIBUICAO_DFE_URL_HOMOLOGACAO = NFE_DISTRIBUICAO_URL_HOMOLOGACAO
-SOAP_ACTION = NFE_SOAP_ACTION
-
 # --- cStat ---
 CSTAT_DOCUMENTOS_LOCALIZADOS = "138"
 CSTAT_SEM_DOCUMENTOS = {"137"}
@@ -209,10 +204,6 @@ class RespostaDistDFe:
     documentos: list[tuple[str, str, bytes]] = field(default_factory=list)
 
     @property
-    def tem_documentos(self) -> bool:
-        return self.cstat == CSTAT_DOCUMENTOS_LOCALIZADOS and bool(self.documentos)
-
-    @property
     def sem_novidade(self) -> bool:
         return self.cstat in CSTAT_SEM_DOCUMENTOS
 
@@ -228,14 +219,6 @@ class RespostaDistDFe:
             marcador in motivo for marcador in _MARCADORES_INEXISTENTE
         )
 
-    @property
-    def esgotou(self) -> bool:
-        """ultNSU == maxNSU ⇒ não há mais nada para consultar agora."""
-        try:
-            return int(self.ultimo_nsu) >= int(self.max_nsu)
-        except (TypeError, ValueError):
-            return False
-
     def por_leiaute(self, leiaute: str) -> list[tuple[str, str, bytes]]:
         """Os docZip cujo CONTEÚDO bate com o leiaute pedido (NSO, schema, bytes)."""
         return [
@@ -248,16 +231,6 @@ class RespostaDistDFe:
     def documentos_completos(self) -> list[tuple[str, str, bytes]]:
         """Somente as NOTAS inteiras (procNFe/procCTe) dentro do que foi recebido."""
         return self.por_leiaute(LEIAUTE_COMPLETO)
-
-    @property
-    def somente_resumo(self) -> bool:
-        """Veio documento, mas nenhum é a nota inteira — só resumo/protocolo.
-
-        É a resposta normal do Ambiente Nacional para o destinatário que ainda
-        não registrou a Ciência da Operação: não é erro, é o sinal de que falta
-        manifestar (ou de que o XML completo ainda não foi liberado).
-        """
-        return bool(self.documentos) and not self.documentos_completos
 
 
 # ---------------------------------------------------------------------------

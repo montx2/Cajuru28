@@ -8,14 +8,11 @@ de emissão interpretada no fuso operacional brasileiro.
 
 from __future__ import annotations
 
-from datetime import date, datetime
-
 from sqlalchemy import func
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.sql.functions import GenericFunction
 from sqlalchemy.types import Date
 
-from app.core.tempo import data_operacional
 from app.models import DocumentoFiscal
 
 
@@ -52,13 +49,3 @@ def data_referencia_sql():
     return func.coalesce(DocumentoFiscal.competencia, _DataFiscalSql(DocumentoFiscal.data_emissao))
 
 
-def data_referencia(documento: DocumentoFiscal) -> date | None:
-    """Versão Python da mesma regra — usada quando o objeto já está em mãos."""
-    comp = getattr(documento, "competencia", None)
-    if comp is not None:
-        if isinstance(comp, datetime):
-            return comp.date()
-        if isinstance(comp, date):
-            return comp
-    valor = getattr(documento, "data_emissao", None)
-    return data_operacional(valor)

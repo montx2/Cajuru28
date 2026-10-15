@@ -2,8 +2,7 @@
 
 ## 1. Instalar e iniciar
 
-- **Windows:** execute `INSTALAR_TUDO.bat`.
-- **Linux/macOS:** execute `./INSTALAR_TUDO.sh`.
+Execute `INSTALAR_TUDO.bat`.
 
 A instalação prepara o ambiente e inicia todos os serviços via Docker Compose.
 
@@ -49,7 +48,7 @@ Para servidor exposto ou dados fiscais reais, use a pilha e o S3 obrigatório de
 ## Atualizar
 
 Para pegar uma versão nova **sem reinstalar nada** e sem perder dados, rode
-`ATUALIZAR.bat` (ou `./ATUALIZAR.sh`). Detalhes em
+`ATUALIZAR.bat`. Detalhes em
 [COMO_ATUALIZAR.md](COMO_ATUALIZAR.md).
 
 ## Problemas

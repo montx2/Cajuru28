@@ -37,7 +37,7 @@ import os
 
 from sqlalchemy.orm import Session
 
-from app.models import DocumentoFiscal, TipoDocumentoFiscal
+from app.models import DocumentoFiscal
 from app.services.importadores._distribuicao_dfe import (
     LEIAUTE_COMPLETO,
     LEIAUTE_DESCONHECIDO,
@@ -127,34 +127,3 @@ def reconciliar(db: Session, documento: DocumentoFiscal) -> str | None:
         real,
     )
     return LEIAUTE_RESUMO
-
-
-def rebaixar_divergentes(
-    db: Session, *, empresa_id: int | None = None, limite: int = 500
-) -> int:
-    """Varre o acervo e devolve para `resumo` o que foi marcado como completo sem ser.
-
-    Limitado por `limite` para não transformar o reparo num processo longo de
-    startup: como ele é idempotente, chamadas seguintes continuam de onde a
-    anterior parou (o que já está correto não é tocado de novo).
-    """
-    consulta = db.query(DocumentoFiscal).filter(
-        DocumentoFiscal.leiaute == LEIAUTE_COMPLETO,
-        DocumentoFiscal.tipo == TipoDocumentoFiscal.NFE,
-    )
-    if empresa_id is not None:
-        consulta = consulta.filter(DocumentoFiscal.empresa_id == empresa_id)
-    corrigidos = 0
-    conferidos = 0
-    for documento in consulta.order_by(DocumentoFiscal.id.desc()).limit(limite).all():
-        conferidos += 1
-        if reconciliar(db, documento) is not None:
-            corrigidos += 1
-    if corrigidos:
-        db.commit()
-        log.warning(
-            "Reparo de leiaute: %d de %d documento(s) conferidos voltaram para 'resumo'.",
-            corrigidos,
-            conferidos,
-        )
-    return corrigidos

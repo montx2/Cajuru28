@@ -2,9 +2,9 @@ from datetime import date, datetime
 import re
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
-from app.core.documentos import normalizar_cnpj, normalizar_documento, validar_documento
+from app.core.documentos import normalizar_documento, validar_documento
 from app.models import (
     DirecaoDocumento,
     StatusDocumentoFiscal,
@@ -278,12 +278,8 @@ class LoteEmpresasResposta(BaseModel):
 
 
 # ---------- Certificado ----------
-# A senha entra em texto puro só nesta requisição (via HTTPS) e é cifrada
+# A senha entra em texto puro só na requisição de envio (via HTTPS) e é cifrada
 # imediatamente no endpoint antes de tocar o banco — nunca é devolvida.
-
-class CertificadoCriar(BaseModel):
-    empresa_id: int
-    senha: str
 
 
 class CertificadoResposta(BaseModel):

@@ -274,11 +274,3 @@ def _aceitar_data(valor: object, nome: str) -> date | None:
     return _validar(_normalizar_ano(ano), _mes_numero(mes), int(dia))
 
 
-def proxima_competencia(competencia: str) -> str:
-    """`08/2026` → `09/2026` — usado pelo 'rodar o mês seguinte' da UI."""
-    periodo = interpretar_competencia(competencia)
-    assert periodo.inicio is not None
-    ano, mes = periodo.inicio.year, periodo.inicio.month + 1
-    if mes > 12:
-        ano, mes = ano + 1, 1
-    return periodo_do_mes(ano, mes).rotulo()

@@ -31,7 +31,13 @@ from app.db.session import get_db
 from app.main import app
 from app.models import Certificado, Empresa, Escritorio, Usuario
 from app.services.cnpj import DadosCNPJ
-from app.services.senhas import fundir_planilhas_dados, indexar_por_arquivo, ler_planilha
+from app.services.senhas import fundir_planilhas_dados, indexar_por_arquivo, ler_planilha_linhas
+
+
+def ler_planilha(conteudo: bytes, nome_arquivo: str = "") -> dict:
+    """Atalho local: os testes abaixo só olham o dicionário por CNPJ."""
+    por_cnpj, _ = ler_planilha_linhas(conteudo, nome_arquivo)
+    return por_cnpj
 
 OID_CNPJ = ObjectIdentifier("2.16.76.1.3.3")
 
